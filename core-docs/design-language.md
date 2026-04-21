@@ -23,7 +23,7 @@ The top-level rules from which all tokens derive. Changing an axiom is a propaga
 
 1. **Base line-height:** `1.4` — tight register; it's a tool, not a reading surface. Drives `--space-3` and the spacing scale.
 2. **Density register:** `balanced` — leans tight. Summarize-by-default rules out airy; calm-by-default rules out aggressively tight. Adjacent-step ratio is ~2× in the Mini default spacing.
-3. **Accent identity:** `monochrome` — Designer's chromatic system is black, white, and neutrals only, in the Notion/Linear register. No named accent color ships by default. Two *functional* intensities exist: `calm` (the default, muted neutral-on-neutral) and `energized` (high-contrast, reserved for active/streaming/needs-you states). Semantic colors (`success` / `warning` / `danger` / `info`) remain chromatic and come from Mini's fixed semantic scales.
+3. **Accent identity:** `monochrome` — Designer's **base palette** is black, white, and neutrals only, in the Notion/Linear register. No named accent color ships. Two *functional* intensities express emphasis instead: `calm` (the default, muted neutral-on-neutral) and `energized` (high-contrast, reserved for active/streaming/needs-you states). **Semantic colors are always available and always chromatic** — `--success-*` (green), `--warning-*` (amber), `--danger-*` (red, used for destructive actions too), `--info-*` (blue) come from Mini's fixed semantic scales and should be used whenever the color is carrying signal meaning (state, severity, outcome). "Monochrome" constrains the decorative/brand/accent layer, not the signal layer.
 4. **Gray flavor:** `mauve` — starting seed. `olive` and `sand` are both explicitly on the table; swap via the Radix scale imports in `packages/ui/styles/tokens.css`. Pure `gray` was rejected (too cold for a design tool that wants to feel considered).
 5. **Motion personality:** `snappy` (with considered liveliness) — `--motion-quick` / `--motion-standard` dominate; decorative micro-motion is allowed where it reinforces "alive on engagement" without crossing into expressive/spring territory.
 6. **Type system:** `sans + mono` — `Geist` (UI) and `Geist Mono` (code, diffs, identifiers, spec blocks). No serif. Font wiring is deferred to Phase 8; token stack falls back to system fonts until Geist is loaded.
@@ -108,8 +108,8 @@ Before considering any UI change complete:
 - [ ] Animation respects `prefers-reduced-motion`
 - [ ] Does not break calm-by-default behavior of ambient surfaces
 - [ ] Maintains manager's-cockpit feel — not developer-IDE feel
-- [ ] Semantic colors used only for their semantic meaning (no decorative red/green)
-- [ ] Monochrome policy respected — no chromatic accent introduced without an axiom amendment
+- [ ] Semantic colors used for signal only (success/warning/danger/info) — not as decoration
+- [ ] Monochrome policy respected — no chromatic **accent/brand** color introduced without an axiom amendment; semantic scales remain available and chromatic
 
 ## Change log
 
