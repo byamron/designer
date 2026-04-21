@@ -1,0 +1,5 @@
+{
+  "$schema": "../templates/component-manifest.schema.json",
+  "version": "1",
+  "components": []
+}

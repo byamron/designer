@@ -1,0 +1,79 @@
+/* ============================================================
+   MINI — WEB AXIOMS
+   ============================================================
+   Global setup the web module requires.
+   Load AFTER tokens.css.
+   ============================================================ */
+
+/* ---------- Box model ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ---------- Document ---------- */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--type-family-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  font-weight: var(--type-body-weight);
+  letter-spacing: var(--type-body-tracking);
+  color: var(--gray-12);
+  background: var(--gray-1);
+}
+
+/* ---------- Headings — unopinionated reset ---------- */
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font: inherit;
+}
+
+/* ---------- Lists when used for layout ---------- */
+ul[role="list"],
+ol[role="list"] {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* ---------- Media defaults ---------- */
+img, video, svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* ---------- Form inheritance ---------- */
+input, button, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------- Focus ---------- */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 2px;
+  border-radius: var(--radius-button);
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,184 @@
+/* ============================================================
+   MINI — WEB PRIMITIVES
+   ============================================================
+   Styles for the 7 shared primitives + web-only Overlay.
+   Each primitive reads its own --mini-<name>-* custom properties,
+   set by the component from prop inputs. Values that aren't set
+   fall back to a sensible default (transparent / zero / none).
+
+   Load AFTER tokens.css and axioms.css.
+   ============================================================ */
+
+/* ---------- Box ----------
+   Foundational rectangular container. */
+.mini-box {
+  padding: var(--mini-box-padding, 0);
+  padding-inline: var(--mini-box-padding-x, var(--mini-box-padding, 0));
+  padding-block:  var(--mini-box-padding-y, var(--mini-box-padding, 0));
+  border-radius: var(--mini-box-radius, 0);
+  background: var(--mini-box-background, transparent);
+  box-shadow: var(--mini-box-elevation, none);
+}
+
+.mini-box--bordered {
+  border: 1px solid var(--mini-box-border-color, var(--gray-6));
+}
+
+/* ---------- Stack ----------
+   Vertical rhythm via flex gap. `split` pushes children below
+   the Nth to the bottom by giving that child an auto margin. */
+.mini-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mini-stack-space, 0);
+  align-items: var(--mini-stack-align, stretch);
+}
+
+.mini-stack[data-split="1"] > :nth-child(1)  { margin-block-end: auto; }
+.mini-stack[data-split="2"] > :nth-child(2)  { margin-block-end: auto; }
+.mini-stack[data-split="3"] > :nth-child(3)  { margin-block-end: auto; }
+.mini-stack[data-split="4"] > :nth-child(4)  { margin-block-end: auto; }
+.mini-stack[data-split="5"] > :nth-child(5)  { margin-block-end: auto; }
+.mini-stack[data-split="6"] > :nth-child(6)  { margin-block-end: auto; }
+.mini-stack[data-split="7"] > :nth-child(7)  { margin-block-end: auto; }
+.mini-stack[data-split="8"] > :nth-child(8)  { margin-block-end: auto; }
+.mini-stack[data-split="9"] > :nth-child(9)  { margin-block-end: auto; }
+.mini-stack[data-split="10"] > :nth-child(10) { margin-block-end: auto; }
+
+/* ---------- Cluster ----------
+   Horizontal grouping that wraps naturally. */
+.mini-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mini-cluster-space, 0);
+  align-items: var(--mini-cluster-align, start);
+  justify-content: var(--mini-cluster-justify, start);
+}
+
+/* ---------- Sidebar ----------
+   Two-element intrinsic sidebar layout. Every Layout pattern:
+   the content flex-grows aggressively; when its min-inline-size
+   can no longer sit beside the sidebar, the layout wraps. */
+.mini-sidebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mini-sidebar-space, 0);
+}
+
+.mini-sidebar[data-side="end"] {
+  flex-direction: row-reverse;
+}
+
+.mini-sidebar > :first-child {
+  flex-basis: var(--mini-sidebar-width, 16rem);
+  flex-grow: 1;
+}
+
+.mini-sidebar > :last-child {
+  flex-basis: 0;
+  flex-grow: 999;
+  min-inline-size: var(--mini-sidebar-content-min, 50%);
+}
+
+/* ---------- Center ----------
+   Max-width-bounded block for reading-width content. */
+.mini-center {
+  box-sizing: content-box;
+  margin-inline: auto;
+  max-inline-size: var(--mini-center-max-width, 60ch);
+}
+
+.mini-center--text {
+  text-align: center;
+}
+
+/* ---------- Container ----------
+   Horizontal bounds + inline padding for layout. */
+.mini-container {
+  margin-inline: auto;
+  max-inline-size: var(--mini-container-max-width, 72rem);
+  padding-inline: var(--mini-container-padding-x, var(--space-4));
+}
+
+/* ---------- Frame ----------
+   Aspect-ratio or fixed-height container for media and stable rows. */
+.mini-frame {
+  position: relative;
+  overflow: hidden;
+}
+
+.mini-frame[data-mode="ratio"] {
+  aspect-ratio: var(--mini-frame-ratio);
+}
+
+.mini-frame[data-mode="height"] {
+  block-size: var(--mini-frame-height);
+}
+
+.mini-frame > img,
+.mini-frame > video,
+.mini-frame > picture,
+.mini-frame > picture > img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: var(--mini-frame-fit, cover);
+}
+
+/* ---------- Overlay (web-only) ----------
+   Absolute-positioned floating element.
+   Assumes a positioned ancestor. */
+.mini-overlay {
+  position: absolute;
+  z-index: var(--mini-overlay-layer, var(--layer-overlay));
+  pointer-events: var(--mini-overlay-pointer-events, auto);
+}
+
+.mini-overlay[data-anchor="top-left"] {
+  inset-block-start: var(--mini-overlay-offset-y, 0);
+  inset-inline-start: var(--mini-overlay-offset-x, 0);
+}
+
+.mini-overlay[data-anchor="top"] {
+  inset-block-start: var(--mini-overlay-offset-y, 0);
+  inset-inline-start: calc(50% + var(--mini-overlay-offset-x, 0px));
+  translate: -50% 0;
+}
+
+.mini-overlay[data-anchor="top-right"] {
+  inset-block-start: var(--mini-overlay-offset-y, 0);
+  inset-inline-end: var(--mini-overlay-offset-x, 0);
+}
+
+.mini-overlay[data-anchor="right"] {
+  inset-block-start: calc(50% + var(--mini-overlay-offset-y, 0px));
+  inset-inline-end: var(--mini-overlay-offset-x, 0);
+  translate: 0 -50%;
+}
+
+.mini-overlay[data-anchor="bottom-right"] {
+  inset-block-end: var(--mini-overlay-offset-y, 0);
+  inset-inline-end: var(--mini-overlay-offset-x, 0);
+}
+
+.mini-overlay[data-anchor="bottom"] {
+  inset-block-end: var(--mini-overlay-offset-y, 0);
+  inset-inline-start: calc(50% + var(--mini-overlay-offset-x, 0px));
+  translate: -50% 0;
+}
+
+.mini-overlay[data-anchor="bottom-left"] {
+  inset-block-end: var(--mini-overlay-offset-y, 0);
+  inset-inline-start: var(--mini-overlay-offset-x, 0);
+}
+
+.mini-overlay[data-anchor="left"] {
+  inset-block-start: calc(50% + var(--mini-overlay-offset-y, 0px));
+  inset-inline-start: var(--mini-overlay-offset-x, 0);
+  translate: 0 -50%;
+}
+
+.mini-overlay[data-anchor="center"] {
+  inset-block-start: calc(50% + var(--mini-overlay-offset-y, 0px));
+  inset-inline-start: calc(50% + var(--mini-overlay-offset-x, 0px));
+  translate: -50% -50%;
+}

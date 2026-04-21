@@ -1,0 +1,290 @@
+/* ============================================================
+   MINI — WEB TOKENS
+   ============================================================
+   Implements the platform-agnostic token contract (core/tokens.md)
+   as CSS custom properties.
+
+   Architecture: Option A (see core-docs/naming-conventions.md §3).
+   - Named Radix Colors scales imported up front.
+   - Logical --accent-* layer rebinds via [data-accent].
+   - Consumer code references --accent-N, --gray-N, --success-N, etc.
+
+   HTML setup (consumer):
+     <html class="light-theme" data-accent="indigo">
+     <html class="dark-theme" data-accent="crimson">
+
+   Dependency: @radix-ui/colors (npm). Install in your project.
+   ============================================================ */
+
+/* ---------- Accent scales (swap via [data-accent]) ---------- */
+@import "@radix-ui/colors/indigo.css";
+@import "@radix-ui/colors/indigo-dark.css";
+@import "@radix-ui/colors/indigo-alpha.css";
+@import "@radix-ui/colors/indigo-dark-alpha.css";
+
+@import "@radix-ui/colors/crimson.css";
+@import "@radix-ui/colors/crimson-dark.css";
+@import "@radix-ui/colors/crimson-alpha.css";
+@import "@radix-ui/colors/crimson-dark-alpha.css";
+
+/* Add more accents per project. Keep only what you use. */
+
+/* ---------- Neutral (always one per project) ---------- */
+@import "@radix-ui/colors/gray.css";
+@import "@radix-ui/colors/gray-dark.css";
+@import "@radix-ui/colors/gray-alpha.css";
+@import "@radix-ui/colors/gray-dark-alpha.css";
+
+/* ---------- Semantic (fixed, never accent-swapped) ---------- */
+@import "@radix-ui/colors/green.css";
+@import "@radix-ui/colors/green-dark.css";
+@import "@radix-ui/colors/amber.css";
+@import "@radix-ui/colors/amber-dark.css";
+@import "@radix-ui/colors/red.css";
+@import "@radix-ui/colors/red-dark.css";
+@import "@radix-ui/colors/blue.css";
+@import "@radix-ui/colors/blue-dark.css";
+
+/* ============================================================
+   Root tokens
+   ============================================================ */
+:root {
+  color-scheme: light dark;
+
+  /* ==================== Spacing ====================
+     Abstract-named modular scale. Base = --space-3 (~1lh). */
+  --space-1: 0.125rem;   /*  2px */
+  --space-2: 0.25rem;    /*  4px */
+  --space-3: 0.5rem;     /*  8px  — base */
+  --space-4: 1rem;       /* 16px */
+  --space-5: 1.5rem;     /* 24px */
+  --space-6: 2rem;       /* 32px */
+  --space-7: 3rem;       /* 48px */
+  --space-8: 4rem;       /* 64px */
+
+  /* ==================== Type ====================
+     Role-named, granular. Override per-role size/leading/weight/tracking
+     without touching siblings. */
+
+  /* Families */
+  --type-family-sans:
+    "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --type-family-serif:
+    ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --type-family-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Weights */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Role: caption */
+  --type-caption-size:     0.75rem;   /* 12px */
+  --type-caption-leading:  1.4;
+  --type-caption-weight:   var(--weight-regular);
+  --type-caption-tracking: 0.01em;
+
+  /* Role: body */
+  --type-body-size:        1rem;      /* 16px */
+  --type-body-leading:     1.5;
+  --type-body-weight:      var(--weight-regular);
+  --type-body-tracking:    0;
+
+  /* Role: lead */
+  --type-lead-size:        1.125rem;  /* 18px */
+  --type-lead-leading:     1.5;
+  --type-lead-weight:      var(--weight-regular);
+  --type-lead-tracking:    0;
+
+  /* Role: h4 */
+  --type-h4-size:          1.25rem;   /* 20px */
+  --type-h4-leading:       1.3;
+  --type-h4-weight:        var(--weight-semibold);
+  --type-h4-tracking:      -0.01em;
+
+  /* Role: h3 */
+  --type-h3-size:          1.5rem;    /* 24px */
+  --type-h3-leading:       1.25;
+  --type-h3-weight:        var(--weight-semibold);
+  --type-h3-tracking:      -0.015em;
+
+  /* Role: h2 */
+  --type-h2-size:          2rem;      /* 32px */
+  --type-h2-leading:       1.2;
+  --type-h2-weight:        var(--weight-semibold);
+  --type-h2-tracking:      -0.02em;
+
+  /* Role: h1 */
+  --type-h1-size:          2.5rem;    /* 40px */
+  --type-h1-leading:       1.15;
+  --type-h1-weight:        var(--weight-semibold);
+  --type-h1-tracking:      -0.025em;
+
+  /* Role: display */
+  --type-display-size:     3.5rem;    /* 56px */
+  --type-display-leading:  1.05;
+  --type-display-weight:   var(--weight-bold);
+  --type-display-tracking: -0.03em;
+
+  /* ==================== Radius (role-named) ====================
+     Axiom: soft (sharper side) — button = 6px base. */
+  --radius-none:    0;
+  --radius-badge:   0.1875rem;  /*  3px */
+  --radius-button:  0.375rem;   /*  6px */
+  --radius-card:    0.625rem;   /* 10px */
+  --radius-modal:   0.875rem;   /* 14px */
+  --radius-pill:    9999px;
+
+  /* ==================== Motion ==================== */
+  /* Duration slots */
+  --motion-instant:     50ms;
+  --motion-quick:       120ms;
+  --motion-standard:    250ms;
+  --motion-emphasized:  400ms;
+
+  /* Easing slots */
+  --ease-out-enter: cubic-bezier(0.20, 0, 0, 1);
+  --ease-in-exit:   cubic-bezier(0.40, 0, 1, 0.30);
+  --ease-standard:  cubic-bezier(0.20, 0, 0, 1);
+
+  /* Composed role tokens */
+  --motion-enter:        var(--motion-standard) var(--ease-out-enter);
+  --motion-exit:         var(--motion-quick)    var(--ease-in-exit);
+  --motion-interactive:  var(--motion-instant)  var(--ease-standard);
+
+  /* Spring approximations (bezier, not real springs) */
+  --motion-spring-snappy:    180ms cubic-bezier(0.30, 1.40, 0.30, 1);
+  --motion-spring-weighted:  320ms cubic-bezier(0.20, 1.15, 0.35, 1);
+
+  /* ==================== Elevation (role-named) ====================
+     Elevation is two paired token families: shadow and stack layer.
+     Components that shift up visually should shift up in stack order too. */
+  --elevation-flat:     none;
+  --elevation-raised:   0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --elevation-overlay:
+    0 8px 24px -4px rgb(0 0 0 / 0.12),
+    0 2px 4px -1px rgb(0 0 0 / 0.06);
+  --elevation-modal:
+    0 24px 48px -8px rgb(0 0 0 / 0.18),
+    0 4px 8px -2px rgb(0 0 0 / 0.10);
+
+  /* Z-index layer, paired 1:1 with elevation */
+  --layer-flat:     auto;
+  --layer-raised:   1;
+  --layer-overlay:  10;
+  --layer-modal:    100;
+
+  /* ==================== Focus ==================== */
+  /* Drives the focus-style axiom (design-axioms.md #10). Consumed by
+     every archetype's :focus-visible style; rebind per project. */
+  --focus-outline-width:  2px;
+  --focus-outline-offset: 2px;
+  --focus-outline-color:  var(--accent-8);
+
+  /* ==================== Color — logical layer ==================== */
+
+  /* Accent: default binding (indigo).
+     Overridden per-accent below via [data-accent]. */
+  --accent-1:  var(--indigo-1);
+  --accent-2:  var(--indigo-2);
+  --accent-3:  var(--indigo-3);
+  --accent-4:  var(--indigo-4);
+  --accent-5:  var(--indigo-5);
+  --accent-6:  var(--indigo-6);
+  --accent-7:  var(--indigo-7);
+  --accent-8:  var(--indigo-8);
+  --accent-9:  var(--indigo-9);
+  --accent-10: var(--indigo-10);
+  --accent-11: var(--indigo-11);
+  --accent-12: var(--indigo-12);
+
+  --accent-a1:  var(--indigo-a1);
+  --accent-a2:  var(--indigo-a2);
+  --accent-a3:  var(--indigo-a3);
+  --accent-a4:  var(--indigo-a4);
+  --accent-a5:  var(--indigo-a5);
+  --accent-a6:  var(--indigo-a6);
+  --accent-a7:  var(--indigo-a7);
+  --accent-a8:  var(--indigo-a8);
+  --accent-a9:  var(--indigo-a9);
+  --accent-a10: var(--indigo-a10);
+  --accent-a11: var(--indigo-a11);
+  --accent-a12: var(--indigo-a12);
+
+  /* Foreground color for text on solid --accent-9 / --danger-9 fills.
+     Default is white; override per-accent when the scale is light
+     (amber, yellow, lime, mint, sky) so text remains legible. */
+  --accent-contrast: white;
+  --danger-contrast: white;
+
+  /* Semantic scales — bound once, never swapped.
+     Consumers reference --success-N, --warning-N, etc. */
+  --success-1:  var(--green-1);   --success-2:  var(--green-2);
+  --success-3:  var(--green-3);   --success-4:  var(--green-4);
+  --success-5:  var(--green-5);   --success-6:  var(--green-6);
+  --success-7:  var(--green-7);   --success-8:  var(--green-8);
+  --success-9:  var(--green-9);   --success-10: var(--green-10);
+  --success-11: var(--green-11);  --success-12: var(--green-12);
+
+  --warning-1:  var(--amber-1);   --warning-2:  var(--amber-2);
+  --warning-3:  var(--amber-3);   --warning-4:  var(--amber-4);
+  --warning-5:  var(--amber-5);   --warning-6:  var(--amber-6);
+  --warning-7:  var(--amber-7);   --warning-8:  var(--amber-8);
+  --warning-9:  var(--amber-9);   --warning-10: var(--amber-10);
+  --warning-11: var(--amber-11);  --warning-12: var(--amber-12);
+
+  --danger-1:   var(--red-1);     --danger-2:   var(--red-2);
+  --danger-3:   var(--red-3);     --danger-4:   var(--red-4);
+  --danger-5:   var(--red-5);     --danger-6:   var(--red-6);
+  --danger-7:   var(--red-7);     --danger-8:   var(--red-8);
+  --danger-9:   var(--red-9);     --danger-10:  var(--red-10);
+  --danger-11:  var(--red-11);    --danger-12:  var(--red-12);
+
+  --info-1:  var(--blue-1);   --info-2:  var(--blue-2);
+  --info-3:  var(--blue-3);   --info-4:  var(--blue-4);
+  --info-5:  var(--blue-5);   --info-6:  var(--blue-6);
+  --info-7:  var(--blue-7);   --info-8:  var(--blue-8);
+  --info-9:  var(--blue-9);   --info-10: var(--blue-10);
+  --info-11: var(--blue-11);  --info-12: var(--blue-12);
+}
+
+/* ============================================================
+   Accent switching
+   ============================================================
+   Rebinds the logical --accent-* layer to a different named
+   Radix scale. Add a block per accent you ship. */
+
+:root[data-accent="indigo"] {
+  --accent-1:  var(--indigo-1);   --accent-2:  var(--indigo-2);
+  --accent-3:  var(--indigo-3);   --accent-4:  var(--indigo-4);
+  --accent-5:  var(--indigo-5);   --accent-6:  var(--indigo-6);
+  --accent-7:  var(--indigo-7);   --accent-8:  var(--indigo-8);
+  --accent-9:  var(--indigo-9);   --accent-10: var(--indigo-10);
+  --accent-11: var(--indigo-11);  --accent-12: var(--indigo-12);
+
+  --accent-a1:  var(--indigo-a1);   --accent-a2:  var(--indigo-a2);
+  --accent-a3:  var(--indigo-a3);   --accent-a4:  var(--indigo-a4);
+  --accent-a5:  var(--indigo-a5);   --accent-a6:  var(--indigo-a6);
+  --accent-a7:  var(--indigo-a7);   --accent-a8:  var(--indigo-a8);
+  --accent-a9:  var(--indigo-a9);   --accent-a10: var(--indigo-a10);
+  --accent-a11: var(--indigo-a11);  --accent-a12: var(--indigo-a12);
+}
+
+:root[data-accent="crimson"] {
+  --accent-1:  var(--crimson-1);   --accent-2:  var(--crimson-2);
+  --accent-3:  var(--crimson-3);   --accent-4:  var(--crimson-4);
+  --accent-5:  var(--crimson-5);   --accent-6:  var(--crimson-6);
+  --accent-7:  var(--crimson-7);   --accent-8:  var(--crimson-8);
+  --accent-9:  var(--crimson-9);   --accent-10: var(--crimson-10);
+  --accent-11: var(--crimson-11);  --accent-12: var(--crimson-12);
+
+  --accent-a1:  var(--crimson-a1);   --accent-a2:  var(--crimson-a2);
+  --accent-a3:  var(--crimson-a3);   --accent-a4:  var(--crimson-a4);
+  --accent-a5:  var(--crimson-a5);   --accent-a6:  var(--crimson-a6);
+  --accent-a7:  var(--crimson-a7);   --accent-a8:  var(--crimson-a8);
+  --accent-a9:  var(--crimson-a9);   --accent-a10: var(--crimson-a10);
+  --accent-a11: var(--crimson-a11);  --accent-a12: var(--crimson-a12);
+}
