@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mini-design-system.dev/schemas/component-manifest.schema.json",
+  "title": "Mini — component manifest",
+  "description": "Inventory of every component in the project, read by check-component-reuse, enforce-tokens, and propagate-language-update. See Mini plan §9.2 and naming-conventions.md §4.",
+  "type": "object",
+  "required": ["version", "components"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1"
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component" }
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["name", "path", "purpose", "status"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "PascalCase component name. Matches the default export or declared React/Swift component."
+        },
+        "path": {
+          "type": "string",
+          "description": "Repo-relative path to the component file (e.g., 'src/components/PrimaryButton.tsx')."
+        },
+        "purpose": {
+          "type": "string",
+          "description": "One-sentence description of what this component is for. Read by check-component-reuse."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["managed", "legacy", "excluded"],
+          "description": "managed = under Mini's rules; legacy = grandfathered brownfield; excluded = Mini ignores."
+        },
+        "native_wrapped": {
+          "type": "boolean",
+          "description": "True if this component wraps a platform-native archetype (Radix on web, SwiftUI native on Swift). Read by check-component-reuse step 0."
+        },
+        "archetypes_used": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Archetype contract names from core/archetypes.md that this component wraps or composes."
+        },
+        "primitives_used": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["Box", "Stack", "Cluster", "Sidebar", "Center", "Container", "Frame", "Overlay"]
+          },
+          "description": "Mini primitives this component composes."
+        },
+        "tokens_referenced": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Flat list of design-language token names (e.g., 'space-3', 'accent-9', 'radius-button')."
+        },
+        "props": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string" },
+              "default": { "type": "string" }
+            }
+          }
+        },
+        "variants": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Named variants or states this component exposes."
+        },
+        "last_updated": {
+          "type": "string",
+          "format": "date",
+          "description": "ISO-8601 date (YYYY-MM-DD) of last modification."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

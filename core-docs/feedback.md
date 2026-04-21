@@ -33,6 +33,26 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0012: Monochrome (Notion/Linear register) is Designer's visual identity
+**Date:** 2026-04-21
+**Source:** user direction
+
+**What was said:** During design-language elicitation, the user considered purple (Linear overlap), terracotta/orange (Claude-brand overlap), and pure red (too hot), then landed on "honestly as a tool, white/black/greyscale like Notion or Linear might be nice." Paired intensities: `calm` (default neutral) and `energized` (high-contrast for active/streaming/needs-you).
+
+**Synthesized rule:** No chromatic accent in Designer's default palette. `--accent-*` binds to `--gray-*` in `tokens.css`. Semantic colors (`success`/`warning`/`danger`/`info`) remain chromatic because they're signal, not decoration. Introducing a chromatic accent requires amending design-language.md axiom #3 first.
+
+**Applies to:** ux, visual identity, design-language, tokens
+
+### FB-0011: Motion is snappy but allowed considered liveliness
+**Date:** 2026-04-21
+**Source:** user correction
+
+**What was said:** Draft principle 6 said "motion is functional, not decorative." During elicitation the user amended: "snappy, but there can be some subtle fun/decoration. It should feel alive/lively and considered. This is a design tool after all. It should feel nice."
+
+**Synthesized rule:** Motion defaults to `snappy` personality (`--motion-quick` / `--motion-standard` dominate). Small, deliberate decorative touches are welcome when they reinforce "alive on engagement" — but not gratuitous or spring-expressive. Every interaction must have a `prefers-reduced-motion` fallback.
+
+**Applies to:** ux, animation, design-language
+
 ### FB-0010: Explore and debate before committing to implementation
 **Date:** 2026-04-20
 **Source:** user preference

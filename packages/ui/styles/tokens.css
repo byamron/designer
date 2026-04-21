@@ -1,0 +1,260 @@
+/* ============================================================
+   MINI — WEB TOKENS
+   ============================================================
+   Implements the platform-agnostic token contract (core/tokens.md)
+   as CSS custom properties.
+
+   Architecture: Option A (see core-docs/naming-conventions.md §3).
+   - Named Radix Colors scales imported up front.
+   - Logical --accent-* layer rebinds via [data-accent].
+   - Consumer code references --accent-N, --gray-N, --success-N, etc.
+
+   HTML setup (consumer):
+     <html class="light-theme" data-accent="indigo">
+     <html class="dark-theme" data-accent="crimson">
+
+   Dependency: @radix-ui/colors (npm). Install in your project.
+   ============================================================ */
+
+/* ---------- Accent scales ----------
+   Designer is monochrome by policy (design-language.md axiom #3).
+   No chromatic accent imports. --accent-* below is rebound to --gray-*. */
+
+/* ---------- Neutral (always one per project) ----------
+   Gray flavor: mauve seed (axiom #4). Olive and sand are explicit
+   alternatives to try — swap the 4 imports below and re-sync. */
+@import "@radix-ui/colors/mauve.css";
+@import "@radix-ui/colors/mauve-dark.css";
+@import "@radix-ui/colors/mauve-alpha.css";
+@import "@radix-ui/colors/mauve-dark-alpha.css";
+
+/* ---------- Semantic (fixed, never accent-swapped) ---------- */
+@import "@radix-ui/colors/green.css";
+@import "@radix-ui/colors/green-dark.css";
+@import "@radix-ui/colors/amber.css";
+@import "@radix-ui/colors/amber-dark.css";
+@import "@radix-ui/colors/red.css";
+@import "@radix-ui/colors/red-dark.css";
+@import "@radix-ui/colors/blue.css";
+@import "@radix-ui/colors/blue-dark.css";
+
+/* ============================================================
+   Root tokens
+   ============================================================ */
+:root {
+  color-scheme: light dark;
+
+  /* ==================== Spacing ====================
+     Abstract-named modular scale. Base = --space-3 (~1lh). */
+  --space-1: 0.125rem;   /*  2px */
+  --space-2: 0.25rem;    /*  4px */
+  --space-3: 0.5rem;     /*  8px  — base */
+  --space-4: 1rem;       /* 16px */
+  --space-5: 1.5rem;     /* 24px */
+  --space-6: 2rem;       /* 32px */
+  --space-7: 3rem;       /* 48px */
+  --space-8: 4rem;       /* 64px */
+
+  /* ==================== Type ====================
+     Role-named, granular. Override per-role size/leading/weight/tracking
+     without touching siblings. */
+
+  /* Families */
+  --type-family-sans:
+    "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --type-family-serif:
+    ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --type-family-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Weights */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Role: caption */
+  --type-caption-size:     0.75rem;   /* 12px */
+  --type-caption-leading:  1.4;
+  --type-caption-weight:   var(--weight-regular);
+  --type-caption-tracking: 0.01em;
+
+  /* Role: body */
+  --type-body-size:        1rem;      /* 16px */
+  --type-body-leading:     1.5;
+  --type-body-weight:      var(--weight-regular);
+  --type-body-tracking:    0;
+
+  /* Role: lead */
+  --type-lead-size:        1.125rem;  /* 18px */
+  --type-lead-leading:     1.5;
+  --type-lead-weight:      var(--weight-regular);
+  --type-lead-tracking:    0;
+
+  /* Role: h4 */
+  --type-h4-size:          1.25rem;   /* 20px */
+  --type-h4-leading:       1.3;
+  --type-h4-weight:        var(--weight-semibold);
+  --type-h4-tracking:      -0.01em;
+
+  /* Role: h3 */
+  --type-h3-size:          1.5rem;    /* 24px */
+  --type-h3-leading:       1.25;
+  --type-h3-weight:        var(--weight-semibold);
+  --type-h3-tracking:      -0.015em;
+
+  /* Role: h2 */
+  --type-h2-size:          2rem;      /* 32px */
+  --type-h2-leading:       1.2;
+  --type-h2-weight:        var(--weight-semibold);
+  --type-h2-tracking:      -0.02em;
+
+  /* Role: h1 */
+  --type-h1-size:          2.5rem;    /* 40px */
+  --type-h1-leading:       1.15;
+  --type-h1-weight:        var(--weight-semibold);
+  --type-h1-tracking:      -0.025em;
+
+  /* Role: display */
+  --type-display-size:     3.5rem;    /* 56px */
+  --type-display-leading:  1.05;
+  --type-display-weight:   var(--weight-bold);
+  --type-display-tracking: -0.03em;
+
+  /* ==================== Radius (role-named) ====================
+     Axiom: soft (sharper side) — button = 6px base. */
+  --radius-none:    0;
+  --radius-badge:   0.1875rem;  /*  3px */
+  --radius-button:  0.375rem;   /*  6px */
+  --radius-card:    0.625rem;   /* 10px */
+  --radius-modal:   0.875rem;   /* 14px */
+  --radius-pill:    9999px;
+
+  /* ==================== Motion ==================== */
+  /* Duration slots */
+  --motion-instant:     50ms;
+  --motion-quick:       120ms;
+  --motion-standard:    250ms;
+  --motion-emphasized:  400ms;
+
+  /* Easing slots */
+  --ease-out-enter: cubic-bezier(0.20, 0, 0, 1);
+  --ease-in-exit:   cubic-bezier(0.40, 0, 1, 0.30);
+  --ease-standard:  cubic-bezier(0.20, 0, 0, 1);
+
+  /* Composed role tokens */
+  --motion-enter:        var(--motion-standard) var(--ease-out-enter);
+  --motion-exit:         var(--motion-quick)    var(--ease-in-exit);
+  --motion-interactive:  var(--motion-instant)  var(--ease-standard);
+
+  /* Spring approximations (bezier, not real springs) */
+  --motion-spring-snappy:    180ms cubic-bezier(0.30, 1.40, 0.30, 1);
+  --motion-spring-weighted:  320ms cubic-bezier(0.20, 1.15, 0.35, 1);
+
+  /* ==================== Elevation (role-named) ====================
+     Elevation is two paired token families: shadow and stack layer.
+     Components that shift up visually should shift up in stack order too. */
+  --elevation-flat:     none;
+  --elevation-raised:   0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --elevation-overlay:
+    0 8px 24px -4px rgb(0 0 0 / 0.12),
+    0 2px 4px -1px rgb(0 0 0 / 0.06);
+  --elevation-modal:
+    0 24px 48px -8px rgb(0 0 0 / 0.18),
+    0 4px 8px -2px rgb(0 0 0 / 0.10);
+
+  /* Z-index layer, paired 1:1 with elevation */
+  --layer-flat:     auto;
+  --layer-raised:   1;
+  --layer-overlay:  10;
+  --layer-modal:    100;
+
+  /* ==================== Focus ==================== */
+  /* Drives the focus-style axiom (design-axioms.md #10). Consumed by
+     every archetype's :focus-visible style; rebind per project. */
+  --focus-outline-width:  2px;
+  --focus-outline-offset: 2px;
+  --focus-outline-color:  var(--accent-8);
+
+  /* ==================== Color — logical layer ==================== */
+
+  /* Gray scale: sourced from the mauve Radix scale (axiom #4 — seed;
+     olive and sand are explicit alternatives to try). --gray-* is the
+     abstract token name consumed throughout Mini; keep it stable even
+     as the underlying scale changes. */
+  --gray-1:  var(--mauve-1);   --gray-2:  var(--mauve-2);
+  --gray-3:  var(--mauve-3);   --gray-4:  var(--mauve-4);
+  --gray-5:  var(--mauve-5);   --gray-6:  var(--mauve-6);
+  --gray-7:  var(--mauve-7);   --gray-8:  var(--mauve-8);
+  --gray-9:  var(--mauve-9);   --gray-10: var(--mauve-10);
+  --gray-11: var(--mauve-11);  --gray-12: var(--mauve-12);
+
+  --gray-a1:  var(--mauve-a1);   --gray-a2:  var(--mauve-a2);
+  --gray-a3:  var(--mauve-a3);   --gray-a4:  var(--mauve-a4);
+  --gray-a5:  var(--mauve-a5);   --gray-a6:  var(--mauve-a6);
+  --gray-a7:  var(--mauve-a7);   --gray-a8:  var(--mauve-a8);
+  --gray-a9:  var(--mauve-a9);   --gray-a10: var(--mauve-a10);
+  --gray-a11: var(--mauve-a11);  --gray-a12: var(--mauve-a12);
+
+  /* Accent: monochrome by policy (axiom #3) — bound to --gray-*.
+     No [data-accent] variants; do not introduce a chromatic accent
+     without amending design-language.md. */
+  --accent-1:  var(--gray-1);   --accent-2:  var(--gray-2);
+  --accent-3:  var(--gray-3);   --accent-4:  var(--gray-4);
+  --accent-5:  var(--gray-5);   --accent-6:  var(--gray-6);
+  --accent-7:  var(--gray-7);   --accent-8:  var(--gray-8);
+  --accent-9:  var(--gray-9);   --accent-10: var(--gray-10);
+  --accent-11: var(--gray-11);  --accent-12: var(--gray-12);
+
+  --accent-a1:  var(--gray-a1);   --accent-a2:  var(--gray-a2);
+  --accent-a3:  var(--gray-a3);   --accent-a4:  var(--gray-a4);
+  --accent-a5:  var(--gray-a5);   --accent-a6:  var(--gray-a6);
+  --accent-a7:  var(--gray-a7);   --accent-a8:  var(--gray-a8);
+  --accent-a9:  var(--gray-a9);   --accent-a10: var(--gray-a10);
+  --accent-a11: var(--gray-a11);  --accent-a12: var(--gray-a12);
+
+  /* Foreground color for text on solid --accent-9 / --danger-9 fills.
+     Default is white; override per-accent when the scale is light
+     (amber, yellow, lime, mint, sky) so text remains legible. */
+  --accent-contrast: white;
+  --danger-contrast: white;
+
+  /* Semantic scales — bound once, never swapped.
+     Consumers reference --success-N, --warning-N, etc. */
+  --success-1:  var(--green-1);   --success-2:  var(--green-2);
+  --success-3:  var(--green-3);   --success-4:  var(--green-4);
+  --success-5:  var(--green-5);   --success-6:  var(--green-6);
+  --success-7:  var(--green-7);   --success-8:  var(--green-8);
+  --success-9:  var(--green-9);   --success-10: var(--green-10);
+  --success-11: var(--green-11);  --success-12: var(--green-12);
+
+  --warning-1:  var(--amber-1);   --warning-2:  var(--amber-2);
+  --warning-3:  var(--amber-3);   --warning-4:  var(--amber-4);
+  --warning-5:  var(--amber-5);   --warning-6:  var(--amber-6);
+  --warning-7:  var(--amber-7);   --warning-8:  var(--amber-8);
+  --warning-9:  var(--amber-9);   --warning-10: var(--amber-10);
+  --warning-11: var(--amber-11);  --warning-12: var(--amber-12);
+
+  --danger-1:   var(--red-1);     --danger-2:   var(--red-2);
+  --danger-3:   var(--red-3);     --danger-4:   var(--red-4);
+  --danger-5:   var(--red-5);     --danger-6:   var(--red-6);
+  --danger-7:   var(--red-7);     --danger-8:   var(--red-8);
+  --danger-9:   var(--red-9);     --danger-10:  var(--red-10);
+  --danger-11:  var(--red-11);    --danger-12:  var(--red-12);
+
+  --info-1:  var(--blue-1);   --info-2:  var(--blue-2);
+  --info-3:  var(--blue-3);   --info-4:  var(--blue-4);
+  --info-5:  var(--blue-5);   --info-6:  var(--blue-6);
+  --info-7:  var(--blue-7);   --info-8:  var(--blue-8);
+  --info-9:  var(--blue-9);   --info-10: var(--blue-10);
+  --info-11: var(--blue-11);  --info-12: var(--blue-12);
+}
+
+/* ============================================================
+   Accent switching
+   ============================================================
+   Designer is monochrome by policy — no [data-accent] variants.
+   If a chromatic accent is ever introduced (requires amending
+   design-language.md axiom #3), add a [data-accent="name"] block
+   here per Mini's convention. */
