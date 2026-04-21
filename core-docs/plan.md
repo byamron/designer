@@ -4,7 +4,15 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 ## Current Focus
 
-**Phase 0 validation + Tauri shell wiring.** Preliminary build (Phases 0–11) landed on `preliminary-build` branch (2026-04-21); see `history.md`. Backend, frontend, design lab, and polish scaffolding all in place with tests passing. Remaining: (a) run the Phase 0 spike against a real Claude Code install to validate the agent-teams file shapes and refine `watcher::classify`; (b) wire the Tauri shell binary (register `#[tauri::command]`s that delegate to `designer-desktop::ipc`); (c) build the Swift helper on Apple Intelligence hardware to validate the Foundation Models call; (d) measured performance pass on a real Tauri build.
+**Phase 12 — Real-integration validation.** Preliminary build (Phases 0–11) landed on `preliminary-build` branch (2026-04-21); see `history.md`. The roadmap now splits the remaining work into six phases with explicit tracks and dependencies; see `roadmap.md` for the gap → phase mapping.
+
+Phase 12 has three independent tracks; any can start first based on hardware/auth availability:
+
+- **12.A — Real Claude Code subprocess.** Needs a local Claude Code install. Blocks 13.D (agent wire).
+- **12.B — Swift Foundation Models helper build.** Needs macOS 15+ with Apple Intelligence. Blocks 13.F (local-model surfaces).
+- **12.C — Tauri shell binary.** No external dependency; can start today. Blocks 13.D / 13.E / 13.F / 13.G (every frontend-to-backend wire).
+
+Recommended order if working solo: **start 12.C first** (unblocks the widest downstream set with zero external prerequisites), then 12.A and 12.B in whichever order hardware allows.
 
 ## Handoff Notes
 
@@ -14,28 +22,64 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 ## Active Work Items
 
-### Phase 12a — Real-integration validation *(current focus)*
+### Phase 12.A — Real Claude Code subprocess *(blocks 13.D)*
 
-**Goal:** close the gap between the mock-first backend and the real runtimes behind each trait. See `roadmap.md` Phase 12a for full scope.
+- [ ] Install Claude Code + auth on dev machine.
+- [ ] Run `ClaudeCodeOrchestrator::spawn_team` against a throwaway team; catalog file shapes under `~/.claude/teams/` and `~/.claude/tasks/` into `core-docs/integration-notes.md`.
+- [ ] Update `crates/designer-claude/src/watcher.rs::classify`.
+- [ ] Adjust `claude team init/task/message` CLI args in `claude_code.rs` to match the real shape.
+- [ ] Add integration test gated by `CLAUDE_CODE_INSTALLED=1`.
 
-**Steps:**
-- [ ] Install Claude Code locally and run `ClaudeCodeOrchestrator::spawn_team`. Catalog observed file shapes under `~/.claude/teams/` and `~/.claude/tasks/`; update `watcher::classify` and the CLI args in `claude_code.rs`.
-- [ ] Add an integration test gated by `CLAUDE_CODE_INSTALLED=1`.
-- [ ] Build `helpers/foundation` on an Apple-Intelligence-capable Mac (macOS 15+). Validate the `LanguageModelSession.respond(to:)` call.
-- [ ] Wire the Tauri shell binary: add `tauri = "2"` dep, scaffold `tauri.conf.json`, register `#[tauri::command]`s from `designer-desktop::ipc`.
-- [ ] Author a restrictive Tauri allowlist (FS to `~/.designer/` + linked repo roots; shell to `git`/`gh`/`claude`/helper only; no network beyond updater host).
-- [ ] Measure cold start + idle memory + streaming load on the real Tauri build.
+### Phase 12.B — Swift Foundation Models helper *(blocks 13.F)*
 
-**Success criteria:** one integration test hits real Claude Code; one hits the built Swift helper; a Tauri window opens rendering the React app from a live `AppCore`; perf measured against the <1.5s cold-start / <200MB idle-memory targets.
+- [ ] Build `helpers/foundation` on macOS 15+ with Apple Intelligence.
+- [ ] Verify the `LanguageModelSession.respond(to:)` call; adjust if Apple shipped changes.
+- [ ] Smoke-test `SwiftFoundationHelper::ping()` and `FoundationLocalOps::recap`.
+- [ ] Document helper path in `AppConfig::default_in_home`.
 
-### Phase 12b — Hardening second pass *(after 12a)*
+### Phase 12.C — Tauri shell binary *(blocks 13.D, 13.E, 13.F, 13.G)*
 
-- [ ] Migrate `AppShell` / `HomeTab` / `ActivitySpine` to Mini primitives (`Box`, `Stack`, `Cluster`, `Sidebar`).
-- [ ] Move the approval-resolution surface out of the simulated timeout in `BuildTab` into a real inbox (likely inside the activity spine).
-- [ ] Set `correlation_id` / `causation_id` on derived events for trace reconstruction.
+- [ ] Add `tauri` + `tauri-build` to `apps/desktop/src-tauri/Cargo.toml`.
+- [ ] Scaffold `tauri.conf.json` (window, menu, macOS vibrancy).
+- [ ] Register `#[tauri::command]`s for each `designer_desktop::ipc::cmd_*`.
+- [ ] Expose `AppCore.store.subscribe()` as Tauri event channel `designer://event-stream`.
+- [ ] Author restrictive allowlist (FS `~/.designer/**` + linked repos; shell `git`/`gh`/`claude`/helper only).
+- [ ] Boot smoke: `cargo tauri dev` opens a window rendering against a live `AppCore`.
+
+### Phase 13 — Wire the real runtime *(after corresponding Phase 12 tracks)*
+
+Four tracks with individual input gates:
+
+- [ ] **13.D Agent wire** (needs 12.A + 12.C): replace `PlanTab::ackFor()` with `Orchestrator::post_message`; stream replies via `designer://event-stream`.
+- [ ] **13.E Git + repo linking** (needs 12.C): repo-linking UI + `GitOps::init_worktree` + `core-docs/*.md` seeding + "Request merge" → `gh pr create`.
+- [ ] **13.F Local-model surfaces** (needs 12.B + 12.C): spine summaries via `LocalOps::summarize_row`; Home recap via `LocalOps::recap`; audit verdicts via `LocalOps::audit_claim`.
+- [ ] **13.G Safety surfaces + Keychain** (needs 12.C): approval inbox, cost chip in topbar, scope-denied in inbox, `security-framework` keychain integration.
+
+### Phase 14 — Sync transport *(parallel with 13 or 15)*
+
+- [ ] Pick transport (WebRTC via `str0m` default; document alternatives in short ADR).
+- [ ] Implement `SyncTransport` trait + first impl.
+- [ ] Pairing UI: host QR with `PairingMaterial.secret`; scanner/code entry on the peer.
+- [ ] Integration test: two processes sync a 20-event log without a server.
+
+### Phase 15 — Hardening + polish *(parallel with 13 or 14)*
+
+Six independent items:
+
+- [ ] Mini primitives migration (`Box`, `Stack`, `Cluster`, `Sidebar`) for AppShell / HomeTab / ActivitySpine / WorkspaceSidebar.
+- [ ] `correlation_id` / `causation_id` wiring for derived events.
+- [ ] Pairing RNG: swap manual entropy for `rand::rngs::OsRng`.
+- [ ] Dark-mode visual-regression harness (Playwright + screenshot diffing).
 - [ ] Auto-grow chat textarea.
-- [ ] Replace manual-entropy pairing RNG fallback with `rand::rngs::OsRng`.
-- [ ] Dark-mode visual regression harness (screenshot diffing).
+- [ ] `AppCore::sync_projector_from_log` incrementalization (last-seen sequence per stream).
+
+### Phase 16 — Shippable desktop build *(after 13 + 15)*
+
+- [ ] Apple Developer identity + CI signing secrets.
+- [ ] First signed + notarized `.dmg` (`cargo tauri build` → `codesign` → `notarytool`).
+- [ ] Updater backend: signed `latest.json` on static host + Ed25519 keypair.
+- [ ] Crash-report endpoint (opt-in upload).
+- [ ] Install QA checklist on a fresh Mac (see `apps/desktop/PACKAGING.md`).
 
 ---
 
