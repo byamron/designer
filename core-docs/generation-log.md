@@ -28,18 +28,26 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 
 ## Entries
 
-<!--
-Example entry — delete this block once the first real entry is appended.
-
-## 2026-04-20T14:22:03Z — generate-ui
-- prompt: "add a settings dropdown to the header"
-- trigger: generate-ui (primary)
-- archetype-reused: radix-dropdown-menu
-- components-reused: HeaderBar
-- components-new: SettingsMenu
-- primitives: Cluster, Box
-- tokens: --space-2, --radius-modal, --accent-9, --type-body
+## 2026-04-21T02:00:00Z — manual (phase 8–10 build)
+- prompt: "Execute phases 8–10 of the roadmap: frontend foundation, core surfaces, design lab."
+- trigger: manual (skill not invoked; Mini procedure followed by hand per CLAUDE.md §Procedure)
+- archetype-reused: radix-dialog pattern (hand-rolled because Mini's Dialog archetype wasn't wired yet in Phase 8)
+- components-reused: none (first pass)
+- components-new: AppShell, ProjectStrip, WorkspaceSidebar, MainView, ActivitySpine, QuickSwitcher, HomeTab, PlanTab, DesignTab, BuildTab, BlankTab, StreamingText, Onboarding, ComponentCatalog, PrototypePreview, AnnotationLayer, VariantExplorer
+- primitives: (none used — inline markup throughout. Tracked as tech debt; see pattern-log.md "Mini primitives deferred".)
+- tokens: --space-1..8, --radius-badge/button/card/modal/pill, --type-caption/body/lead/h1..4-size/leading, --motion-interactive/enter/pulse/blink, --gray-1..12, --success-*, --warning-*, --danger-*, --info-*, --focus-outline-*, --elevation-raised/overlay, --border-thin/strong, --breakpoint-md/lg
 - invariants: 6/6 pass
-- deviations: none
+- deviations: Mini primitives (Box/Stack/Cluster/Sidebar/Center/Container/Frame) not used; layout handled with CSS grid + flex in app.css. Agent-produced prototype HTML uses CSS system colors instead of tokens (intentional — sandboxed content is outside Designer's design surface).
 - feedback: accepted
--->
+
+## 2026-04-21T14:15:00Z — manual (review pass)
+- prompt: "Review the Phases 0–11 build and implement prioritized fixes."
+- trigger: manual (multi-role review: staff engineer, staff designer, staff design engineer)
+- archetype-reused: none
+- components-reused: all existing components (a11y + semantic fixes in place)
+- components-new: none
+- primitives: (unchanged — still deferred; see pattern-log.md)
+- tokens: --border-thin, --motion-pulse, --motion-blink added to fork-and-own tokens.css; all new usage passes invariants
+- invariants: 6/6 pass
+- deviations: documented h1→h2→h3 hierarchy repair, `aria-labelledby`/`aria-controls` on tabs↔panels, skip-to-content link, focus trap on quick-switcher dialog
+- feedback: pending

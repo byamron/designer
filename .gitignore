@@ -1,0 +1,20 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# App local data
+~/.designer/
+*.db
+*.db-wal
+*.db-shm
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

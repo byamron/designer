@@ -1,0 +1,33 @@
+[package]
+name = "designer-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Designer — local-first AI product cockpit (Tauri shell)"
+
+[lib]
+name = "designer_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "designer-desktop"
+path = "src/main.rs"
+
+[dependencies]
+designer-core.workspace = true
+designer-claude.workspace = true
+designer-safety.workspace = true
+designer-audit.workspace = true
+designer-local-models.workspace = true
+designer-sync.workspace = true
+designer-ipc.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+time.workspace = true
+parking_lot.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true

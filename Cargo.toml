@@ -1,0 +1,83 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/designer-core",
+    "crates/designer-claude",
+    "crates/designer-git",
+    "crates/designer-local-models",
+    "crates/designer-audit",
+    "crates/designer-safety",
+    "crates/designer-sync",
+    "crates/designer-ipc",
+    "crates/designer-cli",
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+authors = ["Designer contributors"]
+license = "UNLICENSED"
+repository = "https://github.com/byamron/designer"
+
+[workspace.dependencies]
+# Local crates
+designer-core = { path = "crates/designer-core" }
+designer-claude = { path = "crates/designer-claude" }
+designer-git = { path = "crates/designer-git" }
+designer-local-models = { path = "crates/designer-local-models" }
+designer-audit = { path = "crates/designer-audit" }
+designer-safety = { path = "crates/designer-safety" }
+designer-sync = { path = "crates/designer-sync" }
+designer-ipc = { path = "crates/designer-ipc" }
+
+# Async / runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+tokio-stream = "0.1"
+
+# Persistence
+rusqlite = { version = "0.31", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.24"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# IDs / time
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
+
+# Errors
+thiserror = "1"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+# Misc
+bytes = "1"
+once_cell = "1"
+dashmap = "6"
+parking_lot = "0.12"
+globset = "0.4"
+notify = "6"
+notify-debouncer-mini = "0.4"
+sha2 = "0.10"
+hex = "0.4"
+regex = "1"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"
+
+[profile.dev]
+opt-level = 0
+debug = true

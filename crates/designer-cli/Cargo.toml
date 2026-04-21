@@ -1,0 +1,24 @@
+[package]
+name = "designer-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "designer"
+path = "src/main.rs"
+
+[dependencies]
+designer-core.workspace = true
+designer-claude.workspace = true
+designer-safety.workspace = true
+designer-audit.workspace = true
+designer-sync.workspace = true
+designer-local-models.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+time.workspace = true

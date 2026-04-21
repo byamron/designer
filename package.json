@@ -1,0 +1,14 @@
+{
+  "name": "designer",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @designer/app run dev",
+    "build": "npm --workspace @designer/app run build",
+    "typecheck": "npm --workspace @designer/app run typecheck",
+    "test": "npm --workspace @designer/app run test"
+  }
+}

@@ -1,5 +1,179 @@
 {
   "$schema": "../templates/component-manifest.schema.json",
   "version": "1",
-  "components": []
+  "components": [
+    {
+      "name": "AppShell",
+      "path": "packages/app/src/layout/AppShell.tsx",
+      "purpose": "Top-level three-pane layout; composes project strip, workspace sidebar, main view, activity spine.",
+      "status": "managed",
+      "native_wrapped": false,
+      "archetypes_used": [],
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "space-4", "space-8", "color-background", "color-surface-flat", "border-thin"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "ProjectStrip",
+      "path": "packages/app/src/layout/ProjectStrip.tsx",
+      "purpose": "Slack-style vertical icon nav across projects. Includes + (new project) and ⌘ (quick switcher) affordances.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "space-6", "radius-card", "color-surface-raised", "color-border"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "WorkspaceSidebar",
+      "path": "packages/app/src/layout/WorkspaceSidebar.tsx",
+      "purpose": "List of workspaces in the active project; create-workspace action.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "color-muted", "type-caption-size"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "MainView",
+      "path": "packages/app/src/layout/MainView.tsx",
+      "purpose": "Active workspace surface: topbar, tabs bar, tab panel. Tab-role ARIA, roving tabindex, keyboard arrow nav.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "space-4", "type-h4-size", "radius-button", "border-thin"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "ActivitySpine",
+      "path": "packages/app/src/layout/ActivitySpine.tsx",
+      "purpose": "Right-rail hierarchical status column. State dots (active/idle/blocked/needs-you/errored), recent events.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "motion-pulse", "color-muted"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "QuickSwitcher",
+      "path": "packages/app/src/layout/QuickSwitcher.tsx",
+      "purpose": "Cmd+K fuzzy search across projects and workspaces. Dialog with focus trap.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "radius-modal", "radius-button", "elevation-overlay", "layer-modal"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "HomeTab",
+      "path": "packages/app/src/home/HomeTab.tsx",
+      "purpose": "Notion-style home page per workspace: vision, roadmap, active workspaces, reports, needs-you, autonomy.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "type-h1-size", "type-h4-size", "elevation-raised", "radius-card"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "PlanTab",
+      "path": "packages/app/src/tabs/PlanTab.tsx",
+      "purpose": "Plan template: streaming chat with the team lead + markdown draft area.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "radius-card", "radius-button", "color-surface-overlay"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "DesignTab",
+      "path": "packages/app/src/tabs/DesignTab.tsx",
+      "purpose": "Design template: prototype browser + component catalog.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-3", "type-h3-size"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "BuildTab",
+      "path": "packages/app/src/tabs/BuildTab.tsx",
+      "purpose": "Build template: task list + merge-approval gate (non-bypassable, enforced in Rust core).",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "radius-button", "radius-card", "color-border"],
+      "variants": ["approval-idle", "approval-pending", "approval-granted", "approval-denied"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "BlankTab",
+      "path": "packages/app/src/tabs/BlankTab.tsx",
+      "purpose": "Blank template: empty canvas with prompt suggestions.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "StreamingText",
+      "path": "packages/app/src/components/StreamingText.tsx",
+      "purpose": "Claude-style character-by-character text reveal with blink cursor. Reduced-motion falls back to instant.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "motion-blink", "type-body-size"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "Onboarding",
+      "path": "packages/app/src/components/Onboarding.tsx",
+      "purpose": "Three-slide first-run introduction. Dismissible; persists in localStorage.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-4", "space-5", "type-h2-size", "radius-modal", "elevation-overlay"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "ComponentCatalog",
+      "path": "packages/app/src/lab/ComponentCatalog.tsx",
+      "purpose": "Live tile grid showing each Mini-inspired component and its token binding, for the Design tab.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-3", "space-4", "radius-card", "radius-button", "success-*", "warning-*", "danger-*", "info-*"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "PrototypePreview",
+      "path": "packages/app/src/lab/PrototypePreview.tsx",
+      "purpose": "Sandboxed iframe rendering agent-produced prototype HTML under strict meta-CSP.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-3", "radius-card", "border-thin", "color-border"],
+      "variants": ["A", "B", "C"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "AnnotationLayer",
+      "path": "packages/app/src/lab/AnnotationLayer.tsx",
+      "purpose": "Pin-drop overlay on top of the prototype iframe; agentation-style batch comments.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "radius-card", "radius-pill", "elevation-overlay", "info-9"],
+      "last_updated": "2026-04-21"
+    },
+    {
+      "name": "VariantExplorer",
+      "path": "packages/app/src/lab/VariantExplorer.tsx",
+      "purpose": "Variant selector for the prototype preview.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1"],
+      "last_updated": "2026-04-21"
+    }
+  ]
 }
