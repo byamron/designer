@@ -60,9 +60,9 @@ Derived from axioms; authoritative values live in `packages/ui/styles/tokens.css
 Role-named (`caption`, `body`, `lead`, `h4`, `h3`, `h2`, `h1`, `display`), each with `-size`, `-leading`, `-weight`, `-tracking`. Families: `--type-family-sans` (Geist stack), `--type-family-mono` (Geist Mono stack). Weights: `regular` 400, `medium` 500, `semibold` 600, `bold` 700.
 
 ### Color
-- **Accents:** `--accent-1..12` + `--accent-a1..a12`. Bound by default to the Mini `indigo` scaffold; **Designer uses monochrome by policy** — when the app HTML root is wired (Phase 8), bind `data-accent` to the gray scale so "accent" means "stronger neutral." Do not introduce a chromatic accent without an amendment.
-- **Neutrals:** `--gray-1..12` + `--gray-a1..a12` (sourced from the mauve scale once wiring lands).
-- **Semantics:** `--success-*`, `--warning-*`, `--danger-*`, `--info-*` (chromatic; from green, amber, red, blue).
+- **Accents:** `--accent-1..12` + `--accent-a1..a12`. **Bound to `--gray-*` in `tokens.css`** — Designer is monochrome by policy (axiom #3). No chromatic Radix import. Do not introduce a chromatic accent without amending this document.
+- **Neutrals:** `--gray-1..12` + `--gray-a1..a12`. Sourced from the `mauve` Radix scale via an alias block in `:root`. The abstract `--gray-N` token name is stable; swap the underlying scale (olive, sand) by changing the 4 imports + rewriting the alias block.
+- **Semantics:** `--success-*`, `--warning-*`, `--danger-*`, `--info-*` (chromatic; from green, amber, red, blue). Never swapped.
 - **Contrast foregrounds:** `--accent-contrast`, `--danger-contrast`.
 
 ### Radius
@@ -79,7 +79,7 @@ Shadows: `--elevation-flat`, `--elevation-raised`, `--elevation-overlay`, `--ele
 High-level design patterns Designer has explicitly chosen. Not axioms (they don't drive token values) but recurring decisions worth codifying.
 
 - **Agents streaming is a first-class live state**, not a "loading" state. It has its own visual language — subtle pulse, active-layer elevation, token-distinguished state row in the activity spine — and does not use any spinner/skeleton pattern.
-- **Activity spine is the core awareness primitive.** Consistent row shape across altitudes (project / workspace / agent / artifact). States: `active` (subtle pulse), `idle` (muted), `blocked` (accent + tooltip), `needs-you` (notification dot), `errored` (`--danger-*`).
+- **Activity spine is the core awareness primitive.** Consistent row shape across altitudes (project / workspace / agent / artifact). States: `active` (subtle pulse), `idle` (muted), `blocked` (distinguishing token TBD — `--warning-*` vs. `--gray-11 + icon` to be decided when the spine is built), `needs-you` (notification dot), `errored` (`--danger-*`).
 - **Empty states are load-bearing.** Designer surfaces many blank canvases (new project, new workspace, empty spine). They are not afterthoughts and receive equal craft weight with populated states.
 - **Subtle optimization signals only.** Forge proposals, auditor pings, context-dedup events all announce themselves at a register below the user's current task — never as interrupting toasts.
 - **Reduced-motion fallback is required, not optional.** Streaming content falls back to instant replace; subtle pulses fall back to static; any entrance animation falls back to instant.

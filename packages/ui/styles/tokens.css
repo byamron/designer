@@ -16,24 +16,17 @@
    Dependency: @radix-ui/colors (npm). Install in your project.
    ============================================================ */
 
-/* ---------- Accent scales (swap via [data-accent]) ---------- */
-@import "@radix-ui/colors/indigo.css";
-@import "@radix-ui/colors/indigo-dark.css";
-@import "@radix-ui/colors/indigo-alpha.css";
-@import "@radix-ui/colors/indigo-dark-alpha.css";
+/* ---------- Accent scales ----------
+   Designer is monochrome by policy (design-language.md axiom #3).
+   No chromatic accent imports. --accent-* below is rebound to --gray-*. */
 
-@import "@radix-ui/colors/crimson.css";
-@import "@radix-ui/colors/crimson-dark.css";
-@import "@radix-ui/colors/crimson-alpha.css";
-@import "@radix-ui/colors/crimson-dark-alpha.css";
-
-/* Add more accents per project. Keep only what you use. */
-
-/* ---------- Neutral (always one per project) ---------- */
-@import "@radix-ui/colors/gray.css";
-@import "@radix-ui/colors/gray-dark.css";
-@import "@radix-ui/colors/gray-alpha.css";
-@import "@radix-ui/colors/gray-dark-alpha.css";
+/* ---------- Neutral (always one per project) ----------
+   Gray flavor: mauve seed (axiom #4). Olive and sand are explicit
+   alternatives to try — swap the 4 imports below and re-sync. */
+@import "@radix-ui/colors/mauve.css";
+@import "@radix-ui/colors/mauve-dark.css";
+@import "@radix-ui/colors/mauve-alpha.css";
+@import "@radix-ui/colors/mauve-dark-alpha.css";
 
 /* ---------- Semantic (fixed, never accent-swapped) ---------- */
 @import "@radix-ui/colors/green.css";
@@ -186,33 +179,40 @@
 
   /* ==================== Color — logical layer ==================== */
 
-  /* Accent: default binding (indigo).
-     Overridden per-accent below via [data-accent]. */
-  --accent-1:  var(--indigo-1);
-  --accent-2:  var(--indigo-2);
-  --accent-3:  var(--indigo-3);
-  --accent-4:  var(--indigo-4);
-  --accent-5:  var(--indigo-5);
-  --accent-6:  var(--indigo-6);
-  --accent-7:  var(--indigo-7);
-  --accent-8:  var(--indigo-8);
-  --accent-9:  var(--indigo-9);
-  --accent-10: var(--indigo-10);
-  --accent-11: var(--indigo-11);
-  --accent-12: var(--indigo-12);
+  /* Gray scale: sourced from the mauve Radix scale (axiom #4 — seed;
+     olive and sand are explicit alternatives to try). --gray-* is the
+     abstract token name consumed throughout Mini; keep it stable even
+     as the underlying scale changes. */
+  --gray-1:  var(--mauve-1);   --gray-2:  var(--mauve-2);
+  --gray-3:  var(--mauve-3);   --gray-4:  var(--mauve-4);
+  --gray-5:  var(--mauve-5);   --gray-6:  var(--mauve-6);
+  --gray-7:  var(--mauve-7);   --gray-8:  var(--mauve-8);
+  --gray-9:  var(--mauve-9);   --gray-10: var(--mauve-10);
+  --gray-11: var(--mauve-11);  --gray-12: var(--mauve-12);
 
-  --accent-a1:  var(--indigo-a1);
-  --accent-a2:  var(--indigo-a2);
-  --accent-a3:  var(--indigo-a3);
-  --accent-a4:  var(--indigo-a4);
-  --accent-a5:  var(--indigo-a5);
-  --accent-a6:  var(--indigo-a6);
-  --accent-a7:  var(--indigo-a7);
-  --accent-a8:  var(--indigo-a8);
-  --accent-a9:  var(--indigo-a9);
-  --accent-a10: var(--indigo-a10);
-  --accent-a11: var(--indigo-a11);
-  --accent-a12: var(--indigo-a12);
+  --gray-a1:  var(--mauve-a1);   --gray-a2:  var(--mauve-a2);
+  --gray-a3:  var(--mauve-a3);   --gray-a4:  var(--mauve-a4);
+  --gray-a5:  var(--mauve-a5);   --gray-a6:  var(--mauve-a6);
+  --gray-a7:  var(--mauve-a7);   --gray-a8:  var(--mauve-a8);
+  --gray-a9:  var(--mauve-a9);   --gray-a10: var(--mauve-a10);
+  --gray-a11: var(--mauve-a11);  --gray-a12: var(--mauve-a12);
+
+  /* Accent: monochrome by policy (axiom #3) — bound to --gray-*.
+     No [data-accent] variants; do not introduce a chromatic accent
+     without amending design-language.md. */
+  --accent-1:  var(--gray-1);   --accent-2:  var(--gray-2);
+  --accent-3:  var(--gray-3);   --accent-4:  var(--gray-4);
+  --accent-5:  var(--gray-5);   --accent-6:  var(--gray-6);
+  --accent-7:  var(--gray-7);   --accent-8:  var(--gray-8);
+  --accent-9:  var(--gray-9);   --accent-10: var(--gray-10);
+  --accent-11: var(--gray-11);  --accent-12: var(--gray-12);
+
+  --accent-a1:  var(--gray-a1);   --accent-a2:  var(--gray-a2);
+  --accent-a3:  var(--gray-a3);   --accent-a4:  var(--gray-a4);
+  --accent-a5:  var(--gray-a5);   --accent-a6:  var(--gray-a6);
+  --accent-a7:  var(--gray-a7);   --accent-a8:  var(--gray-a8);
+  --accent-a9:  var(--gray-a9);   --accent-a10: var(--gray-a10);
+  --accent-a11: var(--gray-a11);  --accent-a12: var(--gray-a12);
 
   /* Foreground color for text on solid --accent-9 / --danger-9 fills.
      Default is white; override per-accent when the scale is light
@@ -254,37 +254,7 @@
 /* ============================================================
    Accent switching
    ============================================================
-   Rebinds the logical --accent-* layer to a different named
-   Radix scale. Add a block per accent you ship. */
-
-:root[data-accent="indigo"] {
-  --accent-1:  var(--indigo-1);   --accent-2:  var(--indigo-2);
-  --accent-3:  var(--indigo-3);   --accent-4:  var(--indigo-4);
-  --accent-5:  var(--indigo-5);   --accent-6:  var(--indigo-6);
-  --accent-7:  var(--indigo-7);   --accent-8:  var(--indigo-8);
-  --accent-9:  var(--indigo-9);   --accent-10: var(--indigo-10);
-  --accent-11: var(--indigo-11);  --accent-12: var(--indigo-12);
-
-  --accent-a1:  var(--indigo-a1);   --accent-a2:  var(--indigo-a2);
-  --accent-a3:  var(--indigo-a3);   --accent-a4:  var(--indigo-a4);
-  --accent-a5:  var(--indigo-a5);   --accent-a6:  var(--indigo-a6);
-  --accent-a7:  var(--indigo-a7);   --accent-a8:  var(--indigo-a8);
-  --accent-a9:  var(--indigo-a9);   --accent-a10: var(--indigo-a10);
-  --accent-a11: var(--indigo-a11);  --accent-a12: var(--indigo-a12);
-}
-
-:root[data-accent="crimson"] {
-  --accent-1:  var(--crimson-1);   --accent-2:  var(--crimson-2);
-  --accent-3:  var(--crimson-3);   --accent-4:  var(--crimson-4);
-  --accent-5:  var(--crimson-5);   --accent-6:  var(--crimson-6);
-  --accent-7:  var(--crimson-7);   --accent-8:  var(--crimson-8);
-  --accent-9:  var(--crimson-9);   --accent-10: var(--crimson-10);
-  --accent-11: var(--crimson-11);  --accent-12: var(--crimson-12);
-
-  --accent-a1:  var(--crimson-a1);   --accent-a2:  var(--crimson-a2);
-  --accent-a3:  var(--crimson-a3);   --accent-a4:  var(--crimson-a4);
-  --accent-a5:  var(--crimson-a5);   --accent-a6:  var(--crimson-a6);
-  --accent-a7:  var(--crimson-a7);   --accent-a8:  var(--crimson-a8);
-  --accent-a9:  var(--crimson-a9);   --accent-a10: var(--crimson-a10);
-  --accent-a11: var(--crimson-a11);  --accent-a12: var(--crimson-a12);
-}
+   Designer is monochrome by policy — no [data-accent] variants.
+   If a chromatic accent is ever introduced (requires amending
+   design-language.md axiom #3), add a [data-accent="name"] block
+   here per Mini's convention. */

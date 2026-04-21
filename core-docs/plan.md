@@ -10,7 +10,7 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 - Spec and roadmap are complete for the planning phase. Treat `spec.md` as architectural source of truth and `roadmap.md` as the sequence source of truth.
 - Working name is **Designer**; provisional.
-- `.claude/` rules, agents, and skills are not populated yet. First real scaffolding happens in Phase 1; before then, agents work from `CLAUDE.md` + `core-docs/` context only.
+- `.claude/` agents are not populated yet — first real agent scaffolding happens in Phase 1. `.claude/skills/` is populated via the Mini install (2026-04-21): 6 design-system skills (`elicit-design-language`, `generate-ui`, `check-component-reuse`, `enforce-tokens`, `audit-a11y`, `propagate-language-update`). Frontend wiring is deferred to Phase 8.
 
 ## Active Work Items
 
@@ -37,6 +37,9 @@ Deferred. See `roadmap.md` Phase 1 for scope.
 
 ## Recently Completed
 
+### Mini installed at `packages/ui/` + initial design language elicited — 2026-04-21
+Installed Mini via `tools/sync/install.sh`. Ran greenfield elicitation of all 10 design axioms — amended two draft principles (motion: snappy + considered liveliness; theme: system-default instead of dark-default). Chose monochrome accent identity (Notion/Linear register), mauve gray flavor (olive/sand as alternatives to try), Geist + Geist Mono type system, soft-sharper radii (button=6px). Rebound `--accent-*` to `--gray-*` in `tokens.css` and dropped indigo/crimson imports. Frontend wiring (Radix deps, CSS imports, TS path alias) deferred to Phase 8. See `history.md` for full rationale.
+
 ### Project spec, compliance framing, roadmap, and core docs set up — 2026-04-20
 Moved from placeholder spec to full `core-docs/` structure with spec, roadmap, plan, history, feedback, workflow, and design-language docs. 28 architectural decisions captured. See `history.md` for details.
 
@@ -48,4 +51,5 @@ Moved from placeholder spec to full `core-docs/` structure with spec, roadmap, p
 - Scheduled-task queue for proactive autonomy modes.
 - Semantic conflict detection (v2 of cross-workspace coordination).
 - Anthropic partnership conversation before public launch.
-- `core-docs/design-language.md` — fill in once design work begins (Phase 9+).
+- Gray-flavor A/B — try `olive` and `sand` against `mauve` once first real surfaces exist (swap imports in `packages/ui/styles/tokens.css`).
+- Decide "blocked" spine-state token (`--warning-*` vs. `--gray-11 + icon`) when the activity spine is built.

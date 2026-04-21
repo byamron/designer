@@ -38,7 +38,10 @@ All project documentation lives in `core-docs/`. Review and update these as part
 | History | `core-docs/history.md` | Shipped-work log with why, tradeoffs, and decisions |
 | Feedback | `core-docs/feedback.md` | User direction and preferences synthesized into rules |
 | Workflow | `core-docs/workflow.md` | How to work with Claude on this project |
-| Design Language | `core-docs/design-language.md` | Visual and interaction source of truth (scaffolded; Mini is the intended substrate) |
+| Design Language | `core-docs/design-language.md` | Visual and interaction source of truth — tokens and axioms (Mini) |
+| Component Manifest | `core-docs/component-manifest.json` | Catalog of UI components Designer ships |
+| Pattern Log | `core-docs/pattern-log.md` | Rationale for non-obvious design-language or component decisions |
+| Generation Log | `core-docs/generation-log.md` | Append-only record of Mini skill firings that produced UI |
 
 ## Agents
 
@@ -62,20 +65,7 @@ Code does not ship unless it meets all four simultaneously:
 <!-- mini:start -->
 ## Mini Design System
 
-This project uses Mini. UI tasks follow the procedure below.
-
-### Information map
-
-| Concern | Source of truth |
-|---|---|
-| Design tokens and axioms | `core-docs/design-language.md` |
-| Component catalog | `core-docs/component-manifest.json` |
-| Decision rationale | `core-docs/pattern-log.md` |
-| Generation log | `core-docs/generation-log.md` |
-| Skills (runtime) | `.claude/skills/` |
-| Core contracts (reference) | `docs/core-reference/` |
-
-> **Note — overlap with the "Core Documents" table above.** That table names `design-language.md` and this one adds `pattern-log.md`, `generation-log.md`, and `component-manifest.json` (all added by the Mini install on 2026-04-21). The Core Documents table was not silently edited; reconcile by hand if you want a single consolidated list.
+This project uses Mini. UI tasks follow the procedure below. See the **Core Documents** table above for the source-of-truth files (`design-language.md`, `component-manifest.json`, `pattern-log.md`, `generation-log.md`); runtime skills live at `.claude/skills/`.
 
 ### Procedure for UI tasks
 
@@ -93,4 +83,14 @@ Before writing or editing UI code:
 ### Skills
 
 Mini's skills live at `.claude/skills/` and fire on matching user intents. Primary entry for UI tasks is `generate-ui`. If a skill doesn't fire when expected, follow the procedure above manually.
+
+### Syncing Mini updates
+
+`./scripts/sync-mini.sh` refreshes Mini's track-closely files (primitives, archetypes, skills, invariants, templates). Fork-and-own files (`packages/ui/styles/tokens.css`, `packages/ui/styles/archetypes.css`) are never touched. The installed version is pinned in `packages/ui/MINI-VERSION.md`.
+
+The sync script needs to know where Mini is checked out. It reads the `Source:` path from `MINI-VERSION.md` by default (currently `/Users/benyamron/Desktop/coding/mini-design-system`). On any other machine or if Mini moves, export `MINI_PATH` before running:
+
+```sh
+MINI_PATH=/path/to/mini-design-system ./scripts/sync-mini.sh
+```
 <!-- mini:end -->
