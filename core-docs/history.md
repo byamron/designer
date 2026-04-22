@@ -37,6 +37,116 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 12.B — Staff UX designer + staff engineer review pass SAFETY
+**Date:** 2026-04-21
+**Branch:** phase-12b-plan
+**Commit:** pending
+
+**What was done:**
+Two-lens post-implementation review (staff UX designer + staff engineer) run in parallel against the freshly-landed Phase 12.B backend. Converged on a prioritized fix list, applied all P0/P1/P2 items, added 13 new tests to lock the fixes. Concretely:
+
+**Correctness fixes (P0).**
+- `HelperHealth::running` no longer lies under lock contention. Added a `parking_lot::RwLock<HelperHealth>` published in lock-step with `SupervisorState` mutations; `health()` reads lock-free and always reports truthful state even during in-flight round-trips.
+- `HelperError::Timeout(Duration)` is now a distinct variant. Boot-probe deadline overruns, write deadlines, and read deadlines all map to `Timeout`, not `Unavailable`. `select_helper` discriminates `PingTimeout` vs `PingFailed` structurally instead of substring-matching "deadline" in error strings.
+- Split `FallbackReason::PingFailed` into three reasons: `UnsupportedOs` (matches `Reported("macos-too-old")`), `ModelsUnavailable` (matches `Reported("foundation-models-unavailable")`), and residual `PingFailed` for genuinely unknown errors. Each now carries a `RecoveryKind` (`User` / `Reinstall` / `None`) so the UI can route retry affordances correctly.
+- `stub_helper` parses requests with `serde_json` instead of substring-matching `"kind":"ping"` — a prompt containing that literal no longer misfires.
+- `audit_claim` parser handles real-model responses with trailing punctuation or sentence wrapping (`"Supported."` → `Supported`, `"contradicted by evidence"` → `Contradicted`). Normalized by taking the first alphabetic word of the lowercased response.
+- NullHelper vocabulary now matches the user-facing taxonomy: `ping()` returns `"unavailable"` (not `"null / disabled"`); `generate()` returns `[unavailable <job>] <prompt prefix>` (not `[offline …]`). Added explicit docstring that the `generate()` output is a **diagnostic marker**, not a summary — 13.F surfaces must branch on `kind == "fallback"` and render a skeleton instead of the returned string.
+
+**API hygiene (P1).**
+- `cmd_helper_status` returns `HelperStatusResponse` directly, not `Result<_, IpcError>` — it cannot fail, and the false `Result` forced dead error handling at callers.
+- `HelperStatusResponse` gained three Rust-owned fields: `provenance_label` ("Summarized on-device" / "Local model briefly unavailable" / "On-device models unavailable"), `provenance_id` (stable kebab-case for `aria-describedby`), and `recovery` (`user` / `reinstall` / `none`). 13.F's three surfaces (spine row, Home recap, audit tile) can drive provenance off one DTO without re-implementing the string map.
+- `SwiftFoundationHelper::subscribe_events()` exposes a `broadcast::Receiver<HelperEvent>` with `Ready { version, model }` / `Degraded { consecutive_failures }` / `Demoted` / `Recovered`. `AppCore::subscribe_helper_events()` forwards via a small bridge task so callers receive events without depending on the concrete helper type. 13.F can re-render provenance on transitions without polling per-artifact.
+- Swift helper: `JSONEncoder().encode` wrapped in `do/catch` producing a last-resort `{"kind":"error","message":"encode-failed"}` frame; `writeFrame` returns `Bool` so main loop breaks on closed stdout instead of spinning. Foundation-Models errors use `String(describing:)` rather than `localizedDescription` (often empty on Apple SDK errors).
+- `probe_helper` is now generic over `Arc<H: FoundationHelper + ?Sized>` — accepts `Arc<dyn FoundationHelper>` for symmetry with the rest of the crate.
+- `HelperTuning::new()` debug-asserts non-empty backoff, ≥1 max-failures, non-zero deadline.
+
+**Test quality (P1/P2).**
+- Replaced the wall-clock sleep loop in `supervisor_demotes_after_max_failures` with a bounded polling loop; no longer races on slow CI.
+- Added two deterministic event tests: `events_emit_ready_on_first_success_and_degraded_on_failure` and `events_emit_demoted_once_threshold_crossed`.
+- Added seven new DTO unit tests in `ipc.rs` covering every `FallbackReason` variant (taxonomy, recovery routing, provenance label/id).
+- Added two new `core.rs` unit tests for `fallback_reason_from_probe_error` and `RecoveryKind::recovery`.
+- `ops.rs` gained `audit_trims_trailing_punctuation_and_sentence_wrap` to regression-test the parse fix via a fixed `FoundationHelper` impl.
+
+**Doc moves / vocabulary refinement.**
+- "Fallback summary" draft vocabulary replaced with the three-way taxonomy above. Pattern-log entry updated accordingly.
+- "Supervisor fails fast" pattern-log entry moved into `integration-notes.md` §12.B (it's a code contract, not a UX pattern).
+- `integration-notes.md` extended with: granular fallback-reason table with `recovery` column; explicit "NullHelper output is a marker, not a summary" guidance for 13.F; "`fallback_detail` is diagnostic-only" constraint; helper-events protocol description.
+- New pattern-log entry: "Helper events fan-out via broadcast, not event-stream" — explains why helper-health transitions don't live in the persisted event log.
+- PACKAGING.md no longer leaks the `NullHelper` class name into docs ("continues with on-device features disabled").
+
+**Metrics.**
+- Rust tests: 31 → **43 passing**, all green (+12 net: 2 core unit, 7 ipc unit, 2 event integration, 1 audit regression).
+- Frontend tests: 11 passing (unchanged — no frontend files touched).
+- Mini invariants: 6/6 passing.
+- `cargo clippy --workspace --all-targets -- -D warnings` clean.
+- `tsc --noEmit` clean.
+
+**Why:**
+The three-lens plan caught the right strategic calls but the first-pass implementation left real correctness bugs (health snapshot lying under load, string-matched error discrimination, trailing-punctuation parse miss) and vocabulary that didn't survive UX scrutiny ("Fallback summary" over-promises; `[offline]` contradicts our own rationale for avoiding that word). Better to catch those on the same branch than to let them bleed into 13.F's implementation.
+
+**Design decisions:**
+- **Three-way provenance taxonomy, not two.** Live → transient → terminal, keyed by recovery affordance. Lets 13.F branch cleanly on whether to offer retry without parsing error strings.
+- **Rust owns the vocabulary.** `provenance_label` + `provenance_id` are computed server-side in the IPC handler. All three 13.F surfaces get identical copy and identical `aria-describedby` anchors without coordinating.
+- **`NullHelper::generate` is explicitly marked as a diagnostic marker.** 13.F renderers that consume `LocalOps::*` must branch on `kind == "fallback"` and show a skeleton. Documented in integration-notes so a 13.F reader can't miss it.
+- **Broadcast channel, not event-log, for helper transitions.** Helper health is per-process runtime state; persisting it as `EventPayload` variants would pollute per-workspace event replay with process-scoped noise.
+
+**Technical decisions:**
+- **Separate `record_success` from `Ready` emission.** Event firing needs version/model strings, which are only known after the Pong is parsed. `record_success` now only handles health publishing + `Recovered` (no data dependency); `Ready` is emitted explicitly from `ping()` after the Pong fields are captured and `has_succeeded_once` transitions for the first time.
+- **`build_event_bridge`.** One tokio spawn per boot that forwards from the supervisor's internal `broadcast::Receiver` to an `AppCore`-owned `broadcast::Sender`. Prevents `AppCore` from having to know the concrete helper type to hand out receivers, keeps `helper: Arc<dyn FoundationHelper>` clean.
+- **Pure `fallback_reason_from_probe_error` mapper.** Tested in isolation; the one place we still string-match (`Reported("macos-too-old")`, `Reported("foundation-models-unavailable")`) is against documented Swift-side machine tags, not against our own format strings — so changing a Rust error format can't silently reroute.
+- **Cached `HelperHealth` via `parking_lot::RwLock`.** `health()` is now a pointer read, doesn't block on the async supervisor mutex. Updated by `publish_health(state)` at every state-mutation point (success, failure, spawn).
+
+**Tradeoffs discussed:**
+- **Three provenance strings vs. two.** Two was simpler, but conflated recoverable and terminal fallbacks — which the UI needs to distinguish to decide whether to offer retry. Three costs one more string and one more `provenance_id`, pays off by removing a renderer-side branch.
+- **Separate broadcast channel in AppCore vs. expose supervisor's channel directly.** Direct would save the forwarding task but tie AppCore to `SwiftFoundationHelper` concrete type. The forward is ~20 lines and keeps the `Arc<dyn FoundationHelper>` interface clean.
+- **Ready event in `ping()` vs. `record_success`.** Record_success is where the success counter resets, so it felt like the natural home — but it doesn't have the Pong fields. Splitting keeps each function responsible for exactly what it sees.
+
+**Lessons learned:**
+- Review on the same branch is cheaper than follow-up PR. The UX reviewer caught that "Fallback summary" implied `NullHelper::generate` returns a real summary, which it doesn't. Left alone, that would have shipped into 13.F's render path.
+- String-matching on error messages for variant discrimination is always fragile, no matter how brief the strings look. The `"deadline"` substring match was technically correct but broke the principle of using types for discrimination. Added a `Timeout` variant; the match now compiles or doesn't — no silent drift.
+- Cached-state patterns for hot reads (`parking_lot::RwLock<HelperHealth>`) are almost free and pay back immediately. Don't defer until performance is a problem.
+
+---
+
+### Phase 12.B — Foundation helper infrastructure (three-perspective plan + supervisor) SAFETY
+**Date:** 2026-04-21
+**Branch:** phase-12b-plan
+**Commit:** pending
+
+**What was done:**
+Reviewed Phase 12.B through three lenses (staff UX designer, staff engineer, staff designer engineer), captured the plan at `.context/phase-12b-plan.md` with an optimization pass applied, then implemented the backend half. Shipped: (1) Swift helper polish — `--version` flag, `unknown-request` handling, `localizedDescription`-wrapped Foundation-Models errors. (2) `HelperSupervisor` — async with 5-step exponential backoff `[250, 500, 1000, 2000, 5000]` ms, permanent demotion to `NullHelper` after 5 consecutive failures, 2 KB bounded stderr ring drained by a background task, fail-fast on in-flight failures (no UI blocking), configurable `HelperTuning` for tests. (3) `AppConfig::helper_binary_path` with priority-ordered resolution: `DESIGNER_HELPER_BINARY` env → `.app` bundle sibling in `Contents/MacOS/` → Cargo workspace dev path. `DESIGNER_DISABLE_HELPER=1` kill-switch. (4) `select_helper()` with structured `FallbackReason` variants, 750ms boot probe. (5) `AppCore.local_ops: Arc<dyn LocalOps>` wired at boot — `FoundationLocalOps<H: ?Sized>` relaxed for trait objects. (6) `cmd_helper_status` IPC + flat `HelperStatusResponse` DTO in `designer-ipc`. (7) Stub helper at `crates/designer-local-models/src/bin/stub_helper.rs` — CLI-arg driven, parallel-test-safe, modes: `ok`, `slow_ping`, `die_after_ping`, `always_die`, `panic_to_stderr`, `bad_frame`. (8) 6 new `runner_boot.rs` integration tests + 6 `real_helper.rs` tests (env-gated silent skip). (9) `scripts/build-helper.sh` — swift build + smoke `--version` check. (10) Docs: new `core-docs/integration-notes.md` §12.B, `apps/desktop/PACKAGING.md` helper section with Phase-16 `externalBin` plan, `plan.md` / `pattern-log.md` / `generation-log.md` updates. Zero UI changes.
+
+**Why:**
+Phase 12.B blocks 13.F (local-model surfaces). Today's work landed everything that doesn't need the Apple Intelligence hardware — the supervisor, config wiring, fallback diagnostics, IPC surface, and a stub-based test harness that exercises the supervisor on any host. The final validation (run on an AI-capable Mac, confirm the SDK call shape) is a manual follow-up that updates `integration-notes.md` with observed deltas.
+
+**Design decisions:**
+- **Zero UI changes in 12.B.** FB-0007 (invisible infrastructure) and FB-0002 (suggest, don't act) argued against announcing Apple Intelligence. Nothing on screen yet has provenance that depends on helper availability; the indicator anchors better on real 13.F output than on an abstract capability pill.
+- **Vocabulary pre-drafted for 13.F.** "Summarized on-device" / "Fallback summary" locked in `pattern-log.md`.
+- **Provenance at the artifact, not the chrome.** Explicitly rejected the global topbar chip. Pattern logged for 13.F.
+- **No Settings UI, no onboarding slide.** `DESIGNER_DISABLE_HELPER=1` covers the diagnostic case; no user-facing toggle for a dependency 99% of users will never think about.
+
+**Technical decisions:**
+- **Inside-the-bundle install, not `~/.designer/bin/`.** First plan said user-space install. Industry-conventions pass (Chrome / Electron / VS Code all bundle helpers inside `Contents/MacOS/`) corrected it to a dev-time `.build/release/` path that maps directly to the Phase-16 bundle path. One signing pass, atomic updates, hardened-runtime compatible, zero Phase-16 re-path work.
+- **Fail-fast supervisor over blocking retry.** Initial draft had a single-shot retry. Rejected as a hack per user directive ("do whatever is most robust and scalable"). The supervisor never sleeps under the request lock: failing requests return `Unavailable` with the stderr snapshot, the cooling-off window is consulted at the *start* of the next request, respawn happens lazily. UI call time bounded at the per-request deadline (5s default) even during a crash storm.
+- **Configurable `HelperTuning`.** Hardcoded const backoffs would make the demotion test take 8.75s. Extracted a small struct with `Default`; tests use 10ms steps and finish under 500ms.
+- **Stub via `src/bin/stub_helper.rs` + `CARGO_BIN_EXE_stub_helper`.** Standard Cargo pattern. Stub reads mode from argv (per-spawn) not env (process-global) — parallel tokio tests otherwise stomp each other.
+- **`H: ?Sized` on `FoundationLocalOps`.** `AppCore::helper` is `Arc<dyn FoundationHelper>`; relaxed the bound so trait objects pass through without re-concretizing. Zero runtime cost.
+- **Flat `HelperStatusResponse` DTO.** Keeps the TS render trivial; boot status + live health merged for the UI's single-poll case.
+
+**Tradeoffs discussed:**
+- **Stub binary vs. mock trait impl.** Mock would be faster but wouldn't exercise pipe handling, `tokio::process` semantics, stderr drain, or read/write timeout paths. Stub costs one 70-line binary; catches real IO bugs.
+- **Demotion flag vs. swapping the Arc in AppCore.** Swapping is architecturally cleaner but needs mutable `AppCore.helper` or a Mutex layer. Kept the internal flag: demoted `SwiftFoundationHelper` short-circuits all exchanges with `Unavailable`; `helper_health()` returns `running: false`. 13.F can build "re-enable helper" on top of this without architectural change.
+- **Boot ping deadline 750ms vs. 500ms.** 750ms accommodates a cold Swift spawn + Foundation Models warm-up on a freshly booted Mac, still imperceptibly short for UX.
+- **Status + health as one struct vs. two.** Conceptually separate (boot selection = immutable; health = mutable), merged in the IPC DTO where the UI wants one row.
+
+**Lessons learned:**
+- Env-var-based per-test config is a trap in tokio — parallel tests race on global env. Argv is the right knob for per-child test modes.
+- Hardcoded consts in a supervisor make demotion untestable in finite time. Extract a tuning struct with `Default` *before* writing the first backoff test.
+- "What's the industry standard?" is a cheap but valuable question. First-draft defaults ("install to `$HOME/.designer/bin/`") were structurally worse than the standard pattern (inside the `.app`), and the difference rippled into Phase 16. Asking early saved a re-plumbing step.
+
+---
+
 ### Mini installed + initial design language elicited
 **Date:** 2026-04-21
 **Branch:** mini-install

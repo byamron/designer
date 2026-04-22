@@ -4,15 +4,15 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 ## Current Focus
 
-**Phase 12 — Real-integration validation.** Preliminary build (Phases 0–11) landed on `preliminary-build` branch (2026-04-21); see `history.md`. The roadmap now splits the remaining work into six phases with explicit tracks and dependencies; see `roadmap.md` for the gap → phase mapping.
+**Phase 12 — Real-integration validation.** Preliminary build (Phases 0–11) landed on `preliminary-build` branch (2026-04-21); see `history.md`. 12.B infrastructure landed on `phase-12b-plan` (2026-04-21) — supervisor, config wiring, IPC surface, and boot-path tests are in; real-binary round-trip still needs a run on an Apple-Intelligence-capable Mac.
 
 Phase 12 has three independent tracks; any can start first based on hardware/auth availability:
 
-- **12.A — Real Claude Code subprocess.** Needs a local Claude Code install. Blocks 13.D (agent wire).
-- **12.B — Swift Foundation Models helper build.** Needs macOS 15+ with Apple Intelligence. Blocks 13.F (local-model surfaces).
-- **12.C — Tauri shell binary.** No external dependency; can start today. Blocks 13.D / 13.E / 13.F / 13.G (every frontend-to-backend wire).
+- **12.A — Real Claude Code subprocess.** Needs a local Claude Code install. Blocks 13.D (agent wire). **Not started.**
+- **12.B — Swift Foundation Models helper build.** Infrastructure complete; real-hardware validation pending. Blocks 13.F.
+- **12.C — Tauri shell binary.** No external dependency; can start today. Blocks 13.D / 13.E / 13.F / 13.G. **Not started.**
 
-Recommended order if working solo: **start 12.C first** (unblocks the widest downstream set with zero external prerequisites), then 12.A and 12.B in whichever order hardware allows.
+Next recommended step: run `./scripts/build-helper.sh` on an AI-capable Mac to close 12.B, then pick 12.C to unblock the widest downstream set.
 
 ## Handoff Notes
 
@@ -32,10 +32,19 @@ Recommended order if working solo: **start 12.C first** (unblocks the widest dow
 
 ### Phase 12.B — Swift Foundation Models helper *(blocks 13.F)*
 
-- [ ] Build `helpers/foundation` on macOS 15+ with Apple Intelligence.
-- [ ] Verify the `LanguageModelSession.respond(to:)` call; adjust if Apple shipped changes.
-- [ ] Smoke-test `SwiftFoundationHelper::ping()` and `FoundationLocalOps::recap`.
-- [ ] Document helper path in `AppConfig::default_in_home`.
+Infrastructure landed on 2026-04-21 (branch `phase-12b-plan`); real-binary validation remains — needs one run on an Apple-Intelligence-capable Mac.
+
+- [x] Upgrade Swift helper: `--version` flag, `unknown-request` handling, `localizedDescription`-wrapped errors.
+- [x] Replace the simple `SwiftFoundationHelper` with an async supervisor: 5-step exponential backoff, max-5-failure demotion to `NullHelper`, bounded 2 KB stderr capture, fail-fast (no blocking on backoff), configurable tuning for tests.
+- [x] Extend `AppConfig` with `helper_binary_path`; `default_in_home()` resolves the path from `DESIGNER_HELPER_BINARY` env → `.app` bundle sibling → Cargo workspace dev path. `DESIGNER_DISABLE_HELPER=1` forces fallback.
+- [x] Extract `select_helper(config) -> (Arc<dyn FoundationHelper>, HelperStatus)` with structured `FallbackReason` variants.
+- [x] Wire `FoundationLocalOps` into `AppCore.local_ops` (`Arc<dyn LocalOps>`). No consumers yet; zero-risk add that unblocks 13.F.
+- [x] Add `cmd_helper_status` IPC + `HelperStatusResponse` DTO combining boot selection with live supervisor health.
+- [x] Stub binary at `crates/designer-local-models/src/bin/stub_helper.rs` (CLI-arg driven, parallel-test-safe) + `tests/runner_boot.rs` covering happy path, ping timeout, child-crash restart, max-failure demotion, fail-fast backoff window, stderr capture.
+- [x] `tests/real_helper.rs` (env-gated, silent skip on non-AI hardware).
+- [x] `scripts/build-helper.sh` (swift build + smoke `--version` check).
+- [x] Docs: `core-docs/integration-notes.md` §12.B, `apps/desktop/PACKAGING.md` helper section.
+- [ ] Run `./scripts/build-helper.sh` on an AI-capable Mac; export `DESIGNER_HELPER_BINARY` and run `cargo test -p designer-local-models --test real_helper`. Update `integration-notes.md` with the observed SDK call shape and any deltas.
 
 ### Phase 12.C — Tauri shell binary *(blocks 13.D, 13.E, 13.F, 13.G)*
 
@@ -84,6 +93,12 @@ Six independent items:
 ---
 
 ## Recently Completed
+
+### Phase 12.B — Staff UX designer + staff engineer review pass — 2026-04-21
+Two-lens parallel review of the freshly-landed 12.B backend. Applied P0/P1/P2 fixes: `HelperHealth::running` no longer lies under lock contention (cached via `parking_lot::RwLock`); `HelperError::Timeout(Duration)` split out as a distinct variant so `select_helper` discriminates structurally instead of substring-matching "deadline"; `FallbackReason` split into `UnsupportedOs` / `ModelsUnavailable` / `PingFailed` with `RecoveryKind` routing (`user` / `reinstall` / `none`); stub helper parses requests with `serde_json` instead of substring matching; `audit_claim` parser normalizes trailing punctuation and sentence wrapping; `NullHelper` vocabulary aligned (`"unavailable"` not `"null / disabled"`; `[unavailable …]` not `[offline …]`) with explicit diagnostic-marker docstring. API hygiene: `cmd_helper_status` returns `HelperStatusResponse` directly (infallible); DTO gained `provenance_label` / `provenance_id` / `recovery` Rust-owned fields; `SwiftFoundationHelper::subscribe_events()` + `AppCore::subscribe_helper_events()` broadcast `HelperEvent::{Ready,Degraded,Demoted,Recovered}`; Swift helper no longer uses `try!` and breaks loop on closed stdout; `probe_helper` generic over `?Sized`; `HelperTuning::new` debug-asserts preconditions. Test quality: flaky demote-after-max test replaced with bounded poll; two new event integration tests; seven new DTO unit tests; two new core unit tests; one regression test for the audit parse fix. Doc cleanup: vocabulary pattern-log entry rewritten to three strings matching the `recovery` taxonomy; "supervisor fails fast" moved from pattern-log to integration-notes (it's a code contract, not a UX pattern); PACKAGING.md no longer leaks "NullHelper" class name; integration-notes gained granular fallback-reason table, diagnostic-only warning on `fallback_detail`, helper-events protocol. 43 Rust tests + 11 frontend tests + 6/6 Mini invariants + clippy `-D warnings` clean.
+
+### Phase 12.B — Foundation helper infrastructure — 2026-04-21
+Replaced single-shot `exchange()` with an async `HelperSupervisor` (5-step exponential backoff, 5-failure demotion, 2 KB stderr ring, configurable tuning, fail-fast on in-flight failures). Added `helper_binary_path` to `AppConfig` with env/bundle/dev path resolution, `DESIGNER_DISABLE_HELPER=1` kill-switch, and `select_helper()` returning structured `FallbackReason`. Wired `AppCore.local_ops` as `Arc<dyn LocalOps>` (relaxed `FoundationLocalOps<H: ?Sized>` to accept trait objects). Added `cmd_helper_status` IPC + flat `HelperStatusResponse` DTO. New stub binary (`src/bin/stub_helper.rs`, CLI-arg driven) + 6 runner_boot tests + 6 real_helper tests (env-gated silent skip). New `scripts/build-helper.sh`. Zero UI changes — provenance of helper output is a Phase 13.F concern per the three-lens plan at `.context/phase-12b-plan.md`. All workspace tests pass; cargo build clean.
 
 ### Review pass on preliminary build (staff engineer / staff designer / staff design engineer) — 2026-04-21
 

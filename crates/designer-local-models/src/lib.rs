@@ -7,6 +7,11 @@
 //! Intelligence, missing binary) the `NullHelper` returns deterministic
 //! placeholder responses so the rest of the app still works.
 //!
+//! **Supervisor:** the Swift helper is driven by a supervised subprocess
+//! (`SwiftFoundationHelper`). Failed requests fail fast (`Unavailable`); the
+//! supervisor respawns lazily with exponential backoff and demotes after
+//! repeated failures. See `runner` module docs.
+//!
 //! **Rate limiting + caching** live Rust-side so the Swift helper is a thin
 //! inference layer.
 
@@ -23,4 +28,7 @@ pub use ops::{
 };
 pub use protocol::{HelperRequest, HelperResponse, JobKind};
 pub use ratelimit::RateLimiter;
-pub use runner::{FoundationHelper, HelperError, HelperResult, NullHelper, SwiftFoundationHelper};
+pub use runner::{
+    probe_helper, FoundationHelper, HelperError, HelperEvent, HelperHealth, HelperResult,
+    HelperTuning, NullHelper, SwiftFoundationHelper,
+};
