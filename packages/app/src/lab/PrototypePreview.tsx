@@ -40,6 +40,7 @@ export function PrototypePreview({ workspace }: { workspace: Workspace }) {
             type="checkbox"
             checked={showAnnotations}
             onChange={(e) => setShowAnnotations(e.target.checked)}
+            title="Show the annotation overlay on this prototype"
           />
           Annotations
         </label>

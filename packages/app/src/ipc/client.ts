@@ -13,6 +13,7 @@ import type {
   ProjectSummary,
   SpineRow,
   Tab,
+  TabId,
   WorkspaceId,
   WorkspaceSummary,
   StreamEvent,
@@ -25,6 +26,7 @@ export interface IpcClient {
   listWorkspaces(id: ProjectId): Promise<WorkspaceSummary[]>;
   createWorkspace(req: CreateWorkspaceRequest): Promise<WorkspaceSummary>;
   openTab(req: OpenTabRequest): Promise<Tab>;
+  closeTab(workspaceId: WorkspaceId, tabId: TabId): Promise<void>;
   spine(id: WorkspaceId | null): Promise<SpineRow[]>;
   stream(handler: (event: StreamEvent) => void): () => void;
   // Safety surfaces
@@ -65,6 +67,9 @@ class TauriIpcClient implements IpcClient {
   openTab(req: OpenTabRequest) {
     return this.invoke<Tab>("open_tab", { req });
   }
+  closeTab(workspaceId: WorkspaceId, tabId: TabId) {
+    return this.invoke<void>("close_tab", { workspace_id: workspaceId, tab_id: tabId });
+  }
   spine(id: WorkspaceId | null) {
     return this.invoke<SpineRow[]>("spine", { workspace_id: id });
   }
@@ -102,6 +107,10 @@ class MockIpcClient implements IpcClient {
   }
   openTab(req: OpenTabRequest) {
     return Promise.resolve(this.core.openTab(req));
+  }
+  closeTab(workspaceId: WorkspaceId, tabId: TabId) {
+    this.core.closeTab(workspaceId, tabId);
+    return Promise.resolve();
   }
   spine(id: WorkspaceId | null) {
     return Promise.resolve(this.core.spine(id));

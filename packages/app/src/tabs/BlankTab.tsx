@@ -1,10 +1,10 @@
 import type { Tab, Workspace } from "../ipc/types";
+import { TabLayout } from "../layout/TabLayout";
 
 export function BlankTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) {
   return (
-    <>
-      <header style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-        <span className="card__kicker">Blank</span>
+    <TabLayout>
+      <header className="tab-header">
         <h2 className="tab-title">{tab.title}</h2>
         <p className="tab-subtitle">
           Empty canvas. Compose anything — `@`-reference other tabs, files, or
@@ -40,6 +40,7 @@ export function BlankTab({ tab, workspace }: { tab: Tab; workspace: Workspace })
               <button
                 type="button"
                 className="btn"
+                title={`Send: ${p}`}
                 style={{
                   width: "100%",
                   textAlign: "left",
@@ -53,6 +54,6 @@ export function BlankTab({ tab, workspace }: { tab: Tab; workspace: Workspace })
           ))}
         </ul>
       </section>
-    </>
+    </TabLayout>
   );
 }
