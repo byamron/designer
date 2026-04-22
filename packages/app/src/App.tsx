@@ -2,13 +2,19 @@ import { useEffect } from "react";
 import { AppShell } from "./layout/AppShell";
 import { QuickSwitcher } from "./layout/QuickSwitcher";
 import { Onboarding } from "./components/Onboarding";
-import { bootData, dataStore, useDataState } from "./store/data";
+import {
+  bootData,
+  dataStore,
+  promptCreateProject,
+  useDataState,
+} from "./store/data";
 import {
   appStore,
   selectProject,
   selectWorkspace,
   toggleQuickSwitcher,
 } from "./store/app";
+import { isTauri, listen } from "./ipc/tauri";
 
 export function App() {
   const loaded = useDataState((s) => s.loaded);
@@ -37,6 +43,16 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    return listen<void>("designer://menu/new-project", () => {
+      void (async () => {
+        const id = await promptCreateProject();
+        if (id) selectProject(id);
+      })();
+    });
   }, []);
 
   if (!loaded) {

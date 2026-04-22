@@ -19,4 +19,4 @@ pub use event::{Event, EventEnvelope, EventKind, EventPayload};
 pub use ids::{AgentId, ApprovalId, EventId, ProjectId, StreamId, TabId, TaskId, WorkspaceId};
 pub use projection::{Projection, ProjectionError, Projector};
 pub use store::{EventStore, SqliteEventStore, StreamOptions};
-pub use time::{monotonic_now, Timestamp};
+pub use time::{monotonic_now, rfc3339, Timestamp};

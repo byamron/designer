@@ -6,11 +6,16 @@
 //! surface on CI without pulling WebKit frameworks. The Tauri runtime layer is
 //! added at the binary edge.
 
+pub mod commands;
 pub mod core;
 pub mod crash;
+pub mod events;
 pub mod ipc;
+pub mod menu;
+pub mod settings;
 pub mod updater;
 
 pub use core::{AppConfig, AppCore};
 pub use crash::{install_panic_hook, CrashReport};
+pub use settings::{ResolvedTheme, Settings, ThemeChoice};
 pub use updater::{NoopUpdater, UpdateInfo, UpdateStatus, Updater, UpdaterError};

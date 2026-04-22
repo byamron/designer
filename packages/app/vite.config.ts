@@ -4,6 +4,9 @@ import path from "node:path";
 
 export default defineConfig({
   plugins: [react()],
+  // Keep Vite's dev logs visible behind Tauri's own banner instead of being
+  // wiped each HMR cycle. Matters when running `cargo tauri dev`.
+  clearScreen: false,
   resolve: {
     alias: [
       // Order matters: more specific patterns first.
@@ -19,8 +22,9 @@ export default defineConfig({
     ],
   },
   server: {
+    // Pinned so Tauri's `devUrl` in tauri.conf.json matches deterministically.
     port: 5174,
-    strictPort: false,
+    strictPort: true,
   },
   build: {
     target: "es2022",

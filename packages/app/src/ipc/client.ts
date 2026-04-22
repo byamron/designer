@@ -1,9 +1,6 @@
-// Typed IPC client. When running inside Tauri, delegates to the `invoke` API.
-// When running in a browser (dev, Storybook-like flows, tests), delegates to a
-// deterministic in-memory mock so the surface is exercisable without the
-// WebView runtime. The frontend never knows which runtime it's on — the mock
-// enforces the same rules the real core would (approval gates, cost caps,
-// scope rules).
+// Typed IPC client. Under Tauri, delegates to the runtime adapter in ./tauri.
+// In a browser (dev, tests), delegates to the in-memory mock so the surface is
+// exercisable without the WebView. Callers never know which runtime they're on.
 
 import type {
   CreateProjectRequest,
@@ -18,6 +15,7 @@ import type {
   StreamEvent,
 } from "./types";
 import { createMockCore, type MockCore } from "./mock";
+import { invoke, isTauri, listen } from "./tauri";
 
 export interface IpcClient {
   listProjects(): Promise<ProjectSummary[]>;
@@ -27,7 +25,6 @@ export interface IpcClient {
   openTab(req: OpenTabRequest): Promise<Tab>;
   spine(id: WorkspaceId | null): Promise<SpineRow[]>;
   stream(handler: (event: StreamEvent) => void): () => void;
-  // Safety surfaces
   requestApproval(
     workspaceId: WorkspaceId,
     gate: string,
@@ -36,53 +33,35 @@ export interface IpcClient {
   resolveApproval(id: string, granted: boolean, reason?: string): Promise<void>;
 }
 
-interface TauriGlobal {
-  __TAURI_INTERNALS__?: unknown;
-  __TAURI_INVOKE__?: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-}
-
-function tauriInvoke(): (<T>(cmd: string, args?: Record<string, unknown>) => Promise<T>) | null {
-  const g = globalThis as TauriGlobal;
-  return typeof g.__TAURI_INVOKE__ === "function" ? g.__TAURI_INVOKE__ : null;
-}
+export const EVENT_STREAM_CHANNEL = "designer://event-stream";
 
 class TauriIpcClient implements IpcClient {
-  constructor(
-    private readonly invoke: NonNullable<ReturnType<typeof tauriInvoke>>,
-  ) {}
   listProjects() {
-    return this.invoke<ProjectSummary[]>("list_projects");
+    return invoke<ProjectSummary[]>("list_projects");
   }
   createProject(req: CreateProjectRequest) {
-    return this.invoke<ProjectSummary>("create_project", { req });
+    return invoke<ProjectSummary>("create_project", { req });
   }
   listWorkspaces(id: ProjectId) {
-    return this.invoke<WorkspaceSummary[]>("list_workspaces", { project_id: id });
+    return invoke<WorkspaceSummary[]>("list_workspaces", { projectId: id });
   }
   createWorkspace(req: CreateWorkspaceRequest) {
-    return this.invoke<WorkspaceSummary>("create_workspace", { req });
+    return invoke<WorkspaceSummary>("create_workspace", { req });
   }
   openTab(req: OpenTabRequest) {
-    return this.invoke<Tab>("open_tab", { req });
+    return invoke<Tab>("open_tab", { req });
   }
   spine(id: WorkspaceId | null) {
-    return this.invoke<SpineRow[]>("spine", { workspace_id: id });
+    return invoke<SpineRow[]>("spine", { workspaceId: id });
   }
   stream(handler: (event: StreamEvent) => void) {
-    // In Tauri we'd subscribe via an event listener. Until the shell wires
-    // that, return a noop teardown.
-    void handler;
-    return () => {};
+    return listen<StreamEvent>(EVENT_STREAM_CHANNEL, handler);
   }
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
-    return this.invoke<string>("request_approval", {
-      workspace_id: workspaceId,
-      gate,
-      summary,
-    });
+    return invoke<string>("request_approval", { workspaceId, gate, summary });
   }
   resolveApproval(id: string, granted: boolean, reason?: string) {
-    return this.invoke<void>("resolve_approval", { id, granted, reason });
+    return invoke<void>("resolve_approval", { id, granted, reason });
   }
 }
 
@@ -121,12 +100,7 @@ class MockIpcClient implements IpcClient {
 let singleton: IpcClient | null = null;
 export function ipcClient(): IpcClient {
   if (singleton) return singleton;
-  const invoke = tauriInvoke();
-  if (invoke) {
-    singleton = new TauriIpcClient(invoke);
-  } else {
-    singleton = new MockIpcClient(createMockCore());
-  }
+  singleton = isTauri() ? new TauriIpcClient() : new MockIpcClient(createMockCore());
   return singleton;
 }
 
