@@ -4,7 +4,15 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 ## Current Focus
 
-**Phase 0 — De-risk spike.** Validate that we can spawn Claude Code with agent teams enabled from Rust, cleanly observe team/task events, and round-trip a prompt through a Swift Foundation Models helper. These are the two load-bearing integration points; everything downstream assumes they work.
+**Phase 12 — Real-integration validation.** Preliminary build (Phases 0–11) landed on `preliminary-build` branch (2026-04-21); see `history.md`. The roadmap now splits the remaining work into six phases with explicit tracks and dependencies; see `roadmap.md` for the gap → phase mapping.
+
+Phase 12 has three independent tracks; any can start first based on hardware/auth availability:
+
+- **12.A — Real Claude Code subprocess.** Needs a local Claude Code install. Blocks 13.D (agent wire).
+- **12.B — Swift Foundation Models helper build.** Needs macOS 15+ with Apple Intelligence. Blocks 13.F (local-model surfaces).
+- **12.C — Tauri shell binary.** No external dependency; can start today. Blocks 13.D / 13.E / 13.F / 13.G (every frontend-to-backend wire).
+
+Recommended order if working solo: **start 12.C first** (unblocks the widest downstream set with zero external prerequisites), then 12.A and 12.B in whichever order hardware allows.
 
 ## Handoff Notes
 
@@ -14,28 +22,75 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 ## Active Work Items
 
-### Phase 0 — De-risk spike
+### Phase 12.A — Real Claude Code subprocess *(blocks 13.D)*
 
-**Goal:** prove the load-bearing integration points before committing to the build order.
+- [ ] Install Claude Code + auth on dev machine.
+- [ ] Run `ClaudeCodeOrchestrator::spawn_team` against a throwaway team; catalog file shapes under `~/.claude/teams/` and `~/.claude/tasks/` into `core-docs/integration-notes.md`.
+- [ ] Update `crates/designer-claude/src/watcher.rs::classify`.
+- [ ] Adjust `claude team init/task/message` CLI args in `claude_code.rs` to match the real shape.
+- [ ] Add integration test gated by `CLAUDE_CODE_INSTALLED=1`.
 
-**Steps:**
-- [ ] Planner agent: scope the spike — one Rust binary, one Swift helper, one integration test.
-- [ ] Rust-core / Claude-integration agent: spawn Claude Code with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`; confirm the version in use exposes agent teams.
-- [ ] Rust-core / Claude-integration agent: watch `~/.claude/teams/{team}/config.json` and `~/.claude/tasks/{team}/`; parse task-list changes.
-- [ ] Rust-core / Claude-integration agent: capture `TaskCreated`, `TaskCompleted`, `TeammateIdle` (or equivalents) into a local log.
-- [ ] Swift-helper agent: minimal Swift binary that loads Foundation Models and responds to JSON-over-stdio.
-- [ ] Rust-core agent: round-trip a prompt from Rust through the Swift helper and back.
-- [ ] Docs agent: write findings as a `history.md` entry; update `spec.md` if the spike surfaces any architectural change.
+### Phase 12.B — Swift Foundation Models helper *(blocks 13.F)*
 
-**Success criteria:** a `cargo test` passes end-to-end for both integration paths; findings documented.
+- [ ] Build `helpers/foundation` on macOS 15+ with Apple Intelligence.
+- [ ] Verify the `LanguageModelSession.respond(to:)` call; adjust if Apple shipped changes.
+- [ ] Smoke-test `SwiftFoundationHelper::ping()` and `FoundationLocalOps::recap`.
+- [ ] Document helper path in `AppConfig::default_in_home`.
 
-### Phase 1 — Foundation *(starts after Phase 0)*
+### Phase 12.C — Tauri shell binary *(blocks 13.D, 13.E, 13.F, 13.G)*
 
-Deferred. See `roadmap.md` Phase 1 for scope.
+- [ ] Add `tauri` + `tauri-build` to `apps/desktop/src-tauri/Cargo.toml`.
+- [ ] Scaffold `tauri.conf.json` (window, menu, macOS vibrancy).
+- [ ] Register `#[tauri::command]`s for each `designer_desktop::ipc::cmd_*`.
+- [ ] Expose `AppCore.store.subscribe()` as Tauri event channel `designer://event-stream`.
+- [ ] Author restrictive allowlist (FS `~/.designer/**` + linked repos; shell `git`/`gh`/`claude`/helper only).
+- [ ] Boot smoke: `cargo tauri dev` opens a window rendering against a live `AppCore`.
+
+### Phase 13 — Wire the real runtime *(after corresponding Phase 12 tracks)*
+
+Four tracks with individual input gates:
+
+- [ ] **13.D Agent wire** (needs 12.A + 12.C): replace `PlanTab::ackFor()` with `Orchestrator::post_message`; stream replies via `designer://event-stream`.
+- [ ] **13.E Git + repo linking** (needs 12.C): repo-linking UI + `GitOps::init_worktree` + `core-docs/*.md` seeding + "Request merge" → `gh pr create`.
+- [ ] **13.F Local-model surfaces** (needs 12.B + 12.C): spine summaries via `LocalOps::summarize_row`; Home recap via `LocalOps::recap`; audit verdicts via `LocalOps::audit_claim`.
+- [ ] **13.G Safety surfaces + Keychain** (needs 12.C): approval inbox, cost chip in topbar, scope-denied in inbox, `security-framework` keychain integration.
+
+### Phase 14 — Sync transport *(parallel with 13 or 15)*
+
+- [ ] Pick transport (WebRTC via `str0m` default; document alternatives in short ADR).
+- [ ] Implement `SyncTransport` trait + first impl.
+- [ ] Pairing UI: host QR with `PairingMaterial.secret`; scanner/code entry on the peer.
+- [ ] Integration test: two processes sync a 20-event log without a server.
+
+### Phase 15 — Hardening + polish *(parallel with 13 or 14)*
+
+Six independent items:
+
+- [ ] Mini primitives migration (`Box`, `Stack`, `Cluster`, `Sidebar`) for AppShell / HomeTab / ActivitySpine / WorkspaceSidebar.
+- [ ] `correlation_id` / `causation_id` wiring for derived events.
+- [ ] Pairing RNG: swap manual entropy for `rand::rngs::OsRng`.
+- [ ] Dark-mode visual-regression harness (Playwright + screenshot diffing).
+- [ ] Auto-grow chat textarea.
+- [ ] `AppCore::sync_projector_from_log` incrementalization (last-seen sequence per stream).
+
+### Phase 16 — Shippable desktop build *(after 13 + 15)*
+
+- [ ] Apple Developer identity + CI signing secrets.
+- [ ] First signed + notarized `.dmg` (`cargo tauri build` → `codesign` → `notarytool`).
+- [ ] Updater backend: signed `latest.json` on static host + Ed25519 keypair.
+- [ ] Crash-report endpoint (opt-in upload).
+- [ ] Install QA checklist on a fresh Mac (see `apps/desktop/PACKAGING.md`).
 
 ---
 
 ## Recently Completed
+
+### Review pass on preliminary build (staff engineer / staff designer / staff design engineer) — 2026-04-21
+
+Multi-role code review of the Phases 0–11 build. Implemented fixes: SQLite "database is locked" race (WAL enabled on one-shot connection before pool open); `AppCore::create_*` apply new events directly instead of full-log replay; clippy cleanup (dead `Tracker`/`GlobSetExt`, derivable `Default` on `ClaudeCodeOptions`/`NodeId`, `or_insert_with(Vec::new)` → `or_default`, `&self.secret` → `self.secret` copy); a11y (skip-to-content link, h1→h2→h3 hierarchy across Home and tab bodies, `role=tabpanel`/`aria-labelledby`/`aria-controls` on tabs, roving tabindex + arrow-key nav, focus trap on Cmd+K dialog); UX (humanized event kinds via `humanizeKind`, "+ Project" affordance on the strip, chat `data-author` moved to CSS); Mini procedural docs (`generation-log.md`, `component-manifest.json`, `pattern-log.md` updated with 17 components and 6 new pattern entries). Added 6 frontend tests: humanize mapping, tab-panel/tab linkage, skip-link presence, onboarding persistence. All 30 tests + 6/6 invariants + clippy clean.
+
+### Preliminary build (Phases 0–11) — 2026-04-21
+Rust workspace with 9 crates + event-sourced SQLite core + safety gates + git ops + sync protocol + local-model helper + React app with three-pane layout, Cmd+K switcher, four tab templates, Home tab, streaming chat, sandboxed design lab, onboarding. 19 Rust tests + 5 frontend tests + 6/6 Mini invariants passing; demo CLI end-to-end works. See `history.md` for full decisions/tradeoffs and the report that accompanied it.
 
 ### Mini installed at `packages/ui/` + initial design language elicited — 2026-04-21
 Installed Mini via `tools/sync/install.sh`. Ran greenfield elicitation of all 10 design axioms — amended two draft principles (motion: snappy + considered liveliness; theme: system-default instead of dark-default). Chose monochrome accent identity (Notion/Linear register), mauve gray flavor (olive/sand as alternatives to try), Geist + Geist Mono type system, soft-sharper radii (button=6px). Rebound `--accent-*` to `--gray-*` in `tokens.css` and dropped indigo/crimson imports. Frontend wiring (Radix deps, CSS imports, TS path alias) deferred to Phase 8. See `history.md` for full rationale.

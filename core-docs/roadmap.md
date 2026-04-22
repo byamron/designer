@@ -17,35 +17,63 @@ This document sequences the work described in `spec.md`. It is the single source
 ## Dependency graph
 
 ```
-Phase 0 (spike)
-    │
-    ▼
-Phase 1 (foundation) ──► Phase 2 (Claude) ──► Phase 3 (safety) ──► Phase 4 (git)
-                                                      │
-                                                      ▼
-                                              Phase 5 (local models)
-                                                      │
-                                                      ▼
-                                              Phase 6 (project state)
-                                                      │
-                                                      ▼
-                                              Phase 7 (sync protocol)
-                                                      │
-                                                      ▼
-                              [Backend complete; frontend begins]
-                                                      │
-                                                      ▼
-                                Phase 8 (frontend foundation) ──► Phase 9 (core surfaces)
-                                                                        │
-                                                                        ▼
-                                                               Phase 10 (design lab)
-                                                                        │
-                                                                        ▼
-                                                      Phase 11 (polish / sign / notarize)
-                                                                        │
-                                                                        ▼
-                                                               Phase 12 (mobile)
+Phases 0–11: preliminary build  (✅ landed 2026-04-21)
+  └─ Rust core, safety, git, local-models helper source, sync types,
+     frontend shell, design lab, onboarding, polish scaffolding.
+
+Phase 12 — Real-integration validation     (3 parallel tracks)
+  ├─ 12.A  Real Claude Code subprocess      ─┐
+  ├─ 12.B  Foundation Models helper build   ─┼── gate → Phase 13
+  └─ 12.C  Tauri shell binary                ─┘
+
+Phase 13 — Wire the real runtime            (4 tracks, gated individually)
+  ├─ 13.D  Agent wire          (← 12.A + 12.C)
+  ├─ 13.E  Git + repo linking  (← 12.C)
+  ├─ 13.F  Local-model surfaces (← 12.B + 12.C)
+  └─ 13.G  Safety + Keychain   (← 12.C)
+
+Phase 14 — Sync transport        (parallel with 13, 15)
+Phase 15 — Hardening + polish    (parallel with 13, 14)
+
+Phase 16 — Shippable desktop build  (← 13 + 15;  14 optional)
+  └─ Signing, notarization, updater, crash-report endpoint, install QA.
+
+Phase 17 — Mobile  (← 14 + 16;  was Phase 12 in the original spec)
 ```
+
+---
+
+## Status (2026-04-21)
+
+Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `history.md` for detail; summary below.
+
+| Phase | State | Notes |
+|---|---|---|
+| 0 — De-risk spike | Abstractions landed | Trait surface (`Orchestrator`, `FoundationHelper`, `ClaudeFileWatcher`) landed in Phases 1–2. **Real validation against a live Claude Code install + Apple Foundation Models is still open** — see Phase 12a. |
+| 1 — Foundation | Done | 9-crate Cargo workspace, event-sourced SQLite core (WAL-bootstrapped), Tauri shell library edge. 19 Rust tests passing. |
+| 2 — Claude orchestration | Done (mock-first) | `MockOrchestrator` exercises the full event stream; `ClaudeCodeOrchestrator` is wired but unvalidated against real subprocess output. |
+| 3 — Safety | Done | `ApprovalGate`, `CostTracker`, `ScopeGuard`, `CspBuilder::strict()` + `SANDBOX_ATTRIBUTE` constant. All enforced in Rust core. |
+| 4 — Git ops | Done | `git` + `gh` wrappers, worktree/branch/PR/diff, `recent_overlap()` cross-workspace primitive. |
+| 5 — Local-model ops | Done (source-only) | Swift helper source, 4-byte-BE-framed JSON IPC, `NullHelper` fallback, cache + rate limiter. Helper binary not built in this env. |
+| 6 — Project/workspace state | Done | Lifecycle events, projector for aggregate state, conflict detection primitive. |
+| 7 — Sync | Done | Versioned `SyncFormat`, vector clocks, `SyncSession`, `OfflineQueue`, `PairingMaterial`. |
+| 8 — Frontend foundation | Done | React + Vite, Mini CSS wired, custom store over `useSyncExternalStore`, mock IPC client, dark-mode parity, reduced-motion. |
+| 9 — Core surfaces | Done | Three-pane layout, Cmd+K quick switcher (focus-trapped), tab primitive with ARIA (`role=tab`/`tabpanel`, arrow-key nav, roving tabindex, `aria-controls`/`aria-labelledby`), Home tab, streaming chat, activity spine with humanized event labels, skip-to-content link, h1→h2→h3 hierarchy. |
+| 10 — Design lab | Done | Component catalog, sandboxed prototype preview (meta-CSP + iframe sandbox), annotation layer, variant explorer. |
+| 11 — Polish | Scaffolded | Onboarding, `Updater` trait, panic-hook crash reports, `PACKAGING.md` signing runbook. Actual signing + notarization requires an Apple Developer identity. |
+
+11 frontend tests + 19 Rust tests + 6/6 Mini invariants passing; `cargo clippy --workspace --all-targets` clean; production build 58 KB gz JS + 9 KB gz CSS.
+
+### Still-open phases
+
+- **Phase 12** — Real-integration validation. Three independent tracks (A: real Claude Code, B: Swift helper build, C: Tauri shell). Any track can start first; nothing is serialized.
+- **Phase 13** — Wire the real runtime. Four tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety + Keychain). Each gated on specific Phase-12 tracks; most can proceed in parallel.
+- **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
+- **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
+- **Phase 16** — Shippable desktop build (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA). Gates on 13 + 15; Phase 14 optional for MVP.
+- **Phase 17** — Mobile (formerly Phase 12; renumbered). Requires Phase 14 in full and Phase 16.
+
+See the "Gaps after the preliminary build" section below for the full gap → phase mapping.
 
 ---
 
@@ -262,31 +290,259 @@ Only proceed to Phase 8 after this review.
 
 ---
 
-## Phase 12 — Mobile *(phase 2)*
+## Gaps after the preliminary build
 
-Deferred until desktop is stable. Planned deliverables:
+Phases 0–11 landed behind stable trait interfaces; every downstream subsystem plugs in without changing the shape above it. What remains is making the mocks real, wiring the plumbing the mocks hid, and shipping a signed binary. The list below is the **complete** gap inventory — every item maps to a named phase below.
 
-- Sync relay (tunneled connection or WebRTC between mobile and user's desktop).
+| # | Gap | Why it matters | Phase |
+|---|---|---|---|
+| G1 | Real Claude Code subprocess not validated | `claude team init/task/message` arg shape is guessed; file-watcher paths too | 12.A |
+| G2 | Swift Foundation Models helper not built | `LanguageModelSession.respond(to:)` call unverified; helper binary missing | 12.B |
+| G3 | Tauri shell binary absent | React app + Rust core can't talk in one process; no window chrome | 12.C |
+| G4 | PlanTab chat hardcodes `ackFor()` | No `Orchestrator::post_message` path from UI to agent | 13.D |
+| G5 | `create_workspace` doesn't create a git worktree | `GitOps` wired but never called from UI; no branch, no PR on disk | 13.E |
+| G6 | Local-model jobs (`recap`, `audit_claim`, `summarize_row`) have no caller | Activity spine summaries, morning recap, audit verdicts all stubbed | 13.F |
+| G7 | Approval resolution surface is a `setTimeout` in BuildTab | Real approvals need a real inbox; currently non-interactive | 13.G |
+| G8 | No repo-linking UI or file picker | User can't point Designer at a codebase | 13.E |
+| G9 | No user-repo file persistence (`core-docs/*.md`) | Spec calls for docs-in-repo; only `events.db` is written today | 13.E |
+| G10 | No sync transport (WebRTC / relay / pairing QR) | Protocol types exist, no wire | 14 |
+| G11 | Keychain integration missing | Spec invariant; no secret store today | 13.G |
+| G12 | Mini primitives (Box/Stack/Cluster) not used | Cohesion drift; every layout is inline CSS | 15 |
+| G13 | `correlation_id` / `causation_id` never set | Traces can't be reconstructed | 15 |
+| G14 | Manual-entropy pairing RNG fallback | Non-crypto for non-unix; worth `OsRng` | 15 |
+| G15 | Dark-mode visual regression harness absent | Parity unverified at pixel level | 15 |
+| G16 | Auto-grow chat textarea | Polish | 15 |
+| G17 | Apple Developer identity + signed build | Shippable gate | 16 |
+| G18 | Auto-update channel (signed `latest.json` + endpoint) | Ship gate | 16 |
+| G19 | Install QA on a clean Mac | Ship gate | 16 |
+| G20 | Crash-report endpoint (opt-in upload) | Ship gate | 16 |
+
+---
+
+## Work-order + parallelism at a glance
+
+```
+ ┌─ 12.A Real Claude Code ─┐
+ ├─ 12.B Foundation helper ┤── all three independent ──► Phase 13 gate
+ └─ 12.C Tauri shell ──────┘
+
+ Phase 13 — Wire the real runtime (four tracks, gated by inputs)
+ ├─ 13.D Agent wire      (needs 12.A + 12.C)
+ ├─ 13.E Git wire + repo-linking UI + core-docs persistence  (needs 12.C)
+ ├─ 13.F Local-model surfaces       (needs 12.B + 12.C)
+ └─ 13.G Safety surfaces + Keychain (needs 12.C)
+
+ Phase 14 — Sync transport
+ └─ Independent. Can run in parallel with Phase 13 or Phase 15.
+
+ Phase 15 — Hardening & polish
+ └─ Independent. Can run in parallel with Phase 13 or Phase 14.
+
+ Phase 16 — Shippable desktop build
+ └─ Requires Phases 13 + 15 substantially complete; Phase 14 optional for MVP.
+
+ Phase 17 — Mobile  (formerly Phase 12; same scope, renumbered for clarity)
+ └─ Requires Phase 14 in full (sync) + Phase 16 (signed desktop).
+```
+
+Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–G). Any letter-suffixed track can start as soon as its inputs are green. Nothing in the graph requires multiple humans — parallelism just means a solo builder can pick up whichever track unblocks the most next work.
+
+---
+
+## Phase 12 — Real-integration validation *(three independent tracks)*
+
+**Goal:** replace three trait mocks with live runtimes. Every track is independent — pick whichever is cheapest to access (hardware, auth, setup time).
+
+### Track 12.A — Real Claude Code subprocess (gap G1)
+
+**Blocks:** 13.D.
+**Needs:** a working Claude Code install + auth on the dev machine.
+
+**Steps:**
+- Run `ClaudeCodeOrchestrator::spawn_team` against a throwaway team with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
+- Catalog the actual file shapes in `~/.claude/teams/{team}/` and `~/.claude/tasks/{team}/`; write the inventory to `core-docs/integration-notes.md`.
+- Update `crates/designer-claude/src/watcher.rs::classify` against observed paths.
+- If `claude team init / task / message` CLI args differ from the placeholders in `claude_code.rs`, rewrite and note the final invocation pattern.
+- Add an integration test gated by `CLAUDE_CODE_INSTALLED=1` so CI stays green elsewhere.
+
+**Done when:** a gated integration test spawns a real team, observes `TaskCreated` / `TaskCompleted` / `TeammateIdle` through our trait surface, and round-trips cleanly.
+
+### Track 12.B — Swift Foundation Models helper build (gap G2)
+
+**Blocks:** 13.F.
+**Needs:** macOS 15+ with Apple Intelligence enabled.
+
+**Steps:**
+- `swift build -c release --package-path helpers/foundation`; confirm the binary runs.
+- Verify `LanguageModelSession.respond(to:)` still matches the shipping Apple SDK; adjust the Swift call if needed.
+- Smoke test: `SwiftFoundationHelper::ping()` returns real version + model strings.
+- Smoke test: `FoundationLocalOps::recap` against a small event window produces non-empty output that differs from the `NullHelper` fallback string.
+- Add the helper path to `AppConfig::default_in_home` and document how it's bundled in Phase 16 packaging.
+
+**Done when:** a test running on AI-capable hardware round-trips through the built helper, and every `LocalOps::*` job returns a response from the real helper instead of the `[offline …]` fallback.
+
+### Track 12.C — Tauri shell binary (gaps G3, G8 partial)
+
+**Blocks:** 13.D, 13.E, 13.F, 13.G (everything in Phase 13 needs the window to exist).
+**Needs:** nothing — no external dependency.
+
+**Steps:**
+- Add `tauri = "2"` + `tauri-build = "2"` to `apps/desktop/src-tauri/Cargo.toml`; scaffold `tauri.conf.json` (window size, title, macOS vibrancy, menu).
+- Register one `#[tauri::command]` per `designer_desktop::ipc::cmd_*` function. Wire `tauri::Builder::manage(Arc<AppCore>)` so commands share a single core.
+- Expose `AppCore.store.subscribe()` as a Tauri event channel named `designer://event-stream`. Update `MockIpcClient.stream` to listen on the channel when running under Tauri.
+- Author a restrictive allowlist in `tauri.conf.json`:
+  - FS: only `~/.designer/**` + paths passed into `link_repo` (see 13.E).
+  - Shell: `git`, `gh`, `claude`, `designer-foundation-helper` — nothing else.
+  - Network: the updater endpoint only (see Phase 16).
+  - No `tauri-plugin-dialog` globs beyond what the repo-linker flow needs.
+- Boot-smoke: `cargo tauri dev` opens a window; clicking "+ Project" creates a real `Project` in `~/.designer/events.db`.
+
+**Done when:** the desktop app is a single signed-able process; the React app renders against a live `AppCore` (not `MockCore`); the event broadcast from Rust reaches React via the Tauri channel.
+
+### Gate before Phase 13
+
+All three tracks complete, with the integration tests passing. Phase 13 tracks can begin individually as their inputs land (e.g., 13.E can start the moment 12.C lands, even before 12.A).
+
+---
+
+## Phase 13 — Wire the real runtime *(four tracks, gated individually)*
+
+**Goal:** turn the "scaffold that demos the UX" into "a product that actually does the thing." Each track replaces a stubbed frontend path with a real backend call.
+
+### Track 13.D — Agent wire (gaps G4)
+
+**Needs:** 12.A + 12.C.
+
+**Steps:**
+- Replace `PlanTab`'s `ackFor()` with `ipcClient().postMessage(workspace.id, "you", draft)`; add a corresponding `#[tauri::command]` backed by `Orchestrator::post_message`.
+- Stream agent replies back via the `designer://event-stream` channel (`MessagePosted` events with `author.role != "you"`).
+- Render incoming `MessagePosted` events into the chat as streaming-text bubbles; honor reduced-motion.
+- Add a "who's replying" indicator driven by `AgentSpawned` / `TeammateIdle` state.
+- Test against a real Claude team: ask "What's the plan for X?" and see a real reply land.
+
+**Done when:** a user message travels UI → Rust → Claude → events → UI with no hardcoded text anywhere; the activity spine shows the lead going active during the reply.
+
+### Track 13.E — Git wire + repo linking + core-docs persistence (gaps G5, G8, G9)
+
+**Needs:** 12.C.
+
+**Steps:**
+- Add a "Link repository" flow in the project-creation dialog (native file picker for a directory; validate it's a git repo root).
+- Extend `create_workspace` to call `GitOps::init_worktree` and append a `WorkspaceWorktreeAttached` event with the real path. Surface the worktree path in the workspace sidebar meta.
+- On first workspace create, also seed `core-docs/spec.md` / `plan.md` / `history.md` / `design-language.md` in the user's repo if absent (per spec decision #28).
+- Wire "Request merge" in `BuildTab` to `GitOps::open_pr` via a new command; feed `gh pr create --json` output back as a `PullRequestOpened` event.
+- Auto-cleanup: `WorkspaceArchived` removes the worktree.
+
+**Done when:** creating a workspace in the UI creates a real worktree + branch on disk; merging creates a real PR in the linked GitHub repo; archiving cleans up.
+
+### Track 13.F — Local-model surfaces (gap G6)
+
+**Needs:** 12.B + 12.C.
+
+**Steps:**
+- Replace `ActivitySpine`'s hardcoded summaries with `LocalOps::summarize_row` responses; cache for the row's lifetime.
+- Populate the Home tab's "Recent reports" card from `LocalOps::recap` over the last 24 h of events.
+- In the `needs-you` card, run `LocalOps::audit_claim` on completion claims and surface `contradicted` / `inconclusive` as attention items.
+- Add a project-wide "morning recap" command that generates a digest on first launch of the day (stored as a `Recap` event).
+
+**Done when:** spine summaries + recap + audit verdicts are real local-model output, not placeholders.
+
+### Track 13.G — Safety surfaces + Keychain (gaps G7, G11)
+
+**Needs:** 12.C.
+
+**Steps:**
+- Build an approval inbox (either a drawer inside `ActivitySpine` or a dedicated `/inbox` route). Lists pending `ApprovalRequested` events with grant/deny actions bound to `cmd_resolve_approval`.
+- Replace `BuildTab`'s `setTimeout(900)` with a real pending state that resolves only when the inbox grants.
+- Add a cost chip to the topbar (`CostTracker.usage`) with a color ramp as it approaches `CostCap.max_dollars_cents`.
+- Surface `ScopeDenied` events in the inbox with the denied path and the rule that matched.
+- Integrate `security-framework` (macOS Keychain) via a `SecretStore` trait; store any future agent credentials there (initial use: GitHub token discovery hint for `gh`).
+
+**Done when:** merge / publish / deploy gates block real agent writes until the inbox approves; cost chip visibly warns before cap; Keychain is the only place secrets live.
+
+---
+
+## Phase 14 — Sync transport *(parallel with Phase 13 or 15)* (gap G10)
+
+**Goal:** take the event stream peer-to-peer without a server.
+
+**Why independent:** the protocol shape is settled (see Phase 7). What's missing is a transport. None of the Phase 13 tracks care how the bits move between two Designer instances.
+
+**Steps:**
+- Pick a transport. Candidates: WebRTC data channel (Noise handshake seeded by `PairingMaterial`), direct WebSocket over LAN with mDNS discovery, or MASQUE relay. Decide in a short ADR; default proposal is WebRTC for mobile-compat.
+- Implement `SyncTransport` trait; first impl is WebRTC via `str0m` or equivalent pure-Rust stack.
+- Build a pairing UI: host shows a QR containing `PairingMaterial.secret`; mobile/second-desktop scans or types the 6-digit code.
+- Wire `OfflineQueue.drain` on reconnect.
+- Integration test: two Designer processes in the same `cargo test` sync a 20-event log bidirectionally without a server.
+
+**Done when:** two desktop instances on the same LAN (or the same user's iPhone tethered to desktop in Phase 17) sync workspaces without a hosted relay.
+
+---
+
+## Phase 15 — Hardening & polish *(parallel with Phase 13 or 14)* (gaps G12–G16)
+
+**Goal:** the quality-of-life pass that doesn't block shipping but defines the feel. Every item is independent — pick based on what the user feels most during dogfooding.
+
+- **Mini primitives migration (G12).** Rewrite `AppShell`, `HomeTab`, `ActivitySpine`, `WorkspaceSidebar` to use `Box` / `Stack` / `Cluster` / `Sidebar` from `@designer/ui/primitives`. Eliminate inline flex.
+- **Correlation/causation (G13).** When the orchestrator emits an event in response to a user action, set `causation_id` to the triggering event. The activity spine gains a "why did this happen" drilldown.
+- **Pairing RNG (G14).** Swap the manual `/dev/urandom` read in `PairingMaterial::random` for `rand::rngs::OsRng`.
+- **Dark-mode regression (G15).** Add a Vitest + Playwright combination that screenshot-diffs every primary surface in light + dark.
+- **Auto-grow chat textarea (G16).** Replace the `minHeight` + overflow approach in `PlanTab` with a content-height reflow.
+- **Event-log incrementalization.** `AppCore::sync_projector_from_log` is full-replay; once logs cross ~10k events it should incrementalize against the projector's last-seen sequence per stream.
+
+---
+
+## Phase 16 — Shippable desktop build *(gates on 13 + 15 being substantially done)* (gaps G17–G20)
+
+**Goal:** a `.dmg` a user can download and install.
+
+**Needs:** an Apple Developer identity (user-provided) and a host for the update channel.
+
+**Steps:**
+- Acquire Apple Developer identity + provisioning; set up CI secrets for signing.
+- First signed + notarized `.dmg` via `cargo tauri build` → `codesign` → `notarytool` (see `apps/desktop/PACKAGING.md`).
+- Updater backend: signed `latest.json` on a static host (Cloudflare Pages or similar). Ed25519 signing key in a sealed box; public key compiled into `Updater`.
+- Crash-report endpoint: opt-in upload to the same static host. Reports are structured JSON; no PII fields.
+- Install QA checklist run on a fresh Mac:
+  - `.dmg` opens without Gatekeeper warnings.
+  - First launch creates `~/.designer/`, shows onboarding, Cmd+K works.
+  - Dark-mode parity visually verified.
+  - Reduced-motion setting honored.
+  - Offline: app starts, creates projects, writes to DB.
+  - Auto-update check shown in Help menu; no silent install.
+
+**Done when:** someone who has never run `cargo` can install Designer, link a repo, and chat with a team lead.
+
+---
+
+## Phase 17 — Mobile *(formerly Phase 12; renumbered for clarity)* (originally spec §Mobile Strategy)
+
+Deferred until Phase 16 ships. Planned deliverables unchanged from the prior plan:
+
 - iOS client (read-only reports + approve/reject gates first).
 - Light editing (redirect agents, short replies, resume sessions).
-- Remote wake of desktop Claude Code sessions.
+- Remote wake of desktop Claude Code sessions over the Phase 14 sync transport.
 
-Mobile never cloud-hosts Claude. Desktop is always the runtime.
+Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 
 ---
 
 ## Milestones (summary)
 
-| Milestone | Phases | Approx. timeline |
-|---|---|---|
-| Architecture de-risked | 0 | Week 0 |
-| Core runs a Claude Code team | 1–2 | Week 4 |
-| Safety infrastructure in place | 3–4 | Week 7 |
-| Local-model ops working | 5 | Week 9 |
-| Multi-workspace + sync ready | 6–7 | Week 11 |
-| First user-visible surface | 8–9 | Week 14 |
-| Shippable desktop beta | 10–11 | Week 16 |
-| Mobile | 12 | Phase 2 |
+| Milestone | Phases | Parallel? | State |
+|---|---|---|---|
+| Architecture de-risked (abstractions) | 0, 1, 2 | — | ✅ Preliminary build |
+| Safety infrastructure in place | 3, 4 | — | ✅ Preliminary build |
+| Local-model ops working (source) | 5 | — | ✅ Preliminary build |
+| Multi-workspace + sync protocol | 6, 7 | — | ✅ Preliminary build |
+| First user-visible surface | 8, 9 | — | ✅ Preliminary build |
+| Design lab + polish scaffolding | 10, 11 | — | ✅ Preliminary build |
+| **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **Next** |
+| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after Phase 12) | Pending |
+| Sync transport | 14 | Yes (parallel with 13/15) | Pending |
+| Hardening + polish | 15 | Yes (parallel with 13/14) | Pending |
+| Shippable desktop beta | 16 | After 13 + 15 | Blocked on Apple Developer ID |
+| Mobile | 17 | After 16 + 14 | Phase 2 |
 
 ---
 

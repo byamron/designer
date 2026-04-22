@@ -177,6 +177,20 @@
   --focus-outline-offset: 2px;
   --focus-outline-color:  var(--accent-8);
 
+  /* ==================== Designer project-level tokens ====================
+     Not part of Mini's core contract — lives in the fork-and-own tokens.css
+     so Designer surfaces can reference named tokens instead of scattering
+     literals. If Mini later adopts these, they'll move upstream. */
+  --border-thin:     1px;
+  --border-strong:   2px;
+
+  --breakpoint-sm:   640px;
+  --breakpoint-md:   900px;
+  --breakpoint-lg:   1100px;
+
+  --motion-pulse:    1200ms;   /* subtle "active" state pulse */
+  --motion-blink:    700ms;    /* streaming cursor blink */
+
   /* ==================== Color — logical layer ==================== */
 
   /* Gray scale: sourced from the mauve Radix scale (axiom #4 — seed;
