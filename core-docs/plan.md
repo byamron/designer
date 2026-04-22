@@ -47,7 +47,10 @@ Phase 12 tracks:
 - [x] Theme persistence with zero-flash boot (sidecar `~/.designer/settings.json` + URL hash + inline script).
 - [x] macOS menu (App/File/Edit/Window/Help; View with DevTools in debug).
 - [x] Drag-region spacer in the project strip to clear overlay traffic lights.
-- [x] Compile/test gates: clippy clean, 23 Rust tests, 11 frontend tests, 6/6 Mini invariants.
+- [x] Compile/test gates: clippy clean (dev + release), 29 Rust tests, 11 frontend tests, 6/6 Mini invariants.
+- [x] Wire-boundary tests added: `StreamEvent::from(&EventEnvelope)` round-trip; `AppCore::open_tab` + `AppCore::spine`.
+- [x] `packages/app/src/ipc/tauri.ts` — shared runtime adapter (detection + dynamic-import cache + teardown-safe `listen`).
+- [x] `bootData` parallelized: three waves via `Promise.all` instead of three nested sequential awaits.
 - [ ] Interactive smoke (`cargo tauri dev`) on user's machine — deferred; requires GUI session.
 
 ### Phase 13 — Wire the real runtime *(after corresponding Phase 12 tracks)*

@@ -262,3 +262,76 @@ impl AppCore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designer_safety::CostCap;
+    use tempfile::tempdir;
+
+    async fn boot_test_core() -> Arc<AppCore> {
+        let dir = tempdir().unwrap();
+        let config = AppConfig {
+            data_dir: dir.path().to_path_buf(),
+            use_mock_orchestrator: true,
+            claude_options: Default::default(),
+            default_cost_cap: CostCap { max_dollars_cents: None, max_tokens: None },
+        };
+        // Leak the tempdir so the path stays live for the core's lifetime.
+        std::mem::forget(dir);
+        AppCore::boot(config).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn open_tab_appends_and_projects() {
+        let core = boot_test_core().await;
+        let project = core.create_project("P".into(), "/tmp".into()).await.unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab = core
+            .open_tab(ws.id, "Plan".into(), TabTemplate::Plan)
+            .await
+            .unwrap();
+        assert_eq!(tab.title, "Plan");
+        let refreshed = core.projector.workspace(ws.id).unwrap();
+        assert_eq!(refreshed.tabs.len(), 1);
+        assert_eq!(refreshed.tabs[0].id, tab.id);
+    }
+
+    #[tokio::test]
+    async fn spine_project_altitude_counts_workspaces() {
+        let core = boot_test_core().await;
+        let p = core.create_project("P".into(), "/tmp".into()).await.unwrap();
+        let _ = core.create_workspace(p.id, "a".into(), "main".into()).await.unwrap();
+        let _ = core.create_workspace(p.id, "b".into(), "main".into()).await.unwrap();
+
+        let rows = core.spine(None).await;
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.altitude, SpineAltitude::Project);
+        assert_eq!(row.label, "P");
+        assert_eq!(row.summary.as_deref(), Some("2 workspaces"));
+    }
+
+    #[tokio::test]
+    async fn spine_workspace_altitude_maps_state() {
+        let core = boot_test_core().await;
+        let p = core.create_project("P".into(), "/tmp".into()).await.unwrap();
+        let w = core.create_workspace(p.id, "ws".into(), "main".into()).await.unwrap();
+
+        let rows = core.spine(Some(w.id)).await;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].altitude, SpineAltitude::Workspace);
+        // Default WorkspaceState::Active maps to SpineState::Active.
+        assert!(matches!(rows[0].state, SpineState::Active));
+    }
+
+    #[tokio::test]
+    async fn spine_unknown_workspace_returns_empty() {
+        let core = boot_test_core().await;
+        let rows = core.spine(Some(WorkspaceId::new())).await;
+        assert!(rows.is_empty());
+    }
+}

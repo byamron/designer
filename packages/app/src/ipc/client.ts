@@ -1,9 +1,6 @@
-// Typed IPC client. When running inside Tauri, delegates to the `invoke` API.
-// When running in a browser (dev, Storybook-like flows, tests), delegates to a
-// deterministic in-memory mock so the surface is exercisable without the
-// WebView runtime. The frontend never knows which runtime it's on — the mock
-// enforces the same rules the real core would (approval gates, cost caps,
-// scope rules).
+// Typed IPC client. Under Tauri, delegates to the runtime adapter in ./tauri.
+// In a browser (dev, tests), delegates to the in-memory mock so the surface is
+// exercisable without the WebView. Callers never know which runtime they're on.
 
 import type {
   CreateProjectRequest,
@@ -18,6 +15,7 @@ import type {
   StreamEvent,
 } from "./types";
 import { createMockCore, type MockCore } from "./mock";
+import { invoke, isTauri, listen } from "./tauri";
 
 export interface IpcClient {
   listProjects(): Promise<ProjectSummary[]>;
@@ -27,7 +25,6 @@ export interface IpcClient {
   openTab(req: OpenTabRequest): Promise<Tab>;
   spine(id: WorkspaceId | null): Promise<SpineRow[]>;
   stream(handler: (event: StreamEvent) => void): () => void;
-  // Safety surfaces
   requestApproval(
     workspaceId: WorkspaceId,
     gate: string,
@@ -36,85 +33,35 @@ export interface IpcClient {
   resolveApproval(id: string, granted: boolean, reason?: string): Promise<void>;
 }
 
-// Tauri v2 sets `__TAURI_INTERNALS__` on the global as soon as the webview
-// boots. Dynamic-import the API modules so web/test builds don't try to load
-// native bridges that aren't there.
-function isTauri(): boolean {
-  return typeof globalThis !== "undefined" && "__TAURI_INTERNALS__" in globalThis;
-}
-
-const EVENT_STREAM_CHANNEL = "designer://event-stream";
+export const EVENT_STREAM_CHANNEL = "designer://event-stream";
 
 class TauriIpcClient implements IpcClient {
-  private listenerTeardowns = new Set<() => void>();
-
-  private async invoke<T>(
-    cmd: string,
-    args?: Record<string, unknown>,
-  ): Promise<T> {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<T>(cmd, args);
-  }
-
   listProjects() {
-    return this.invoke<ProjectSummary[]>("list_projects");
+    return invoke<ProjectSummary[]>("list_projects");
   }
   createProject(req: CreateProjectRequest) {
-    return this.invoke<ProjectSummary>("create_project", { req });
+    return invoke<ProjectSummary>("create_project", { req });
   }
   listWorkspaces(id: ProjectId) {
-    return this.invoke<WorkspaceSummary[]>("list_workspaces", {
-      projectId: id,
-    });
+    return invoke<WorkspaceSummary[]>("list_workspaces", { projectId: id });
   }
   createWorkspace(req: CreateWorkspaceRequest) {
-    return this.invoke<WorkspaceSummary>("create_workspace", { req });
+    return invoke<WorkspaceSummary>("create_workspace", { req });
   }
   openTab(req: OpenTabRequest) {
-    return this.invoke<Tab>("open_tab", { req });
+    return invoke<Tab>("open_tab", { req });
   }
   spine(id: WorkspaceId | null) {
-    return this.invoke<SpineRow[]>("spine", { workspaceId: id });
+    return invoke<SpineRow[]>("spine", { workspaceId: id });
   }
-
   stream(handler: (event: StreamEvent) => void) {
-    let unlisten: (() => void) | null = null;
-    let torn = false;
-    (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
-      const u = await listen<StreamEvent>(EVENT_STREAM_CHANNEL, (e) => {
-        handler(e.payload);
-      });
-      if (torn) {
-        u();
-      } else {
-        unlisten = u;
-        this.listenerTeardowns.add(u);
-      }
-    })().catch((err) => {
-      // Event listener failed to register — usually because capabilities
-      // don't allow listen, or the webview isn't a Tauri context. Log and
-      // hand back a no-op teardown so callers don't crash.
-      console.warn("event stream subscription failed", err);
-    });
-    return () => {
-      torn = true;
-      if (unlisten) {
-        unlisten();
-        this.listenerTeardowns.delete(unlisten);
-      }
-    };
+    return listen<StreamEvent>(EVENT_STREAM_CHANNEL, handler);
   }
-
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
-    return this.invoke<string>("request_approval", {
-      workspaceId,
-      gate,
-      summary,
-    });
+    return invoke<string>("request_approval", { workspaceId, gate, summary });
   }
   resolveApproval(id: string, granted: boolean, reason?: string) {
-    return this.invoke<void>("resolve_approval", { id, granted, reason });
+    return invoke<void>("resolve_approval", { id, granted, reason });
   }
 }
 

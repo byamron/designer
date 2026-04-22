@@ -33,26 +33,26 @@ export const useDataState = <U,>(selector: (s: DataState) => U) =>
 
 export async function bootData() {
   const client = ipcClient();
-  const projects = await client.listProjects();
+  const [projects, projectSpine] = await Promise.all([
+    client.listProjects(),
+    client.spine(null),
+  ]);
+  const workspaceLists = await Promise.all(
+    projects.map((p) => client.listWorkspaces(p.project.id)),
+  );
   const workspaces: Record<ProjectId, WorkspaceSummary[]> = {};
-  for (const p of projects) {
-    workspaces[p.project.id] = await client.listWorkspaces(p.project.id);
-  }
-  const spines: Record<string, SpineRow[]> = {
-    "project:*": await client.spine(null),
-  };
-  for (const group of Object.values(workspaces)) {
-    for (const w of group) {
-      spines[`workspace:${w.workspace.id}`] = await client.spine(w.workspace.id);
-    }
-  }
-  dataStore.set({
-    projects,
-    workspaces,
-    spines,
-    events: [],
-    loaded: true,
+  projects.forEach((p, i) => {
+    workspaces[p.project.id] = workspaceLists[i];
   });
+  const flatWorkspaces = workspaceLists.flat();
+  const workspaceSpines = await Promise.all(
+    flatWorkspaces.map((w) => client.spine(w.workspace.id)),
+  );
+  const spines: Record<string, SpineRow[]> = { "project:*": projectSpine };
+  flatWorkspaces.forEach((w, i) => {
+    spines[`workspace:${w.workspace.id}`] = workspaceSpines[i];
+  });
+  dataStore.set({ projects, workspaces, spines, events: [], loaded: true });
 
   client.stream((event) => {
     dataStore.set((s) => ({

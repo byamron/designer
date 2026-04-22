@@ -37,6 +37,39 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 12.C simplify pass — Tauri adapter, parallel boot, wire tests
+**Date:** 2026-04-21
+**Branch:** tauri-shell
+
+**What was done:**
+Three parallel agents reviewed the Phase 12.C diff (code reuse, code quality, efficiency). Consolidated findings, fixed each actionable item, added the two highest-value missing tests. Extracted `packages/app/src/ipc/tauri.ts` — a runtime adapter that owns `__TAURI_INTERNALS__` detection, dynamic-imports `invoke` / `listen` behind module-cached promises, and handles the "torn before ready" async-listener race in one place. `TauriIpcClient` and `App.tsx`'s menu listener now both consume this helper; the duplicated 20-line teardown dance in `App.tsx` + the dead `listenerTeardowns: Set<() => void>` field in `TauriIpcClient` are gone. Parallelized `bootData` in the frontend store: the three nested awaits (projects → workspaces → spines) became two `Promise.all` waves, cutting cold-start IPC latency from ~N+M+1 sequential calls to three parallel batches. Added Rust tests: `StreamEvent::from(&EventEnvelope)` round-trip in `designer-ipc` (2 tests — kind/sequence/timestamp/payload flattening + `summary: None` omission) and `AppCore::open_tab` / `spine` in `designer-desktop` (4 tests — tab append + project spine + workspace spine + unknown-workspace-empty). 29 Rust tests + 11 frontend tests + 6/6 Mini invariants + clippy clean in both dev and release.
+
+**Why:**
+The 12.C review pass caught runtime bugs; this simplify pass tightens the code that compiled. The Tauri adapter eliminates a pattern-duplication drift risk (two call sites of the torn-flag dance could drift as Tauri's event API evolves); the parallel bootData is a straight latency win; the new tests cover wire boundaries (StreamEvent shape) and new AppCore operations (`open_tab`, `spine`) that previously had no Rust-side coverage.
+
+**Design decisions:**
+- `ipc/tauri.ts` is the only module that touches `@tauri-apps/api`. Clients never dynamic-import the package directly. Keeps web/test builds from loading native bridges and gives a single place to evolve if Tauri's JS surface changes.
+- The adapter returns a synchronous-to-the-caller teardown fn from `listen()`, even though the underlying registration is async. Pattern handles "user tore down the listener before the subscription registered" without leaking.
+- `bootData` waits on `listProjects` + `spine(null)` first (they're independent), then fans out `listWorkspaces(p)` over projects, then fans out `spine(w)` over all workspaces. Three waves, not four — every wave does all its work in parallel.
+
+**Technical decisions:**
+- Module-level `invokePromise` / `listenPromise` are thunks (`() => import(...)`) rather than immediately-invoked so test environments that don't stub the Tauri package aren't forced to evaluate the import. Subsequent `await`s hit the ES-module cache after first call.
+- `StreamEvent::from` test uses `Timestamp::UNIX_EPOCH` so the RFC3339 output is deterministic (`"1970-01-01..."`); no clock flakiness.
+- `AppCore` tests leak the `tempdir()` rather than letting it drop at end of test. The core holds open SQLite connections; dropping the tempdir mid-test would race the pool shutdown. Leak is acceptable — tests are short-lived processes.
+
+**Tradeoffs discussed:**
+- Considered caching `Settings::load` in `AppCore::settings` field per the efficiency agent's finding. Rejected — the settings file is <200 bytes and load is O(1); caching adds state consistency responsibility (when does it invalidate?) without material perf win.
+- Considered moving `spine`'s summary formatting to a `SpineRow` builder method per the quality agent. Rejected — all current formatting is placeholder; Phase 13.F replaces wholesale with `LocalOps::summarize_row`. Extracting a builder now would be premature.
+- Agent 2 flagged a potential camelCase/snake_case mismatch (TS sends `projectId`, Rust expects `project_id`). Verified: Tauri v2 auto-converts between camelCase (JS default) and snake_case (Rust default) for command args. My code is correct for v2.
+
+**Roadmap alignment check:**
+All Phase 12.C deliverables from `roadmap.md` are met with one intentional deviation: the capability set is tighter than the roadmap suggested. Roadmap listed a restrictive "allowlist" (v1 terminology) including pre-declared FS / shell / network scopes. Tauri v2 uses capability plugins — you can only grant what you've pulled in as a dep. I pulled in no FS / shell / dialog / network plugins because 12.C doesn't need them; each arrives with the phase that uses it (13.E: FS + dialog for repo picker; 13.D: shell for claude; 13.F: shell for the Foundation helper; Phase 16: network for updater). This is stricter than the roadmap asked and gives the 12.C build the smallest possible surface to audit.
+
+**Lessons learned:**
+- Dynamic-import hygiene matters more than it looks. The old inline `(async () => { const { listen } = await import(...) })()` pattern was fine per file; across two call sites it was a drift risk.
+- Spawning review agents in parallel and aggregating is faster than doing review serially and catches different classes of issues — code-reuse agent caught the adapter-extraction opportunity; efficiency agent caught the bootData parallelization; quality agent caught the comment-cleanup work.
+- Adding tests at wire boundaries (serde round-trips, IPC command surfaces) pays more than adding tests of internal helpers. The StreamEvent test would catch a TS contract break that no other test would.
+
 ### Phase 12.C review pass — bug fixes + UX polish
 **Date:** 2026-04-21
 **Branch:** phase-12c-plan

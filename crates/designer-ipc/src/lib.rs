@@ -152,3 +152,64 @@ impl From<designer_core::EventEnvelope> for StreamEvent {
         StreamEvent::from(&env)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designer_core::{
+        Actor, EventEnvelope, EventId, EventPayload, ProjectId, StreamId, Timestamp,
+    };
+    use std::path::PathBuf;
+
+    fn envelope_with(payload: EventPayload, stream: StreamId) -> EventEnvelope {
+        EventEnvelope {
+            id: EventId::new(),
+            stream,
+            sequence: 7,
+            timestamp: Timestamp::UNIX_EPOCH,
+            actor: Actor::user(),
+            version: 1,
+            causation_id: None,
+            correlation_id: None,
+            payload,
+        }
+    }
+
+    #[test]
+    fn stream_event_flattens_project_created() {
+        let pid = ProjectId::new();
+        let env = envelope_with(
+            EventPayload::ProjectCreated {
+                project_id: pid,
+                name: "Designer".into(),
+                root_path: PathBuf::from("/tmp/demo"),
+            },
+            StreamId::Project(pid),
+        );
+        let ev = StreamEvent::from(&env);
+        assert_eq!(ev.kind, "project_created");
+        assert_eq!(ev.sequence, 7);
+        assert!(ev.stream_id.starts_with("project:"));
+        // Timestamp serializes as RFC3339 at the UNIX epoch.
+        assert!(ev.timestamp.starts_with("1970-01-01"));
+        // Payload round-trips the tag and fields.
+        let payload = ev.payload.as_ref().expect("payload present");
+        assert_eq!(payload.get("kind").and_then(|v| v.as_str()), Some("project_created"));
+        assert_eq!(payload.get("name").and_then(|v| v.as_str()), Some("Designer"));
+    }
+
+    #[test]
+    fn stream_event_serializes_with_camel_flattening() {
+        let pid = ProjectId::new();
+        let env = envelope_with(
+            EventPayload::ProjectRenamed { project_id: pid, name: "New".into() },
+            StreamId::Project(pid),
+        );
+        let ev = StreamEvent::from(env);
+        // summary is None → omitted entirely, not null.
+        let json = serde_json::to_value(&ev).unwrap();
+        assert!(json.get("summary").is_none());
+        assert!(json.get("payload").is_some());
+        assert_eq!(json.get("kind").and_then(|v| v.as_str()), Some("project_renamed"));
+    }
+}

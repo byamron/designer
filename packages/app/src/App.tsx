@@ -14,6 +14,7 @@ import {
   selectWorkspace,
   toggleQuickSwitcher,
 } from "./store/app";
+import { isTauri, listen } from "./ipc/tauri";
 
 export function App() {
   const loaded = useDataState((s) => s.loaded);
@@ -44,29 +45,14 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Tauri-only: File > New Project… menu item emits this event. In the web /
-  // test build, __TAURI_INTERNALS__ is absent and we skip.
   useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in globalThis)) return;
-    let unlisten: (() => void) | null = null;
-    let torn = false;
-    (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
-      const u = await listen<void>("designer://menu/new-project", () => {
-        void (async () => {
-          const id = await promptCreateProject();
-          if (id) selectProject(id);
-        })();
-      });
-      if (torn) u();
-      else unlisten = u;
-    })().catch((err) => {
-      console.warn("menu listener registration failed", err);
+    if (!isTauri()) return;
+    return listen<void>("designer://menu/new-project", () => {
+      void (async () => {
+        const id = await promptCreateProject();
+        if (id) selectProject(id);
+      })();
     });
-    return () => {
-      torn = true;
-      if (unlisten) unlisten();
-    };
   }, []);
 
   if (!loaded) {
