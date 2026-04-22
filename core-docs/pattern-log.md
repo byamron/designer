@@ -54,6 +54,30 @@ CSS Custom Properties can't appear inside `@media` conditions (spec limitation �
 
 Swapped the `@radix-ui/colors/gray` imports for `@radix-ui/colors/mauve`; added a `--gray-N: var(--mauve-N)` alias block in `:root` so every downstream Mini file (axioms.css, primitives.css, archetypes.css) continues to reference `--gray-N` unchanged. This is the Mini-sanctioned way to swap neutrals — the abstract `--gray-N` token name is stable; only the underlying Radix scale changes. If we want to try olive or sand later, it's a 4-line import swap + 24-line alias rewrite.
 
+## 2026-04-21 — Local-model provenance belongs at the artifact, not the chrome (pre-commit for 13.F)
+
+Phase 12.B landed the Swift Foundation Models helper infrastructure with zero UI. During the three-lens plan we debated where — and whether — to surface a "this summary is on-device" indicator. Rejected every global chrome placement (topbar chip, Settings → Privacy toggle, onboarding slide). Rationale: FB-0007 says absorbed tools should feel invisible with subtle surfacing; FB-0002 says suggest, don't act. A global chip announces a dependency the user never chose and can't meaningfully reconfigure. The user feels the helper through its *output* (faster spine summaries, on-device recap, audit verdicts), not through the app's plumbing.
+
+Decision for 13.F: provenance strings live adjacent to the artifact they describe — spine summary row, Home recap card, audit verdict tile — programmatically associated via `aria-describedby`. Three vocabulary strings now live on the Rust side of the IPC (`apps/desktop/src-tauri/src/ipc.rs::provenance_for`), keyed by the three-way `recovery` routing:
+
+- `"Summarized on-device"` (`provenance-live`) — helper is live; artifact is real model output.
+- `"Local model briefly unavailable"` (`provenance-transient`) — recoverable fallback (missing binary, timeout, crash). UI should show a skeleton / empty artifact body and may offer a retry affordance.
+- `"On-device models unavailable"` (`provenance-terminal`) — terminal fallback (unsupported macOS, Apple Intelligence unavailable). UI must not offer retry.
+
+Rejected the single "Fallback summary" phrase from the first draft: (a) "fallback" is engineer vocabulary, (b) `NullHelper::generate` returns a diagnostic marker rather than a summary, so any literal "fallback summary" label over-promises. The three-way split is driven by the IPC's `recovery` field (`user` / `reinstall` / `none`) so renderers branch on routing, not parse error strings.
+
+Not a tooltip-only affordance — the text must be present in the DOM for screen readers. `provenance_id` is stable kebab-case across sessions so `aria-describedby` references don't shift when state changes.
+
+## 2026-04-21 — Helper binary lives inside the `.app` bundle, not `$HOME/.designer/bin/`
+
+Initial Phase 12.B plan had the Swift helper installed to `$HOME/.designer/bin/designer-foundation-helper`. Industry-conventions pass replaced that with the Chrome/Electron/VS Code pattern: production binary lives inside `Contents/MacOS/designer-foundation-helper` alongside the main executable. Reasons: (1) single `codesign --deep` pass covers both binaries; (2) app + helper version are atomically bound — never skew across updates; (3) hardened-runtime compatible without an explicit entitlement to exec an unsigned sibling; (4) no install step for the user and no pre-flight path-resolution in the updater. Dev keeps the binary at `helpers/foundation/.build/release/designer-foundation-helper` where `swift build` puts it; `AppConfig::default_in_home()` detects `.app`-bundle vs. Cargo-dev context via `std::env::current_exe().ancestors()` and resolves the correct path automatically. Phase 16 packaging will copy the release artifact into the bundle during `cargo tauri build`.
+
+<!-- "Supervisor fails fast" was here. Moved to `core-docs/integration-notes.md` §12.B per UX review: it's a code contract, not a UX decision pattern. -->
+
+## 2026-04-21 — Helper events fan-out via broadcast, not event-stream
+
+Initially considered adding `HelperStateChanged` as an `EventPayload` variant to the persisted event log so 13.F could subscribe to helper transitions through the existing projector channel. Rejected: the event log is per-workspace and event-sourced (SQLite-backed), whereas helper health is per-process runtime state with no meaningful history. Persisting demotion/recovery events would pollute workspace replay with process-scoped noise and make "what did the workspace do" harder to audit. Chose a separate `tokio::sync::broadcast` channel on `AppCore` (`subscribe_helper_events()`), fed by the supervisor's own internal channel through a small forwarding task. Costs one tokio spawn per boot; decouples transport (runtime) from persistence (workspace). 13.F subscribers get cheap O(1) fan-out without polling per-artifact.
+
 ## 2026-04-21 — Gray flavor moved mauve → sand
 
 User feedback on the first dashboard screenshot: the mauve cast felt decorative next to the monochrome accent policy, reading as "a theme" rather than a neutral register. Against the Notion / Linear / Dia / Claude inspiration set the product should be a warm black-and-white — paper, not cream. Swapped the Radix imports in `packages/ui/styles/tokens.css` from mauve → sand and rewrote the `--gray-N: var(--sand-N)` alias block. Zero app-code changes: every consumer references `--gray-N` / `--color-*` role aliases, so the cascade propagated cleanly. Design-language.md axiom #4 amended to reflect the choice.

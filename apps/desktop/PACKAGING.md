@@ -60,6 +60,45 @@ The signing key for updates lives in `~/.tauri/designer.key`. Rotate with
 care; rotating invalidates auto-update for older installs and requires a
 manual download of the new build.
 
+## Helper binary
+
+Designer ships the Swift Foundation Models helper (`helpers/foundation/`)
+**inside** the `.app` bundle, at `Contents/MacOS/designer-foundation-helper`
+alongside the main executable. This follows the Chrome / Electron / VS Code
+convention: one signing pass, atomic updates (helper version never skews from
+the app), hardened-runtime compatible, and no user-space install step.
+
+### Dev (Phase 12.B, today)
+
+```sh
+./scripts/build-helper.sh
+```
+
+Artifact stays at `helpers/foundation/.build/release/designer-foundation-helper`.
+`AppConfig::default_in_home()` resolves this path automatically when Designer
+is run via Cargo. Override with `DESIGNER_HELPER_BINARY=/abs/path/to/binary`.
+
+### Production (Phase 16)
+
+The `cargo tauri build` step above needs an `externalBin` entry (or equivalent
+post-build copy) that places the release helper at
+`Contents/MacOS/designer-foundation-helper` inside the bundled `.app`. The
+`codesign --deep` invocation then signs it under the same Developer ID as the
+main binary; no separate signing pipeline.
+
+Runtime resolution: when Designer detects it's running from a `.app` bundle
+(parent path contains `Contents/MacOS`), `AppConfig::default_in_home()`
+resolves the helper to `<current_exe>/../designer-foundation-helper` — the
+path that the signed bundle guarantees.
+
+### Fallback
+
+If the helper binary is missing, fails a 750ms boot ping, or is disabled via
+`DESIGNER_DISABLE_HELPER=1`, Designer continues with on-device features
+disabled and surfaces a structured `fallback_reason` through the
+`helper_status` IPC. See `core-docs/integration-notes.md` §12.B for the full
+taxonomy and the recovery routing (`user` / `reinstall` / `none`).
+
 ## Crash reports
 
 Default: disabled. When enabled, reports are JSON files in

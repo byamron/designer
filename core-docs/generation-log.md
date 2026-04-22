@@ -65,6 +65,18 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - deviations: `data-tauri-drag-region` attribute is Tauri-runtime-specific markup, not an a11y or design concern — the attribute is inert in the web/mock build
 - feedback: accepted
 
+## 2026-04-21T20:00:00Z — manual (phase 12.B, three-lens plan + backend impl)
+- prompt: "review the codebase and core docs and create a plan for phase 12B on the roadmap from the perspective of a staff UX designer, staff engineer, and staff designer engineer. Once you complete the plan, review it for optimizations and apply them, then surface any questions or decisions that need my consultation"
+- trigger: manual (three-lens plan → backend implementation; no UI surfaces touched)
+- archetype-reused: none
+- components-reused: none
+- components-new: none — intentional zero-UI deliverable
+- primitives: none used (no frontend files touched)
+- tokens: none touched
+- invariants: n/a (no frontend files modified)
+- deviations: none. The design-engineer lens specifically argued for zero UI: FB-0007 (invisible infrastructure) and FB-0002 (suggest, don't act) govern. Helper provenance belongs at the artifact (Phase 13.F output) not the chrome — see pattern-log entry "Local-model provenance belongs at the artifact, not the chrome". Vocabulary strings ("Summarized on-device" / "Fallback summary") drafted in pattern-log for 13.F to adopt.
+- feedback: pending
+
 ## 2026-04-21T22:45:00Z — manual (home variants + sand palette)
 - prompt: "UI critique — too many text sizes, everything feels cramped; move off mauve to a warm sand/beige neutral; test Direction A (quieter dashboard) and Direction B (palette-first home) as switchable variants."
 - trigger: manual (Mini procedure followed by hand; generate-ui not invoked because this was a paired design + refactor across the token layer and two new components)
@@ -76,6 +88,18 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - tokens: swapped mauve → sand at the Radix import layer; new usage of --type-lead-size, --type-caption-size, --radius-modal, --radius-pill, --radius-badge, --weight-medium, --color-surface-flat/raised/overlay, --color-border, --motion-interactive, --border-thin, --focus-outline-* ; no arbitrary px/hex/ms introduced
 - invariants: pending (node_modules not installed in this workspace — defer run to next CI/dev boot)
 - deviations: variant-toggle uses runtime localStorage persistence (not event-sourced); acceptable for a pre-ship UX decision tool, not durable state.
+- feedback: pending
+
+## 2026-04-21T23:15:00Z — manual (phase 12.B, two-lens review pass)
+- prompt: "review the implementation from the perspective of a staff ux designer, and a staff engineer. converge on a prioritized list of improvements and optimizations, and fix any errors. When everything is optimized, update core docs and prepare a PR"
+- trigger: manual (two-lens post-implementation review + applied fixes)
+- archetype-reused: none
+- components-reused: none
+- components-new: none — review was backend-only, zero UI touched
+- primitives: none used
+- tokens: none touched
+- invariants: 6/6 pass (re-verified after all fixes)
+- deviations: none. Vocabulary refined to three provenance strings ("Summarized on-device" / "Local model briefly unavailable" / "On-device models unavailable") matching the new `recovery` taxonomy, all logged in pattern-log. "Fallback summary" draft retired — the UX reviewer caught that `NullHelper::generate` returns a diagnostic marker, not a summary.
 - feedback: pending
 
 ## 2026-04-22T02:30:00Z — manual (agentation 16-annotation pass)

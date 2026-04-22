@@ -72,11 +72,15 @@ pub trait LocalOps: Send + Sync {
 /// Default `LocalOps` implementation: wraps a `FoundationHelper` and produces
 /// typed outputs by constructing deterministic prompts and parsing JSON
 /// responses. Non-JSON responses degrade to lossy text reuse.
-pub struct FoundationLocalOps<H: FoundationHelper> {
+///
+/// `H: ?Sized` so that `Arc<dyn FoundationHelper>` can be wrapped directly —
+/// `AppCore` decides whether to supply a `SwiftFoundationHelper` or a
+/// `NullHelper` at boot time, and this wrapper does not need to know which.
+pub struct FoundationLocalOps<H: FoundationHelper + ?Sized> {
     helper: Arc<H>,
 }
 
-impl<H: FoundationHelper> FoundationLocalOps<H> {
+impl<H: FoundationHelper + ?Sized> FoundationLocalOps<H> {
     pub fn new(helper: Arc<H>) -> Self {
         Self { helper }
     }
@@ -119,7 +123,7 @@ fn prompt_summarize(input: &RowSummarizeInput) -> String {
 }
 
 #[async_trait]
-impl<H: FoundationHelper + 'static> LocalOps for FoundationLocalOps<H> {
+impl<H: FoundationHelper + ?Sized + 'static> LocalOps for FoundationLocalOps<H> {
     async fn context_optimize(
         &self,
         input: ContextOptimizerInput,
@@ -153,7 +157,17 @@ impl<H: FoundationHelper + 'static> LocalOps for FoundationLocalOps<H> {
 
     async fn audit_claim(&self, input: AuditClaim) -> HelperResult<AuditVerdict> {
         let text = self.helper.generate(JobKind::AuditClaim, &prompt_audit(&input)).await?;
-        Ok(match text.trim().to_lowercase().as_str() {
+        // Real-model responses often include trailing punctuation ("Supported.")
+        // or wrap the verdict in a sentence ("The claim is supported."). Normalize
+        // aggressively: take the first word of the lowercased, trimmed response
+        // and strip any trailing punctuation.
+        let normalized: String = text
+            .trim()
+            .to_lowercase()
+            .chars()
+            .take_while(|c| c.is_alphabetic())
+            .collect();
+        Ok(match normalized.as_str() {
             "supported" => AuditVerdict::Supported,
             "contradicted" => AuditVerdict::Contradicted,
             _ => AuditVerdict::Inconclusive,
