@@ -21,12 +21,12 @@
    No chromatic accent imports. --accent-* below is rebound to --gray-*. */
 
 /* ---------- Neutral (always one per project) ----------
-   Gray flavor: mauve seed (axiom #4). Olive and sand are explicit
-   alternatives to try — swap the 4 imports below and re-sync. */
-@import "@radix-ui/colors/mauve.css";
-@import "@radix-ui/colors/mauve-dark.css";
-@import "@radix-ui/colors/mauve-alpha.css";
-@import "@radix-ui/colors/mauve-dark-alpha.css";
+   Gray flavor: sand (axiom #4). Warm neutral — reads as paper, not
+   cream; compatible with the monochrome accent policy. */
+@import "@radix-ui/colors/sand.css";
+@import "@radix-ui/colors/sand-dark.css";
+@import "@radix-ui/colors/sand-alpha.css";
+@import "@radix-ui/colors/sand-dark-alpha.css";
 
 /* ---------- Semantic (fixed, never accent-swapped) ---------- */
 @import "@radix-ui/colors/green.css";
@@ -191,25 +191,31 @@
   --motion-pulse:    1200ms;   /* subtle "active" state pulse */
   --motion-blink:    700ms;    /* streaming cursor blink */
 
+  /* Icon sizing (axiom #13). All Designer SVGs use currentColor; pick one
+     of these three sizes. stroke-width 1.25 at sm/md, 1.5 at lg. */
+  --icon-sm:         0.75rem;  /* 12px */
+  --icon-md:         0.875rem; /* 14px */
+  --icon-lg:         1rem;     /* 16px */
+
   /* ==================== Color — logical layer ==================== */
 
-  /* Gray scale: sourced from the mauve Radix scale (axiom #4 — seed;
-     olive and sand are explicit alternatives to try). --gray-* is the
-     abstract token name consumed throughout Mini; keep it stable even
-     as the underlying scale changes. */
-  --gray-1:  var(--mauve-1);   --gray-2:  var(--mauve-2);
-  --gray-3:  var(--mauve-3);   --gray-4:  var(--mauve-4);
-  --gray-5:  var(--mauve-5);   --gray-6:  var(--mauve-6);
-  --gray-7:  var(--mauve-7);   --gray-8:  var(--mauve-8);
-  --gray-9:  var(--mauve-9);   --gray-10: var(--mauve-10);
-  --gray-11: var(--mauve-11);  --gray-12: var(--mauve-12);
+  /* Gray scale: sourced from the sand Radix scale (axiom #4). Warm
+     neutral — black-and-white with a whisper of warmth. --gray-* is
+     the abstract token name consumed throughout Mini; keep it stable
+     even as the underlying scale changes. */
+  --gray-1:  var(--sand-1);   --gray-2:  var(--sand-2);
+  --gray-3:  var(--sand-3);   --gray-4:  var(--sand-4);
+  --gray-5:  var(--sand-5);   --gray-6:  var(--sand-6);
+  --gray-7:  var(--sand-7);   --gray-8:  var(--sand-8);
+  --gray-9:  var(--sand-9);   --gray-10: var(--sand-10);
+  --gray-11: var(--sand-11);  --gray-12: var(--sand-12);
 
-  --gray-a1:  var(--mauve-a1);   --gray-a2:  var(--mauve-a2);
-  --gray-a3:  var(--mauve-a3);   --gray-a4:  var(--mauve-a4);
-  --gray-a5:  var(--mauve-a5);   --gray-a6:  var(--mauve-a6);
-  --gray-a7:  var(--mauve-a7);   --gray-a8:  var(--mauve-a8);
-  --gray-a9:  var(--mauve-a9);   --gray-a10: var(--mauve-a10);
-  --gray-a11: var(--mauve-a11);  --gray-a12: var(--mauve-a12);
+  --gray-a1:  var(--sand-a1);   --gray-a2:  var(--sand-a2);
+  --gray-a3:  var(--sand-a3);   --gray-a4:  var(--sand-a4);
+  --gray-a5:  var(--sand-a5);   --gray-a6:  var(--sand-a6);
+  --gray-a7:  var(--sand-a7);   --gray-a8:  var(--sand-a8);
+  --gray-a9:  var(--sand-a9);   --gray-a10: var(--sand-a10);
+  --gray-a11: var(--sand-a11);  --gray-a12: var(--sand-a12);
 
   /* Accent: monochrome by policy (axiom #3) — bound to --gray-*.
      No [data-accent] variants; do not introduce a chromatic accent

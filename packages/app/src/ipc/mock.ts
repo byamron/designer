@@ -12,6 +12,7 @@ import type {
   SpineRow,
   StreamEvent,
   Tab,
+  TabId,
   TabTemplate,
   Workspace,
   WorkspaceId,
@@ -33,6 +34,7 @@ export interface MockCore {
   listWorkspaces(id: ProjectId): WorkspaceSummary[];
   createWorkspace(req: CreateWorkspaceRequest): WorkspaceSummary;
   openTab(req: OpenTabRequest): Tab;
+  closeTab(workspaceId: WorkspaceId, tabId: TabId): void;
   spine(id: WorkspaceId | null): SpineRow[];
   subscribe(h: Listener): () => void;
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string): string;
@@ -84,6 +86,7 @@ export function createMockCore(): MockCore {
     project_id: designerProject.id,
     name: "onboarding",
     state: "active",
+    status: "in_progress",
     base_branch: "main",
     worktree_path: null,
     created_at: now(),
@@ -99,6 +102,7 @@ export function createMockCore(): MockCore {
     project_id: designerProject.id,
     name: "activity-spine",
     state: "paused",
+    status: "pr_open",
     base_branch: "main",
     worktree_path: null,
     created_at: now(),
@@ -229,6 +233,19 @@ export function createMockCore(): MockCore {
         summary: `Tab '${tab.title}' (${tab.template}) opened`,
       });
       return tab;
+    },
+    closeTab(workspaceId, tabId) {
+      const w = workspaces.find((w) => w.id === workspaceId);
+      if (!w) return;
+      const t = w.tabs.find((t) => t.id === tabId);
+      if (!t || t.closed_at) return;
+      t.closed_at = now();
+      emit({
+        kind: "tab_closed",
+        stream_id: workspaceId,
+        timestamp: now(),
+        summary: `Tab '${t.title}' closed`,
+      });
     },
     spine: spineFor,
     subscribe(handler) {

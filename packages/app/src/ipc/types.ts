@@ -9,6 +9,17 @@ export type Autonomy = "suggest" | "act" | "scheduled";
 
 export type WorkspaceState = "active" | "paused" | "archived" | "errored";
 
+// Work-progression status, orthogonal to WorkspaceState (lifecycle).
+// A workspace can be "active" (lifecycle) and "in_review" (status) at once.
+export type WorkspaceStatus =
+  | "idle"
+  | "in_progress"
+  | "in_review"
+  | "pr_open"
+  | "pr_conflict"
+  | "pr_ready"
+  | "pr_merged";
+
 export type TabTemplate = "plan" | "design" | "build" | "blank";
 
 export type SpineState =
@@ -42,6 +53,7 @@ export interface Workspace {
   project_id: ProjectId;
   name: string;
   state: WorkspaceState;
+  status?: WorkspaceStatus;
   base_branch: string;
   worktree_path: string | null;
   created_at: string;

@@ -78,6 +78,55 @@ Initial Phase 12.B plan had the Swift helper installed to `$HOME/.designer/bin/d
 
 Initially considered adding `HelperStateChanged` as an `EventPayload` variant to the persisted event log so 13.F could subscribe to helper transitions through the existing projector channel. Rejected: the event log is per-workspace and event-sourced (SQLite-backed), whereas helper health is per-process runtime state with no meaningful history. Persisting demotion/recovery events would pollute workspace replay with process-scoped noise and make "what did the workspace do" harder to audit. Chose a separate `tokio::sync::broadcast` channel on `AppCore` (`subscribe_helper_events()`), fed by the supervisor's own internal channel through a small forwarding task. Costs one tokio spawn per boot; decouples transport (runtime) from persistence (workspace). 13.F subscribers get cheap O(1) fan-out without polling per-artifact.
 
+## 2026-04-21 — Gray flavor moved mauve → sand
+
+User feedback on the first dashboard screenshot: the mauve cast felt decorative next to the monochrome accent policy, reading as "a theme" rather than a neutral register. Against the Notion / Linear / Dia / Claude inspiration set the product should be a warm black-and-white — paper, not cream. Swapped the Radix imports in `packages/ui/styles/tokens.css` from mauve → sand and rewrote the `--gray-N: var(--sand-N)` alias block. Zero app-code changes: every consumer references `--gray-N` / `--color-*` role aliases, so the cascade propagated cleanly. Design-language.md axiom #4 amended to reflect the choice.
+
+## 2026-04-21 — Home as two switchable variants (Panels vs. Palette)
+
+Same critique pass surfaced two plausible directions for the workspace home:
+
+- **Variant A (Panels)** keeps the dashboard metaphor but drops every card border, uses titled panels on a single surface, hairline dividers between logical groups, and one type scale. Summary of what was wrong with the old home: ~5 type sizes fighting, every card equally weighted, mauve accent without a job.
+- **Variant B (Palette)** abandons the dashboard entirely. Centered prompt + 4–6 context-aware suggestions + a collapsible brief. Directly inspired by Dia's new-tab pattern and a more literal reading of the product principle *summarize by default, drill on demand*.
+
+Rather than pick upfront, both variants ship behind a runtime toggle (`dashboardVariant` in `appStore`, persisted to localStorage; pill toggle in the main top bar). Reasoning: this is a load-bearing UX decision; one of the variants only reveals its strengths after a few days of real use, and A/B-in-hand beats speculative judgment. A component manifest entry exists for each variant; generation-log records the paired decision. Whichever wins becomes canonical and the loser is deleted.
+
+## 2026-04-21 — Panels-not-cards pattern promoted to axiom
+
+Adopted "panels, not cards" as a general pattern (new bullet in design-language.md §Patterns). Inside a content surface, sections are titled blocks with whitespace + hairline dividers; bordered rectangles are reserved for genuinely floating surfaces (modals, tray items, quick-switcher). Driver: bordered cards compound visually across a dashboard, borders compete with the top-bar + tabs-bar + sidebar + activity-spine borders that are already present at the shell level, and a dashboard of equally-weighted cards has no anchor. The lab tiles (`.lab-tile`) remain bordered because they represent discrete things-you-can-pick — matching the pattern rather than violating it.
+
+## 2026-04-22 — Spacing rhythm codified as axiom #11 (3/4/5/6)
+
+An ad-hoc spacing audit found ~6 different canonical gaps in use (`space-1` through `space-6` with no rhyme). Codified a four-step rhythm: `--space-3` (8px) for inline gaps and row horizontal padding, `--space-4` (16px) for panel edge padding and group gap, `--space-5` (24px) for stacked content blocks and main inset, `--space-6` (32px) for section breaks on home surfaces. `--space-1 / --space-2 / --space-7 / --space-8` remain legal but should be justified at their call site. Documented at the top of `app.css` so it's visible to anyone editing CSS. Design-language axiom #11.
+
+## 2026-04-22 — Home moved from workspace-tab to project-level surface
+
+User feedback on the Linear reference: "Home is a project-level tab, not a workspace-level tab — it should be in the left sidebar." Refactored so `HomeTabA` and `HomeTabB` take a `Project` rather than a `Workspace`; `WorkspaceSidebar` gained a Home button above the Workspaces list; `MainView` routes to project-home when `activeWorkspace` is null and workspace tabs no longer include a Home entry. The `activeTabByWorkspace` type narrowed from `TabId | "home"` to `TabId`. New axiom #12 codifies the IA scope as `project : workspace : tab`.
+
+## 2026-04-22 — Linear-style tabs with close-on-hover + single +New dropdown
+
+Rewrote the tabs bar twice: first to flex-equal pills, then (per user feedback) to fixed-width-with-shrink pills that take their natural size and shrink proportionally when crowded (`flex: 0 1 calc(var(--space-8) * 3)` + min/max widths). Each tab has a template icon + label + a hover-revealed `X` close affordance (also responds to middle-click and ⌘W). Replaced the four-button template cluster with a single `+ New tab` button opening a menu of Plan/Design/Build/Blank (⌘T to toggle, click-outside or Escape to close). Added `TabLayout` primitive to give tabs a scrollable content region plus an optional bottom dock slot (compose).
+
+## 2026-04-22 — Compose as dock, not panel
+
+Earlier iterations put the PlanTab chat input inside its own bordered panel at the bottom of the tab. Feedback: "the input shouldn't be in its own panel — it should float within the workspace container." Removed the dock's background + border-top; the compose container (rounded card, focus-within ring via `box-shadow`) now floats directly in the tab body with matching max-width. The footer row (model / effort / plan-mode) sits inside the same container, separated by a hairline. Drag-over lights the outer border (`data-dragging="true"`). This also refined axiom #10 to cover container-level focus-within for compose-style surfaces.
+
+## 2026-04-22 — Workspace status icons (PR progression orthogonal to lifecycle)
+
+Added a `WorkspaceStatus` type (`idle | in_progress | in_review | pr_open | pr_conflict | pr_ready | pr_merged`) orthogonal to the existing `WorkspaceState` (`active | paused | archived | errored`). When `status` is set on a workspace, a 12×12 semantic-colored SVG glyph renders in its sidebar row in place of the state-dot; otherwise the state-dot renders. Colors come from semantic scales (`--info-11` / `--warning-11` / `--danger-11` / `--success-11`) so they stay legible in dark mode. This is TS-only for now — the Rust IPC schema carries `state` but not `status` yet; Phase 13.E tracks bringing it across the IPC boundary.
+
+## 2026-04-22 — Spine indent rails via repeating-linear-gradient
+
+ActivitySpine rows render as a flat list with `padding-left: calc(var(--space-4) * depth)` for indent. To draw the faint vertical trunk lines that connect children to ancestors, each row gets a `repeating-linear-gradient` background limited to `width: calc(var(--space-4) * depth)` — so depth=0 draws nothing, depth=1 draws one line at x=space-2, depth=N draws N lines at 8px / 24px / 40px / …. CSS-only, respects theme (uses `--color-border`), and avoids adding per-ancestor pseudo-elements.
+
+## 2026-04-22 — False affordances are bugs (mic disabled pattern)
+
+PlanTab's compose surface shows an icon for dictation that isn't wired yet (Phase 13). First iteration left the button interactive with an empty onClick and a "TBD" comment — a dead click target. Revised: the button is explicitly `disabled`, with an aria-label + title of "Dictation — coming soon". CSS drops opacity to 0.45 and disables hover interactions. This is now a design-language pattern: any visible affordance must do something, even if that something is "explain why it's disabled."
+
+## 2026-04-22 — Staff review pass: correctness + token + a11y cleanup
+
+Ran three parallel audits (UX / engineer / design engineer) against the shipped surface. Fixed: (a) five CSS rules that referenced the non-existent `--type-weight-*` family; replaced with `--weight-*` (Onboarding.tsx had one too). (b) `.compose__input:focus { outline: none }` stripped the focus ring — moved the ring to `.compose:focus-within` via `box-shadow` so the container glows on focus (axiom #10 refinement). (c) `TabContent` lacked a React `key` tied to workspace.id, so PlanTab draft state bled across workspaces when switching; now keyed as `${workspace.id}:${activeTab}`. (d) HomeTabB's suggestion list used `key={i}` — replaced with stable `Suggestion.id` strings. (e) `ActivitySpine.countState` and `flattenSpine` now null-safe on `children`. (f) PlanTab's mic disabled + labeled "Coming soon." Added a `--icon-sm/md/lg` token family (axiom #13). Added tests for closeTab and variant-toggle.
+
 ## 2026-04-21 — Traffic-light inset via `titleBarStyle: Overlay` + drag spacer
 
 Tauri's overlay title-bar style hides the title text but keeps macOS traffic lights, floating them over the webview. To prevent the lights from colliding with the first project icon, the project strip now renders an empty `.app-strip-drag` element with `data-tauri-drag-region` at the top of the list — tall enough (`--space-6`) to clear the ~28px lights, wide enough to serve as a grip for window drags. In the web/mock build the element is a harmless blank spacer; Tauri promotes it to a system drag region at runtime. Rejected: using `tauri-plugin-window-state` or a full custom title bar — both add configuration surface without improving the visual.
@@ -100,7 +149,7 @@ Tauri v2 creates windows declared in `tauri.conf.json`'s `app.windows` array bef
 
 ## 2026-04-21 — Bg color must derive from the token table, not be eyeballed
 
-First pass used `#FAFAFA` / `#0B0B0B` as approximations of "near-white" and "near-black". In light mode the 5/255 diff was invisible; in dark mode the 0x0B-vs-0x18 diff was visibly too dark on cold boot. Swapped to the exact mauve-1 values (`#fdfcfd` / `#18181a`) returned by `ResolvedTheme::background_rgba()`. Lesson: don't approximate chrome colors. If the gray flavor is ever swapped (mauve → olive/sand), update `background_rgba()` in the same change — the invariants won't catch drift between tokens.css and Rust constants.
+First pass used `#FAFAFA` / `#0B0B0B` as approximations of "near-white" and "near-black". In light mode the 5/255 diff was invisible; in dark mode the 0x0B-vs-0x18 diff was visibly too dark on cold boot. Swapped to the exact mauve-1 values (`#fdfcfd` / `#18181a`) returned by `ResolvedTheme::background_rgba()`. Lesson: don't approximate chrome colors. If the gray flavor is ever swapped (mauve → olive/sand), update `background_rgba()` in the same change — the invariants won't catch drift between tokens.css and Rust constants. *Post-sand-swap addendum (2026-04-22): the sand-1 values need to replace the mauve-1 constants here too — tracked as a follow-up in the UI-critique PR.*
 
 ## 2026-04-21 — Menu IPC uses shared store actions, not event-bus pub/sub
 

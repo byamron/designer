@@ -26,32 +26,42 @@
     {
       "name": "WorkspaceSidebar",
       "path": "packages/app/src/layout/WorkspaceSidebar.tsx",
-      "purpose": "List of workspaces in the active project; create-workspace action.",
+      "purpose": "Project header + Home button (project-level surface) + Workspaces list with 7-variant status icons (idle, in_progress, in_review, pr_open, pr_conflict, pr_ready, pr_merged) + inline '+' add button. Clicking a workspace auto-selects its first open tab.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "color-muted", "type-caption-size"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-raised", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11"],
+      "last_updated": "2026-04-22"
     },
     {
       "name": "MainView",
       "path": "packages/app/src/layout/MainView.tsx",
-      "purpose": "Active workspace surface: topbar, tabs bar, tab panel. Tab-role ARIA, roving tabindex, keyboard arrow nav.",
+      "purpose": "Routes between project-home (when no workspace active) and workspace view (tabs + content). Hosts topbar (title · project · branch chip), Linear-style tabs bar with close-on-hover, single +New dropdown (⌘T), variant toggle on home only. Tab keyboard nav + ⌘W close + middle-click close.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "space-4", "type-h4-size", "radius-button", "border-thin"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "type-body-size", "type-caption-size", "weight-medium", "radius-button", "radius-badge", "radius-pill", "border-thin", "border-strong", "color-foreground", "color-muted", "color-background", "color-surface-flat", "color-surface-overlay", "motion-interactive", "elevation-overlay", "layer-overlay"],
+      "last_updated": "2026-04-22"
+    },
+    {
+      "name": "TabLayout",
+      "path": "packages/app/src/layout/TabLayout.tsx",
+      "purpose": "Tab body primitive: scrollable content region + optional bottom dock slot for compose-style inputs. Matched max-width between scroll and dock so the dock feels aligned with content, not anchored to window edges.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-3", "space-5", "space-6", "space-8"],
+      "last_updated": "2026-04-22"
     },
     {
       "name": "ActivitySpine",
       "path": "packages/app/src/layout/ActivitySpine.tsx",
-      "purpose": "Right-rail hierarchical status column. State dots (active/idle/blocked/needs-you/errored), recent events.",
+      "purpose": "Right-rail hierarchical status column. Flat-rendered tree with per-depth repeating-linear-gradient indent rails. Summary renders as dot+count per non-zero state (hides zeros; 'All quiet' fallback). Rows are text-only — no background, no border.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "motion-pulse", "color-muted"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "radius-badge", "motion-pulse", "motion-interactive", "color-muted", "color-foreground", "color-border", "type-caption-size", "type-body-size", "type-caption-leading", "type-body-leading", "success-11", "warning-11", "danger-11", "info-11"],
+      "last_updated": "2026-04-22"
     },
     {
       "name": "QuickSwitcher",
@@ -64,24 +74,34 @@
       "last_updated": "2026-04-21"
     },
     {
-      "name": "HomeTab",
-      "path": "packages/app/src/home/HomeTab.tsx",
-      "purpose": "Notion-style home page per workspace: vision, roadmap, active workspaces, reports, needs-you, autonomy.",
+      "name": "HomeTabA",
+      "path": "packages/app/src/home/HomeTabA.tsx",
+      "purpose": "Project home — Variant A (quieter dashboard). Single-column stack: 'Project home' kicker + vision lede + titled sections (Near-term focus, Active workspaces with status icons, Recent reports, Needs-you, Autonomy). Panels, not cards; hairline dividers between groups.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "type-h1-size", "type-h4-size", "elevation-raised", "radius-card"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "space-6", "type-lead-size", "type-body-size", "type-caption-size", "weight-medium", "color-foreground", "color-muted", "color-border", "color-surface-overlay", "radius-pill", "radius-badge", "border-thin", "motion-interactive"],
+      "last_updated": "2026-04-22"
+    },
+    {
+      "name": "HomeTabB",
+      "path": "packages/app/src/home/HomeTabB.tsx",
+      "purpose": "Project home — Variant B (palette-first, Dia-inspired). Centered prompt input + 4–6 context-aware suggestions (alerts, continue on active, draft plan, recent report, switch workspace). Collapsible brief drills into vision / focus / attention / autonomy.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "space-8", "type-lead-size", "type-body-size", "type-caption-size", "color-foreground", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "radius-modal", "radius-button", "radius-badge", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "last_updated": "2026-04-22"
     },
     {
       "name": "PlanTab",
       "path": "packages/app/src/tabs/PlanTab.tsx",
-      "purpose": "Plan template: streaming chat with the team lead + markdown draft area.",
+      "purpose": "Plan template: streaming chat with the team lead. Bottom-docked compose with file drag-drop (chip list of attachments), attach + disabled-mic (Phase 13 dictation stub) inline actions, model + effort selectors and plan-mode toggle in a footer row, arrow-icon send. ⌘↵ sends.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "radius-card", "radius-button", "color-surface-overlay"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-6", "space-8", "radius-card", "radius-button", "radius-badge", "radius-pill", "color-foreground", "color-background", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "color-surface-overlay", "type-body-size", "type-caption-size", "type-body-leading", "weight-medium", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "last_updated": "2026-04-22"
     },
     {
       "name": "DesignTab",

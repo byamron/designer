@@ -12,6 +12,8 @@ describe("App", () => {
       expect(screen.getByLabelText("Projects")).toBeTruthy();
     });
     // Project initials render on the strip.
-    expect(screen.getByLabelText("Designer")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Designer", { selector: "button.strip-icon" }),
+    ).toBeTruthy();
   });
 });

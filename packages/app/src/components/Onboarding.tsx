@@ -48,13 +48,13 @@ export function Onboarding() {
     },
     {
       kicker: "02",
-      title: "Workspaces, not tickets.",
-      body: "A workspace is a feature or initiative — one outcome, one team. Tabs inside a workspace share context automatically. Link anything with @-references.",
+      title: "Projects, then workspaces.",
+      body: "You land on a project's Home — the overview across every active workspace. Open a workspace to focus on one outcome. Each workspace has its own Plan, Design, and Build tabs; context flows between them.",
     },
     {
       kicker: "03",
       title: "Trust through legibility.",
-      body: "The activity spine shows what every agent is doing at a glance. Approval gates protect merge / publish / prod-touch. Your Claude auth never leaves your machine.",
+      body: "The activity spine on the right shows what every agent is doing at a glance. Approval gates protect merge / publish / prod-touch. Your Claude auth never leaves your machine.",
     },
   ];
   const slide = slides[step];
@@ -80,7 +80,7 @@ export function Onboarding() {
           fontSize: "var(--type-h2-size)",
           lineHeight: "var(--type-h2-leading)",
           margin: 0,
-          fontWeight: "var(--type-weight-semibold)",
+          fontWeight: "var(--weight-semibold)",
         }}>{slide.title}</h1>
         <p style={{
           fontSize: "var(--type-lead-size)",
@@ -106,13 +106,21 @@ export function Onboarding() {
             ))}
           </div>
           <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            <button type="button" className="btn" onClick={dismiss}>Skip</button>
+            <button
+              type="button"
+              className="btn"
+              onClick={dismiss}
+              title="Skip the walkthrough"
+            >
+              Skip
+            </button>
             {step < slides.length - 1 ? (
               <button
                 type="button"
                 className="btn"
                 data-variant="primary"
                 onClick={() => setStep((s) => s + 1)}
+                title="Next slide"
               >
                 Next <kbd style={{ marginLeft: "var(--space-1)" }}>→</kbd>
               </button>
@@ -122,6 +130,7 @@ export function Onboarding() {
                 className="btn"
                 data-variant="primary"
                 onClick={dismiss}
+                title="Close the walkthrough and start using Designer"
               >
                 Get started
               </button>
