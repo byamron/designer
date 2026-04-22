@@ -20,6 +20,7 @@ export function VariantExplorer({
           aria-selected={selected === v}
           className="btn"
           data-variant={selected === v ? "primary" : undefined}
+          title={`Show prototype variant ${v}`}
           onClick={() => onSelect(v)}
         >
           Variant {v}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Tab, Workspace } from "../ipc/types";
 import { ipcClient } from "../ipc/client";
+import { TabLayout } from "../layout/TabLayout";
 
 interface Task {
   id: string;
@@ -40,9 +41,8 @@ export function BuildTab({ tab, workspace }: { tab: Tab; workspace: Workspace })
   };
 
   return (
-    <>
-      <header style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-        <span className="card__kicker">Build</span>
+    <TabLayout>
+      <header className="tab-header">
         <h2 className="tab-title">{tab.title}</h2>
         <p className="tab-subtitle">
           Task list + agent streams. When the team is ready, request the merge
@@ -93,6 +93,7 @@ export function BuildTab({ tab, workspace }: { tab: Tab; workspace: Workspace })
             onChange={(e) => setTitle(e.target.value)}
             placeholder="New task…"
             aria-label="New task"
+            title="Add a task for the team to pick up"
             style={{
               all: "unset",
               flex: 1,
@@ -103,7 +104,7 @@ export function BuildTab({ tab, workspace }: { tab: Tab; workspace: Workspace })
               color: "var(--color-foreground)",
             }}
           />
-          <button type="submit" className="btn">Add</button>
+          <button type="submit" className="btn" title="Add task to the list">Add</button>
         </form>
       </section>
 
@@ -121,6 +122,7 @@ export function BuildTab({ tab, workspace }: { tab: Tab; workspace: Workspace })
             data-variant="primary"
             onClick={requestMerge}
             disabled={approvalState !== "idle" && approvalState !== "denied"}
+            title={`Request approval to merge into ${workspace.base_branch}`}
           >
             {approvalState === "idle" && "Request merge"}
             {approvalState === "pending" && "Waiting for approval…"}
@@ -129,6 +131,6 @@ export function BuildTab({ tab, workspace }: { tab: Tab; workspace: Workspace })
           </button>
         </div>
       </section>
-    </>
+    </TabLayout>
   );
 }

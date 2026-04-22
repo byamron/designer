@@ -316,6 +316,7 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
 | G18 | Auto-update channel (signed `latest.json` + endpoint) | Ship gate | 16 |
 | G19 | Install QA on a clean Mac | Ship gate | 16 |
 | G20 | Crash-report endpoint (opt-in upload) | Ship gate | 16 |
+| G21 | Inline commenting on chat spans + design-tab elements | Tactical replies beat re-typing long-message rebuttals; design feedback is element-anchored by nature. Today the user can only type a new whole-thread message. | 15.H |
 
 ---
 
@@ -489,6 +490,34 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 - **Dark-mode regression (G15).** Add a Vitest + Playwright combination that screenshot-diffs every primary surface in light + dark.
 - **Auto-grow chat textarea (G16).** Replace the `minHeight` + overflow approach in `PlanTab` with a content-height reflow.
 - **Event-log incrementalization.** `AppCore::sync_projector_from_log` is full-replay; once logs cross ~10k events it should incrementalize against the projector's last-seen sequence per stream.
+- **15.H — Inline commenting & element annotation (G21).** Let the user reply to a specific span of an agent message in Plan, and to a specific element in Design, without typing a new whole-thread reply. See detail below.
+
+### Phase 15.H — Inline commenting & element annotation *(detail)*
+
+**Why:** agent responses are often long, multi-claim messages. Forcing the user to reply with one long paragraph is slow and loses the "which part" context. The same primitive unlocks Figma/Agentation-style element comments in the Design tab. Unifying both under one anchor + comment model keeps the agent-context format consistent.
+
+**Scope:**
+- **Plan tab (chat).** Hover a paragraph, list item, or code block in an agent message → "Reply" affordance appears. Clicking opens a short composer anchored to that span. Multiple anchored replies can accumulate on one message before being sent as one batch so the agent doesn't act on the first reply before seeing the rest.
+- **Design / prototype tab.** Click anywhere on a rendered prototype or diagram to drop a pin + composer. Same batch semantics — replies stay local until the user sends them together. Reuses the annotation overlay from Phase 10 rather than re-inventing it.
+- **Delivery to the agent.** When the user sends the batch, the outgoing message packs the anchor context with each reply. Format proposal: a fenced block per anchor, e.g. `<anchor kind="message-span" id="msg-42" quote="..."/>` or `<anchor kind="dom-point" x=... y=... selector="..."/>` followed by the reply body. The team lead sees "2 comments on your last message" with inline quotes, not one concatenated blob.
+
+**Data model (spec impact):**
+- New event kinds: `CommentDrafted` (local, not yet sent), `CommentSent` (flushes the batch as a single `MessagePosted` whose payload references anchors), `CommentAnchorResolved` (for cases where the underlying span moved or the element mutated).
+- Anchor types v1: `message-span` (message id + character range or block index), `prototype-point` (normalized x/y within the iframe), `prototype-element` (stable attribute path). Anchors are stored on the comment, not on the target — the target stays append-only.
+- Correlation: each `CommentSent` `MessagePosted` sets `causation_id` to the message it's commenting on, so traces can show "this reply exists because of that message."
+
+**UX rules:**
+- Batching is the default — pressing Enter on a single comment does **not** flush to the agent; an explicit "Send comments" button (or ⌘↵ while any draft has focus) flushes the batch.
+- Visual state of a drafted-but-unsent comment: a small anchor dot on the target + a floating thread marker in the rail. The target message is not mutated.
+- Reply context trumps chronology. When the agent gets a comment batch, its reply should thread under the commented message with inline quotes, not appear as a new bottom message. Activity spine collapses "comment batch replied" into one event.
+- Keyboard parity: `r` while a message is focused opens a reply composer anchored to the focused block. Same on the prototype: arrow-key-navigate between elements, `r` drops a pin.
+
+**Open questions (for when we pick this up):**
+- Do comments on prototype variants travel with the variant, or with the design tab? Probably the variant; otherwise A vs B comments get conflated.
+- Should comments be addressable in `core-docs/` (a design review artifact)? Likely yes — a resolved comment thread writes a markdown line-item to the generated report.
+- How does resume handle unsent comment drafts? Spec decision needed: persist in event store as `CommentDrafted`, or keep purely in-memory and lose on resume.
+
+**Done when:** on Plan, the user can hover any agent paragraph, leave 2–5 anchored replies, and send them as one batch that the agent receives with each reply tied to its quoted span; on Design, the user can drop 2+ element pins on a prototype and send them together, and the agent responds to each pin in context. Activity spine reflects the batch as a single `MessagePosted` with multiple anchors, not one event per comment.
 
 ---
 

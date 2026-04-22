@@ -117,6 +117,7 @@ export function QuickSwitcher() {
           ref={inputRef}
           className="quick-switcher__input"
           placeholder="Search projects, workspaces…"
+          title="Type to filter · ↑↓ to move · ↵ to jump"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -159,6 +160,7 @@ export function QuickSwitcher() {
                 id={hit.id}
                 aria-selected={i === index}
                 data-active={i === index}
+                title={`Go to ${hit.label}${hit.meta ? ` · ${hit.meta}` : ""}`}
                 onMouseEnter={() => setIndex(i)}
                 onClick={() => commit(hit)}
               >

@@ -2,16 +2,16 @@ import { ProjectStrip } from "./ProjectStrip";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { MainView } from "./MainView";
 import { ActivitySpine } from "./ActivitySpine";
+import { useAppState } from "../store/app";
 
 export function AppShell() {
+  const stripVisible = useAppState((s) => s.projectStripVisible);
   return (
-    <div className="app-shell">
-      {/* Skip-link: visible only on keyboard focus; jumps screen-reader + keyboard
-          users past the project strip and sidebar to the main content. */}
-      <a href="#main-content" className="skip-link">
+    <div className="app-shell" data-strip={stripVisible ? "visible" : "hidden"}>
+      <a href="#main-content" className="skip-link" title="Jump past navigation to the main content">
         Skip to main content
       </a>
-      <ProjectStrip />
+      {stripVisible && <ProjectStrip />}
       <WorkspaceSidebar />
       <MainView />
       <ActivitySpine />

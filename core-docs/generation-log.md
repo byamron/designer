@@ -52,7 +52,6 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - deviations: documented h1→h2→h3 hierarchy repair, `aria-labelledby`/`aria-controls` on tabs↔panels, skip-to-content link, focus trap on quick-switcher dialog
 - feedback: pending
 
-
 ## 2026-04-21T19:25:00Z — manual (phase 12.C shell)
 
 - prompt: "Create a plan for phase 12C on the roadmap… proceed with implementation."
@@ -64,4 +63,41 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - tokens: --space-2, --space-3, --space-6 (strip padding + drag-spacer sizing); no new tokens
 - invariants: 6/6 pass
 - deviations: `data-tauri-drag-region` attribute is Tauri-runtime-specific markup, not an a11y or design concern — the attribute is inert in the web/mock build
+- feedback: accepted
+
+## 2026-04-21T22:45:00Z — manual (home variants + sand palette)
+- prompt: "UI critique — too many text sizes, everything feels cramped; move off mauve to a warm sand/beige neutral; test Direction A (quieter dashboard) and Direction B (palette-first home) as switchable variants."
+- trigger: manual (Mini procedure followed by hand; generate-ui not invoked because this was a paired design + refactor across the token layer and two new components)
+- archetype-reused: none
+- components-reused: state-dot pattern from app.css, main-topbar structure, store/app pattern (toggleInbox, toggleQuickSwitcher)
+- components-new: HomeTabA (quieter dashboard, panels-not-cards), HomeTabB (palette-first with collapsible brief), VariantToggle (in MainView, Panels / Palette pill)
+- components-removed: HomeTab (bordered-card grid; replaced by A and B)
+- primitives: (still deferred — see pattern-log.md "Mini primitives deferred")
+- tokens: swapped mauve → sand at the Radix import layer; new usage of --type-lead-size, --type-caption-size, --radius-modal, --radius-pill, --radius-badge, --weight-medium, --color-surface-flat/raised/overlay, --color-border, --motion-interactive, --border-thin, --focus-outline-* ; no arbitrary px/hex/ms introduced
+- invariants: pending (node_modules not installed in this workspace — defer run to next CI/dev boot)
+- deviations: variant-toggle uses runtime localStorage persistence (not event-sourced); acceptable for a pre-ship UX decision tool, not durable state.
+- feedback: pending
+
+## 2026-04-22T02:30:00Z — manual (agentation 16-annotation pass)
+- prompt: "Annotations from Agentation: 16 notes on compose panel, spine summary, topbar alignment, tabs bar, template menu, close affordances, sidebar home alignment, workspace 'new' button, project strip toggle, workspace status icons, tab sizing, spine indentation, send icon, compose icons + drag-drop, compose footer."
+- trigger: manual (user-directed batch fix; Agentation MCP not connected — annotations pasted into conversation)
+- archetype-reused: variant-toggle, template-menu (reused with icon additions)
+- components-reused: MainView, WorkspaceSidebar, ActivitySpine, PlanTab, AppShell, ProjectStrip, ipc types/mock/client
+- components-new: TemplateIcon + IconBranch + IconPlus + IconHome + WorkspaceStatus glyphs inlined in call sites
+- primitives: (still deferred)
+- tokens: new uses of --info-11 / --warning-11 / --danger-11 / --success-11 (semantic colors for workspace status); --motion-pulse / --motion-interactive; no arbitrary values introduced
+- invariants: 6/6 on all touched files
+- deviations: PlanTab mic button left as a visible placeholder (disabled + "Coming soon") until Phase-13 dictation lands; workspace-status model extended in TS only (Rust-side IPC drift tracked under Phase 13.E).
+- feedback: accepted
+
+## 2026-04-22T23:15:00Z — manual (staff review + polish pass)
+- prompt: "Review the implementation from the perspective of a staff UX designer, a staff engineer, and a staff design engineer. Converge on a prioritized list of improvements, fix errors, update the design language to reflect what we've built."
+- trigger: manual (three-role staff review via parallel Explore audits; converged fix list implemented)
+- archetype-reused: existing compose dock, tab button, variant toggle
+- components-reused: MainView, ActivitySpine, HomeTabA, HomeTabB, PlanTab, Onboarding
+- components-new: none (pure polish + correctness pass)
+- primitives: (still deferred; tracked as G12)
+- tokens: added --icon-sm / --icon-md / --icon-lg to packages/ui/styles/tokens.css as the icon-size family (axiom #13). Fixed 5 consumer-side references from --type-weight-* → --weight-* (non-existent token); applied the same fix in Onboarding.tsx. Added box-shadow focus-within ring on .compose wrapper using existing --focus-outline-* tokens.
+- invariants: 6/6 on all touched files; typecheck clean; 14/14 tests pass (new tests for closeTab and variant-toggle).
+- deviations: TabContent keyed by `${workspace.id}:${activeTab}` to force remount on workspace switch (prevents PlanTab draft state from bleeding across workspaces). PlanTab serializes model/effort/planMode into the outgoing message body as a temporary measure until Phase 13.D carries them as first-class fields.
 - feedback: pending

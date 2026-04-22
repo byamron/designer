@@ -60,6 +60,7 @@ export function AnnotationLayer({ variant }: { variant: string }) {
             autoFocus
             value={draft.text}
             onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+            title="Note for this pin · ↵ to save"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -84,6 +85,7 @@ export function AnnotationLayer({ variant }: { variant: string }) {
             type="button"
             className="btn"
             data-variant="primary"
+            title="Save this annotation pin"
             onClick={() => {
               if (draft.text.trim()) {
                 setPins((p) => [...p, draft]);
