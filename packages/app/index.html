@@ -7,6 +7,24 @@
     <meta name="theme-color" content="#17171a" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#fbfbfb" media="(prefers-color-scheme: light)" />
     <title>Designer</title>
+    <script>
+      // Zero-flash theme resolution. The Tauri shell passes the already-
+      // resolved theme as `#theme=light|dark` on the initial URL (see
+      // apps/desktop/src-tauri/src/main.rs). We apply it synchronously,
+      // before the main bundle executes, so the first CSS cascade paints
+      // the correct --color-bg-canvas. Web/mock falls through to system.
+      (function () {
+        var hash = window.location.hash || "";
+        var match = /(?:^|[#&])theme=(light|dark)(?:&|$)/.exec(hash);
+        var choice = match && match[1];
+        if (!choice) {
+          choice = window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
+        }
+        document.documentElement.dataset.theme = choice;
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

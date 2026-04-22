@@ -4,15 +4,15 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 ## Current Focus
 
-**Phase 12 — Real-integration validation.** Preliminary build (Phases 0–11) landed on `preliminary-build` branch (2026-04-21); see `history.md`. 12.B infrastructure landed on `phase-12b-plan` (2026-04-21) — supervisor, config wiring, IPC surface, and boot-path tests are in; real-binary round-trip still needs a run on an Apple-Intelligence-capable Mac.
+**Phase 12.B + 12.C shipped (2026-04-21).** 12.C: Tauri v2 shell binary, event bridge, theme persistence, macOS menu, drag regions. 12.B: Swift Foundation Models helper supervisor, config wiring, IPC surface, stub-tested boot path. Remaining Phase 12 track (12.A real Claude Code) still open; 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the integration-notes SDK-shape delta.
 
-Phase 12 has three independent tracks; any can start first based on hardware/auth availability:
+Phase 12 tracks:
 
 - **12.A — Real Claude Code subprocess.** Needs a local Claude Code install. Blocks 13.D (agent wire). **Not started.**
 - **12.B — Swift Foundation Models helper build.** Infrastructure complete; real-hardware validation pending. Blocks 13.F.
-- **12.C — Tauri shell binary.** No external dependency; can start today. Blocks 13.D / 13.E / 13.F / 13.G. **Not started.**
+- **12.C — Tauri shell binary.** ✅ Done. Unblocks 13.D / 13.E / 13.F / 13.G.
 
-Next recommended step: run `./scripts/build-helper.sh` on an AI-capable Mac to close 12.B, then pick 12.C to unblock the widest downstream set.
+13.E and 13.F are now valid parallel starts (12.C unblocks both; 12.B pre-supplies the `helper_status` IPC and `HelperEvent` broadcast 13.F needs). 13.D remains gated on 12.A. Next recommended step: run `./scripts/build-helper.sh` on an AI-capable Mac to close 12.B, then pick whichever of 12.A / 13.E / 13.F unblocks the most downstream work.
 
 ## Handoff Notes
 
@@ -46,14 +46,21 @@ Infrastructure landed on 2026-04-21 (branch `phase-12b-plan`); real-binary valid
 - [x] Docs: `core-docs/integration-notes.md` §12.B, `apps/desktop/PACKAGING.md` helper section.
 - [ ] Run `./scripts/build-helper.sh` on an AI-capable Mac; export `DESIGNER_HELPER_BINARY` and run `cargo test -p designer-local-models --test real_helper`. Update `integration-notes.md` with the observed SDK call shape and any deltas.
 
-### Phase 12.C — Tauri shell binary *(blocks 13.D, 13.E, 13.F, 13.G)*
+### Phase 12.C — Tauri shell binary ✅ *(landed 2026-04-21)*
 
-- [ ] Add `tauri` + `tauri-build` to `apps/desktop/src-tauri/Cargo.toml`.
-- [ ] Scaffold `tauri.conf.json` (window, menu, macOS vibrancy).
-- [ ] Register `#[tauri::command]`s for each `designer_desktop::ipc::cmd_*`.
-- [ ] Expose `AppCore.store.subscribe()` as Tauri event channel `designer://event-stream`.
-- [ ] Author restrictive allowlist (FS `~/.designer/**` + linked repos; shell `git`/`gh`/`claude`/helper only).
-- [ ] Boot smoke: `cargo tauri dev` opens a window rendering against a live `AppCore`.
+- [x] Add `tauri = "2"` + `tauri-build` workspace deps; `build.rs`.
+- [x] Scaffold `tauri.conf.json` with overlay title-bar, macOS 13+ min, strict CSP.
+- [x] Register `#[tauri::command]`s for all 8 handlers (4 live + 2 new `open_tab`/`spine` + 2 stubs for 13.G).
+- [x] Expose `AppCore.store.subscribe()` as Tauri event channel `designer://event-stream` via `events::spawn_event_bridge`.
+- [x] Tauri v2 capabilities file — `core:default` + event listen only; no FS/shell/dialog (deferred to 13.E).
+- [x] Theme persistence with zero-flash boot (sidecar `~/.designer/settings.json` + URL hash + inline script).
+- [x] macOS menu (App/File/Edit/Window/Help; View with DevTools in debug).
+- [x] Drag-region spacer in the project strip to clear overlay traffic lights.
+- [x] Compile/test gates: clippy clean (dev + release), 29 Rust tests, 11 frontend tests, 6/6 Mini invariants.
+- [x] Wire-boundary tests added: `StreamEvent::from(&EventEnvelope)` round-trip; `AppCore::open_tab` + `AppCore::spine`.
+- [x] `packages/app/src/ipc/tauri.ts` — shared runtime adapter (detection + dynamic-import cache + teardown-safe `listen`).
+- [x] `bootData` parallelized: three waves via `Promise.all` instead of three nested sequential awaits.
+- [ ] Interactive smoke (`cargo tauri dev`) on user's machine — deferred; requires GUI session.
 
 ### Phase 13 — Wire the real runtime *(after corresponding Phase 12 tracks)*
 

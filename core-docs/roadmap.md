@@ -66,7 +66,7 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 
 ### Still-open phases
 
-- **Phase 12** — Real-integration validation. Three independent tracks (A: real Claude Code, B: Swift helper build, C: Tauri shell). Any track can start first; nothing is serialized.
+- **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
 - **Phase 13** — Wire the real runtime. Four tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety + Keychain). Each gated on specific Phase-12 tracks; most can proceed in parallel.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
@@ -537,7 +537,7 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 | Multi-workspace + sync protocol | 6, 7 | — | ✅ Preliminary build |
 | First user-visible surface | 8, 9 | — | ✅ Preliminary build |
 | Design lab + polish scaffolding | 10, 11 | — | ✅ Preliminary build |
-| **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **Next** |
+| **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.C done; 12.A + 12.B open** |
 | Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after Phase 12) | Pending |
 | Sync transport | 14 | Yes (parallel with 13/15) | Pending |
 | Hardening + polish | 15 | Yes (parallel with 13/14) | Pending |

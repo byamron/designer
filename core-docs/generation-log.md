@@ -75,3 +75,16 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - invariants: n/a (no frontend files modified)
 - deviations: none. The design-engineer lens specifically argued for zero UI: FB-0007 (invisible infrastructure) and FB-0002 (suggest, don't act) govern. Helper provenance belongs at the artifact (Phase 13.F output) not the chrome — see pattern-log entry "Local-model provenance belongs at the artifact, not the chrome". Vocabulary strings ("Summarized on-device" / "Fallback summary") drafted in pattern-log for 13.F to adopt.
 - feedback: pending
+
+## 2026-04-21T19:25:00Z — manual (phase 12.C shell)
+
+- prompt: "Create a plan for phase 12C on the roadmap… proceed with implementation."
+- trigger: manual (Tauri shell bootstrap, not a Mini UI skill)
+- archetype-reused: none
+- components-reused: ProjectStrip (added drag-region spacer inside)
+- components-new: none (no new React components; additions are Rust-shell surfaces)
+- primitives: (unchanged)
+- tokens: --space-2, --space-3, --space-6 (strip padding + drag-spacer sizing); no new tokens
+- invariants: 6/6 pass
+- deviations: `data-tauri-drag-region` attribute is Tauri-runtime-specific markup, not an a11y or design concern — the attribute is inert in the web/mock build
+- feedback: pending

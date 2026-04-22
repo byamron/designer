@@ -13,6 +13,9 @@ path = "src/lib.rs"
 name = "designer-desktop"
 path = "src/main.rs"
 
+[build-dependencies]
+tauri-build.workspace = true
+
 [dependencies]
 designer-core.workspace = true
 designer-claude.workspace = true
@@ -21,6 +24,7 @@ designer-audit.workspace = true
 designer-local-models.workspace = true
 designer-sync.workspace = true
 designer-ipc.workspace = true
+tauri.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -31,3 +35,7 @@ time.workspace = true
 parking_lot.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
+dark-light.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
