@@ -4,15 +4,15 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 ## Current Focus
 
-**Phase 12 — Real-integration validation.** Preliminary build (Phases 0–11) landed on `preliminary-build` branch (2026-04-21); see `history.md`. The roadmap now splits the remaining work into six phases with explicit tracks and dependencies; see `roadmap.md` for the gap → phase mapping.
+**Phase 12.C shipped (2026-04-21).** Tauri v2 shell binary, event bridge, theme persistence, macOS menu, drag regions — all in. Remaining Phase 12 tracks (12.A real Claude Code; 12.B Foundation Models helper) still open.
 
-Phase 12 has three independent tracks; any can start first based on hardware/auth availability:
+Phase 12 tracks:
 
 - **12.A — Real Claude Code subprocess.** Needs a local Claude Code install. Blocks 13.D (agent wire).
 - **12.B — Swift Foundation Models helper build.** Needs macOS 15+ with Apple Intelligence. Blocks 13.F (local-model surfaces).
-- **12.C — Tauri shell binary.** No external dependency; can start today. Blocks 13.D / 13.E / 13.F / 13.G (every frontend-to-backend wire).
+- **12.C — Tauri shell binary.** ✅ Done. Unblocks 13.D / 13.E / 13.F / 13.G.
 
-Recommended order if working solo: **start 12.C first** (unblocks the widest downstream set with zero external prerequisites), then 12.A and 12.B in whichever order hardware allows.
+13.E is now a valid parallel start (needs only 12.C + a linked repo picker + GitOps calls from UI). 13.D / 13.F remain gated on 12.A / 12.B respectively.
 
 ## Handoff Notes
 
@@ -37,14 +37,18 @@ Recommended order if working solo: **start 12.C first** (unblocks the widest dow
 - [ ] Smoke-test `SwiftFoundationHelper::ping()` and `FoundationLocalOps::recap`.
 - [ ] Document helper path in `AppConfig::default_in_home`.
 
-### Phase 12.C — Tauri shell binary *(blocks 13.D, 13.E, 13.F, 13.G)*
+### Phase 12.C — Tauri shell binary ✅ *(landed 2026-04-21)*
 
-- [ ] Add `tauri` + `tauri-build` to `apps/desktop/src-tauri/Cargo.toml`.
-- [ ] Scaffold `tauri.conf.json` (window, menu, macOS vibrancy).
-- [ ] Register `#[tauri::command]`s for each `designer_desktop::ipc::cmd_*`.
-- [ ] Expose `AppCore.store.subscribe()` as Tauri event channel `designer://event-stream`.
-- [ ] Author restrictive allowlist (FS `~/.designer/**` + linked repos; shell `git`/`gh`/`claude`/helper only).
-- [ ] Boot smoke: `cargo tauri dev` opens a window rendering against a live `AppCore`.
+- [x] Add `tauri = "2"` + `tauri-build` workspace deps; `build.rs`.
+- [x] Scaffold `tauri.conf.json` with overlay title-bar, macOS 13+ min, strict CSP.
+- [x] Register `#[tauri::command]`s for all 8 handlers (4 live + 2 new `open_tab`/`spine` + 2 stubs for 13.G).
+- [x] Expose `AppCore.store.subscribe()` as Tauri event channel `designer://event-stream` via `events::spawn_event_bridge`.
+- [x] Tauri v2 capabilities file — `core:default` + event listen only; no FS/shell/dialog (deferred to 13.E).
+- [x] Theme persistence with zero-flash boot (sidecar `~/.designer/settings.json` + URL hash + inline script).
+- [x] macOS menu (App/File/Edit/Window/Help; View with DevTools in debug).
+- [x] Drag-region spacer in the project strip to clear overlay traffic lights.
+- [x] Compile/test gates: clippy clean, 23 Rust tests, 11 frontend tests, 6/6 Mini invariants.
+- [ ] Interactive smoke (`cargo tauri dev`) on user's machine — deferred; requires GUI session.
 
 ### Phase 13 — Wire the real runtime *(after corresponding Phase 12 tracks)*
 

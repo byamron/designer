@@ -10,8 +10,9 @@ use designer_claude::{
 };
 use designer_core::{
     Actor, EventPayload, EventStore, Projection, Projector, ProjectId, SqliteEventStore, StreamId,
-    StreamOptions, Workspace, WorkspaceId,
+    StreamOptions, Tab, TabId, TabTemplate, Workspace, WorkspaceId,
 };
+use designer_ipc::{SpineAltitude, SpineRow, SpineState};
 use designer_local_models::{FoundationHelper, NullHelper};
 use designer_safety::{CostCap, CostTracker, InMemoryApprovalGate};
 use serde::{Deserialize, Serialize};
@@ -170,6 +171,86 @@ impl AppCore {
 
     pub async fn workspaces_in(&self, project_id: ProjectId) -> Vec<Workspace> {
         self.projector.workspaces_in(project_id)
+    }
+
+    pub async fn open_tab(
+        &self,
+        workspace_id: WorkspaceId,
+        title: String,
+        template: TabTemplate,
+    ) -> designer_core::Result<Tab> {
+        let tab_id = TabId::new();
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabOpened {
+                    tab_id,
+                    workspace_id,
+                    title,
+                    template,
+                },
+            )
+            .await?;
+        self.projector.apply(&env);
+        let workspace = self
+            .projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        workspace
+            .tabs
+            .into_iter()
+            .find(|t| t.id == tab_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(tab_id.to_string()))
+    }
+
+    /// Derive an activity-spine view from the projector. Summaries are `None`
+    /// here; Phase 13.F replaces them with `LocalOps::summarize_row` output.
+    pub async fn spine(&self, workspace_id: Option<WorkspaceId>) -> Vec<SpineRow> {
+        match workspace_id {
+            None => self
+                .projector
+                .projects()
+                .into_iter()
+                .map(|p| {
+                    let count = self.projector.workspaces_in(p.id).len();
+                    SpineRow {
+                        id: p.id.to_string(),
+                        altitude: SpineAltitude::Project,
+                        label: p.name,
+                        summary: Some(format!(
+                            "{count} workspace{}",
+                            if count == 1 { "" } else { "s" }
+                        )),
+                        state: SpineState::Idle,
+                        children: vec![],
+                    }
+                })
+                .collect(),
+            Some(id) => {
+                // Workspace-altitude view: one row per agent is Phase-13 territory;
+                // until then, return a single placeholder row keyed to the
+                // workspace itself so the surface renders without stubs.
+                let Some(w) = self.projector.workspace(id) else {
+                    return vec![];
+                };
+                vec![SpineRow {
+                    id: w.id.to_string(),
+                    altitude: SpineAltitude::Workspace,
+                    label: w.name,
+                    summary: Some(format!("state: {:?}", w.state).to_lowercase()),
+                    state: match w.state {
+                        designer_core::WorkspaceState::Active => SpineState::Active,
+                        designer_core::WorkspaceState::Paused => SpineState::Idle,
+                        designer_core::WorkspaceState::Archived => SpineState::Idle,
+                        designer_core::WorkspaceState::Errored => SpineState::Errored,
+                    },
+                    children: vec![],
+                }]
+            }
+        }
     }
 
     /// Full replay — used when an external writer (tests, repair tools) modifies

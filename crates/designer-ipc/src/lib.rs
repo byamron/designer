@@ -114,7 +114,41 @@ pub enum SpineAltitude {
 
 // ---- Event subscription --------------------------------------------------
 
+/// Wire shape for events flowing Rust → frontend. Flattened so the TS consumer
+/// reads `kind`, `stream_id`, `sequence` directly without unwrapping an
+/// envelope. Kept in sync with `packages/app/src/ipc/types.ts::StreamEvent`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamEvent {
-    pub envelope: designer_core::EventEnvelope,
+    pub kind: String,
+    pub stream_id: String,
+    pub sequence: u64,
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
+}
+
+impl From<&designer_core::EventEnvelope> for StreamEvent {
+    fn from(env: &designer_core::EventEnvelope) -> Self {
+        let kind = serde_json::to_value(env.kind())
+            .ok()
+            .and_then(|v| v.as_str().map(ToOwned::to_owned))
+            .unwrap_or_else(|| "unknown".into());
+        let payload = serde_json::to_value(&env.payload).ok();
+        StreamEvent {
+            kind,
+            stream_id: env.stream.to_string(),
+            sequence: env.sequence,
+            timestamp: designer_core::rfc3339(env.timestamp),
+            summary: None,
+            payload,
+        }
+    }
+}
+
+impl From<designer_core::EventEnvelope> for StreamEvent {
+    fn from(env: designer_core::EventEnvelope) -> Self {
+        StreamEvent::from(&env)
+    }
 }

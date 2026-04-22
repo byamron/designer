@@ -71,6 +71,12 @@ sha2 = "0.10"
 hex = "0.4"
 regex = "1"
 tempfile = "3"
+dark-light = "1"
+
+# Desktop shell (Tauri v2). Only used by apps/desktop/src-tauri; declared here
+# so the version pin lives alongside other workspace deps.
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-build = { version = "2", features = [] }
 
 [profile.release]
 lto = "thin"

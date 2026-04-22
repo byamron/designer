@@ -1,23 +1,21 @@
 import { selectProject, toggleQuickSwitcher, useAppState } from "../store/app";
-import { refreshProjects, useDataState } from "../store/data";
-import { ipcClient } from "../ipc/client";
+import { promptCreateProject, useDataState } from "../store/data";
 
 export function ProjectStrip() {
   const active = useAppState((s) => s.activeProject);
   const projects = useDataState((s) => s.projects);
 
   const onCreate = async () => {
-    const name = window.prompt("New project name?")?.trim();
-    if (!name) return;
-    const root = window.prompt("Repo root path?", "~/code/")?.trim();
-    if (!root) return;
-    const summary = await ipcClient().createProject({ name, root_path: root });
-    await refreshProjects();
-    selectProject(summary.project.id);
+    const id = await promptCreateProject();
+    if (id) selectProject(id);
   };
 
   return (
     <nav className="app-strip" aria-label="Projects">
+      {/* Drag spacer — clears the macOS traffic-light inset (titleBarStyle:
+          Overlay) and gives the user a grip area for window moves. Tauri
+          picks up the attribute at runtime; no effect in the web build. */}
+      <div className="app-strip-drag" data-tauri-drag-region />
       {projects.map((p) => {
         const initials = p.project.name
           .split(/\s+/)

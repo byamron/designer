@@ -53,3 +53,31 @@ CSS Custom Properties can't appear inside `@media` conditions (spec limitation �
 ## 2026-04-21 — Gray flavor set to mauve via aliasing
 
 Swapped the `@radix-ui/colors/gray` imports for `@radix-ui/colors/mauve`; added a `--gray-N: var(--mauve-N)` alias block in `:root` so every downstream Mini file (axioms.css, primitives.css, archetypes.css) continues to reference `--gray-N` unchanged. This is the Mini-sanctioned way to swap neutrals — the abstract `--gray-N` token name is stable; only the underlying Radix scale changes. If we want to try olive or sand later, it's a 4-line import swap + 24-line alias rewrite.
+
+## 2026-04-21 — Traffic-light inset via `titleBarStyle: Overlay` + drag spacer
+
+Tauri's overlay title-bar style hides the title text but keeps macOS traffic lights, floating them over the webview. To prevent the lights from colliding with the first project icon, the project strip now renders an empty `.app-strip-drag` element with `data-tauri-drag-region` at the top of the list — tall enough (`--space-6`) to clear the ~28px lights, wide enough to serve as a grip for window drags. In the web/mock build the element is a harmless blank spacer; Tauri promotes it to a system drag region at runtime. Rejected: using `tauri-plugin-window-state` or a full custom title bar — both add configuration surface without improving the visual.
+
+## 2026-04-21 — Theme persistence in a sidecar `settings.json`, not the event store
+
+Theme choice is stored in `~/.designer/settings.json` — deliberately outside the SQLite event store. Rationale: theme is per-install, per-user UI state. The event store is domain-truth that syncs over the Phase 14 transport; shipping a user's "prefers dark mode" choice to their phone over pairing would be wrong. Keep local UI prefs local. Schema is `{"theme": "light|dark|system", "version": 1}` with `version` reserved for future migration. The Rust main() loads this synchronously (no tokio) before the window opens so the first NSWindow + WKWebView paint is already the right color; `index.html` has a matching synchronous script that reads `location.hash` (Tauri passes `#theme=<resolved>`) to set `documentElement.dataset.theme` before React boots.
+
+## 2026-04-21 — Zero-flash cold boot: three synchronized layers
+
+The first-frame color is determined in three places simultaneously so there's no mismatch. (1) `WebviewWindowBuilder::background_color` — NSWindow's bg, visible until the webview paints. (2) The URL hash `#theme=light|dark` — picked up by an inline `<script>` in `index.html`, sets `dataset.theme` before the React bundle evaluates. (3) `tauri.conf.json`'s `backgroundColor` — the no-window-yet fallback. Runtime theme changes don't touch NSWindow bg because once the webview is painted, NSWindow is invisible — CSS variables handle everything from that point. This matters because cold-boot theme mismatches are the most visible "cheap desktop app" tell.
+
+## 2026-04-21 — Approvals deliberately stubbed at the Tauri boundary
+
+`request_approval` and `resolve_approval` are registered as Tauri commands that return `IpcError::Unknown("approvals are a Phase 13.G surface")`. The frontend can detect this and render a "not yet wired" degraded state rather than the Tauri runtime returning "command not found" which would crash the dialog surface. Decision: the existing `InMemoryApprovalGate` is Rust-side complete, but Phase 12.C's scope is shell + real-core wiring, not safety surfaces — those design questions (inbox placement, cost chip, Keychain integration) belong in 13.G.
+
+## 2026-04-21 — `tauri.conf.json` windows[] must be empty when using programmatic builders
+
+Tauri v2 creates windows declared in `tauri.conf.json`'s `app.windows` array before `.setup()` runs. If `.setup()` then tries to build a window with the same label, the runtime errors out. For the zero-flash theme pattern we need programmatic creation (to pass the resolved theme as a URL hash on the initial URL), so `windows[]` is now empty. All window configuration lives in `make_main_window()` in `main.rs` — one source of truth, no drift between config and code.
+
+## 2026-04-21 — Bg color must derive from the token table, not be eyeballed
+
+First pass used `#FAFAFA` / `#0B0B0B` as approximations of "near-white" and "near-black". In light mode the 5/255 diff was invisible; in dark mode the 0x0B-vs-0x18 diff was visibly too dark on cold boot. Swapped to the exact mauve-1 values (`#fdfcfd` / `#18181a`) returned by `ResolvedTheme::background_rgba()`. Lesson: don't approximate chrome colors. If the gray flavor is ever swapped (mauve → olive/sand), update `background_rgba()` in the same change — the invariants won't catch drift between tokens.css and Rust constants.
+
+## 2026-04-21 — Menu IPC uses shared store actions, not event-bus pub/sub
+
+`File > New Project…` emits `designer://menu/new-project`. `App.tsx` listens and calls the same `promptCreateProject()` store action the `+` strip button calls. No custom-event indirection, no pub/sub. Each new menu entry point is one listener + one existing store action. Kept the frontend listener behind an `'__TAURI_INTERNALS__' in globalThis` check so vitest/jsdom doesn't try to bind.

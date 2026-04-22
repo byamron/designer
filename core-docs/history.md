@@ -37,6 +37,71 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 12.C review pass — bug fixes + UX polish
+**Date:** 2026-04-21
+**Branch:** phase-12c-plan
+
+**What was done:**
+Joint staff-engineer + staff-UX re-review of the Phase 12.C implementation surfaced four defects and three polish items. Fixed all of them. (1) Window double-creation: `tauri.conf.json` declared a "main" window and `.setup()` also built "main" → Tauri creates config windows before setup runs, so the programmatic builder would error at boot. Removed `windows[]` from the config; window creation is now entirely programmatic (required anyway to pass the resolved theme as a URL hash). (2) Duplicate `title_bar_style(Overlay)` call eliminated. (3) File > New Project… menu item was emitting `designer://menu/new-project` with nothing listening on the frontend; added an `App.tsx` effect that listens under Tauri and triggers a new `promptCreateProject()` store action (shared with the `+` strip button so the two flows stay synced). (4) NSWindow background hex was `#FAFAFA` / `#0B0B0B` — close to but not matching `--color-background = --gray-1 = mauve-1` (`#fdfcfd` / `#18181a`). Dark-mode diff was visibly noticeable (0x0B → 0x18 is ~8% luminance). Switched to exact RGBA tuple returned from `ResolvedTheme::background_rgba()`. (5) Extracted a `make_main_window` helper used by both boot and dock-reopen so the two call sites cannot drift. (6) Dropped unused `_app: AppHandle` arg from `set_theme`. (7) Menu label now "New Project…" per macOS HIG (ellipsis = command prompts for input).
+
+**Why:**
+The initial 12.C ship compiled and passed lint/test gates, but a careful code review caught four bugs — one of which (double-creation) would have crashed the app on first launch. The review also surfaced paper-cut UX (dead menu item) and a subtle but visible cold-boot color mismatch in dark mode. Each fix is small and local; the aggregate effect is a shell that actually boots correctly, renders without a flash, and has a fully-wired menu.
+
+**Design decisions:**
+- Shared `promptCreateProject()` store action rather than a pub/sub between `App.tsx` and `ProjectStrip`. Single source of truth for the creation flow; adding more entry points (command palette, contextual menu) is a one-line addition.
+- `make_main_window` helper takes `impl Manager<R>` so both the `App` (at setup) and `AppHandle` (at reopen) can pass themselves in. No code duplication; configuration changes land in one place.
+
+**Technical decisions:**
+- Window config moved entirely from `tauri.conf.json` to programmatic construction. Rationale: the theme-via-URL-hash pattern requires runtime construction anyway, and mixed config/code window creation is a common Tauri v2 footgun.
+- `ResolvedTheme::background_rgba() -> (u8, u8, u8, u8)` instead of a hex string. Tauri's API wants bytes; the string-to-parse round-trip was unnecessary machinery.
+- Frontend menu listener uses the same `'__TAURI_INTERNALS__' in globalThis` guard as `ipcClient()` — the effect is a no-op in vitest/jsdom.
+
+**Tradeoffs discussed:**
+- Considered adding a second entry for `promptCreateProject` via an app-level event bus; rejected — the store action is simpler, testable, and doesn't introduce a new pattern for callers to learn.
+- Considered consolidating `#[cfg(debug_assertions)]` menu branches; kept as-is because the debug-only "Toggle DevTools" genuinely should not ship in release.
+
+**Lessons learned:**
+- When a Tauri v2 app uses programmatic windows, the `windows[]` array in the config should be empty. Declaring a window in both places is a quiet footgun — no build-time error, crash at runtime.
+- Token-derived hex is worth the small lookup cost; approximating with "close enough" values loses the designer-engineer's trust fast.
+- Review caught what tests couldn't: nothing in the Rust or React test suite exercised the actual Tauri boot path or the menu IPC. Interactive smoke (`cargo tauri dev`) on the user's machine remains the final verification.
+
+### Phase 12.C shipped — Tauri v2 shell binary
+**Date:** 2026-04-21
+**Branch:** phase-12c-plan
+
+**What was done:**
+Replaced the CLI-demo `main.rs` in `apps/desktop/src-tauri/` with a full Tauri v2 application shell. React frontend now renders against a live `AppCore` (not `MockCore`) when running under Tauri; events stream from the Rust event store to the frontend via the `designer://event-stream` channel. All eight `#[tauri::command]` handlers are registered; `open_tab` and `spine` are new `AppCore` operations (`request_approval` / `resolve_approval` deliberately stubbed — those are 13.G). Theme persists in a sidecar `~/.designer/settings.json`; resolved at boot and passed to both NSWindow background and a URL hash so `index.html` can set `documentElement.dataset.theme` before React boots — zero cold-boot color flash. Standard macOS menu set (App/File/Edit/Window/Help + debug-only View); ⌘R reserved for the frontend. `data-tauri-drag-region` spacer at the top of the project strip clears the overlay-styled traffic lights. 23 Rust tests (+4 new settings tests) + 11 frontend tests + 6/6 Mini invariants + clippy all clean.
+
+**Why:**
+Phase 12.C was the single gate unblocking every track in Phase 13 — the frontend needed a real Rust runtime to talk to, and every Phase 13 track (agent wire, git + repo linking, local-model surfaces, safety + Keychain) starts with a live `AppCore` wired to the UI. Without the shell, the React app could only exercise `MockCore`, and the event store had no way to broadcast to any consumer.
+
+**Design decisions:**
+- Zero-flash cold boot uses three synchronized layers: NSWindow background color via `WebviewWindowBuilder::background_color`, `#theme=...` URL hash consumed by an inline `<script>` in `index.html` before React mounts, and `tauri.conf.json` `backgroundColor` as the no-window-yet fallback. Pattern-log entry explains why this matters (cold-boot color mismatch is the most visible "cheap desktop app" tell).
+- Theme choice stored in sidecar `settings.json`, not the event store. Theme is per-install UI state; syncing it to a phone over Phase 14 would be wrong.
+- Standard macOS menu omits ⌘R so the frontend can reclaim it for a workspace-level refresh action later.
+- `titleBarStyle: Overlay` + `.app-strip-drag` spacer gives the Mini-on-desktop traffic-light inset look without custom title-bar chrome. Simpler than a full custom chrome, cleaner than a regular title bar.
+- Vibrancy via `NSVisualEffectView` deferred — the plan said "ship with vibrancy", but visual testing requires actual window inspection; stubbed out until Phase 15 with a clear pattern-log entry to pick it up then.
+
+**Technical decisions:**
+- Tauri v2 (not v1). The roadmap's "allowlist" language was pre-v2; v2 uses per-command capabilities in `src-tauri/capabilities/default.json`.
+- `#[tauri::command]` wrappers in `commands.rs` delegate to the existing `ipc::cmd_*` async functions — tests continue to invoke the latter directly without a Tauri runtime.
+- Bundle identifier: `com.benyamron.designer` (user-chosen; see `.context/phase-12c-plan.md` confirmed decisions).
+- Rust `StreamEvent` flattened to match TS `{kind, stream_id, sequence, timestamp, summary, payload}` via `From<&EventEnvelope>` in `designer-ipc`. Chose to update Rust (localized) rather than TS (distributed) consumers.
+- `@tauri-apps/api@^2` installed in `@designer/app`; `invoke` and `listen` are dynamic-imported so jsdom/web builds don't break.
+- Feature flag for no-Tauri builds was in the plan; dropped during implementation — Tauri v2 on macOS builds cleanly with system frameworks, no WebView2-style pain that would warrant the complexity.
+- Event bridge (`events.rs`) forwards `broadcast::Receiver<EventEnvelope>` → `app.emit(...)`; handles `RecvError::Lagged` by logging and continuing rather than crashing (frontend re-syncs on next user action).
+
+**Tradeoffs discussed:**
+- IPC scope gap: option B chosen (add `open_tab` + `spine` to AppCore; stub approvals) over A (narrowest, 4 commands only, broken UI) or C (pull 13.G's approval work forward). B keeps 12.C's "shell works end-to-end" promise without expanding scope into safety-surface design.
+- Theme persistence: sidecar file over event-store event. Rationale tracked in pattern-log — events are domain truth and will sync to mobile in Phase 14; user's theme preference should not.
+- Icon: shipped with a placeholder (Python-generated black square with stylized "D"), not blocking on real brand assets. Real icon is a Phase 16 signing-and-bundle item.
+
+**Lessons learned:**
+- Tauri v2's `Emitter` + `Manager` traits need explicit `use` imports — easy miss. Tauri's compile errors are good but the trait-in-scope message is far from the call site.
+- `WebviewWindowBuilder` instead of relying on `tauri.conf.json` window config gives precise control over the boot sequence. Needed for the theme-passed-via-URL-hash approach.
+- Tests for the settings module were worth the time — covered the corrupt-file path that would otherwise silently eat a bad settings file on boot.
+- Did not run `cargo tauri dev` (requires interactive GUI environment). End-to-end visual smoke test is deferred to first run on the user's machine; code compiles, unit tests pass, clippy is clean, and the build produces a binary.
+
 ### Mini installed + initial design language elicited
 **Date:** 2026-04-21
 **Branch:** mini-install
