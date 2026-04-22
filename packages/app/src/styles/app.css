@@ -89,12 +89,21 @@ body,
   grid-area: strip;
   background: var(--color-surface-flat);
   border-right: var(--border-thin) solid var(--color-border);
-  padding: var(--space-4) var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-3) var(--space-2);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-3);
   min-width: var(--space-8);
+}
+
+/* Drag spacer: tall enough to clear macOS traffic lights (~28px) so they
+   sit centered above the strip's first icon instead of overlapping. On web
+   builds this is just empty space; Tauri makes it a drag region. */
+.app-strip-drag {
+  width: 100%;
+  height: var(--space-6);
+  flex: 0 0 auto;
 }
 
 .app-sidebar {

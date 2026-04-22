@@ -52,6 +52,19 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - deviations: documented h1→h2→h3 hierarchy repair, `aria-labelledby`/`aria-controls` on tabs↔panels, skip-to-content link, focus trap on quick-switcher dialog
 - feedback: pending
 
+## 2026-04-21T19:25:00Z — manual (phase 12.C shell)
+
+- prompt: "Create a plan for phase 12C on the roadmap… proceed with implementation."
+- trigger: manual (Tauri shell bootstrap, not a Mini UI skill)
+- archetype-reused: none
+- components-reused: ProjectStrip (added drag-region spacer inside)
+- components-new: none (no new React components; additions are Rust-shell surfaces)
+- primitives: (unchanged)
+- tokens: --space-2, --space-3, --space-6 (strip padding + drag-spacer sizing); no new tokens
+- invariants: 6/6 pass
+- deviations: `data-tauri-drag-region` attribute is Tauri-runtime-specific markup, not an a11y or design concern — the attribute is inert in the web/mock build
+- feedback: accepted
+
 ## 2026-04-21T22:45:00Z — manual (home variants + sand palette)
 - prompt: "UI critique — too many text sizes, everything feels cramped; move off mauve to a warm sand/beige neutral; test Direction A (quieter dashboard) and Direction B (palette-first home) as switchable variants."
 - trigger: manual (Mini procedure followed by hand; generate-ui not invoked because this was a paired design + refactor across the token layer and two new components)
