@@ -1,6 +1,9 @@
 import { useRef, useState } from "react";
 import { StreamingText } from "../components/StreamingText";
 import { TabLayout } from "../layout/TabLayout";
+import { Tooltip } from "../components/Tooltip";
+import { IconButton } from "../components/IconButton";
+import { IconX } from "../components/icons";
 import type { Tab, Workspace } from "../ipc/types";
 
 interface Message {
@@ -8,6 +11,7 @@ interface Message {
   author: "you" | "team-lead" | "design-reviewer" | "test-runner";
   body: string;
   streaming?: boolean;
+  meta?: { model: Model; effort: Effort; planMode: boolean };
 }
 
 interface Attachment {
@@ -47,20 +51,24 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
   const [planMode, setPlanMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const userMessages = messages.filter((m) => m.author === "you");
+  const threadEmpty = userMessages.length === 0;
+
   const send = () => {
     const trimmed = draft.trim();
     if (!trimmed && attachments.length === 0) return;
-    // Pack the compose config + attachments into the outgoing body until the
-    // real IPC schema (Phase 13.D) carries them as first-class fields. This
-    // keeps model/effort/planMode visible in the event stream today.
-    const configLine = `[model=${model} · effort=${effort}${planMode ? " · plan-mode" : ""}]`;
+    // The compose config (model / effort / plan-mode) travels with the
+    // message as metadata, not rendered text. The real IPC schema will
+    // carry these as first-class fields; until then we attach them to the
+    // Message object and render the user-visible body only.
     const attachLine = attachments.length
       ? `\n\n(attached: ${attachments.map((a) => a.name).join(", ")})`
       : "";
     const you: Message = {
       id: crypto.randomUUID(),
       author: "you",
-      body: `${configLine}\n${trimmed}${attachLine}`,
+      body: `${trimmed}${attachLine}`,
+      meta: { model, effort, planMode },
     };
     const reply: Message = {
       id: crypto.randomUUID(),
@@ -116,18 +124,13 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
               {attachments.map((a) => (
                 <li key={a.id} className="compose__chip">
                   <span className="compose__chip-name">{a.name}</span>
-                  <button
-                    type="button"
-                    className="compose__chip-remove"
-                    aria-label={`Remove ${a.name}`}
-                    title={`Remove ${a.name}`}
+                  <IconButton
+                    size="sm"
+                    label={`Remove ${a.name}`}
                     onClick={() => setAttachments((list) => list.filter((x) => x.id !== a.id))}
                   >
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                      <path d="M2 2l6 6" />
-                      <path d="M8 2l-6 6" />
-                    </svg>
-                  </button>
+                    <IconX />
+                  </IconButton>
                 </li>
               ))}
             </ul>
@@ -147,9 +150,11 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
                 }
               }}
               aria-label="Message"
-              title="Message to the team · ⌘↵ to send"
             />
-            <div className="compose__inline-actions">
+          </div>
+
+          <div className="compose__footer">
+            <div className="compose__footer-left">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -160,87 +165,64 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
                   if (fileInputRef.current) fileInputRef.current.value = "";
                 }}
               />
-              <button
-                type="button"
-                className="compose__icon-btn"
-                aria-label="Attach file"
-                title="Attach file"
+              <ComposeSelect
+                label="Model"
+                value={model}
+                options={MODEL_LABEL}
+                onChange={(v) => setModel(v as Model)}
+              />
+              <ComposeSelect
+                label="Effort"
+                value={effort}
+                options={EFFORT_LABEL}
+                onChange={(v) => setEffort(v as Effort)}
+              />
+              <Tooltip label="Plan mode — propose before acting">
+                <button
+                  type="button"
+                  className="compose__toggle"
+                  aria-pressed={planMode}
+                  onClick={() => setPlanMode((p) => !p)}
+                >
+                  <IconPlanMode />
+                  <span>Plan mode</span>
+                </button>
+              </Tooltip>
+            </div>
+            <div className="compose__actions">
+              <IconButton
+                label="Attach file"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <IconAttach />
-              </button>
-              <button
-                type="button"
-                className="compose__icon-btn"
-                aria-label="Dictation — coming soon"
-                title="Dictation — coming soon"
+              </IconButton>
+              <IconButton
+                label="Dictation — coming soon"
                 disabled
               >
                 <IconMic />
-              </button>
-            </div>
-          </div>
-
-          <div className="compose__footer">
-            <div className="compose__footer-left">
-              <label className="compose__select">
-                <span className="compose__select-label">Model</span>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value as Model)}
-                  aria-label="Model"
-                  title="Model used for this message"
-                >
-                  {(Object.keys(MODEL_LABEL) as Model[]).map((m) => (
-                    <option key={m} value={m}>{MODEL_LABEL[m]}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="compose__select">
-                <span className="compose__select-label">Effort</span>
-                <select
-                  value={effort}
-                  onChange={(e) => setEffort(e.target.value as Effort)}
-                  aria-label="Effort"
-                  title="How much reasoning the agent should spend"
-                >
-                  {(Object.keys(EFFORT_LABEL) as Effort[]).map((e) => (
-                    <option key={e} value={e}>{EFFORT_LABEL[e]}</option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="compose__toggle"
-                aria-pressed={planMode}
-                onClick={() => setPlanMode((p) => !p)}
-                title="Plan mode — propose before acting"
+              </IconButton>
+              <IconButton
+                type="submit"
+                label="Send"
+                shortcut="⌘↵"
+                className="btn-icon--primary"
               >
-                <IconPlanMode />
-                <span>Plan mode</span>
-              </button>
+                <IconSend />
+              </IconButton>
             </div>
-            <button
-              type="submit"
-              className="compose__send"
-              aria-label="Send"
-              title="Send (⌘↵)"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M7 11V3" />
-                <path d="M3.5 6.5L7 3l3.5 3.5" />
-              </svg>
-            </button>
           </div>
         </form>
       }
     >
-      <header className="tab-header">
-        <h2 className="tab-title">{tab.title}</h2>
-        <p className="tab-subtitle">
-          Chat with the team lead. Shared context: {workspace.name} on {workspace.base_branch}.
-        </p>
-      </header>
+      {threadEmpty && (
+        <header className="tab-header">
+          <h2 className="tab-title">{tab.title}</h2>
+          <p className="tab-subtitle">
+            Chat with the team lead. Shared context: {workspace.name} on {workspace.base_branch}.
+          </p>
+        </header>
+      )}
 
       <section className="chat" aria-label="Plan conversation">
         {messages.map((m) => (
@@ -249,7 +231,7 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
             className="chat__message"
             data-author={m.author === "you" ? "you" : "agent"}
           >
-            <span className="chat__author">{m.author}</span>
+            {m.author !== "you" && <span className="chat__author">{m.author}</span>}
             <span className="chat__body">
               {m.streaming ? <StreamingText text={m.body} /> : m.body}
             </span>
@@ -257,6 +239,35 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
         ))}
       </section>
     </TabLayout>
+  );
+}
+
+function ComposeSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Record<string, string>;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="compose__select">
+      <span className="compose__select-label">{label}</span>
+      <span className="compose__select-value">{options[value]}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+      >
+        {Object.keys(options).map((k) => (
+          <option key={k} value={k}>{options[k]}</option>
+        ))}
+      </select>
+      <IconChevron />
+    </label>
   );
 }
 
@@ -278,12 +289,29 @@ function IconMic() {
   );
 }
 
+function IconSend() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M7 11V3" />
+      <path d="M3.5 6.5L7 3l3.5 3.5" />
+    </svg>
+  );
+}
+
 function IconPlanMode() {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="2" y="2" width="8" height="8" rx="1.25" />
       <path d="M4 5h4" />
       <path d="M4 7h2.5" />
+    </svg>
+  );
+}
+
+function IconChevron() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true" className="compose__select-chevron">
+      <path d="M2.5 4l2.5 2.5L7.5 4" />
     </svg>
   );
 }

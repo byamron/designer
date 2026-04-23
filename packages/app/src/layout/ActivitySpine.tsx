@@ -1,21 +1,66 @@
 import { useMemo } from "react";
-import { setFollowingAgent, useAppState } from "../store/app";
+import {
+  PANE_DEFAULT_WIDTH,
+  commitSpineWidth,
+  setFollowingAgent,
+  setSpineWidthLive,
+  toggleSpine,
+  useAppState,
+} from "../store/app";
 import { useDataState } from "../store/data";
-import type { SpineRow, StreamEvent } from "../ipc/types";
+import type { SpineRow, StreamEvent, WorkspaceSummary } from "../ipc/types";
 import { emptyArray } from "../util/empty";
 import { humanizeKind } from "../util/humanize";
+import { Tooltip } from "../components/Tooltip";
+import { IconButton } from "../components/IconButton";
+import { PaneResizer } from "../components/PaneResizer";
+import { IconCollapseRight } from "../components/icons";
 
+/**
+ * Activity spine — scoped to the current project by default. When a workspace
+ * is active, narrows further to that workspace. Events are filtered to the
+ * active-project's streams rather than the global event bus, so the user
+ * doesn't see activity from a project they aren't currently in.
+ */
 export function ActivitySpine() {
+  const activeProject = useAppState((s) => s.activeProject);
   const activeWorkspace = useAppState((s) => s.activeWorkspace);
+  const spineWidth = useAppState((s) => s.spineWidth);
   const spine = useDataState<SpineRow[]>((s) =>
     activeWorkspace
       ? s.spines[`workspace:${activeWorkspace}`] ?? emptyArray()
-      : s.spines["project:*"] ?? emptyArray(),
+      : activeProject
+        ? s.spines[`project:${activeProject}`] ?? s.spines["project:*"] ?? emptyArray()
+        : emptyArray(),
   );
   const allEvents = useDataState<StreamEvent[]>((s) => s.events);
-  const events = useMemo(() => allEvents.slice(-6).reverse(), [allEvents]);
+  const workspaceMap = useDataState((s) => s.workspaces);
 
-  const header = activeWorkspace ? "Workspace activity" : "Projects";
+  const scopeIds = useMemo(() => {
+    if (!activeProject) return new Set<string>();
+    const list: WorkspaceSummary[] = workspaceMap[activeProject] ?? emptyArray();
+    const set = new Set<string>([activeProject]);
+    for (const w of list) set.add(w.workspace.id);
+    return set;
+  }, [activeProject, workspaceMap]);
+
+  const events = useMemo(() => {
+    if (!activeProject) return [];
+    const scoped = allEvents.filter((e) =>
+      activeWorkspace
+        ? e.stream_id === activeWorkspace || e.stream_id.startsWith(`${activeWorkspace}:`)
+        : scopeIds.has(e.stream_id) || [...scopeIds].some((id) => e.stream_id.startsWith(`${id}:`)),
+    );
+    // Sort newest first by timestamp (Date.parse-safe ISO strings). Prior
+    // `.slice(-6).reverse()` assumed push order was chronological — which
+    // breaks the moment an out-of-order backfill lands.
+    const sorted = [...scoped].sort(
+      (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp),
+    );
+    return sorted.slice(0, 6);
+  }, [activeProject, activeWorkspace, allEvents, scopeIds]);
+
+  const header = activeWorkspace ? "Workspace" : "Project";
 
   const summary = useMemo(() => {
     const activeCount = countState(spine, "active");
@@ -25,12 +70,35 @@ export function ActivitySpine() {
   }, [spine]);
 
   const flatRows = useMemo(() => flattenSpine(spine), [spine]);
+  const nothingStreaming =
+    summary.activeCount + summary.needsYou + summary.errored === 0;
 
   return (
-    <aside className="app-spine" aria-label="Activity spine">
+    <aside
+      className="app-spine"
+      aria-label="Activity"
+      style={{ width: spineWidth }}
+    >
+      <PaneResizer
+        side="left"
+        width={spineWidth}
+        onLiveChange={setSpineWidthLive}
+        onCommit={commitSpineWidth}
+        defaultWidth={PANE_DEFAULT_WIDTH}
+        ariaLabel="Resize activity pane"
+      />
       <header className="spine-header">
-        <span className="sidebar-label">Activity</span>
-        <strong className="sidebar-title">{header}</strong>
+        <div className="spine-header__row">
+          <strong className="sidebar-title">{header} activity</strong>
+          <IconButton
+            size="sm"
+            label="Hide activity"
+            shortcut="⌘]"
+            onClick={() => toggleSpine(false)}
+          >
+            <IconCollapseRight />
+          </IconButton>
+        </div>
         <div className="spine-summary" aria-label="Activity summary">
           {summary.activeCount > 0 && (
             <span className="spine-summary__item">
@@ -50,10 +118,10 @@ export function ActivitySpine() {
               {summary.errored} errored
             </span>
           )}
-          {summary.activeCount + summary.needsYou + summary.errored === 0 && (
+          {nothingStreaming && (
             <span className="spine-summary__item spine-summary__item--muted">
               <span className="state-dot" data-state="idle" aria-hidden="true" />
-              All quiet
+              Nothing streaming
             </span>
           )}
         </div>
@@ -62,23 +130,24 @@ export function ActivitySpine() {
       <ul className="spine-list" role="tree" aria-label="Activity spine">
         {flatRows.map(({ row, depth }) => (
           <li key={row.id} role="treeitem" aria-label={row.label}>
-            <button
-              type="button"
-              className="spine-row"
-              data-depth={depth}
-              style={{ "--depth": depth } as React.CSSProperties}
-              onClick={() => setFollowingAgent(row.id)}
-              aria-label={`${row.label}: ${row.summary ?? "no activity"}`}
-              title={`Follow ${row.label}${row.summary ? ` · ${row.summary}` : ""}`}
-            >
-              <span className="state-dot" data-state={row.state} aria-hidden="true" />
-              <span className="spine-row__body">
-                <span className="spine-row__label">{row.label}</span>
-                {row.summary && (
-                  <span className="spine-row__summary">{row.summary}</span>
-                )}
-              </span>
-            </button>
+            <Tooltip label={row.summary ? `${row.label} · ${row.summary}` : `Follow ${row.label}`}>
+              <button
+                type="button"
+                className="spine-row"
+                data-depth={depth}
+                style={{ "--depth": depth } as React.CSSProperties}
+                onClick={() => setFollowingAgent(row.id)}
+                aria-label={`${row.label}: ${row.summary ?? "no activity"}`}
+              >
+                <span className="state-dot" data-state={row.state} aria-hidden="true" />
+                <span className="spine-row__body">
+                  <span className="spine-row__label">{row.label}</span>
+                  {row.summary && (
+                    <span className="spine-row__summary">{row.summary}</span>
+                  )}
+                </span>
+              </button>
+            </Tooltip>
           </li>
         ))}
       </ul>
@@ -89,8 +158,10 @@ export function ActivitySpine() {
           <p className="sidebar-empty">No events yet.</p>
         ) : (
           <ul className="spine-events" role="list">
-            {events.map((e) => (
-              <li key={`${e.stream_id}:${e.sequence}`}>
+            {events.map((e, i) => (
+              // Fallback to index because the mock seeds duplicate
+              // stream_id+sequence pairs across workspaces (see mock.ts).
+              <li key={`${e.stream_id}:${e.sequence}:${i}`}>
                 <span className="spine-event__time">
                   {new Date(e.timestamp).toLocaleTimeString()}
                 </span>

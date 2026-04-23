@@ -25,7 +25,7 @@ body {
   font-family: var(--type-family-sans);
   font-size: var(--type-body-size);
   line-height: var(--type-body-leading);
-  font-weight: var(--type-body-weight);
+  font-weight: var(--weight-regular);
   letter-spacing: var(--type-body-tracking);
   color: var(--gray-12);
   background: var(--gray-1);

@@ -12,6 +12,10 @@ import { BuildTab } from "../tabs/BuildTab";
 import { BlankTab } from "../tabs/BlankTab";
 import { emptyArray } from "../util/empty";
 import type { WorkspaceSummary } from "../ipc/types";
+import { Tooltip } from "../components/Tooltip";
+import { IconButton } from "../components/IconButton";
+import { SegmentedToggle } from "../components/SegmentedToggle";
+import { IconX, IconPlus } from "../components/icons";
 
 export function MainView() {
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
@@ -49,11 +53,10 @@ export function MainView() {
   if (!workspace) {
     return (
       <main className="app-main" aria-label="Main" id="main-content" tabIndex={-1}>
-        <div className="main-topbar">
-          <div className="main-topbar__heading">
-            <h1 className="main-topbar__title">{project.name}</h1>
-            <span className="main-topbar__meta">{project.root_path}</span>
-          </div>
+        {/* Project home — no topbar. The project name and path live in the
+            sidebar; duplicating them here was the "too much" signal in the
+            UX pass. Variant toggle is the only chrome needed. */}
+        <div className="main-topbar main-topbar--ambient">
           <div className="main-topbar__actions">
             <VariantToggle value={dashboardVariant} onChange={setDashboardVariant} />
           </div>
@@ -83,9 +86,6 @@ export function MainView() {
       ? storedTab
       : visibleTabs[0]?.id ?? null;
 
-  const projectName =
-    projects.find((p) => p.project.id === workspace.project_id)?.project.name ?? "";
-
   const onOpenTab = async (template: TabTemplate) => {
     const tab = await ipcClient().openTab({
       workspace_id: workspace.id,
@@ -100,65 +100,50 @@ export function MainView() {
 
   return (
     <main className="app-main" aria-label="Main" id="main-content" tabIndex={-1}>
-      <div className="main-topbar">
-        <div className="main-topbar__heading">
-          <span className="state-dot" data-state={workspace.state} aria-hidden="true" />
-          <h1 className="main-topbar__title">{workspace.name}</h1>
-          <span className="main-topbar__sep" aria-hidden="true">/</span>
-          <span className="main-topbar__project">{projectName}</span>
-          <span className="main-topbar__branch" title={`branch ${workspace.base_branch}`}>
-            <IconBranch />
-            <span>{workspace.base_branch}</span>
-          </span>
-        </div>
-        <div className="main-topbar__actions">
-          <TemplateMenu onOpen={onOpenTab} />
-        </div>
+      {/* Workspace chrome: the tabs bar is the top row. Workspace name,
+          branch, and lifecycle state all live in the left sidebar already. */}
+      <div className="tabs-bar" role="tablist" aria-orientation="horizontal">
+        {visibleTabs.map((tab) => (
+          <TabButton
+            key={tab.id}
+            workspaceId={workspace.id}
+            id={tab.id}
+            label={tab.title}
+            template={tab.template}
+            active={activeTab === tab.id}
+            onClose={async () => {
+              await ipcClient().closeTab(workspace.id, tab.id);
+              await refreshWorkspaces(workspace.project_id);
+              const remaining = visibleTabs.filter((t) => t.id !== tab.id);
+              if (activeTab === tab.id && remaining[0]) {
+                selectTab(workspace.id, remaining[0].id);
+              }
+            }}
+          />
+        ))}
+        <TemplateMenu onOpen={onOpenTab} />
       </div>
 
       {visibleTabs.length > 0 && activeTab !== null ? (
-        <>
-          <div className="tabs-bar" role="tablist" aria-orientation="horizontal">
-            {visibleTabs.map((tab) => (
-              <TabButton
-                key={tab.id}
-                workspaceId={workspace.id}
-                id={tab.id}
-                label={tab.title}
-                template={tab.template}
-                active={activeTab === tab.id}
-                onClose={async () => {
-                  await ipcClient().closeTab(workspace.id, tab.id);
-                  await refreshWorkspaces(workspace.project_id);
-                  const remaining = visibleTabs.filter((t) => t.id !== tab.id);
-                  if (activeTab === tab.id && remaining[0]) {
-                    selectTab(workspace.id, remaining[0].id);
-                  }
-                }}
-              />
-            ))}
-          </div>
-
-          <section
-            className="tab-body"
-            role="tabpanel"
-            id={`tabpanel-${activeTab}`}
-            aria-labelledby={`tab-${workspace.id}-${activeTab}`}
-            tabIndex={0}
-          >
-            <TabContent
-              key={`${workspace.id}:${activeTab}`}
-              tab={visibleTabs.find((t) => t.id === activeTab)!}
-              workspace={workspace}
-            />
-          </section>
-        </>
+        <section
+          className="tab-body"
+          role="tabpanel"
+          id={`tabpanel-${activeTab}`}
+          aria-labelledby={`tab-${workspace.id}-${activeTab}`}
+          tabIndex={0}
+        >
+          <TabContent
+            key={`${workspace.id}:${activeTab}`}
+            tab={visibleTabs.find((t) => t.id === activeTab)!}
+            workspace={workspace}
+          />
+        </section>
       ) : (
         <section className="tab-body" role="region" tabIndex={0}>
           <div className="main-empty">
             <h2 className="main-empty__title">No tabs yet</h2>
             <p className="main-empty__body">
-              Open a Plan, Design, Build, or Blank tab from the top bar.
+              Open a Plan, Design, Build, or Blank tab with the + button above.
             </p>
           </div>
         </section>
@@ -184,82 +169,67 @@ function TabButton({
 }) {
   return (
     <div className="tab-button-wrap" data-active={active}>
-      <button
-        type="button"
-        role="tab"
-        id={`tab-${workspaceId}-${id}`}
-        aria-selected={active}
-        aria-controls={`tabpanel-${id}`}
-        tabIndex={active ? 0 : -1}
-        className="tab-button"
-        data-active={active}
-        data-template={template}
-        title={`${label} · ${template}${onClose ? " · ⌘W to close" : ""}`}
-        onClick={() => selectTab(workspaceId, id)}
-        onAuxClick={(e) => {
-          if (e.button === 1 && onClose) {
-            e.preventDefault();
-            onClose();
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-            e.preventDefault();
-            const parent = (e.currentTarget.parentElement?.parentElement as HTMLElement) || null;
-            if (!parent) return;
-            const tabs = Array.from(
-              parent.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
-            );
-            const idx = tabs.indexOf(e.currentTarget);
-            if (idx < 0) return;
-            const next =
-              e.key === "ArrowRight"
-                ? tabs[(idx + 1) % tabs.length]
-                : tabs[(idx - 1 + tabs.length) % tabs.length];
-            next.focus();
-            next.click();
-          } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w" && onClose) {
-            e.preventDefault();
-            onClose();
-          }
-        }}
-      >
-        <span className="tab-button__icon" aria-hidden="true">
-          <TemplateIcon template={template} />
-        </span>
-        <span className="tab-button__label">{label}</span>
-      </button>
+      <Tooltip label={label} shortcut={active && onClose ? "⌘W" : undefined}>
+        <button
+          type="button"
+          role="tab"
+          id={`tab-${workspaceId}-${id}`}
+          aria-selected={active}
+          aria-controls={`tabpanel-${id}`}
+          tabIndex={active ? 0 : -1}
+          className="tab-button"
+          data-active={active}
+          data-template={template}
+          onClick={() => selectTab(workspaceId, id)}
+          onAuxClick={(e) => {
+            if (e.button === 1 && onClose) {
+              e.preventDefault();
+              onClose();
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+              e.preventDefault();
+              const parent = (e.currentTarget.parentElement?.parentElement as HTMLElement) || null;
+              if (!parent) return;
+              const tabs = Array.from(
+                parent.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+              );
+              const idx = tabs.indexOf(e.currentTarget);
+              if (idx < 0) return;
+              const next =
+                e.key === "ArrowRight"
+                  ? tabs[(idx + 1) % tabs.length]
+                  : tabs[(idx - 1 + tabs.length) % tabs.length];
+              next.focus();
+              next.click();
+            } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w" && onClose) {
+              e.preventDefault();
+              onClose();
+            }
+          }}
+        >
+          <span className="tab-button__icon" aria-hidden="true">
+            <TemplateIcon template={template} />
+          </span>
+          <span className="tab-button__label">{label}</span>
+        </button>
+      </Tooltip>
       {onClose && (
         <button
           type="button"
           className="tab-button__close"
           aria-label={`Close ${label}`}
-          title={`Close ${label} (⌘W)`}
           tabIndex={-1}
           onClick={(e) => {
             e.stopPropagation();
             onClose();
           }}
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-            <path d="M2 2l6 6" />
-            <path d="M8 2l-6 6" />
-          </svg>
+          <IconX size={10} />
         </button>
       )}
     </div>
-  );
-}
-
-function IconBranch() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="3.5" cy="2.5" r="1" />
-      <circle cx="3.5" cy="9.5" r="1" />
-      <circle cx="8.5" cy="6" r="1" />
-      <path d="M3.5 3.5v5" />
-      <path d="M3.5 6h4" />
-    </svg>
   );
 }
 
@@ -308,6 +278,11 @@ function TabContent({ tab, workspace }: { tab: Tab; workspace: Workspace }) {
   }
 }
 
+/**
+ * Trailing "+" inside the tabs-bar. Opens a small template menu anchored to
+ * the button. Matches the visual weight of a collapsed tab so the strip
+ * reads as a single row. ⌘T toggles; click-outside or Escape closes.
+ */
 function TemplateMenu({ onOpen }: { onOpen: (t: TabTemplate) => void }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -345,21 +320,16 @@ function TemplateMenu({ onOpen }: { onOpen: (t: TabTemplate) => void }) {
 
   return (
     <div className="new-tab" ref={wrapRef}>
-      <button
-        type="button"
-        className="new-tab__btn"
+      <IconButton
+        label="New tab"
+        shortcut="⌘T"
+        pressed={open}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        title="New tab (⌘T)"
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-          <path d="M6 2v8" />
-          <path d="M2 6h8" />
-        </svg>
-        <span>New tab</span>
-        <kbd className="new-tab__kbd">⌘T</kbd>
-      </button>
+        <IconPlus size={12} strokeWidth={1.5} />
+      </IconButton>
       {open && (
         <div role="menu" className="new-tab__menu" aria-label="New tab template">
           {(["plan", "design", "build", "blank"] as TabTemplate[]).map((t, i) => (
@@ -369,13 +339,13 @@ function TemplateMenu({ onOpen }: { onOpen: (t: TabTemplate) => void }) {
               role="menuitem"
               type="button"
               className="new-tab__item"
-              title={descriptionForTemplate(t)}
               onClick={() => pick(t)}
             >
               <span className="new-tab__item-icon" aria-hidden="true">
                 <TemplateIcon template={t} />
               </span>
               <span>{titleForTemplate(t)}</span>
+              <span className="new-tab__item-hint">{descriptionForTemplate(t)}</span>
             </button>
           ))}
         </div>
@@ -393,20 +363,20 @@ function titleForTemplate(template: TabTemplate): string {
     case "build":
       return "Build";
     case "blank":
-      return "New tab";
+      return "Blank tab";
   }
 }
 
 function descriptionForTemplate(template: TabTemplate): string {
   switch (template) {
     case "plan":
-      return "Chat with the team lead to scope the work";
+      return "Chat with the team lead";
     case "design":
-      return "Prototype browser + component catalog";
+      return "Prototype + catalog";
     case "build":
-      return "Task list + merge-approval gate";
+      return "Tasks + approvals";
     case "blank":
-      return "Empty canvas with prompt suggestions";
+      return "Empty canvas";
   }
 }
 
@@ -418,39 +388,35 @@ function VariantToggle({
   onChange: (v: DashboardVariant) => void;
 }) {
   return (
-    <div
-      className="variant-toggle"
-      role="group"
-      aria-label="Home variant"
-      title="Switch home layout"
-    >
-      <button
-        type="button"
-        className="variant-toggle__btn"
-        aria-pressed={value === "A"}
-        title="Panels — dashboard with titled sections"
-        onClick={() => onChange("A")}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden="true">
-          <rect x="1.5" y="1.5" width="9" height="4" rx="1" />
-          <rect x="1.5" y="6.5" width="9" height="4" rx="1" />
-        </svg>
-        <span>Panels</span>
-      </button>
-      <button
-        type="button"
-        className="variant-toggle__btn"
-        aria-pressed={value === "B"}
-        title="Palette — centered prompt + suggestions"
-        onClick={() => onChange("B")}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
-          <rect x="1.5" y="3.5" width="9" height="2.5" rx="1.25" />
-          <path d="M3 8.25h6" />
-          <path d="M3 10h4" />
-        </svg>
-        <span>Palette</span>
-      </button>
-    </div>
+    <SegmentedToggle<DashboardVariant>
+      ariaLabel="Home variant"
+      value={value}
+      onChange={onChange}
+      options={[
+        {
+          value: "A",
+          label: "Panels",
+          tooltip: "Panels — dashboard with titled sections",
+          icon: (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden="true">
+              <rect x="1.5" y="1.5" width="9" height="4" rx="1" />
+              <rect x="1.5" y="6.5" width="9" height="4" rx="1" />
+            </svg>
+          ),
+        },
+        {
+          value: "B",
+          label: "Palette",
+          tooltip: "Palette — centered prompt + suggestions",
+          icon: (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
+              <rect x="1.5" y="3.5" width="9" height="2.5" rx="1.25" />
+              <path d="M3 8.25h6" />
+              <path d="M3 10h4" />
+            </svg>
+          ),
+        },
+      ]}
+    />
   );
 }

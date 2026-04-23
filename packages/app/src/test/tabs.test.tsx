@@ -32,10 +32,13 @@ async function boot() {
 }
 
 describe("Project home", () => {
-  it("renders the project name as h1 in the topbar on boot", async () => {
+  it("renders the active project name in the sidebar on boot", async () => {
     await boot();
+    // After the UX pass the project title lives only in the sidebar (no
+    // duplicated topbar heading). `sidebar-title` is the canonical anchor.
     await waitFor(() => {
-      expect(screen.getByRole("heading", { level: 1, name: "Designer" })).toBeTruthy();
+      const title = document.querySelector(".sidebar-title");
+      expect(title?.textContent).toBe("Designer");
     });
   });
 
@@ -94,7 +97,7 @@ describe("Home variant toggle", () => {
     const palette = screen.getByRole("button", { name: /palette/i });
     fireEvent.click(palette);
     await waitFor(() => {
-      expect(document.querySelector(".home-b")).not.toBeNull();
+      expect(document.querySelector(".palette")).not.toBeNull();
     });
     expect(localStorage.getItem("designer.dashboardVariant")).toBe("B");
 

@@ -3,6 +3,8 @@ import { Agentation } from "agentation";
 import { AppShell } from "./layout/AppShell";
 import { QuickSwitcher } from "./layout/QuickSwitcher";
 import { Onboarding } from "./components/Onboarding";
+import { AppDialog } from "./components/AppDialog";
+import { TypeDevPanel } from "./dev/TypeDevPanel";
 import {
   bootData,
   dataStore,
@@ -11,9 +13,13 @@ import {
 } from "./store/data";
 import {
   appStore,
+  closeDialog,
+  openDialog,
   selectProject,
   toggleProjectStrip,
   toggleQuickSwitcher,
+  toggleSidebar,
+  toggleSpine,
 } from "./store/app";
 import { isTauri, listen } from "./ipc/tauri";
 
@@ -33,14 +39,25 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         toggleQuickSwitcher();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+      } else if (mod && e.key === "\\") {
         e.preventDefault();
         toggleProjectStrip();
+      } else if (mod && e.key === "[") {
+        e.preventDefault();
+        toggleSidebar();
+      } else if (mod && e.key === "]") {
+        e.preventDefault();
+        toggleSpine();
+      } else if (mod && (e.key === "?" || (e.shiftKey && e.key === "/"))) {
+        e.preventDefault();
+        openDialog("help");
       } else if (e.key === "Escape") {
         toggleQuickSwitcher(false);
+        closeDialog();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -79,8 +96,10 @@ export function App() {
     <>
       <AppShell />
       <QuickSwitcher />
+      <AppDialog />
       <Onboarding />
       {import.meta.env.MODE === "development" && <Agentation />}
+      {import.meta.env.MODE === "development" && <TypeDevPanel />}
     </>
   );
 }
