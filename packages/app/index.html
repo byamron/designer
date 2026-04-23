@@ -12,17 +12,33 @@
       // resolved theme as `#theme=light|dark` on the initial URL (see
       // apps/desktop/src-tauri/src/main.rs). We apply it synchronously,
       // before the main bundle executes, so the first CSS cascade paints
-      // the correct --color-bg-canvas. Web/mock falls through to system.
+      // the correct surface. Web/mock falls through to a stored override
+      // (if any) and then to the system preference.
+      //
+      // Applies BOTH the Radix `.dark-theme` / `.light-theme` class (Radix
+      // Colors v3 activates scales via class, not prefers-color-scheme)
+      // and Designer's `data-theme` attribute, so Radix tokens and our
+      // selectors resolve to the same mode.
       (function () {
         var hash = window.location.hash || "";
         var match = /(?:^|[#&])theme=(light|dark)(?:&|$)/.exec(hash);
         var choice = match && match[1];
         if (!choice) {
+          try {
+            var stored = window.localStorage.getItem("designer:theme-override");
+            if (stored === "light" || stored === "dark") choice = stored;
+          } catch (_) { /* localStorage can throw in strict sandbox */ }
+        }
+        if (!choice) {
           choice = window.matchMedia("(prefers-color-scheme: dark)").matches
             ? "dark"
             : "light";
         }
-        document.documentElement.dataset.theme = choice;
+        var root = document.documentElement;
+        root.dataset.theme = choice;
+        root.classList.remove("light-theme", "dark-theme", "light", "dark");
+        root.classList.add(choice === "dark" ? "dark-theme" : "light-theme");
+        root.style.colorScheme = choice;
       })();
     </script>
   </head>

@@ -1,4 +1,11 @@
 import { useRef, useState } from "react";
+import {
+  ArrowUp,
+  ChevronDown,
+  ClipboardList,
+  Mic,
+  Paperclip,
+} from "lucide-react";
 import { StreamingText } from "../components/StreamingText";
 import { TabLayout } from "../layout/TabLayout";
 import { Tooltip } from "../components/Tooltip";
@@ -184,7 +191,7 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
                   aria-pressed={planMode}
                   onClick={() => setPlanMode((p) => !p)}
                 >
-                  <IconPlanMode />
+                  <ClipboardList size={12} strokeWidth={1.25} aria-hidden="true" />
                   <span>Plan mode</span>
                 </button>
               </Tooltip>
@@ -194,13 +201,13 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
                 label="Attach file"
                 onClick={() => fileInputRef.current?.click()}
               >
-                <IconAttach />
+                <Paperclip size={14} strokeWidth={1.25} aria-hidden="true" />
               </IconButton>
               <IconButton
                 label="Dictation — coming soon"
                 disabled
               >
-                <IconMic />
+                <Mic size={14} strokeWidth={1.25} aria-hidden="true" />
               </IconButton>
               <IconButton
                 type="submit"
@@ -208,7 +215,7 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
                 shortcut="⌘↵"
                 className="btn-icon--primary"
               >
-                <IconSend />
+                <ArrowUp size={14} strokeWidth={1.5} aria-hidden="true" />
               </IconButton>
             </div>
           </div>
@@ -266,53 +273,13 @@ function ComposeSelect({
           <option key={k} value={k}>{options[k]}</option>
         ))}
       </select>
-      <IconChevron />
+      <ChevronDown
+        size={10}
+        strokeWidth={1.5}
+        aria-hidden="true"
+        className="compose__select-chevron"
+      />
     </label>
-  );
-}
-
-function IconAttach() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 3.5L5 8.5a1.5 1.5 0 0 0 2.1 2.1l5-5a3 3 0 0 0-4.2-4.2L2.7 6.5a4.5 4.5 0 0 0 6.4 6.4l4.4-4.4" />
-    </svg>
-  );
-}
-
-function IconMic() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="5" y="1.5" width="4" height="7" rx="2" />
-      <path d="M2.5 6.5a4.5 4.5 0 0 0 9 0" />
-      <path d="M7 11v1.5" />
-    </svg>
-  );
-}
-
-function IconSend() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M7 11V3" />
-      <path d="M3.5 6.5L7 3l3.5 3.5" />
-    </svg>
-  );
-}
-
-function IconPlanMode() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="2" width="8" height="8" rx="1.25" />
-      <path d="M4 5h4" />
-      <path d="M4 7h2.5" />
-    </svg>
-  );
-}
-
-function IconChevron() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true" className="compose__select-chevron">
-      <path d="M2.5 4l2.5 2.5L7.5 4" />
-    </svg>
   );
 }
 

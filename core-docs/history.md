@@ -37,6 +37,54 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### UI overhaul — floating-surface register, dark mode, Lucide icons
+**Date:** 2026-04-23
+**Branch:** review-frontend-mini
+**Commit:** pending
+
+**What was done:**
+Multi-session UI overhaul replacing the flat three-pane layout with a two-tier page + floating-surface register, landing a proper dark mode, adopting `lucide-react`, and rebuilding BuildTab around a chat/terminal interaction. User-facing deliverables:
+
+- **Floating main surface.** Workspace sidebar + activity spine now sit directly on the sand page (no fill, no borders). The main content panel is a raised rounded rectangle — pure white in light, sand-dark-1 (off-black) in dark — with a soft hairline border and a subtle shadow. Tabs sit above the surface with a 6 px gap; the active tab is a bordered pill in `--color-content-surface` so it reads as "the same material" as the surface below without merging.
+- **Dark mode actually works.** Previous theme bootstrap applied `[data-theme]` only; Radix Colors v3 activates its scales via `.dark-theme` class. A user in system-dark saw the light-mode scales regardless. Rewrote `theme/index.ts` to apply both signals (plus `colorScheme` on documentElement), added a `prefers-color-scheme` listener when in System mode, and wired a System / Light / Dark `SegmentedToggle` into Settings → Appearance. The index.html zero-flash boot script applies the same three assignments synchronously so the first paint is resolved.
+- **Lucide adoption.** All ~30 inline `<svg>` tags across 7 files (workspace status glyphs, tab template icons, compose controls, home suggestions, project-strip chrome) replaced with `lucide-react` imports. `components/icons.tsx` becomes thin wrappers around the canonical 7-icon set (stroke 1.25 at sm/md, 1.5 at lg per axiom #13). One-offs import from `lucide-react` directly.
+- **BuildTab as chat/terminal.** Dropped the task-list + merge-approval-card layout. Build renders a mono-typed chat stream; user sends instructions or slash commands (`/plan · /diff · /test · /merge`) via the same compose dock PlanTab uses. The merge approval gate is still enforced in the Rust core (spec §5) — `/merge` just asks.
+- **HomeTabA restructure.** Kicker removed. Section order re-prioritizes: Needs-your-attention jumps to top and hides entirely when empty; workspace rows compress to status icon + name + one-line summary (first open tab's title); Autonomy becomes a real interactive SegmentedToggle with optimistic local override via `setAutonomyOverride` so it doesn't ship as a false affordance before the Phase 13 IPC lands.
+- **Palette bare input.** Default density flipped to `open`; input is bare text + blinking caret on the surface, no container. Notion / Linear feel.
+- **Token additions.** New `--radius-surface` (24 px) in `tokens.css`; new `--color-content-surface`, `--color-border-soft`, and `--surface-{gutter, tab-gap, text-pad, inner-pad, shadow}` in app.css. Compose corner radius is derived from the surface radius minus the compose-dock pad (`calc(var(--radius-surface) - var(--surface-inner-pad))` = 8 px) so the compose sits concentric with the floating surface.
+- **Retired.** `TypeDevPanel` (type tuning) and `SurfaceDevPanel` (layout tuning) both removed after the values they were tuning landed in tokens.css / app.css. The `packages/app/src/dev/` directory no longer exists. Home variant A/B toggle pruned — Panels committed.
+
+**Why:**
+The flat three-pane register (sidebars, main, spine all on the same background separated by hairlines) made every region visually equal; nothing carried "this is the work." The floating-surface register (Linear / Dia / Inflight) delegates the hierarchy to the surface itself — sidebars stop competing with the content, the selected tab reads as part of the floating object, and dark mode's symmetry flip (darker-than-page surface instead of brighter) keeps the figure-vs-ground read intact across modes. Dark mode was simply broken; fixing the Radix class activation was a prerequisite for shipping a theme picker.
+
+**Design decisions:**
+- **Two-tier register, committed in both modes.** Amended axiom #8 to codify the page + floating-surface split as load-bearing for the workspace view. Project strip stays on its own Tier-1 surface (it's navigation, not content).
+- **Content surface inverts by mode, chrome stays monotonic.** Surface is brighter than page in light, darker than page in dark. Other surface tokens (`--color-surface-flat/raised/overlay`) stay "one step above background" in both modes because they're secondary containers.
+- **Style A committed.** Of three tab styles prototyped behind `[data-tab-style]` (selected-only, flat inactive + floating selected, all floating), A won on coherence at the sand + white register. Kept the data-attribute selectors in CSS so the branch can return.
+- **Autonomy is interactive, not display-only.** Stub onChange violated the false-affordance axiom; a project-scoped local override makes the control feel responsive now and lets the Phase 13 IPC mutation replace the setter without UI changes.
+- **Dev panels are a legitimate design tool, but they retire.** The 24-hour window during which gutter / tab-gap / compose-pad / shadow / tab-style were live-tunable ended the moment the values felt right. Shipping the panel in prod is scope creep; keeping it after the decision is dead weight.
+
+**Technical decisions:**
+- **Class-based theme activation, not media-query only.** Radix Colors v3 doesn't honor `prefers-color-scheme` on its own. Our CSS overrides, the index.html inline script, and `theme/index.ts` all apply `.dark-theme` / `.light-theme` + `[data-theme]` + `colorScheme`. System mode installs a `MediaQueryList` listener so OS-appearance changes propagate live.
+- **`--color-content-surface` as a first-class role, not a one-off.** The main surface, the active tab pill, and future floating-content surfaces all bind to it; they invert together.
+- **Pane-resizer cursor-only.** The ::before hairline and drag-fill were visual noise; a col-resize cursor + focus-visible ring is enough. Handle moved to `calc(var(--surface-gutter) * -1)` so the grabbable zone sits at the floating-surface edge.
+- **Concentric compose math via calc().** No magic numbers — inner radius is derived from outer radius minus the separating pad.
+- **Shared `WorkspaceStatusIcon`.** Extracted from WorkspaceSidebar so the 7-glyph status vocabulary reads identically on the sidebar and on HomeTabA.
+- **`persisted.ts` try/catch around `localStorage`.** Strict sandbox origins (file://, Safari private mode) now fall back silently instead of throwing.
+
+**Tradeoffs discussed:**
+- **Surface darker than page in dark vs. brighter.** Brighter would match Slack / Linear convention; darker matches the explicit user ask ("off-black main surface"). The inversion preserves "figure vs ground" in both modes rather than trying to keep surface polarity constant.
+- **Lucide vs Phosphor.** Phosphor has more decorative weights (duotone, fill); Lucide's stroke-only register matches our axioms more cleanly. Went with Lucide.
+- **Bake dev-panel values into CSS vs. keep the panel in dev forever.** Keeping the panel mounted means every dev build prompts a decision. Baking the values commits; we can re-mount the panel behind a `?dev=1` query in a future pass if another axis needs tuning.
+- **Optimistic autonomy update vs. disabled until Phase 13.** Disabled is the safer "false affordances are a bug" response; optimistic gives real feedback now and converges trivially when IPC lands. Chose optimistic because the UX is materially better and the rollback path is a one-line store change.
+
+**Lessons learned:**
+- **Radix's activation model is not `prefers-color-scheme`.** This cost real time — dark mode appeared to work in light-system but silently broke on dark-system. Lesson codified as FB-0018: theme-dependent CSS must use the same activation signal as the color library driving the scales.
+- **Live tuning beats staff guesswork when contentious values are on the table.** The gutter / tab-gap / compose-pad / shadow / tab-style decisions would have been five rounds of "I think 12 feels right" without the dev panel; ~24 hours of real use closed the decision.
+- **Section order on a dashboard is load-bearing UX.** Moving Needs-your-attention to the top only when non-empty is a materially different surface from a static Needs-attention card that sometimes shows "All clear."
+
+---
+
 ### Phase 12.B — Staff UX designer + staff engineer review pass SAFETY
 **Date:** 2026-04-21
 **Branch:** phase-12b-plan

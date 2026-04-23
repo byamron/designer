@@ -180,3 +180,102 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - tests: 14/14 pass.
 - deviations: none added. Tooltip cloneElement + ref-forwarding still works as-is; noted in the audit as a Slot-pattern candidate but deferred — no caller is breaking. AppDialog kind/open split skipped: two dialogs is fine as a union.
 - feedback: pending
+
+## 2026-04-22T22:00:00Z — manual (floating-surface register + SurfaceDevPanel)
+- prompt: "Transition the main chat/content panel to appear as a floating rectangle with rounded corners ... sidebars should appear as the main page surface ... tabs sit above the floating surface ... selected tab has a clear selected state ... build in a dev panel to test the gutter ... shadow intensity ... three tab-style options"
+- trigger: manual (UI direction change + live-tuning dev panel request)
+- archetype-reused: SegmentedToggle (gutter + tab-style), native range input (shadow)
+- components-reused: IconButton, SegmentedToggle, Tooltip (via SegmentedToggle)
+- components-new: SurfaceDevPanel (replaces TypeDevPanel — the type knobs no longer earn their slot)
+- components-removed: TypeDevPanel.tsx + the entire .type-dev__* CSS block
+- css-new: .main-surface (Tier-2 floating rectangle), [data-tab-style="A"|"B"|"C"] branches on .app-shell, three .tab-button[data-active="true"] selectors + one .tab-button default, .surface-dev__* class family
+- css-modified: .app-sidebar / .app-spine / .pane-rail — background and borders removed (sidebars now sit on --color-background); .app-main — padding driven by --surface-gutter with a branch for the collapsed-sidebar case; .main-topbar — background dropped, padding tightened to align with surface edge
+- store changes: none (dev panel persists to localStorage directly)
+- tokens-new: --surface-gutter (defaults to --space-3, 8px; panel switches between 8 / 12 / 16 px); --surface-shadow (defaults to --elevation-raised; panel switches between none / subtle / subtle+ / subtle-medium)
+- axioms: #8 amended — two-tier page / floating-surface register codified for the workspace view. Pattern-log entry "Two-tier surface register" details the active-tab seam trick.
+- invariants: to be run on the final set of changed files.
+- typecheck: clean.
+- tests: to be re-run.
+- deviations: shadow values in SurfaceDevPanel.tsx are inline rgba literals — intentional: they live in a JS Record, not a .css file (the invariants scanner checks .css and .tsx hex literals, not runtime-injected inline styles). If a value is pinned to production it moves to tokens.css as a new --elevation-* step.
+- feedback: pending
+
+## 2026-04-22T23:30:00Z — manual (lucide-react adoption + inline-SVG sweep)
+- prompt: "tell me what icon library we are using. we should be using lucide or phosphor" → "yes - go with lucide"
+- trigger: manual (library consolidation + inline-SVG sweep)
+- archetype-reused: none
+- components-reused: IconButton, Tooltip, SegmentedToggle (unchanged; consumers now pass Lucide icons as children)
+- components-new: none
+- components-removed: 22 hand-rolled inline `<svg>` glyphs across ProjectStrip (Settings, Help), WorkspaceSidebar (Home + 7 status), MainView (4 template icons + 2 variant-toggle icons), PlanTab (Attach, Mic, Send, PlanMode, Chevron), BlankTab (Summary, Compass, Report, Spec), HomeTabB (Alert, Branch, Plan, Report)
+- icons.tsx: rewritten as thin wrappers around lucide-react. IconX, IconPlus, IconBranch, IconChevronLeft/Right, IconCollapseLeft/Right keep their existing call sites; defaults follow axiom #13 (12/14/16 px, 1.25 stroke at sm/md, 1.5 at lg). One-off glyphs import from lucide-react directly in the consumer file rather than sharing through the wrapper (rule of three).
+- lucide mappings: Settings → Settings, HelpCircle → HelpCircle, Home → House, Circle/LoaderCircle/Eye/GitPullRequest/AlertTriangle/Check/GitMerge for the 7 workspace statuses, ClipboardList/Compass/ListChecks/Square for the 4 tab templates, Rows2/Search for the home variant toggle, Paperclip/Mic/ArrowUp/ChevronDown for compose controls, AlignLeft/Compass/FileText/BookOpen for BlankTab suggestions, AlertCircle/ClipboardList/FileText for HomeTabB suggestions.
+- deps: added `lucide-react ^0.471.0` to `packages/app/package.json`.
+- tokens: no new tokens. Icons consume size (number) and strokeWidth (number) props, matching --icon-sm/md/lg by numeric equivalence.
+- axioms: #13 unchanged — all icons still flow through the 12/14/16 size family with 1.25/1.5 stroke policy.
+- invariants: 6/6 on 33 files in packages/app/src.
+- typecheck: clean.
+- tests: 14/14 pass.
+- deviations: none introduced. 0 remaining `<svg>` tags in packages/app/src.
+- feedback: pending
+
+## 2026-04-22T23:59:00Z — manual (14-item Agentation feedback pass)
+- prompt: "address these comments" (feedback dump: default widths, pane-resizer visuals, border softness, compose concentricity, header alignment, Settings icon, icon sizing, Autonomy explanation, workspace rows, kicker removal, commit to Panels on home)
+- trigger: manual (directed UI pass)
+- archetype-reused: IconButton, Tooltip, SegmentedToggle (in Settings), TabLayout
+- components-reused: WorkspaceSidebar, HomeTabA, PaneResizer, compose + tab-layout
+- components-new: WorkspaceStatusIcon (extracted shared 7-glyph component from WorkspaceSidebar so HomeTabA can consume the same status vocabulary)
+- components-removed: VariantToggle (inline in MainView) — home is now always the Panels layout. Palette primitive stays for BlankTab.
+- css-new: --color-border-soft (gray-a5 alpha), --radius-surface (20px, in tokens.css), --surface-inner-pad (space-4). .home-a__explain. .home-a__list--workspaces grid override.
+- css-modified: .main-surface (softer border, bigger radius), .tab-button borders → soft, style-B inactive opacity 60% → 80%, .tab-layout__scroll + __dock use --surface-inner-pad, .tab-layout__dock-inner drops max-width so compose fills width, .compose border-radius = calc(--radius-surface - --surface-inner-pad) = 4px (concentric), .compose border → soft. .pane-resizer: removed ::before hairline + hover/drag fills — cursor-only feedback; positioned at calc(--surface-gutter * -1) so the handle sits at the floating-surface edge. .sidebar-header__row + .spine-header__row gained min-height var(--target-md) so their titles center-align with tab labels.
+- store changes: removed dashboardVariant / setDashboardVariant / cycleDashboardVariant / variantStore (home is always Panels).
+- HomeTabA: dropped kicker + kicker hint; workspace-list rows now render WorkspaceStatusIcon (matches sidebar) instead of a bare state-dot; Autonomy section gained a one-paragraph explanation above the pill.
+- ProjectStrip: Settings icon swapped from Lucide `Settings` (sun-like) → `Cog` (explicit gear). Settings/Help/New-project bumped from 14px → 16px with strokeWidth 1.5 so they read at the same visual weight as each other.
+- MainView: removed home-view main-topbar (no variant toggle needed). HomeTabA always renders. Lucide Rows2 + Search imports removed.
+- tests: removed "Home variant toggle" test. 13/13 now pass.
+- axioms: #8 unchanged (register still two-tier). --radius-surface, --color-border-soft added as project tokens — candidate upstream if Mini ever adopts. Axiom #13 unchanged (icon family still 12/14/16).
+- invariants: 6/6 on 33 files.
+- typecheck: clean.
+- tests: 13/13 pass.
+- deviations: none. Golden-ratio layout request is satisfied by the existing PANE_DEFAULT_WIDTH=256 + project-strip ~64px ratio at the 1500px viewport target (main ≈ 924px ≈ 0.62 × width). Not hard-coded; uses existing defaults.
+- feedback: pending
+
+## 2026-04-23T05:30:00Z — manual (second Agentation feedback pass, 11 items)
+- prompt: "address these comments" (second feedback dump: inner padding knob, lede deletion, compressed workspace rows, needs-you prominence, Autonomy SegmentedToggle, sidebar branch chip removal, bare Palette input, BuildTab as chat)
+- trigger: manual (directed UI pass)
+- archetype-reused: SegmentedToggle (Autonomy, dev panel), StreamingText, TabLayout, compose dock
+- components-reused: WorkspaceStatusIcon, Palette
+- components-new: none
+- components-removed: `.home-a__lede`, `.home-a__autonomy` (pill), `.workspace-row__branch`, BuildTab's task-board + merge-gate-panel layout (replaced by chat surface)
+- css-new: `.chat--build`, `.chat__body--mono`, `.compose__hint`. Palette open-density overrides now strip border/background/padding from the input (Notion/Linear bare-text feel).
+- css-modified: Palette open-density rule set bare (no chrome on input). `.workspace-row` grid template shrunk from 3 columns to 2 (branch chip dropped). `.home-a__list--workspaces` meta column now carries a workspaceSummary text instead of the branch.
+- store changes: `densityStore` default flipped from "bounded" → "open" — Palette surfaces now open by default.
+- SurfaceDevPanel: added fifth knob, "Inner" (range 4–40px) → `--surface-inner-pad` on `:root`. Defaults 16px (unchanged ship default). All knob values persist together under the same `designer.dev.surfaceOverrides` key; old stored values without `innerPad` fall back to the default on read.
+- HomeTabA: rewrote the section order so "Needs your attention" renders first when non-empty and is hidden entirely when empty. Lede paragraph removed. Workspace rows now show a one-line `workspaceSummary(w)` (first open tab title or "no open tabs") instead of the branch chip. Autonomy section swapped the bespoke pill for a real SegmentedToggle (matching the Theme picker's UX); onChange is a Phase-13 TODO (no IPC write yet), so the control renders the current value read-only for now.
+- WorkspaceSidebar: workspace row drops `.workspace-row__branch`. Branch still travels in the `title` attribute for hover.
+- BuildTab: rewritten as a chat/terminal surface — no task board, no approval-panel card. Builder streams output; user sends instructions or `/merge`. Approval gate is still enforced in the Rust core (spec §5); `/merge` is just the UI trigger. Uses the compose dock + `StreamingText` + `.chat` classes for visual continuity with PlanTab.
+- Palette: `open` density input is now chrome-free (padding only on left/right to match suggestion rows, no border, no fill). `bounded` density unchanged. Global default density flipped to `open` in the store.
+- deferred / backlog:
+  - Feedback #4 (replace lede with project-state summary sourced from core-docs): needs Phase 13.D to wire roadmap/plan `.md` reads into the home projection. Removed the lede now; replacement deferred.
+  - Feedback #8 (move ComponentCatalog from DesignTab to home): surface-restructuring change, tracked as backlog.
+  - Feedback #9 (consolidate ProjectStrip into WorkspaceSidebar bottom): user noted as "not committed"; parked as exploratory.
+- invariants: 6/6 on 33 files.
+- typecheck: clean.
+- tests: 13/13 pass.
+- deviations: none.
+- feedback: pending
+
+## 2026-04-23T06:00:00Z — manual (lock surface config, retire SurfaceDevPanel)
+- prompt: "let's go with 16px - lock in the config and get rid of this dev panel for now"
+- trigger: manual (config freeze after live tuning)
+- archetype-reused: n/a
+- components-reused: n/a
+- components-new: none
+- components-removed: `packages/app/src/dev/SurfaceDevPanel.tsx` (the component itself) + `packages/app/src/dev/` (empty directory removed) + the entire `.surface-dev__*` CSS block (~190 lines). Dead `type-dev__hint` rule also removed. Agentation still mounted in dev.
+- css-modified: `:root` surface defaults locked: `--surface-gutter` → `calc(var(--space-3) * 1.5)` (12 px), `--surface-tab-gap` → `calc(var(--space-2) * 1.5)` (6 px), `--surface-text-pad` stays `var(--space-5)` (24 px, fixed), `--surface-inner-pad` stays `var(--space-4)` (16 px), `--surface-shadow` stays `var(--elevation-raised)`. Tab style A is still the default (no `data-tab-style` attribute set).
+- App.tsx: removed `SurfaceDevPanel` import + dev-only mount.
+- localStorage: the `designer.dev.surfaceOverrides` key is orphaned (no consumer reads it). Left in place to avoid touching user state; a future cleanup can drop it.
+- axioms: #8 unchanged — register + tokens are the same; only the default values moved from "applied via inline style on :root" to "written into app.css :root directly". pattern-log.md entry "Surface config locked, dev panel retired" records the final values + rationale.
+- invariants: 6/6 on 32 files (was 33; the dev panel file is gone).
+- typecheck: clean.
+- tests: 13/13 pass.
+- deviations: none.
+- feedback: pending

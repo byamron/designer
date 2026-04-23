@@ -33,6 +33,56 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0020: Bake dev-panel explorations into the design language when they land
+**Date:** 2026-04-23
+**Source:** user direction
+
+**What was said:** After ~24 hours of tuning the surface register behind a live dev panel (gutter / tab-gap / compose-pad / shadow / tab-style), the user landed on values and said "lock in the config and get rid of this dev panel for now." The knob pattern itself was successful — we reached the right values faster than staff guesswork would have.
+
+**Synthesized rule:** Live dev panels are a legitimate design tool during contentious token/layout decisions. Ship them behind `MODE === "development"`, let real use decide, then retire them and bake values into `app.css` / `tokens.css`. Don't leave dev panels mounted in prod; don't scrap them prematurely before a decision has earned the right to ship.
+
+**Applies to:** workflow, design tooling, token system
+
+### FB-0019: Content surface should invert by mode, not stay "raised" in both
+**Date:** 2026-04-23
+**Source:** user direction
+
+**What was said:** On seeing a dark-mode render with the surface one step brighter than the page (Slack / Linear convention), the user asked for "off-black" in dark mode — main surface darker than the sand sidebars. Light stays white on sand.
+
+**Synthesized rule:** `--color-content-surface` is `white` in light and `var(--gray-1)` (sand-dark-1) in dark — brightness direction inverts by mode. Both readings honor "this is the work, that is chrome"; the polarity just flips. Other surface roles (`--color-surface-flat/raised/overlay`) stay monotonic (brighter-than-background in both modes) because they're secondary containers, not the main figure.
+
+**Applies to:** ux, color, design-language
+
+### FB-0018: Match Radix Colors v3's activation model — class, not prefers-color-scheme
+**Date:** 2026-04-22
+**Source:** user correction
+
+**What was said:** User's system was in dark mode but the app rendered light. The `@media (prefers-color-scheme: dark)` override was firing, but Radix Colors v3 (`sand.css` / `sand-dark.css`) activates scales only via `.dark` / `.dark-theme` classes. So `--color-content-surface: var(--gray-3)` resolved to light-mode sand-3 (warm beige), tinting the surface.
+
+**Synthesized rule:** Theme-dependent CSS overrides MUST use the same activation signal as Radix — `.dark` / `.dark-theme` (and Designer's `[data-theme="dark"]` escape hatch). Do not rely on `@media (prefers-color-scheme)` alone; the two systems don't talk. The inline zero-flash script in `index.html` applies both the class and `[data-theme]` synchronously so the first paint is consistent.
+
+**Applies to:** theming, dark mode, css architecture
+
+### FB-0017: No hidden false affordances — even during Phase-gated rollouts
+**Date:** 2026-04-23
+**Source:** review feedback
+
+**What was said:** HomeTabA's Autonomy SegmentedToggle shipped with a stub `onChange: () => {}` because the real mutation is Phase-13 (IPC-gated). Staff review flagged this as a false affordance — the user clicks and nothing happens.
+
+**Synthesized rule:** When a control is visually "live" but the wire isn't in place yet, it must give local optimistic feedback — a project-scoped override in the app store that the UI reads, to be replaced by the real mutation when the IPC lands. If optimistic update is infeasible, ship the control as `disabled` with a `Coming soon` tooltip. Stubbed onChange callbacks that do nothing violate axiom "false affordances are a bug."
+
+**Applies to:** ux, component contracts, agent behavior
+
+### FB-0016: Minimal sidebar — branch is tool plumbing, not persistent chrome
+**Date:** 2026-04-22
+**Source:** user correction
+
+**What was said:** The workspace sidebar originally rendered `status icon + workspace name + base_branch` as three visual tokens on each row. The user pushed back: "as we move up in abstraction, is the branch important? we are minimal - only the most important information gets surfaced like this."
+
+**Synthesized rule:** Sidebar rows for high-abstraction surfaces (workspaces, projects, recent reports) carry at most *status + identifier*. Secondary information (branch name, count, timestamp) travels in `title` attributes or hover reveals, not as persistent row chrome. If a secondary field feels load-bearing, push it into the surface itself (workspace view, home panel) rather than the nav.
+
+**Applies to:** ux, information architecture, sidebar copy
+
 ### FB-0015: Every pane should be togglable, and rails need drag affordances
 **Date:** 2026-04-22
 **Source:** user direction

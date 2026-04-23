@@ -1,21 +1,19 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../App";
-import { appStore, setDashboardVariant } from "../store/app";
+import { appStore } from "../store/app";
 
 beforeEach(() => {
   // Start each test with a clean localStorage so onboarding shows predictably.
   localStorage.clear();
-  // The app store is a module singleton; reset transient selection + variant
-  // state so tests don't leak through it.
+  // The app store is a module singleton; reset transient selection state
+  // so tests don't leak through it.
   appStore.set((s) => ({
     ...s,
     activeProject: null,
     activeWorkspace: null,
     activeTabByWorkspace: {},
   }));
-  setDashboardVariant("A");
-  localStorage.clear();
 });
 
 async function boot() {
@@ -83,30 +81,6 @@ describe("Onboarding", () => {
     await boot();
     // boot() dismissed onboarding above; the key should now be set.
     expect(localStorage.getItem("designer:onboarding-done")).toBe("1");
-  });
-});
-
-describe("Home variant toggle", () => {
-  it("switches between Panels (A) and Palette (B) and persists the choice", async () => {
-    await boot();
-    // Start on Panels (default).
-    await waitFor(() => {
-      expect(document.querySelector(".home-a")).not.toBeNull();
-    });
-
-    const palette = screen.getByRole("button", { name: /palette/i });
-    fireEvent.click(palette);
-    await waitFor(() => {
-      expect(document.querySelector(".palette")).not.toBeNull();
-    });
-    expect(localStorage.getItem("designer.dashboardVariant")).toBe("B");
-
-    const panels = screen.getByRole("button", { name: /^panels/i });
-    fireEvent.click(panels);
-    await waitFor(() => {
-      expect(document.querySelector(".home-a")).not.toBeNull();
-    });
-    expect(localStorage.getItem("designer.dashboardVariant")).toBe("A");
   });
 });
 

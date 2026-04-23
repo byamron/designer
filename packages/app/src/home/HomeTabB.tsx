@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { AlertCircle, ClipboardList, FileText } from "lucide-react";
 import type { Project, WorkspaceSummary } from "../ipc/types";
 import { selectTab, selectWorkspace, toggleInbox } from "../store/app";
 import { useDataState } from "../store/data";
@@ -6,6 +7,9 @@ import { emptyArray } from "../util/empty";
 import { humanizeKind } from "../util/humanize";
 import { TabLayout } from "../layout/TabLayout";
 import { Palette, type PaletteSuggestion } from "../components/Palette";
+import { IconBranch } from "../components/icons";
+
+const ICON_PROPS = { size: 14, strokeWidth: 1.25, "aria-hidden": true as const };
 
 /**
  * Home — variant B: palette-first, project-scoped.
@@ -40,7 +44,7 @@ export function HomeTabB({ project }: { project: Project }) {
     for (const event of needsYou.slice(0, 2)) {
       list.push({
         id: `attention:${event.stream_id}:${event.sequence}`,
-        icon: <IconAlert />,
+        icon: <AlertCircle {...ICON_PROPS} />,
         label: humanizeKind(event.kind),
         meta: event.summary ?? "Waiting on you",
         onClick: () => toggleInbox(true),
@@ -51,7 +55,7 @@ export function HomeTabB({ project }: { project: Project }) {
     if (active) {
       list.push({
         id: `continue:${active.workspace.id}`,
-        icon: <IconBranch />,
+        icon: <IconBranch size={14} />,
         label: `Continue on ${active.workspace.name}`,
         meta: `${active.workspace.base_branch} · ${active.state}`,
         onClick: () => enterWorkspace(active),
@@ -60,14 +64,14 @@ export function HomeTabB({ project }: { project: Project }) {
 
     list.push({
       id: "draft-plan",
-      icon: <IconPlan />,
+      icon: <ClipboardList {...ICON_PROPS} />,
       label: "Draft a plan",
       meta: "Open a new Plan tab",
     });
 
     list.push({
       id: "read-recap",
-      icon: <IconReport />,
+      icon: <FileText {...ICON_PROPS} />,
       label: "Read the Monday recap",
       meta: "team-lead · 8:42",
     });
@@ -83,48 +87,5 @@ export function HomeTabB({ project }: { project: Project }) {
         suggestions={suggestions}
       />
     </TabLayout>
-  );
-}
-
-/* ---- Icons ---------------------------------------------------------- */
-
-function IconAlert() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-      <path d="M7 2.5v5" />
-      <circle cx="7" cy="10.5" r="0.75" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function IconBranch() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-      <circle cx="3.5" cy="3" r="1" />
-      <circle cx="3.5" cy="11" r="1" />
-      <circle cx="10.5" cy="7" r="1" />
-      <path d="M3.5 4v6" />
-      <path d="M3.5 7h6" />
-    </svg>
-  );
-}
-
-function IconPlan() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-      <path d="M3 2.5h6l2 2v7H3z" />
-      <path d="M5 6.5h4" />
-      <path d="M5 9h3" />
-    </svg>
-  );
-}
-
-function IconReport() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-      <rect x="2.5" y="3" width="9" height="8" rx="1" />
-      <path d="M4.5 6h5" />
-      <path d="M4.5 8h3" />
-    </svg>
   );
 }

@@ -1,7 +1,10 @@
 import { useMemo } from "react";
+import { AlignLeft, BookOpen, Compass, FileText } from "lucide-react";
 import type { Tab, Workspace } from "../ipc/types";
 import { TabLayout } from "../layout/TabLayout";
 import { Palette, type PaletteSuggestion } from "../components/Palette";
+
+const ICON_PROPS = { size: 14, strokeWidth: 1.25, "aria-hidden": true as const };
 
 /**
  * Blank tab = a palette scoped to the active workspace. The same UX as
@@ -13,25 +16,25 @@ export function BlankTab({ workspace }: { tab: Tab; workspace: Workspace }) {
     () => [
       {
         id: "summarize",
-        icon: <IconSummary />,
+        icon: <AlignLeft {...ICON_PROPS} />,
         label: `Summarize the last 10 events in ${workspace.name}`,
         meta: "spine · context",
       },
       {
         id: "directions",
-        icon: <IconCompass />,
+        icon: <Compass {...ICON_PROPS} />,
         label: "Propose three directions for the next iteration",
         meta: "team-lead",
       },
       {
         id: "status",
-        icon: <IconReport />,
+        icon: <FileText {...ICON_PROPS} />,
         label: "Draft a status report for Friday",
         meta: "reports",
       },
       {
         id: "spec-review",
-        icon: <IconSpec />,
+        icon: <BookOpen {...ICON_PROPS} />,
         label: "Review the spec and flag anything unclear",
         meta: "auditor",
       },
@@ -47,44 +50,5 @@ export function BlankTab({ workspace }: { tab: Tab; workspace: Workspace }) {
         suggestions={suggestions}
       />
     </TabLayout>
-  );
-}
-
-function IconSummary() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-      <path d="M3 4h8" />
-      <path d="M3 7h8" />
-      <path d="M3 10h5" />
-    </svg>
-  );
-}
-
-function IconCompass() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="7" cy="7" r="5" />
-      <path d="M9 5L7.5 8.5 5 10l1.5-3.5z" />
-    </svg>
-  );
-}
-
-function IconReport() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-      <rect x="2.5" y="3" width="9" height="8" rx="1" />
-      <path d="M4.5 6h5" />
-      <path d="M4.5 8h3" />
-    </svg>
-  );
-}
-
-function IconSpec() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-      <path d="M4 2.5h6l2 2v7H4z" />
-      <path d="M6 6h4" />
-      <path d="M6 8.5h2.5" />
-    </svg>
   );
 }
