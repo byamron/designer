@@ -5,42 +5,42 @@
     {
       "name": "AppShell",
       "path": "packages/app/src/layout/AppShell.tsx",
-      "purpose": "Top-level three-pane layout; composes project strip, workspace sidebar, main view, activity spine.",
+      "purpose": "Top-level four-pane layout (strip / sidebar / main / spine). Each of the sidebar and spine is independently togglable; when collapsed, a narrow pane-rail renders a single reveal IconButton. Keyboard: ⌘\\ strip, ⌘[ sidebar, ⌘] spine.",
       "status": "managed",
       "native_wrapped": false,
       "archetypes_used": [],
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "space-4", "space-8", "color-background", "color-surface-flat", "border-thin"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-2", "space-3", "space-4", "space-6", "space-8", "color-background", "color-surface-flat", "border-thin"],
+      "last_updated": "2026-04-22"
     },
     {
       "name": "ProjectStrip",
       "path": "packages/app/src/layout/ProjectStrip.tsx",
-      "purpose": "Slack-style vertical icon nav across projects. Includes + (new project) and ⌘ (quick switcher) affordances.",
+      "purpose": "Vertical icon nav across projects. Top: project squares (with a pulsing activity dot when any workspace in that project is active or needs attention). Middle: transparent IconButton for New project. Bottom cluster: Settings + Help (each opens the AppDialog). No quick-switcher icon — ⌘K is the only entry point.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "space-6", "radius-card", "color-surface-raised", "color-border"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-1", "space-2", "space-3", "target-md", "radius-card", "radius-pill", "color-surface-raised", "color-surface-overlay", "color-border", "color-foreground", "color-muted", "motion-pulse", "type-caption-size", "weight-semibold"],
+      "last_updated": "2026-04-22"
     },
     {
       "name": "WorkspaceSidebar",
       "path": "packages/app/src/layout/WorkspaceSidebar.tsx",
-      "purpose": "Project header + Home button (project-level surface) + Workspaces list with 7-variant status icons (idle, in_progress, in_review, pr_open, pr_conflict, pr_ready, pr_merged) + inline '+' add button. Clicking a workspace auto-selects its first open tab.",
+      "purpose": "Project title (no 'Project' caption — the name + path are self-describing) + collapse IconButton + Home button + Workspaces list with 7-variant status icons (idle, in_progress, in_review, pr_open, pr_conflict, pr_ready, pr_merged) + New workspace IconButton. Hover-revealed .pane-toggle at the right edge toggles the sidebar closed.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-raised", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-raised", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11"],
       "last_updated": "2026-04-22"
     },
     {
       "name": "MainView",
       "path": "packages/app/src/layout/MainView.tsx",
-      "purpose": "Routes between project-home (when no workspace active) and workspace view (tabs + content). Hosts topbar (title · project · branch chip), Linear-style tabs bar with close-on-hover, single +New dropdown (⌘T), variant toggle on home only. Tab keyboard nav + ⌘W close + middle-click close.",
+      "purpose": "Routes between project-home and workspace view. Workspace topbar is minimal: lifecycle dot + branch chip (caption-size monospace), no project/workspace name (those live in the sidebar). Tabs bar is Linear-style pills with close-on-hover, and the trailing IconButton '+' inside the bar opens the template menu (⌘T). Project-home topbar carries only the Panels/Palette variant toggle.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "type-body-size", "type-caption-size", "weight-medium", "radius-button", "radius-badge", "radius-pill", "border-thin", "border-strong", "color-foreground", "color-muted", "color-background", "color-surface-flat", "color-surface-overlay", "motion-interactive", "elevation-overlay", "layer-overlay"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-md", "type-body-size", "type-caption-size", "weight-medium", "radius-button", "radius-badge", "radius-pill", "border-thin", "color-foreground", "color-muted", "color-background", "color-surface-flat", "color-surface-overlay", "motion-interactive", "elevation-overlay", "layer-overlay"],
       "last_updated": "2026-04-22"
     },
     {
@@ -56,11 +56,11 @@
     {
       "name": "ActivitySpine",
       "path": "packages/app/src/layout/ActivitySpine.tsx",
-      "purpose": "Right-rail hierarchical status column. Flat-rendered tree with per-depth repeating-linear-gradient indent rails. Summary renders as dot+count per non-zero state (hides zeros; 'All quiet' fallback). Rows are text-only — no background, no border.",
+      "purpose": "Right-rail hierarchical status column, scoped to the active project (narrows further to the active workspace when one is selected). Events are filtered to streams that belong to the scope. Summary renders as dot+count per non-zero state; zero-state fallback is 'Nothing streaming'. Rows are text-only with per-depth repeating-linear-gradient indent rails. Header carries a collapse IconButton (⌘]) and a hover-revealed .pane-toggle on the left edge.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "radius-badge", "motion-pulse", "motion-interactive", "color-muted", "color-foreground", "color-border", "type-caption-size", "type-body-size", "type-caption-leading", "type-body-leading", "success-11", "warning-11", "danger-11", "info-11"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-badge", "motion-pulse", "motion-interactive", "color-muted", "color-foreground", "color-border", "type-caption-size", "type-body-size", "type-caption-leading", "type-body-leading", "success-11", "warning-11", "danger-11", "info-11"],
       "last_updated": "2026-04-22"
     },
     {
@@ -86,21 +86,21 @@
     {
       "name": "HomeTabB",
       "path": "packages/app/src/home/HomeTabB.tsx",
-      "purpose": "Project home — Variant B (palette-first, Dia-inspired). Centered prompt input + 4–6 context-aware suggestions (alerts, continue on active, draft plan, recent report, switch workspace). Collapsible brief drills into vision / focus / attention / autonomy.",
+      "purpose": "Project home — Variant B (palette-first, Dia-inspired). Centered prompt + 4–5 context-aware suggestions (alerts, continue on active, draft plan, recent report). Two runtime densities: 'bounded' wraps prompt + suggestions in one rounded surface with a hairline between them; 'open' puts items directly on the surface with a separate bordered input. Density toggle persists in localStorage. Workspace brief drawer removed — Panels mode is the canonical drill-in.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "space-8", "type-lead-size", "type-body-size", "type-caption-size", "color-foreground", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "radius-modal", "radius-button", "radius-badge", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "space-7", "space-8", "type-lead-size", "type-body-size", "type-caption-size", "color-foreground", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "radius-modal", "radius-button", "radius-badge", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
       "last_updated": "2026-04-22"
     },
     {
       "name": "PlanTab",
       "path": "packages/app/src/tabs/PlanTab.tsx",
-      "purpose": "Plan template: streaming chat with the team lead. Bottom-docked compose with file drag-drop (chip list of attachments), attach + disabled-mic (Phase 13 dictation stub) inline actions, model + effort selectors and plan-mode toggle in a footer row, arrow-icon send. ⌘↵ sends.",
+      "purpose": "Plan template: streaming chat with the team lead. Chat uses the canonical asymmetry (user bubble right-aligned; agent on surface). Bottom-docked compose: attach/mic/send as a matched 32×32 trio in the footer (send filled, attach/mic transparent), no footer divider, selects with focus-ring on the wrapper (entire chip is the focus target). Tab header renders only when the thread is empty. ⌘↵ sends.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-6", "space-8", "radius-card", "radius-button", "radius-badge", "radius-pill", "color-foreground", "color-background", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "color-surface-overlay", "type-body-size", "type-caption-size", "type-body-leading", "weight-medium", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-6", "space-7", "space-8", "target-sm", "target-md", "radius-card", "radius-button", "radius-badge", "radius-pill", "color-foreground", "color-background", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "color-surface-overlay", "type-body-size", "type-caption-size", "type-body-leading", "weight-medium", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
       "last_updated": "2026-04-22"
     },
     {
@@ -127,7 +127,7 @@
     {
       "name": "BlankTab",
       "path": "packages/app/src/tabs/BlankTab.tsx",
-      "purpose": "Blank template: empty canvas with prompt suggestions.",
+      "purpose": "Blank template: workspace-scoped Palette. Same primitive as HomeTabB but suggestions speak in terms of the current workspace (summarize events, propose directions, draft status report, review spec).",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
@@ -143,6 +143,77 @@
       "primitives_used": [],
       "tokens_referenced": ["space-1", "motion-blink", "type-body-size"],
       "last_updated": "2026-04-21"
+    },
+    {
+      "name": "Tooltip",
+      "path": "packages/app/src/components/Tooltip.tsx",
+      "purpose": "Custom-popover tooltip that replaces the HTML title attribute. Appears immediately on hover and on keyboard focus, renders in a fixed-position layer anchored via getBoundingClientRect (no overflow clipping), supports a separate shortcut slot rendered as right-aligned kbd, announces via aria-describedby. 'auto' placement flips to top or bottom based on available room. Reduced-motion skips the entrance animation.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-8", "radius-badge", "type-caption-size", "type-caption-leading", "color-foreground", "color-background", "gray-8", "elevation-overlay", "motion-quick", "ease-out-enter", "layer-modal"],
+      "last_updated": "2026-04-22"
+    },
+    {
+      "name": "IconButton",
+      "path": "packages/app/src/components/IconButton.tsx",
+      "purpose": "Single icon-only button archetype. Two sizes (sm 24×24 for dense inline affordances, md 32×32 for navigation/topbar/compose). Required tooltip label (wraps children in Tooltip), optional shortcut, optional pressed state, transparent by default with a btn-icon--primary modifier for the filled Send variant. Focus ring on the outer button so the entire hit target receives focus.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["target-sm", "target-md", "radius-button", "radius-badge", "radius-pill", "color-muted", "color-foreground", "color-background", "color-surface-raised", "color-surface-overlay", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "last_updated": "2026-04-22"
+    },
+    {
+      "name": "SegmentedToggle",
+      "path": "packages/app/src/components/SegmentedToggle.tsx",
+      "purpose": "Two-to-N pill toggle. Collapses the identical Panels/Palette variant toggle (MainView) and Bounded/Open density toggle (Palette) into one component. Each option takes a value, label, optional tooltip, and optional icon. CSS lives under `.segmented-toggle` / `.segmented-toggle__btn`.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "type-caption-size", "radius-pill", "border-thin", "color-border", "color-muted", "color-foreground", "color-surface-overlay", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "last_updated": "2026-04-22"
+    },
+    {
+      "name": "Icons",
+      "path": "packages/app/src/components/icons.tsx",
+      "purpose": "Shared icon set. Every icon consumes `currentColor` and takes `size` / `strokeWidth` props. Centralizes IconX, IconPlus, IconBranch, IconChevronLeft/Right, IconCollapseLeft/Right — replacing three hand-rolled copies of the close-X and two+ copies of plus/branch/collapse icons.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": [],
+      "last_updated": "2026-04-22"
+    },
+    {
+      "name": "Palette",
+      "path": "packages/app/src/components/Palette.tsx",
+      "purpose": "Shared palette primitive — prompt + 4–6 context-aware suggestions. Used by HomeTabB (project-scoped) and BlankTab (workspace-scoped). Reads the global paletteDensity ('bounded' vs 'open') and renders the optional density toggle above the stage.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "space-7", "space-8", "type-lead-size", "type-body-size", "type-caption-size", "color-foreground", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "radius-modal", "radius-button", "radius-badge", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "css_prefix": "palette__",
+      "last_updated": "2026-04-22"
+    },
+    {
+      "name": "PaneResizer",
+      "path": "packages/app/src/components/PaneResizer.tsx",
+      "purpose": "Edge drag handle for the workspace sidebar and activity spine. Pointer-captured drag writes in-memory via `onLiveChange` (no localStorage during drag); pointer-up calls `onCommit` to flush the latest width to disk. Double-click resets to default and commits. Arrow keys ±16px (±48px with shift) commit immediately. Width clamps to [180, 480]. `role=\"separator\"` + `aria-valuemin/max/now`.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "border-thin", "border-strong", "color-border-strong", "color-foreground", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color", "layer-raised"],
+      "last_updated": "2026-04-22"
+    },
+    {
+      "name": "AppDialog",
+      "path": "packages/app/src/components/AppDialog.tsx",
+      "purpose": "Modal stub for Settings and Help. Settings shows Appearance / Account / Models / Preferences rows. Help shows a question input, a keyboard-shortcut dl, and an About row. Scrim click and Escape close. Triggered from the ProjectStrip bottom cluster (Settings + Help IconButtons) and from the ⌘? shortcut.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "space-8", "target-md", "radius-modal", "radius-badge", "border-thin", "color-foreground", "color-muted", "color-border", "color-surface-overlay", "type-body-size", "type-caption-size", "weight-medium", "elevation-modal", "layer-modal"],
+      "last_updated": "2026-04-22"
     },
     {
       "name": "Onboarding",
@@ -178,7 +249,7 @@
     {
       "name": "AnnotationLayer",
       "path": "packages/app/src/lab/AnnotationLayer.tsx",
-      "purpose": "Pin-drop overlay on top of the prototype iframe; agentation-style batch comments.",
+      "purpose": "Pin-drop overlay on top of the prototype iframe. Click empty canvas to drop a pin; type a note; save. Every saved pin is a numbered button that opens a popover with the note, author, and a Remove action. Draft popover supports Enter-to-save, Escape-to-cancel, explicit Cancel button.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],

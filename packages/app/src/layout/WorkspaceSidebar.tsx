@@ -1,13 +1,26 @@
 import { useMemo } from "react";
-import { selectTab, selectWorkspace, useAppState } from "../store/app";
+import {
+  PANE_DEFAULT_WIDTH,
+  commitSidebarWidth,
+  selectTab,
+  selectWorkspace,
+  setSidebarWidthLive,
+  toggleSidebar,
+  useAppState,
+} from "../store/app";
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
 import type { Workspace, WorkspaceStatus, WorkspaceSummary } from "../ipc/types";
 import { emptyArray } from "../util/empty";
+import { IconButton } from "../components/IconButton";
+import { Tooltip } from "../components/Tooltip";
+import { PaneResizer } from "../components/PaneResizer";
+import { IconPlus, IconCollapseLeft } from "../components/icons";
 
 export function WorkspaceSidebar() {
   const activeProjectId = useAppState((s) => s.activeProject);
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
+  const sidebarWidth = useAppState((s) => s.sidebarWidth);
   const workspaces = useDataState<WorkspaceSummary[]>((s) =>
     activeProjectId ? s.workspaces[activeProjectId] ?? emptyArray() : emptyArray(),
   );
@@ -34,47 +47,66 @@ export function WorkspaceSidebar() {
   const homeActive = activeProjectId !== null && activeWorkspaceId === null;
 
   return (
-    <aside className="app-sidebar" aria-label="Workspaces">
+    <aside
+      className="app-sidebar"
+      aria-label="Workspaces"
+      style={{ width: sidebarWidth }}
+    >
+      <PaneResizer
+        side="right"
+        width={sidebarWidth}
+        onLiveChange={setSidebarWidthLive}
+        onCommit={commitSidebarWidth}
+        defaultWidth={PANE_DEFAULT_WIDTH}
+        ariaLabel="Resize workspaces pane"
+      />
       <header className="sidebar-header">
-        <span className="sidebar-label">Project</span>
-        <strong className="sidebar-title">
-          {activeProject?.project.name ?? "Pick a project"}
-        </strong>
-        {activeProject && (
-          <span
-            className="sidebar-path"
-            title={activeProject.project.root_path}
+        <div className="sidebar-header__row">
+          <strong className="sidebar-title">
+            {activeProject?.project.name ?? "Pick a project"}
+          </strong>
+          <IconButton
+            size="sm"
+            label="Hide workspaces"
+            shortcut="⌘["
+            onClick={() => toggleSidebar(false)}
           >
-            {activeProject.project.root_path}
-          </span>
+            <IconCollapseLeft />
+          </IconButton>
+        </div>
+        {activeProject && (
+          <Tooltip label={activeProject.project.root_path}>
+            <span className="sidebar-path">
+              {activeProject.project.root_path}
+            </span>
+          </Tooltip>
         )}
       </header>
 
-      <button
-        type="button"
-        className="sidebar-home"
-        data-active={homeActive}
-        onClick={onHome}
-        disabled={!activeProjectId}
-        title="Project home"
-      >
-        <IconHome />
-        <span>Home</span>
-      </button>
+      <Tooltip label="Project home">
+        <button
+          type="button"
+          className="sidebar-home"
+          data-active={homeActive}
+          onClick={onHome}
+          disabled={!activeProjectId}
+        >
+          <IconHome />
+          <span>Home</span>
+        </button>
+      </Tooltip>
 
       <div className="sidebar-group">
         <div className="sidebar-group__head">
           <span className="sidebar-label">Workspaces</span>
-          <button
-            type="button"
-            className="sidebar-group__add"
+          <IconButton
+            size="sm"
+            label="New workspace"
             onClick={onCreate}
             disabled={!activeProjectId}
-            aria-label="New workspace"
-            title="New workspace"
           >
             <IconPlus />
-          </button>
+          </IconButton>
         </div>
         {workspaces.length === 0 ? (
           <p className="sidebar-empty">No workspaces yet.</p>
@@ -91,15 +123,6 @@ export function WorkspaceSidebar() {
         )}
       </div>
     </aside>
-  );
-}
-
-function IconPlus() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <path d="M6 2v8" />
-      <path d="M2 6h8" />
-    </svg>
   );
 }
 
