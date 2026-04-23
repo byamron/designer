@@ -37,6 +37,72 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 12.A landed — real Claude Code integration validated + workspace/track primitive committed
+**Date:** 2026-04-22
+**Branch:** phase-12a-plan
+**Commit:** pending
+
+**What was done:**
+
+1. **Real Claude Code subprocess integration, validated end-to-end.**
+   - `crates/designer-claude/src/stream.rs` — stream-json event translator (Claude stream-json → `OrchestratorEvent`s + side-channel `ClaudeSignal::RateLimit` / `Cost`).
+   - `crates/designer-claude/src/claude_code.rs` — full rewrite of `ClaudeCodeOrchestrator`. Native agent-teams primitive, `--teammate-mode in-process`, `--input-format`/`--output-format stream-json` on both sides (Conductor-style persistent pipe), `--permission-prompt-tool stdio`, deterministic `--session-id` per workspace, graceful shutdown with 60s timeout fallback.
+   - `crates/designer-claude/src/watcher.rs` — `classify()` rewritten for real file shapes: `teams/{team}/config.json`, `teams/{team}/inboxes/{role}.json`, `tasks/{team}/{n}.json`. Returns `None` (not `Some(Unknown)`) for out-of-scope paths to avoid channel spam.
+
+2. **Fixtures + tests.**
+   - Live probe (`scripts/probe-claude.sh`): safe Phase A inventory + live Phase B team spawn. Captured real `config.json`, inbox shapes, stream-json event vocabulary including `rate_limit_event` and `system/task_*` subtypes.
+   - Unit tests: 26 in `designer-claude` (stream translator, prompt builders, session-id determinism, watcher classify including UUID-dir exclusion).
+   - Live integration test (`tests/claude_live.rs`, gated by `--features claude_live`) spawns a real team via the orchestrator, observes `TeamSpawned`, and shuts down cleanly. Runs in ~28s against a real Claude install.
+   - Full workspace: 44 tests pass; `cargo clippy --workspace --all-targets -- -D warnings` clean.
+
+3. **Docs.**
+   - `core-docs/integration-notes.md` — source-of-truth for Claude Code 2.1.117's real surface: CLI flags, `~/.claude/` layout, config/inbox/task schemas, stream-json event types with representative shapes, rate-limit event structure, Conductor comparison, known-limitations catalog.
+   - `core-docs/adr/0001-claude-runtime-primitive.md` — first ADR. Native teams primitive adopted; spike resolved (option (a) — non-tty in-process works cleanly); alternatives rejected; reversal triggers documented.
+   - `.claude/agents/track-lead.md` + `.claude/agents/teammate-default.md` — committed minimum subagent definitions.
+   - `.claude/prompts/workspace-lead.md` — reserved stub (per D4; wired in Phase 13.D).
+
+4. **CI scaffolding (self-hosted runner).**
+   - `.github/workflows/ci.yml` — Tier 1 hermetic tests on GitHub-hosted macOS.
+   - `.github/workflows/claude-live.yml` — Tier 2 live integration on a self-hosted runner (`[self-hosted, macOS, claude]`). Uses the user's keychain OAuth; no API-key path.
+   - `.github/workflows/claude-probe.yml` — Tier 3 scheduled daily probe; opens a GitHub issue on version drift from the pinned `integration-notes.md`.
+
+5. **Spec evolution (landed in the same session before code):**
+   - New primitive: **track**. A workspace owns many tracks over its lifetime; each track is one worktree + branch + agent team + PR series. Spec §"Workspace and Track" + Decisions 29–32. Phase 18 added to the roadmap for multi-track UX.
+   - Workspace lead committed as a persistent Claude Code session (Decision 31); hybrid routing reserved as future token optimization.
+   - Fleet-scale stance: rely on Anthropic's own `rate_limit_event` signal + opt-in usage chip; no Designer-imposed concurrency caps (Decision 34). Phase 13.G updated.
+   - Self-hosted-runner CI decision codified (Decision 33).
+   - Two feedback entries: FB-0013 (test infrastructure mirrors product architecture) and FB-0014 (workspace as persistent feature-level primitive).
+
+**Why:**
+Phase 12.A of the roadmap required validating three bedrock assumptions: real Claude Code subprocess works as spec'd; file shapes match what the placeholder code assumed; the `Orchestrator` trait can absorb the real primitive without downstream ripple. The initial probe found the placeholder's `claude team init/task/message` CLI was speculative — no such subcommand exists. A follow-up web check showed agent teams are a real, shipped, env-var-gated feature with a natural-language-driven interaction model. The rewrite pivoted to the real primitive; the trait survived unchanged.
+
+In the middle of the planning, the user pushed back on the "workspace = worktree = PR" 1:1 model as limiting for a non-engineer manager-persona. That surfaced the track primitive. Committed the direction in the spec now; UI implementation staged into Phase 18.
+
+**Design decisions:**
+- Native agent-teams primitive over pivoting to per-role `claude -p` workers (ADR 0001). Keeps Claude's built-in shared task list + mailbox + hook firing; rebuilds nothing.
+- Stream-json as the primary lifecycle feed; file watcher is secondary. `rate_limit_event` + `system/task_*` subtypes appear in the stream and are richer than on-disk state.
+- Backend coalesce partial messages at 120ms (decision D3, deferred to 13.D implementation).
+- Workspace lead ships as a full Claude Code session in v1; hybrid routing reserved.
+- Track primitive decouples the manager-level "feature" from the engineer-level "branch/PR" — differentiates Designer from Conductor/Crystal/Claude Code Desktop at the abstraction level.
+
+**Technical decisions:**
+- Deterministic UUIDv5 derivation for Claude's external IDs (`task_id` strings, `role@team` agent names) using the workspace UUID as namespace. Stable across restarts, no ID-mapping store needed.
+- Long-lived subprocess per workspace; stream-json on stdin and stdout; mpsc channel fronts stdin to serialize writes.
+- `--permission-prompt-tool stdio` instead of `--dangerously-skip-permissions` (Conductor's pattern) — clean path for 13.G approval gates.
+- `kill_on_drop(true)` + 60s graceful shutdown timeout with `start_kill()` fallback.
+- Self-hosted GitHub Actions runner for live CI: uses the user's real keychain OAuth; compliance-matched to production auth path; zero CI minute cost.
+
+**Tradeoffs discussed:**
+- Pivot-to-raw-sessions vs. native-teams-primitive: native wins because we'd otherwise rebuild Claude's coordination infrastructure.
+- API-key CI auth vs. self-hosted-runner CI: self-hosted wins because API-key mode tests a different code path than ships (OpenClaw-adjacent for cloud subscription proxying).
+- Fleet concurrency caps vs. rely-on-Anthropic-signals: signals win; users on Conductor routinely run ~10–12 concurrent tracks and that's within intended use.
+- Hard concurrency-cap defaults vs. conservative single-track default with opt-in parallelism: conservative default wins (matches Decision 19 "suggest, do not act").
+
+**Lessons learned:**
+- The placeholder code's biggest mistake was assuming a CLI subcommand tree the product doesn't have. The real surface is natural-language-driven. Should have probed before coding the stubs. Noted as a general principle: all integration modules start with a probe + `integration-notes.md` before any stub.
+- The workspace/track reframe was not on the original roadmap; it emerged from user feedback mid-plan. The right thing was to commit the primitive to the data model now (event shape extensibility) and stage the UI for later rather than defer the data work too.
+- `ps` gave us Conductor's actual command line by accident — useful signal that we now know Conductor uses stdio permissions. Adopted.
+
 ### Phase 12.B — Staff UX designer + staff engineer review pass SAFETY
 **Date:** 2026-04-21
 **Branch:** phase-12b-plan

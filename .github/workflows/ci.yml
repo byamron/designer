@@ -1,0 +1,62 @@
+name: ci
+
+# Tier 1 — hermetic tests. No $HOME/.claude reads, no real `claude`
+# subprocess. Runs on GitHub-hosted macOS (matches the target platform).
+# See core-docs/adr/0001-claude-runtime-primitive.md for the three-tier
+# design.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: rust / ${{ matrix.job }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [test, clippy, fmt]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo test --workspace
+        if: matrix.job == 'test'
+        run: cargo test --workspace --locked
+
+      - name: cargo clippy --workspace --all-targets -- -D warnings
+        if: matrix.job == 'clippy'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo fmt --check
+        if: matrix.job == 'fmt'
+        run: cargo fmt --all -- --check
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: |
+          if [ -f package.json ]; then
+            npm ci
+            npm run -s typecheck --if-present
+            npm run -s test --if-present
+          fi

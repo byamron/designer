@@ -33,6 +33,26 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0014: Workspace is a persistent feature-level primitive, decoupled from git
+**Date:** 2026-04-21
+**Source:** user direction
+
+**What was said:** During Phase 12.A planning, the user pushed back on "one workspace = one worktree = one PR" as the workspace model. Verbatim: *"I don't really accept that 1 workspace needs to be one worktree — i use this in conductor and as a non engineer, it's limiting for me because i don't think in terms of PRs. I often want to continue working in a workspace after the first PR because that workspace has my context for that feature, and feature iteration often includes multiple PRs. if i was working with a team of people, their work would not all fit into one PR. As agents get more powerful, one PR/worktree will be tiny in the grand scheme of things."*
+
+**Synthesized rule:** The workspace is a persistent, feature-level primitive that holds context, decisions, chat history, and attention state across many PRs. It must not be coupled to any git artifact. A new primitive — **track** — sits below it and owns the git-bound state (one worktree + one branch + one agent team + one PR series per track). A workspace contains many tracks over its lifetime, sequential or parallel. The user never has to think in branches or worktrees; those surface as status details only on drill-in. This is a structural product differentiator — the manager's abstraction level above git, above sessions, above Claude's agent-teams primitive. Codified in spec Decisions 29–32 and Phase 18.
+
+**Applies to:** architecture, data model, ux, agent orchestration, product differentiation
+
+### FB-0013: Test infrastructure must match the product's local-first architecture
+**Date:** 2026-04-21
+**Source:** user correction
+
+**What was said:** When Claude ("assistant") proposed an `ANTHROPIC_API_KEY` + `--bare` mode path for CI live-integration tests, the user rejected it: *"the proper approach is not API or openclaw model — it's conductor. this is supposed to be a wrapper on top of claude code that enables you to log into an existing subscription locally, connect it to our app, and run claude code through our UI."*
+
+**Synthesized rule:** CI that exercises real Claude integration must use the same code path the user uses in production — user's installed Claude Code, user's OAuth-from-keychain, user's subscription. No API-key CI path (tests a different auth path than production). No service-account subscription on a cloud runner (OpenClaw-adjacent compliance risk). The correct primitive is a **self-hosted GitHub Actions runner on the user's own Mac**; workflows run locally with real `claude`, real keychain, real auth. Codified in spec Decision 33.
+
+**Applies to:** testing, ci, compliance, architecture
+
 ### FB-0012: Monochrome (Notion/Linear register) is Designer's visual identity
 **Date:** 2026-04-21
 **Source:** user direction

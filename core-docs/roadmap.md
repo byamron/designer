@@ -27,10 +27,10 @@ Phase 12 — Real-integration validation     (3 parallel tracks)
   └─ 12.C  Tauri shell binary                ─┘
 
 Phase 13 — Wire the real runtime            (4 tracks, gated individually)
-  ├─ 13.D  Agent wire          (← 12.A + 12.C)
-  ├─ 13.E  Git + repo linking  (← 12.C)
-  ├─ 13.F  Local-model surfaces (← 12.B + 12.C)
-  └─ 13.G  Safety + Keychain   (← 12.C)
+  ├─ 13.D  Agent wire                    (← 12.A + 12.C)
+  ├─ 13.E  Track primitive + git wire    (← 12.C)   [introduces Track]
+  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C)
+  └─ 13.G  Safety + Keychain             (← 12.C)
 
 Phase 14 — Sync transport        (parallel with 13, 15)
 Phase 15 — Hardening + polish    (parallel with 13, 14)
@@ -39,6 +39,9 @@ Phase 16 — Shippable desktop build  (← 13 + 15;  14 optional)
   └─ Signing, notarization, updater, crash-report endpoint, install QA.
 
 Phase 17 — Mobile  (← 14 + 16;  was Phase 12 in the original spec)
+
+Phase 18 — Workspace scales up  (multi-track UX, forking, reconciliation)
+  └─ Gates on 13 + 16; parts pullable into 15 if the manager UX feels pinched.
 ```
 
 ---
@@ -72,6 +75,7 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
 - **Phase 16** — Shippable desktop build (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA). Gates on 13 + 15; Phase 14 optional for MVP.
 - **Phase 17** — Mobile (formerly Phase 12; renumbered). Requires Phase 14 in full and Phase 16.
+- **Phase 18** — Workspace scales up: multi-track UX, forking, reconciliation, workspace-lead routing policy. Primitive lands in Phase 13.E; this phase ships the user-visible affordances. Gates on 13 + 16; pullable into 15 partial.
 
 See the "Gaps after the preliminary build" section below for the full gap → phase mapping.
 
@@ -300,7 +304,7 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
 | G2 | Swift Foundation Models helper not built | `LanguageModelSession.respond(to:)` call unverified; helper binary missing | 12.B |
 | G3 | Tauri shell binary absent | React app + Rust core can't talk in one process; no window chrome | 12.C |
 | G4 | PlanTab chat hardcodes `ackFor()` | No `Orchestrator::post_message` path from UI to agent | 13.D |
-| G5 | `create_workspace` doesn't create a git worktree | `GitOps` wired but never called from UI; no branch, no PR on disk | 13.E |
+| G5 | `create_workspace` doesn't create a track (worktree + branch) | `GitOps` wired but never called from UI; no track on disk. Resolution introduces the Track primitive per spec Decisions 29–30. | 13.E |
 | G6 | Local-model jobs (`recap`, `audit_claim`, `summarize_row`) have no caller | Activity spine summaries, morning recap, audit verdicts all stubbed | 13.F |
 | G7 | Approval resolution surface is a `setTimeout` in BuildTab | Real approvals need a real inbox; currently non-interactive | 13.G |
 | G8 | No repo-linking UI or file picker | User can't point Designer at a codebase | 13.E |
@@ -329,7 +333,7 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
 
  Phase 13 — Wire the real runtime (four tracks, gated by inputs)
  ├─ 13.D Agent wire      (needs 12.A + 12.C)
- ├─ 13.E Git wire + repo-linking UI + core-docs persistence  (needs 12.C)
+ ├─ 13.E Track primitive + git wire + repo-linking UI + core-docs persistence  (needs 12.C)
  ├─ 13.F Local-model surfaces       (needs 12.B + 12.C)
  └─ 13.G Safety surfaces + Keychain (needs 12.C)
 
@@ -354,19 +358,28 @@ Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–G). Any le
 
 **Goal:** replace three trait mocks with live runtimes. Every track is independent — pick whichever is cheapest to access (hardware, auth, setup time).
 
-### Track 12.A — Real Claude Code subprocess (gap G1)
+### Track 12.A — Real Claude Code subprocess (gap G1) *(completed 2026-04-22)*
 
 **Blocks:** 13.D.
 **Needs:** a working Claude Code install + auth on the dev machine.
 
-**Steps:**
-- Run `ClaudeCodeOrchestrator::spawn_team` against a throwaway team with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
-- Catalog the actual file shapes in `~/.claude/teams/{team}/` and `~/.claude/tasks/{team}/`; write the inventory to `core-docs/integration-notes.md`.
-- Update `crates/designer-claude/src/watcher.rs::classify` against observed paths.
-- If `claude team init / task / message` CLI args differ from the placeholders in `claude_code.rs`, rewrite and note the final invocation pattern.
-- Add an integration test gated by `CLAUDE_CODE_INSTALLED=1` so CI stays green elsewhere.
+**Actual outcome** (historical record of what shipped; see `history.md` and `core-docs/adr/0001-claude-runtime-primitive.md` for the full story):
 
-**Done when:** a gated integration test spawns a real team, observes `TaskCreated` / `TaskCompleted` / `TeammateIdle` through our trait surface, and round-trips cleanly.
+- Initial probe revealed that the placeholder's `claude team init/task/message` CLI subcommands don't exist. A follow-up web check confirmed agent teams are a real, env-var-gated, natural-language-driven feature; file paths in the placeholder were correct.
+- Pivoted to the native agent-teams primitive. `Orchestrator` trait shape unchanged.
+- Load-bearing spike resolved: option (a) — non-tty `--teammate-mode in-process` works cleanly. No pty, no tmux, no Phase 16 packaging impact.
+- `crates/designer-claude/src/stream.rs` — new stream-json translator, 12 unit tests.
+- `crates/designer-claude/src/claude_code.rs` — full rewrite: per-workspace long-lived subprocess, stream-json on both sides, `--permission-prompt-tool stdio`, deterministic `--session-id`, 60s graceful shutdown fallback. 6 unit tests.
+- `crates/designer-claude/src/watcher.rs::classify` — rewritten against real shapes (config.json / inboxes/{role}.json / tasks/{team}/*.json). `None` for out-of-scope paths, `Some(Unknown)` only inside the watched dirs for unrecognized shapes.
+- Live integration test `tests/claude_live.rs` behind `--features claude_live` — spawns a real team end-to-end through `ClaudeCodeOrchestrator`, observes events, shuts down cleanly. Passes in ~28s against Claude 2.1.117.
+- 44 workspace tests pass; `cargo clippy --workspace --all-targets -- -D warnings` clean.
+- CI workflows in `.github/workflows/`: Tier 1 hermetic (`ci.yml`), Tier 2 self-hosted-runner live integration (`claude-live.yml`), Tier 3 scheduled drift probe (`claude-probe.yml`).
+- Docs: `core-docs/integration-notes.md` (reproducible source-of-truth), `core-docs/adr/0001-claude-runtime-primitive.md` (decision record), `.claude/agents/track-lead.md` + `teammate-default.md` (subagent definitions), `.claude/prompts/workspace-lead.md` (reserved stub).
+
+**Deferred into Phase 13** (not blocking 13.D start):
+- `designer-hook` binary as secondary feed (hooks are visible in stream-json; file-based backup is a 13.G concern when approval-gate file triggers arrive).
+- `PreToolUse` approval-gate spike (moves to 13.G scope; the stdio permission-prompt path is already wired and will carry this).
+- Partial-message coalescer at 120ms (moves to 13.D scope; only matters when the UI renders live chat).
 
 ### Track 12.B — Swift Foundation Models helper build (gap G2)
 
@@ -423,18 +436,22 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Done when:** a user message travels UI → Rust → Claude → events → UI with no hardcoded text anywhere; the activity spine shows the lead going active during the reply.
 
-### Track 13.E — Git wire + repo linking + core-docs persistence (gaps G5, G8, G9)
+### Track 13.E — Track primitive + git wire + repo linking + core-docs persistence (gaps G5, G8, G9)
 
 **Needs:** 12.C.
 
+**Introduces the `Track` primitive** (per spec §"Workspace and Track" and Decisions 29–30, 32). A workspace owns a list of tracks; v1 creates exactly one track per workspace, but the data shape supports N — future multi-track UI lands in Phase 18 without a data-model migration.
+
 **Steps:**
 - Add a "Link repository" flow in the project-creation dialog (native file picker for a directory; validate it's a git repo root).
-- Extend `create_workspace` to call `GitOps::init_worktree` and append a `WorkspaceWorktreeAttached` event with the real path. Surface the worktree path in the workspace sidebar meta.
-- On first workspace create, also seed `core-docs/spec.md` / `plan.md` / `history.md` / `design-language.md` in the user's repo if absent (per spec decision #28).
-- Wire "Request merge" in `BuildTab` to `GitOps::open_pr` via a new command; feed `gh pr create --json` output back as a `PullRequestOpened` event.
-- Auto-cleanup: `WorkspaceArchived` removes the worktree.
+- Introduce `TrackStarted { workspace_id, track_id, worktree_path, branch }` and `TrackCompleted { track_id }` events; projector tracks a `tracks: Vec<TrackState>` field per workspace. Reserve (do not implement) `WorkspaceForked`, `WorkspacesReconciled`, `TrackArchived`.
+- Extend `create_workspace` to append `WorkspaceCreated` plus a first `TrackStarted` event; `GitOps::init_worktree` creates the worktree for the new track.
+- Surface the track in the workspace sidebar meta as a status badge (not a navigation primitive); the user sees "the workspace," not "the track," by default.
+- On first workspace create, seed `core-docs/spec.md` / `plan.md` / `history.md` / `design-language.md` in the user's repo if absent (per Decision 28).
+- Wire "Request merge" in `BuildTab` to `GitOps::open_pr` via a new command; feed `gh pr create --json` output back as `PullRequestOpened { track_id, pr_number }`. On merge, emit `TrackCompleted`.
+- Auto-cleanup: `TrackCompleted` removes the track's worktree (branch stays until the user archives). `WorkspaceArchived` cleans up all remaining tracks.
 
-**Done when:** creating a workspace in the UI creates a real worktree + branch on disk; merging creates a real PR in the linked GitHub repo; archiving cleans up.
+**Done when:** creating a workspace in the UI creates a real worktree + branch on disk (as a length-1 track list); merging creates a real PR in the linked GitHub repo and emits `TrackCompleted`; archiving the workspace cleans up all tracks. User-facing UI reads "workspace" without exposing "track" as a word.
 
 ### Track 13.F — Local-model surfaces (gap G6)
 
@@ -455,7 +472,7 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 **Steps:**
 - Build an approval inbox (either a drawer inside `ActivitySpine` or a dedicated `/inbox` route). Lists pending `ApprovalRequested` events with grant/deny actions bound to `cmd_resolve_approval`.
 - Replace `BuildTab`'s `setTimeout(900)` with a real pending state that resolves only when the inbox grants.
-- Add a cost chip to the topbar (`CostTracker.usage`) with a color ramp as it approaches `CostCap.max_dollars_cents`.
+- Add a usage chip to the topbar (`CostTracker.usage` + rate-limit signals parsed from Claude Code stream-json / stderr). Color ramps as spend approaches `CostCap.max_dollars_cents` *or* as Anthropic's own capacity warnings surface. Toggleable in settings, off by default (Decision 34). Ambient notice in the activity spine when a known 5-hour or weekly threshold is approached; hard-stop messages surface the specific limit + reset time.
 - Surface `ScopeDenied` events in the inbox with the denied path and the rule that matched.
 - Integrate `security-framework` (macOS Keychain) via a `SecretStore` trait; store any future agent credentials there (initial use: GitHub token discovery hint for `gh`).
 
@@ -556,6 +573,28 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 
 ---
 
+## Phase 18 — Workspace scales up *(multi-track UX, forking, reconciliation)*
+
+**Goal:** deliver the full workspace/track model to the user. The primitive landed in Phase 13.E; this phase unlocks what it enables.
+
+**Why a dedicated phase:** the spec commits the primitive early (Decisions 29–32) so the data shape is right from Phase 13.E onward. The UI and coordination affordances are staged into this phase to avoid over-investing before concrete use cases land in dogfooding. Can begin once Phase 16 ships; some sub-items (sequential-track succession) are small enough to pull forward into Phase 15 polish if the manager experience feels pinched before 16.
+
+**Steps:**
+
+- **Sequential track succession.** "Start the next track on this workspace." Preserves workspace-level context; seeds the new track with a recap of the previous one via `LocalOps::recap`. UI: a "Next track" action on a workspace whose last track just completed.
+- **Parallel tracks.** Allow multiple active tracks simultaneously per workspace. Cross-track conflict detection extends the existing cross-workspace primitive (same-file-last-24h rule, scoped to a workspace's tracks).
+- **Workspace lead hybrid routing (exploratory, opt-in).** v1 ships the workspace lead as a persistent Claude Code session; this phase explores selective escalation — local-model default path for routine Q&A, status, recap; Claude invoked only for consequential decisions (spec Decision 31's "future direction"). Opt-in mode in settings, not a default. Token-cost optimization, not a UX change users need to learn.
+- **Track archive + history.** Completed tracks become read-only history visible in the workspace. Workspace chat can `@track:name` to reference past work.
+- **Workspace forking.** Implement `WorkspaceForked` (event already reserved in Phase 13.E). UI: "Fork workspace" action; fork inherits docs, decisions, chat history as a read-only baseline. First track of the fork branches from the parent's last-merged main (default) or parent's current working state (opt-in).
+- **Workspace reconciliation.** Implement `WorkspacesReconciled`: absorb one into another (copy new decisions/tracks/docs; archive the absorbed) or diverge permanently (retain lineage but stop affecting behavior).
+- **Activity spine extension.** New altitude: workspace → track → agent → artifact. Spine summaries at the track level show "this track's progress" in one line.
+
+**Done when:** a user can (a) iterate on a feature across multiple sequential tracks without manual workspace bookkeeping, (b) fork a workspace to try an alternative approach, (c) reconcile the fork back or archive it cleanly, (d) chat with the workspace lead about the feature at large and only occasionally drop into specific tracks.
+
+**Gates on:** Phase 13.E (track primitive), Phase 13.F (local-model surfaces, for the workspace-lead default path), Phase 16 (shippable desktop, for most users; power users can dogfood earlier).
+
+---
+
 ## Milestones (summary)
 
 | Milestone | Phases | Parallel? | State |
@@ -566,12 +605,13 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 | Multi-workspace + sync protocol | 6, 7 | — | ✅ Preliminary build |
 | First user-visible surface | 8, 9 | — | ✅ Preliminary build |
 | Design lab + polish scaffolding | 10, 11 | — | ✅ Preliminary build |
-| **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.C done; 12.A + 12.B open** |
+| **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.A ✅ 2026-04-22; 12.C ✅ 2026-04-21; 12.B infrastructure landed, real-hardware validation pending** |
 | Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after Phase 12) | Pending |
 | Sync transport | 14 | Yes (parallel with 13/15) | Pending |
 | Hardening + polish | 15 | Yes (parallel with 13/14) | Pending |
 | Shippable desktop beta | 16 | After 13 + 15 | Blocked on Apple Developer ID |
 | Mobile | 17 | After 16 + 14 | Phase 2 |
+| Workspace scales up (multi-track, forking) | 18 | After 13 + 16; parts pullable into 15 | Pending |
 
 ---
 

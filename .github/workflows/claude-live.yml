@@ -1,0 +1,41 @@
+name: claude-live
+
+# Tier 2 — live integration tests against the real `claude` binary with the
+# user's keychain-backed OAuth subscription. Runs exclusively on a
+# self-hosted macOS runner registered by the project maintainer; the workflow
+# gates on the `claude` label so GitHub never routes this job to a hosted VM
+# (which wouldn't have auth anyway).
+#
+# See core-docs/adr/0001-claude-runtime-primitive.md and
+# core-docs/spec.md Decision 33 for the auth compliance rationale.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: claude-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live:
+    name: claude live integration
+    # Label set scoped to this repo's self-hosted runner(s). The `claude`
+    # label signals that this host has a logged-in Claude Code install.
+    runs-on: [self-hosted, macOS, claude]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify claude is on PATH and authenticated
+        run: |
+          set -euo pipefail
+          claude --version
+          # We never print auth state or token info. Just a presence check.
+          test -d "$HOME/.claude" || { echo "::error::no ~/.claude on runner"; exit 1; }
+
+      - name: cargo test --features claude_live
+        run: |
+          set -euo pipefail
+          cargo test --locked --features claude_live \
+            -p designer-claude --test claude_live -- --nocapture
