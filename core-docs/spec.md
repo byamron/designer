@@ -142,7 +142,7 @@ The workspace lead is distinct from a track lead: it is a standalone Claude Code
 
 The lead reads workspace-level context (docs in `core-docs/`, the workspace's decisions log, recaps of completed tracks digested by local models) and handles three things: manager-level conversation, track-spawning decisions ("what should we do next?"), and cross-track reconciliation ("these two tracks touched the same file — how do we resolve?"). When it determines work is needed, it asks Designer to spawn a track; when a track completes, Designer digests the output and feeds the summary back into the lead's context.
 
-**Future direction — hybrid routing for token optimization.** A later phase may introduce selective escalation: local models (Apple Foundation Models / MLX) handle routine workspace chat (status rollups, context Q&A, recap), and the Claude session is invoked only for consequential decisions. This matches Decision 3 (local models for the ops layer) and is a structural token-cost optimization Designer can claim. v1 ships the simpler model — full Claude session at the workspace level — so the manager experience is rich from day one. The routing policy is an opt-in mode when explored (Phase 18 or later), not a default.
+**Future direction — hybrid routing for token optimization.** A later phase may introduce selective escalation: local models (Apple Foundation Models / MLX) handle routine workspace chat (status rollups, context Q&A, recap), and the Claude session is invoked only for consequential decisions. This matches Decision 3 (local models for the ops layer) and is a structural token-cost optimization Designer can claim. v1 ships the simpler model — full Claude session at the workspace level — so the manager experience is rich from day one. The routing policy is an opt-in mode when explored (Phase 19 or later), not a default.
 
 ### Workspace forking (reserved)
 
@@ -186,6 +186,12 @@ Designer is explicitly outside this line: we never take, hold, or use OAuth cred
 - No proxying Claude through a Designer-owned cloud backend.
 - Distinct brand — Designer is clearly its own product.
 - Mobile (when it ships) routes through the user's desktop, never a hosted Claude.
+- **Designer emits zero network traffic of its own.** All observable egress is attributable to Claude Code, the user's own git / gh operations, or a tool an agent explicitly invoked. Updater and (opt-in) crash-report are the only Designer-owned endpoints; both are user-consented and never silent.
+- **The worktree is the enforcement boundary.** Designer does not sandbox Claude Code's network egress and does not proxy its traffic. We constrain what agents can *write* (via pre-write scope + approval gates in the Rust core) and surface what they *do* (via the activity spine and signed event log).
+- **Enterprise-grade security is a launch requirement, not a follow-on.** Sensitive-data teams are a named target user. Risk-tiered gates — not prompt-on-everything — deliver that security without destroying the many-agents value prop. Detail in `security.md`.
+- **Mobile sync is E2EE with an untrusted relay.** When the mobile client ships, no plaintext and no metadata cross the relay; pairing is explicit and verifiable.
+
+See `security.md` for the threat model, phased implementation (13.H / 16.S / 17.T / 18), and the plain-language trust statement.
 
 ---
 
@@ -251,7 +257,7 @@ Claude Code has no project-level coordination; Designer fills the gap. Coordinat
 - Team leads do not DM each other — they post to a project thread that other leads read. Auditable; keeps the user at the top of the hierarchy.
 - Conflict detection flags overlapping file or intent changes to the user. Day-one version: "two workspaces touched the same file in the last 24h." Semantic-overlap v2 is backlog.
 
-**Proactive — parallel-work coordination (Phase 19).**
+**Proactive — parallel-work coordination (Phase 20).**
 
 When a project intends to run N workspaces or tracks in parallel toward a shared goal, the project layer analyzes contention *before* the work starts and produces a scaffold that makes the parallelism safe. Concretely:
 
@@ -264,7 +270,7 @@ When a project intends to run N workspaces or tracks in parallel toward a shared
 
 This is Designer's differentiating value at the project layer. Conductor, Crystal, and Claude Code Desktop are session-scoped — they coordinate *nothing* between parallel sessions, so users manually absorb the integration cost every time they fan out. The proactive layer is what turns "N parallel sessions" into "N coordinated teammates."
 
-Phase 13.0 (pre-track scaffolding) executes this workflow by hand for the 13.D/E/F/G split. Phase 19 automates it.
+Phase 13.0 (pre-track scaffolding) executes this workflow by hand for the 13.D/E/F/G split. Phase 20 automates it.
 
 ---
 
@@ -432,8 +438,8 @@ Chronological record of architectural and product decisions. Replace the entry, 
 | 28 | Core docs follow byamron/project-template | Consistent structure across projects. `core-docs/` for Designer's own docs; same pattern recommended for user projects. |
 | 29 | Workspace is a persistent feature-level primitive, decoupled from git | Managers think in features, not PRs. A workspace survives many PRs; it holds the context, decisions, and conversation. As agents produce more per turn, a worktree/PR will be small relative to a feature's scope — the workspace must be the stable anchor above it. Reframes "workspace = worktree" from the pre-track model. |
 | 30 | Track introduced as the git-bound unit below workspace | A track = one worktree + one branch + one agent team + one PR series. Tracks are ephemeral; workspaces persist across many tracks. Matches Claude Code's agent-teams primitive at the track level (single-cwd) and leaves room above for multi-track orchestration. |
-| 31 | Workspace lead is a persistent Claude Code session; hybrid routing reserved as future token-optimization | v1 keeps the manager-level interface simple and rich: chat with the workspace is chat with a Claude session that reads context, orchestrates tracks, and handles manager-level decisions. A future phase may introduce selective escalation (local models for routine chat; Claude only for consequential decisions) as a token-cost optimization matching Decision 3. Reserved as Phase 18-or-later exploration, not v1. |
+| 31 | Workspace lead is a persistent Claude Code session; hybrid routing reserved as future token-optimization | v1 keeps the manager-level interface simple and rich: chat with the workspace is chat with a Claude session that reads context, orchestrates tracks, and handles manager-level decisions. A future phase may introduce selective escalation (local models for routine chat; Claude only for consequential decisions) as a token-cost optimization matching Decision 3. Reserved as Phase 19-or-later exploration, not v1. |
 | 32 | Workspace forking reserved for future; event vocabulary allocated now | Forking = sibling workspace from a common ancestor for variant exploration. Orthogonal to multi-track. Not v1; adding `WorkspaceForked` / `WorkspacesReconciled` event types now keeps future implementation a zero-migration change. |
 | 33 | Self-hosted GitHub Actions runner for live Claude integration tests | Mirrors the product's local-first architecture: tests run on user's Mac against user's Claude Code install with user's auth. No API-key CI path (would test a different code path than production); no service subscription (would invite OpenClaw-adjacent compliance risk). Compliance-clean and fidelity-matched. |
 | 34 | Fleet-scale usage: rely on Anthropic's own signals; no Designer-imposed caps | Designer's workspace/track model encourages running ~10–12 concurrent tracks (Conductor-scale power-user norm) which is well within intended use for Max-tier subscriptions. Anthropic publishes 5-hour session limits (Pro ~40 msgs, Max 5x ~225, Max 20x ~900) and weekly compute-hour caps (Pro ~40–80 Sonnet hours, Max up to ~480), and Claude Code itself emits warning messages as capacity depletes. Designer surfaces those signals — a topbar usage chip (toggleable in settings, off by default) and ambient notices when approaching known thresholds — without building parallel tracking, tier detection, or concurrency caps. Conservative default: one active track per workspace; parallel tracks are opt-in (matches Decision 19). |
-| 35 | Parallel-work coordination is a first-class project-level primitive | Session-scoped tools (Conductor, Crystal, Claude Code Desktop) coordinate nothing between parallel sessions; users absorb the integration cost manually. Designer's project layer owns proactive coordination: analyze contention *before* work starts, partition files and freeze contracts via a scaffold PR, emit per-agent briefs with scoped file ownership, detect drift in-flight (not at merge), and plan merge order. Manual v1 of this workflow is Phase 13.0 (the pre-track scaffold for 13.D/E/F/G); automation is Phase 19. Complements the existing reactive detection primitive (spec §"Cross-workspace coordination"). |
+| 35 | Parallel-work coordination is a first-class project-level primitive | Session-scoped tools (Conductor, Crystal, Claude Code Desktop) coordinate nothing between parallel sessions; users absorb the integration cost manually. Designer's project layer owns proactive coordination: analyze contention *before* work starts, partition files and freeze contracts via a scaffold PR, emit per-agent briefs with scoped file ownership, detect drift in-flight (not at merge), and plan merge order. Manual v1 of this workflow is Phase 13.0 (the pre-track scaffold for 13.D/E/F/G); automation is Phase 20. Complements the existing reactive detection primitive (spec §"Cross-workspace coordination"). |

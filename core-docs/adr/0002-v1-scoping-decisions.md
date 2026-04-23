@@ -16,11 +16,11 @@ Decisions 30–34 in `spec.md` set the primitive-level architecture (workspace/t
 
 **v1:** the workspace lead is a **persistent Claude Code session**, scoped to the workspace, separate from any per-track agent team. The user chats with this session when they "chat with the workspace." Per-track agent teams live *below* it and are spawned / dissolved as tracks come and go. The workspace-lead session does not itself lead an agent team — it orchestrates tracks via Designer's coordination layer and responds to the user.
 
-Hybrid routing (local models for routine chat, Claude only for consequential decisions — matches Decision 3's token-economics thesis) is **reserved** as a future token-cost optimization. Phase 18 or later; opt-in via settings when it lands; not default.
+Hybrid routing (local models for routine chat, Claude only for consequential decisions — matches Decision 3's token-economics thesis) is **reserved** as a future token-cost optimization. Phase 19 or later; opt-in via settings when it lands; not default.
 
 **Why not hybrid now:** v1 prioritizes a rich, coherent manager-level chat over token optimization. The hybrid layer is a productivity feature added to a working manager experience; introducing it day-one couples 13.D to the local-model work it doesn't need.
 
-**Applies to:** 13.D primarily; 13.F, 13.G, and Phase 18 inherit.
+**Applies to:** 13.D primarily; 13.F, 13.G, and Phase 19 inherit.
 
 ### D2 — Repo linking UX
 
@@ -66,7 +66,7 @@ Thresholds read from the `rate_limit_event` payload Claude Code emits (`status: 
 
 ## Reversal triggers
 
-- **D1:** if token spend at the workspace-lead level becomes a real dogfooding pain point before Phase 18, accelerate the hybrid routing work. Same primitive, earlier.
+- **D1:** if token spend at the workspace-lead level becomes a real dogfooding pain point before Phase 19, accelerate the hybrid routing work. Same primitive, earlier.
 - **D2:** if a user's first real use asks "can I clone a repo from GitHub," reopen.
 - **D3:** if the allowlist is too narrow (agents constantly waiting on the inbox for benign operations) or too wide (agents doing things we didn't intend), tighten / expand with evidence from a dogfooding week.
 - **D4:** if the three-stop ramp hides the "approaching limit" window too long, add a fourth stop at 70%.
