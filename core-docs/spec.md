@@ -250,11 +250,27 @@ The Rust core defines an `Orchestrator` trait (`spawn_worker`, `assign_task`, `p
 
 ### Cross-workspace coordination
 
-Claude Code has no project-level coordination; Designer fills the gap:
+Claude Code has no project-level coordination; Designer fills the gap. Coordination operates on two axes — **reactive** (detect divergence after it starts) and **proactive** (prevent it before it starts).
 
+**Reactive — detection + communication.**
 - Workspaces read freely from shared project state (roadmap, design language, project thread, activity log).
 - Team leads do not DM each other — they post to a project thread that other leads read. Auditable; keeps the user at the top of the hierarchy.
-- Conflict detection flags overlapping file or intent changes to the user. Day-one version: "two workspaces touched the same file in the last 24h."
+- Conflict detection flags overlapping file or intent changes to the user. Day-one version: "two workspaces touched the same file in the last 24h." Semantic-overlap v2 is backlog.
+
+**Proactive — parallel-work coordination (Phase 20).**
+
+When a project intends to run N workspaces or tracks in parallel toward a shared goal, the project layer analyzes contention *before* the work starts and produces a scaffold that makes the parallelism safe. Concretely:
+
+- **Contention analyzer** — given the intended work splits, enumerate files each will touch (using `core-docs/`, recent event ownership, and per-role system prompts) and emit a contention report.
+- **Scaffold generator** — for each contention zone, propose a partition: sibling modules, trait seams at shared hot spots, frozen event / IPC contracts. Emit a diff for user review.
+- **Per-agent brief** — each workspace / track agent receives a scoped system prompt: "these files you own, these events you read, these hooks you stub with `TODO(…)` until the other track lands."
+- **In-flight drift detection** — extends the reactive "same file, last 24h" primitive to watch for agents editing outside their assigned surface; flags immediately, not at merge time.
+- **Merge-order planner** — after all agents complete, recommend integration order with rationale.
+- **Auto-integration PR** — scaffold a cross-track integration test PR after the N track PRs land.
+
+This is Designer's differentiating value at the project layer. Conductor, Crystal, and Claude Code Desktop are session-scoped — they coordinate *nothing* between parallel sessions, so users manually absorb the integration cost every time they fan out. The proactive layer is what turns "N parallel sessions" into "N coordinated teammates."
+
+Phase 13.0 (pre-track scaffolding) executes this workflow by hand for the 13.D/E/F/G split. Phase 20 automates it.
 
 ---
 
@@ -426,3 +442,4 @@ Chronological record of architectural and product decisions. Replace the entry, 
 | 32 | Workspace forking reserved for future; event vocabulary allocated now | Forking = sibling workspace from a common ancestor for variant exploration. Orthogonal to multi-track. Not v1; adding `WorkspaceForked` / `WorkspacesReconciled` event types now keeps future implementation a zero-migration change. |
 | 33 | Self-hosted GitHub Actions runner for live Claude integration tests | Mirrors the product's local-first architecture: tests run on user's Mac against user's Claude Code install with user's auth. No API-key CI path (would test a different code path than production); no service subscription (would invite OpenClaw-adjacent compliance risk). Compliance-clean and fidelity-matched. |
 | 34 | Fleet-scale usage: rely on Anthropic's own signals; no Designer-imposed caps | Designer's workspace/track model encourages running ~10–12 concurrent tracks (Conductor-scale power-user norm) which is well within intended use for Max-tier subscriptions. Anthropic publishes 5-hour session limits (Pro ~40 msgs, Max 5x ~225, Max 20x ~900) and weekly compute-hour caps (Pro ~40–80 Sonnet hours, Max up to ~480), and Claude Code itself emits warning messages as capacity depletes. Designer surfaces those signals — a topbar usage chip (toggleable in settings, off by default) and ambient notices when approaching known thresholds — without building parallel tracking, tier detection, or concurrency caps. Conservative default: one active track per workspace; parallel tracks are opt-in (matches Decision 19). |
+| 35 | Parallel-work coordination is a first-class project-level primitive | Session-scoped tools (Conductor, Crystal, Claude Code Desktop) coordinate nothing between parallel sessions; users absorb the integration cost manually. Designer's project layer owns proactive coordination: analyze contention *before* work starts, partition files and freeze contracts via a scaffold PR, emit per-agent briefs with scoped file ownership, detect drift in-flight (not at merge), and plan merge order. Manual v1 of this workflow is Phase 13.0 (the pre-track scaffold for 13.D/E/F/G); automation is Phase 20. Complements the existing reactive detection primitive (spec §"Cross-workspace coordination"). |

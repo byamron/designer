@@ -1,106 +1,54 @@
+import {
+  ChevronLeft,
+  ChevronRight,
+  GitBranch,
+  PanelLeftClose,
+  PanelRightClose,
+  Plus,
+  X,
+  type LucideIcon,
+  type LucideProps,
+} from "lucide-react";
+
 /**
- * Shared icon set. Each icon consumes `currentColor` and is sized to an
- * `--icon-*` token (12/14/16) via its viewBox scale. Stroke width follows
- * axiom #13: 1.25 at sm/md, 1.5 at lg.
+ * Shared icon wrappers around Lucide. Every inline SVG that appeared three
+ * or more times lives here; one-offs can import from `lucide-react`
+ * directly in the consumer file and pass `size` / `strokeWidth` inline.
  *
- * Prefer importing from here over inlining SVG in a component; three copies
- * of the same close-X across the tree is the reason this module exists.
+ * Defaults follow axiom #13: 12/14/16px size, 1.25 stroke at sm/md, 1.5
+ * at lg. `currentColor` is inherited from Lucide. Everything is
+ * aria-hidden by default — icons are decoration on top of a labeled
+ * button; labels travel via Tooltip / aria-label.
  */
 
-interface SvgProps {
-  size?: 10 | 12 | 14 | 16;
+export type IconSize = 10 | 12 | 14 | 16;
+
+interface WrapProps {
+  size?: IconSize;
   strokeWidth?: number;
 }
 
-function Svg({
-  size = 12,
-  strokeWidth = 1.25,
-  children,
-  viewBox,
-}: SvgProps & { children: React.ReactNode; viewBox: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={viewBox}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
+function strokeFor(size: IconSize): number {
+  return size >= 16 ? 1.5 : 1.25;
 }
 
-export function IconX(props: SvgProps) {
-  const s = props.size ?? 10;
-  const sw = props.strokeWidth ?? 1.5;
-  const end = s - 2;
-  return (
-    <Svg {...props} size={s} strokeWidth={sw} viewBox={`0 0 ${s} ${s}`}>
-      <path d={`M2 2l${end - 2} ${end - 2}`} />
-      <path d={`M${end} 2l-${end - 2} ${end - 2}`} />
-    </Svg>
-  );
+function wrap(Icon: LucideIcon, defaultSize: IconSize) {
+  return function Wrapped({ size = defaultSize, strokeWidth, ...rest }: WrapProps & Omit<LucideProps, keyof WrapProps>) {
+    return (
+      <Icon
+        size={size}
+        strokeWidth={strokeWidth ?? strokeFor(size)}
+        aria-hidden="true"
+        {...rest}
+      />
+    );
+  };
 }
 
-export function IconPlus(props: SvgProps) {
-  const s = props.size ?? 12;
-  return (
-    <Svg {...props} size={s} viewBox={`0 0 ${s} ${s}`}>
-      <path d={`M${s / 2} 2v${s - 4}`} />
-      <path d={`M2 ${s / 2}h${s - 4}`} />
-    </Svg>
-  );
-}
-
-export function IconBranch(props: SvgProps) {
-  return (
-    <Svg {...props} size={props.size ?? 12} viewBox="0 0 12 12">
-      <circle cx="3.5" cy="2.5" r="1" />
-      <circle cx="3.5" cy="9.5" r="1" />
-      <circle cx="8.5" cy="6" r="1" />
-      <path d="M3.5 3.5v5" />
-      <path d="M3.5 6h4" />
-    </Svg>
-  );
-}
-
-export function IconChevronRight(props: SvgProps) {
-  return (
-    <Svg {...props} size={props.size ?? 12} viewBox="0 0 12 12">
-      <path d="M4 3l3 3-3 3" />
-      <path d="M8 3v6" />
-    </Svg>
-  );
-}
-
-export function IconChevronLeft(props: SvgProps) {
-  return (
-    <Svg {...props} size={props.size ?? 12} viewBox="0 0 12 12">
-      <path d="M8 3l-3 3 3 3" />
-      <path d="M4 3v6" />
-    </Svg>
-  );
-}
-
-export function IconCollapseLeft(props: SvgProps) {
-  return (
-    <Svg {...props} size={props.size ?? 12} viewBox="0 0 12 12">
-      <path d="M5 3l-3 3 3 3" />
-      <path d="M9 3v6" />
-    </Svg>
-  );
-}
-
-export function IconCollapseRight(props: SvgProps) {
-  return (
-    <Svg {...props} size={props.size ?? 12} viewBox="0 0 12 12">
-      <path d="M7 3l3 3-3 3" />
-      <path d="M3 3v6" />
-    </Svg>
-  );
-}
+export const IconX = wrap(X, 10);
+export const IconPlus = wrap(Plus, 12);
+export const IconBranch = wrap(GitBranch, 12);
+export const IconChevronLeft = wrap(ChevronLeft, 12);
+export const IconChevronRight = wrap(ChevronRight, 12);
+export const IconCollapseLeft = wrap(PanelLeftClose, 12);
+export const IconCollapseRight = wrap(PanelRightClose, 12);

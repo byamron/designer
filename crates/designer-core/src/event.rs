@@ -3,7 +3,9 @@
 //! schema without breaking old events; projections match on `(kind, version)`.
 
 use crate::domain::{Actor, Autonomy, TabTemplate, WorkspaceState};
-use crate::ids::{AgentId, ApprovalId, EventId, ProjectId, StreamId, TabId, TaskId, WorkspaceId};
+use crate::ids::{
+    AgentId, ApprovalId, EventId, ProjectId, StreamId, TabId, TaskId, TrackId, WorkspaceId,
+};
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -158,6 +160,50 @@ pub enum EventPayload {
         summary: String,
         details: serde_json::Value,
     },
+
+    // Track primitive (Phase 13.E introduces; Phase 18 extends).
+    // See spec §"Workspace and Track" and Decisions 29–32.
+    /// A track started inside a workspace: one worktree + one branch + one
+    /// agent team + one PR series. Emitted by Phase 13.E when
+    /// `create_workspace` (or a later multi-track trigger) spawns a track.
+    TrackStarted {
+        track_id: TrackId,
+        workspace_id: WorkspaceId,
+        worktree_path: PathBuf,
+        branch: String,
+    },
+    /// The track's PR merged (or the track was otherwise considered done).
+    /// Typically followed by automatic worktree cleanup.
+    TrackCompleted {
+        track_id: TrackId,
+    },
+    /// The PR for a track was opened on GitHub (via `gh pr create`).
+    PullRequestOpened {
+        track_id: TrackId,
+        pr_number: u64,
+    },
+    /// Completed track moved into workspace history (read-only reference).
+    /// Reserved for Phase 18; Phase 13.E does not emit this yet, but the
+    /// shape is frozen here so later migration is zero.
+    TrackArchived {
+        track_id: TrackId,
+    },
+    /// Workspace forked: a sibling workspace inherits the source's docs,
+    /// decisions, and chat history as a read-only baseline. Reserved for
+    /// Phase 18 (spec §"Workspace forking"); shape frozen here.
+    WorkspaceForked {
+        source_workspace_id: WorkspaceId,
+        new_workspace_id: WorkspaceId,
+        /// The source workspace's event-log sequence at fork time. Makes
+        /// the baseline deterministic on replay.
+        snapshot_sequence: u64,
+    },
+    /// Two forked workspaces reconciled: one absorbed the other, or the
+    /// absorbed side was archived. Reserved for Phase 18.
+    WorkspacesReconciled {
+        target_workspace_id: WorkspaceId,
+        absorbed_workspace_id: WorkspaceId,
+    },
 }
 
 /// Cheap discriminant for pattern matching in indices + projections.
@@ -188,6 +234,12 @@ pub enum EventKind {
     CostRecorded,
     ScopeDenied,
     AuditEntry,
+    TrackStarted,
+    TrackCompleted,
+    PullRequestOpened,
+    TrackArchived,
+    WorkspaceForked,
+    WorkspacesReconciled,
 }
 
 impl EventPayload {
@@ -217,6 +269,73 @@ impl EventPayload {
             EventPayload::CostRecorded { .. } => EventKind::CostRecorded,
             EventPayload::ScopeDenied { .. } => EventKind::ScopeDenied,
             EventPayload::AuditEntry { .. } => EventKind::AuditEntry,
+            EventPayload::TrackStarted { .. } => EventKind::TrackStarted,
+            EventPayload::TrackCompleted { .. } => EventKind::TrackCompleted,
+            EventPayload::PullRequestOpened { .. } => EventKind::PullRequestOpened,
+            EventPayload::TrackArchived { .. } => EventKind::TrackArchived,
+            EventPayload::WorkspaceForked { .. } => EventKind::WorkspaceForked,
+            EventPayload::WorkspacesReconciled { .. } => EventKind::WorkspacesReconciled,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::TrackId;
+    use std::path::PathBuf;
+
+    /// Every new Phase 13.0-frozen event shape must round-trip through
+    /// serde. If this test fails, the shape changed and the frozen contract
+    /// is broken — every downstream track that read against the previous
+    /// shape needs the update too.
+    #[test]
+    fn track_events_roundtrip_through_serde() {
+        let ws = WorkspaceId::new();
+        let track = TrackId::new();
+        let other_ws = WorkspaceId::new();
+
+        let cases = vec![
+            EventPayload::TrackStarted {
+                track_id: track,
+                workspace_id: ws,
+                worktree_path: PathBuf::from("/tmp/wt/a"),
+                branch: "feature/a".into(),
+            },
+            EventPayload::TrackCompleted { track_id: track },
+            EventPayload::PullRequestOpened {
+                track_id: track,
+                pr_number: 42,
+            },
+            EventPayload::TrackArchived { track_id: track },
+            EventPayload::WorkspaceForked {
+                source_workspace_id: ws,
+                new_workspace_id: other_ws,
+                snapshot_sequence: 123,
+            },
+            EventPayload::WorkspacesReconciled {
+                target_workspace_id: ws,
+                absorbed_workspace_id: other_ws,
+            },
+        ];
+
+        for payload in cases {
+            let json = serde_json::to_string(&payload).expect("serialize");
+            let back: EventPayload = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(payload, back, "round-trip mismatch for {json}");
+        }
+    }
+
+    #[test]
+    fn track_events_map_to_matching_event_kinds() {
+        let track = TrackId::new();
+        assert_eq!(
+            EventPayload::TrackCompleted { track_id: track }.kind(),
+            EventKind::TrackCompleted
+        );
+        assert_eq!(
+            EventPayload::TrackArchived { track_id: track }.kind(),
+            EventKind::TrackArchived
+        );
     }
 }

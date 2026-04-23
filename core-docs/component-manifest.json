@@ -5,12 +5,12 @@
     {
       "name": "AppShell",
       "path": "packages/app/src/layout/AppShell.tsx",
-      "purpose": "Top-level four-pane layout (strip / sidebar / main / spine). Each of the sidebar and spine is independently togglable; when collapsed, a narrow pane-rail renders a single reveal IconButton. Keyboard: ⌘\\ strip, ⌘[ sidebar, ⌘] spine.",
+      "purpose": "Top-level four-pane layout (strip / sidebar / main / spine). Each of the sidebar and spine is independently togglable; when collapsed, a narrow pane-rail renders a single reveal IconButton. Keyboard: ⌘\\ strip, ⌘[ sidebar, ⌘] spine. Carries a data-tab-style attribute (A / B / C) driven by the SurfaceDevPanel for live A/B of the tab register.",
       "status": "managed",
       "native_wrapped": false,
       "archetypes_used": [],
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "space-4", "space-6", "space-8", "color-background", "color-surface-flat", "border-thin"],
+      "tokens_referenced": ["space-2", "space-3", "space-4", "space-6", "space-8", "color-background", "color-surface-flat", "border-thin", "surface-gutter"],
       "last_updated": "2026-04-22"
     },
     {
@@ -26,21 +26,21 @@
     {
       "name": "WorkspaceSidebar",
       "path": "packages/app/src/layout/WorkspaceSidebar.tsx",
-      "purpose": "Project title (no 'Project' caption — the name + path are self-describing) + collapse IconButton + Home button + Workspaces list with 7-variant status icons (idle, in_progress, in_review, pr_open, pr_conflict, pr_ready, pr_merged) + New workspace IconButton. Hover-revealed .pane-toggle at the right edge toggles the sidebar closed.",
+      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover). Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar).",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-raised", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11"],
       "last_updated": "2026-04-22"
     },
     {
       "name": "MainView",
       "path": "packages/app/src/layout/MainView.tsx",
-      "purpose": "Routes between project-home and workspace view. Workspace topbar is minimal: lifecycle dot + branch chip (caption-size monospace), no project/workspace name (those live in the sidebar). Tabs bar is Linear-style pills with close-on-hover, and the trailing IconButton '+' inside the bar opens the template menu (⌘T). Project-home topbar carries only the Panels/Palette variant toggle.",
+      "purpose": "Routes between project-home and workspace view. Wraps the tab body (or home surface) in a .main-surface rectangle — the only Tier-2 raised surface on the page. Tabs bar sits above the surface on the page; the active tab merges into the surface top edge (styles A + B) or floats separately (style C) based on the [data-tab-style] attribute carried by .app-shell. Project-home topbar occupies the same vertical slot as the tabs-bar and carries only the Panels/Palette variant toggle.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-md", "type-body-size", "type-caption-size", "weight-medium", "radius-button", "radius-badge", "radius-pill", "border-thin", "color-foreground", "color-muted", "color-background", "color-surface-flat", "color-surface-overlay", "motion-interactive", "elevation-overlay", "layer-overlay"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-md", "type-body-size", "type-caption-size", "weight-medium", "radius-button", "radius-card", "radius-badge", "radius-pill", "border-thin", "color-foreground", "color-muted", "color-background", "color-surface-flat", "color-surface-raised", "color-surface-overlay", "color-border", "color-border-strong", "motion-interactive", "surface-gutter", "surface-shadow", "elevation-overlay", "layer-overlay"],
       "last_updated": "2026-04-22"
     },
     {
@@ -56,7 +56,7 @@
     {
       "name": "ActivitySpine",
       "path": "packages/app/src/layout/ActivitySpine.tsx",
-      "purpose": "Right-rail hierarchical status column, scoped to the active project (narrows further to the active workspace when one is selected). Events are filtered to streams that belong to the scope. Summary renders as dot+count per non-zero state; zero-state fallback is 'Nothing streaming'. Rows are text-only with per-depth repeating-linear-gradient indent rails. Header carries a collapse IconButton (⌘]) and a hover-revealed .pane-toggle on the left edge.",
+      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Right-rail hierarchical status column, scoped to the active project (narrows further to the active workspace when one is selected). Events are filtered to streams that belong to the scope. Summary renders as dot+count per non-zero state; zero-state fallback is 'Nothing streaming'. Rows are text-only with per-depth repeating-linear-gradient indent rails. Header carries a collapse IconButton (⌘]) and a hover-revealed .pane-toggle on the left edge.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
@@ -76,7 +76,7 @@
     {
       "name": "HomeTabA",
       "path": "packages/app/src/home/HomeTabA.tsx",
-      "purpose": "Project home — Variant A (quieter dashboard). Single-column stack: 'Project home' kicker + vision lede + titled sections (Near-term focus, Active workspaces with status icons, Recent reports, Needs-you, Autonomy). Panels, not cards; hairline dividers between groups.",
+      "purpose": "Project home — single-column dashboard. Sections in order: Needs your attention (only when non-empty), Near-term focus, Active workspaces (WorkspaceStatusIcon + name + one-line summary from the first open tab), Recent reports, Autonomy (interactive SegmentedToggle with optimistic local update via setAutonomyOverride — Phase 13 will swap in IPC). No kicker. Panels, not cards; hairline dividers between groups. The Home A/B toggle was pruned 2026-04-22 — Panels is committed.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
@@ -86,7 +86,7 @@
     {
       "name": "HomeTabB",
       "path": "packages/app/src/home/HomeTabB.tsx",
-      "purpose": "Project home — Variant B (palette-first, Dia-inspired). Centered prompt + 4–5 context-aware suggestions (alerts, continue on active, draft plan, recent report). Two runtime densities: 'bounded' wraps prompt + suggestions in one rounded surface with a hairline between them; 'open' puts items directly on the surface with a separate bordered input. Density toggle persists in localStorage. Workspace brief drawer removed — Panels mode is the canonical drill-in.",
+      "purpose": "[Deprecated on home — kept for the palette primitive used by BlankTab]. Project home committed to Variant A (Panels) on 2026-04-22; the variant toggle has been removed from MainView. The palette layout lives on for blank workspace tabs where the 'show me affordances in the current scope' intent still fits.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
@@ -116,13 +116,12 @@
     {
       "name": "BuildTab",
       "path": "packages/app/src/tabs/BuildTab.tsx",
-      "purpose": "Build template: task list + merge-approval gate (non-bypassable, enforced in Rust core).",
+      "purpose": "Build template: terminal/chat surface where the builder streams code work. No task-board chrome — the user types instructions or slash commands (/plan, /diff, /test, /merge). The merge gate is still enforced in the Rust core (spec §5); /merge is the UI affordance that asks for approval.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "radius-button", "radius-card", "color-border"],
-      "variants": ["approval-idle", "approval-pending", "approval-granted", "approval-denied"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-2", "space-3", "space-4", "radius-button", "type-body-size", "type-caption-size", "type-family-mono", "color-foreground", "color-muted", "color-border-soft"],
+      "last_updated": "2026-04-23"
     },
     {
       "name": "BlankTab",
@@ -177,7 +176,17 @@
     {
       "name": "Icons",
       "path": "packages/app/src/components/icons.tsx",
-      "purpose": "Shared icon set. Every icon consumes `currentColor` and takes `size` / `strokeWidth` props. Centralizes IconX, IconPlus, IconBranch, IconChevronLeft/Right, IconCollapseLeft/Right — replacing three hand-rolled copies of the close-X and two+ copies of plus/branch/collapse icons.",
+      "purpose": "Thin wrappers around lucide-react for the canonical set reused 3+ times across the app: IconX, IconPlus, IconBranch, IconChevronLeft/Right, IconCollapseLeft/Right. Defaults size and strokeWidth per axiom #13 (12/14/16 px, 1.25 stroke at sm/md, 1.5 at lg). One-off icons are imported from lucide-react directly in the consumer file, passing size/strokeWidth inline."
+    },
+    {
+      "name": "WorkspaceStatusIcon",
+      "path": "packages/app/src/components/WorkspaceStatusIcon.tsx",
+      "purpose": "Single source of truth for the 7-variant workspace status glyph. Used by WorkspaceSidebar rows and HomeTabA's Active-workspaces section so status reads identically everywhere. Each status maps to a Lucide icon and a semantic-color CSS variable on .workspace-status.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["icon-sm", "color-muted", "color-foreground", "info-11", "warning-11", "danger-11", "success-11"],
+      "last_updated": "2026-04-23"
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
@@ -187,7 +196,7 @@
     {
       "name": "Palette",
       "path": "packages/app/src/components/Palette.tsx",
-      "purpose": "Shared palette primitive — prompt + 4–6 context-aware suggestions. Used by HomeTabB (project-scoped) and BlankTab (workspace-scoped). Reads the global paletteDensity ('bounded' vs 'open') and renders the optional density toggle above the stage.",
+      "purpose": "Shared palette primitive — prompt + 4–6 context-aware suggestions. Default consumer is BlankTab (workspace-scoped). Default density is 'open' — bare input on the surface with a blinking caret, no container; suggestions render directly on the surface. 'bounded' density stays as a runtime alternative for surfaces that want prompt + suggestions in a single rounded object.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
@@ -208,7 +217,7 @@
     {
       "name": "AppDialog",
       "path": "packages/app/src/components/AppDialog.tsx",
-      "purpose": "Modal stub for Settings and Help. Settings shows Appearance / Account / Models / Preferences rows. Help shows a question input, a keyboard-shortcut dl, and an About row. Scrim click and Escape close. Triggered from the ProjectStrip bottom cluster (Settings + Help IconButtons) and from the ⌘? shortcut.",
+      "purpose": "Modal for Settings and Help. Settings carries a live Theme picker (System / Light / Dark SegmentedToggle) plus placeholder rows for Density / Account / Models / Preferences. Help shows a question input, a keyboard-shortcut dl, and an About row. Inner row dividers use --color-border-soft so they don't double up against the outer dialog frame. Scrim click and Escape close. Triggered from the ProjectStrip bottom cluster (Settings + Help IconButtons) and from the ⌘? shortcut.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],

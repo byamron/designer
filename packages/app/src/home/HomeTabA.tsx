@@ -1,19 +1,32 @@
-import type { Project, WorkspaceSummary } from "../ipc/types";
-import { selectWorkspace, selectTab, toggleInbox } from "../store/app";
+import type { Autonomy, Project, WorkspaceSummary } from "../ipc/types";
+import {
+  selectWorkspace,
+  selectTab,
+  setAutonomyOverride,
+  toggleInbox,
+  useAppState,
+} from "../store/app";
 import { useDataState } from "../store/data";
 import { emptyArray } from "../util/empty";
 import { humanizeKind } from "../util/humanize";
 import { TabLayout } from "../layout/TabLayout";
+import { SegmentedToggle } from "../components/SegmentedToggle";
+import { WorkspaceStatusIcon } from "../components/WorkspaceStatusIcon";
 
 /**
- * Home — variant A: quieter project dashboard.
+ * Home — project dashboard (the committed variant; Palette lives on for
+ * BlankTab). Single column. Panels, not cards. One type size with weight
+ * and color carrying hierarchy.
  *
- * Scoped to the project. Single column. Panels, not cards. One type size with
- * weight/color doing the hierarchy work.
+ * Section order is intentional: anything that needs your attention jumps
+ * to the top; operational state (workspaces, reports) follows; Autonomy
+ * sits at the bottom as a settings-adjacent surface.
  */
 export function HomeTabA({ project }: { project: Project }) {
   const events = useDataState((s) => s.events);
   const workspaces = useDataState((s) => s.workspaces);
+  const autonomyOverride = useAppState((s) => s.autonomyOverrides[project.id]);
+  const autonomy: Autonomy = autonomyOverride ?? project.autonomy ?? "suggest";
 
   const projectWorkspaces: WorkspaceSummary[] =
     workspaces[project.id] ?? emptyArray();
@@ -32,18 +45,34 @@ export function HomeTabA({ project }: { project: Project }) {
   return (
     <TabLayout>
       <div className="home-a">
-        <header className="home-a__kicker">
-          <span className="sidebar-label">Project home</span>
-          <span className="home-a__kicker-hint">
-            Overview of {project.name}. Pick a workspace from the sidebar to
-            dive into a specific piece of work.
-          </span>
-        </header>
-
-        <p className="home-a__lede">
-          Every project starts from intent. The vision slab is hand-edited and
-          read by every agent. One paragraph beats five.
-        </p>
+        {needsYou.length > 0 && (
+          <Section
+            label="Needs your attention"
+            trailing={
+              <span className="home-a__count" data-variant="warning">
+                {needsYou.length}
+              </span>
+            }
+          >
+            <ul className="home-a__list">
+              {needsYou.slice(0, 3).map((e) => (
+                <li key={`${e.stream_id}:${e.sequence}`}>
+                  <span className="state-dot" data-state="needs_you" aria-hidden="true" />
+                  <span className="home-a__row-title">{humanizeKind(e.kind)}</span>
+                  <span className="home-a__row-meta">{e.summary}</span>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="home-a__link-btn"
+              title="Open inbox of pending approvals and attention items"
+              onClick={() => toggleInbox()}
+            >
+              Open inbox →
+            </button>
+          </Section>
+        )}
 
         <Section label="Near-term focus">
           <ol className="home-a__steps">
@@ -57,10 +86,14 @@ export function HomeTabA({ project }: { project: Project }) {
           label="Active workspaces"
           trailing={<span className="home-a__count">{projectWorkspaces.length}</span>}
         >
-          <ul className="home-a__list">
+          <ul className="home-a__list home-a__list--workspaces">
             {projectWorkspaces.slice(0, 8).map((w) => (
               <li key={w.workspace.id}>
-                <span className="state-dot" data-state={w.state} aria-hidden="true" />
+                {w.workspace.status ? (
+                  <WorkspaceStatusIcon status={w.workspace.status} />
+                ) : (
+                  <span className="state-dot" data-state={w.state} aria-hidden="true" />
+                )}
                 <button
                   type="button"
                   className="home-a__row-title home-a__row-link"
@@ -69,7 +102,9 @@ export function HomeTabA({ project }: { project: Project }) {
                 >
                   {w.workspace.name}
                 </button>
-                <span className="home-a__row-meta">{w.workspace.base_branch}</span>
+                <span className="home-a__row-meta">
+                  {workspaceSummary(w)}
+                </span>
               </li>
             ))}
           </ul>
@@ -88,49 +123,40 @@ export function HomeTabA({ project }: { project: Project }) {
           </ul>
         </Section>
 
-        <Section
-          label="Needs your attention"
-          trailing={
-            needsYou.length === 0 ? (
-              <span className="home-a__muted-small">All clear</span>
-            ) : (
-              <span className="home-a__count" data-variant="warning">{needsYou.length}</span>
-            )
-          }
-        >
-          {needsYou.length === 0 ? null : (
-            <>
-              <ul className="home-a__list">
-                {needsYou.slice(0, 3).map((e) => (
-                  <li key={`${e.stream_id}:${e.sequence}`}>
-                    <span className="state-dot" data-state="needs_you" aria-hidden="true" />
-                    <span className="home-a__row-title">{humanizeKind(e.kind)}</span>
-                    <span className="home-a__row-meta">{e.summary}</span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                type="button"
-                className="home-a__link-btn"
-                title="Open inbox of pending approvals and attention items"
-                onClick={() => toggleInbox()}
-              >
-                Open inbox →
-              </button>
-            </>
-          )}
-        </Section>
-
         <Section label="Autonomy">
-          <div className="home-a__autonomy" role="radiogroup" aria-label="Autonomy level">
-            <span data-active={project.autonomy === "suggest"}>Suggest</span>
-            <span data-active={project.autonomy === "act"}>Act</span>
-            <span data-active={project.autonomy === "scheduled"}>Auto</span>
-          </div>
+          <p className="home-a__explain">
+            How proactive should agents be on this project?{" "}
+            <strong>Suggest</strong> waits for confirmation on every action,{" "}
+            <strong>Act</strong> lets the team execute reversible work without
+            asking, and <strong>Auto</strong> adds scheduled runs and queued
+            handoffs.
+          </p>
+          <SegmentedToggle<Autonomy>
+            ariaLabel="Autonomy level"
+            value={autonomy}
+            onChange={(next) => setAutonomyOverride(project.id, next)}
+            options={[
+              { value: "suggest", label: "Suggest", tooltip: "Propose before acting" },
+              { value: "act", label: "Act", tooltip: "Execute reversible work automatically" },
+              { value: "scheduled", label: "Auto", tooltip: "Scheduled runs + queued handoffs" },
+            ]}
+          />
         </Section>
       </div>
     </TabLayout>
   );
+}
+
+/**
+ * One-line summary of what a workspace is up to — prefers the first open
+ * tab's title (e.g. "Plan — editing core-docs/plan.md"), falling back to
+ * a plain "no open tabs" message. Agents will swap this in for a real
+ * summary once LocalOps.summarize_row is wired (Phase 13.F).
+ */
+function workspaceSummary(w: WorkspaceSummary): string {
+  const openTab = w.workspace.tabs.find((t) => !t.closed_at);
+  if (openTab?.title) return openTab.title;
+  return "no open tabs";
 }
 
 function Section({

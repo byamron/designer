@@ -16,6 +16,35 @@ Each entry is a dated heading plus 3–6 sentences. Focus on the *why*. Referenc
 
 ## Entries
 
+## 2026-04-23 — Surface config locked, dev panel retired
+
+After ~24 hours of live tuning behind the SurfaceDevPanel, the numbers settled:
+
+- `--surface-gutter: calc(var(--space-3) * 1.5)` → 12 px — page-to-surface inset. Sits between `space-3` (8, tight Linear) and `space-4` (16, airy Dia). The tighter end reads as "the content is the page"; 12 gives just enough air to separate chrome from content without turning the sidebars into their own surface.
+- `--surface-tab-gap: calc(var(--space-2) * 1.5)` → 6 px — horizontal gap between tabs and the vertical gap between tab pills and the surface top. 4 crowded, 8 disconnected; 6 lets the tab read as "pointing to" the surface.
+- `--surface-text-pad: var(--space-5)` → 24 px — tab-body inset from the surface edge. Locked separately from the compose pad after the two were fighting for the same knob.
+- `--surface-inner-pad: var(--space-4)` → 16 px — compose-dock inset. Drives the compose's concentric corner radius via `calc(--radius-surface − --surface-inner-pad)` = 8 px.
+- `--surface-shadow: var(--elevation-raised)` → 1 px offset, ~5 % black. Anything subtler read as flat; anything heavier muddied the warm-sand register.
+- Tab style **A** (selected-only). Inactive tabs are labels on the page; active tab is the only rectangle, in `--color-content-surface`. Read cleaner than B (flat inactive) or C (all floating) once the surface and sidebar tonalities were dialed in.
+
+The `SurfaceDevPanel` (and its `.surface-dev__*` CSS block, and the `designer.dev.surfaceOverrides` localStorage key) was removed. Live tuning can be re-wired behind a similar panel if we need to iterate again; the shape is in git.
+
+## 2026-04-22 — Two-tier surface register: page + floating main panel
+
+Switched the workspace layout from flat-three-pane (sidebars + main all on `--color-surface-flat` separated by hairlines) to a two-tier register: sidebars + spine render on `--color-background` with no fill or border; the main content is a rounded rectangle on `--color-surface-raised` with a 1px border, `--surface-shadow`, and `--surface-gutter` breathing room. Project strip stays on its own Tier-1 surface-flat + hairline — it's navigation chrome, not content.
+
+The flat-pane read made every region visually equal; nothing carried "this is the work." The floating-surface read (Linear / Dia / Inflight) delegates the hierarchy to the surface itself — the sidebars stop competing with the content and the active tab reads as "part of" the floating surface via negative-margin merging.
+
+Three tab styles ship gated behind `[data-tab-style]` on `.app-shell` so we can A/B them live before pinning:
+
+- **A — selected-only container** (default). Inactive tabs are unfilled, unbordered labels on the page; active tab is the only rectangle, merging into the surface top.
+- **B — flat-filled inactive, floating selected.** Inactive tabs carry `--color-surface-flat` fill but no border (flush with the tabs-bar baseline); active tab is brighter, bordered, and merges into the surface.
+- **C — all floating.** Every tab is a bordered pill on the page; active is brighter but nothing merges — the surface keeps its full top border.
+
+The active-tab seam (styles A and B): `border-bottom-color` set to the surface fill + `margin-bottom: -1px` + `z-index: 2` so the tab's bottom edge overwrites the surface's top border invisibly. Works in both light and dark mode because the tab and surface share `--color-surface-raised`.
+
+Two custom properties on `:root` control the surface feel — `--surface-gutter` (default `--space-3` / 8px; panel switches between 8 / 12 / 16) and `--surface-shadow` (default `--elevation-raised`; panel switches between none / subtle / subtle+ / subtle-medium). SurfaceDevPanel (dev-only) writes both plus `[data-tab-style]` and persists to localStorage.
+
 ## 2026-04-21 — Initial elicitation (greenfield)
 
 Ran `elicit-design-language` in greenfield mode. Pre-implementation (roadmap Phase 0–1), no UI code to scan. Seeded five axioms from `design-language.draft.md` (density, motion, surface-depth, focus, theme); amended two during the interview (motion now allows considered liveliness — "it's a design tool and should feel nice"; theme is now system-default instead of dark-default). Elicited six axioms fresh: base line-height 1.4 (tool register, not reading), accent identity monochrome (Notion/Linear-style — rejected purple for Linear overlap, terracotta for Claude-brand overlap, pure red for intensity), gray flavor mauve (olive and sand explicitly on the table), type Geist + Geist Mono (starting choice; may change), perfect-fourth type scale, soft-sharper radii (button=6px).
