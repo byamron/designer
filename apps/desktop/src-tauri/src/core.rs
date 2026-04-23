@@ -5,11 +5,9 @@
 
 use async_trait::async_trait;
 use designer_audit::{AuditLog, SqliteAuditLog};
-use designer_claude::{
-    ClaudeCodeOptions, ClaudeCodeOrchestrator, MockOrchestrator, Orchestrator,
-};
+use designer_claude::{ClaudeCodeOptions, ClaudeCodeOrchestrator, MockOrchestrator, Orchestrator};
 use designer_core::{
-    Actor, EventPayload, EventStore, Projection, Projector, ProjectId, SqliteEventStore, StreamId,
+    Actor, EventPayload, EventStore, ProjectId, Projection, Projector, SqliteEventStore, StreamId,
     StreamOptions, Tab, TabId, TabTemplate, Workspace, WorkspaceId,
 };
 use designer_ipc::{SpineAltitude, SpineRow, SpineState};
@@ -151,9 +149,7 @@ impl FallbackReason {
             FallbackReason::NotConfigured => RecoveryKind::Reinstall,
             FallbackReason::PingTimeout => RecoveryKind::Reinstall,
             FallbackReason::PingFailed { .. } => RecoveryKind::Reinstall,
-            FallbackReason::UnsupportedOs | FallbackReason::ModelsUnavailable => {
-                RecoveryKind::None
-            }
+            FallbackReason::UnsupportedOs | FallbackReason::ModelsUnavailable => RecoveryKind::None,
         }
     }
 }
@@ -305,9 +301,9 @@ pub async fn select_helper(
 
     let live = Arc::new(SwiftFoundationHelper::new(path.clone()));
     let events = live.subscribe_events(); // take before we maybe discard the helper
-    // We need the Sender side separately so we can hand a Sender to AppCore
-    // for re-subscribe. The supervisor owns the only Sender, so bridge through
-    // a small forwarding task.
+                                          // We need the Sender side separately so we can hand a Sender to AppCore
+                                          // for re-subscribe. The supervisor owns the only Sender, so bridge through
+                                          // a small forwarding task.
     let bridge = build_event_bridge(events);
 
     let probe_helper_ref: Arc<dyn FoundationHelper> = live.clone();
@@ -374,9 +370,7 @@ pub fn fallback_reason_from_probe_error(e: &HelperError) -> FallbackReason {
 /// channel and ties AppCore to `SwiftFoundationHelper` instead of
 /// `Arc<dyn FoundationHelper>`. The forwarding task costs one tokio spawn
 /// per AppCore boot, which is negligible.
-fn build_event_bridge(
-    mut rx: broadcast::Receiver<HelperEvent>,
-) -> broadcast::Sender<HelperEvent> {
+fn build_event_bridge(mut rx: broadcast::Receiver<HelperEvent>) -> broadcast::Sender<HelperEvent> {
     let (tx, _) = broadcast::channel(32);
     let tx_clone = tx.clone();
     tokio::spawn(async move {
@@ -637,17 +631,17 @@ mod tests {
             .recovery(),
             RecoveryKind::Reinstall
         );
-        assert_eq!(FallbackReason::PingTimeout.recovery(), RecoveryKind::Reinstall);
+        assert_eq!(
+            FallbackReason::PingTimeout.recovery(),
+            RecoveryKind::Reinstall
+        );
         assert_eq!(FallbackReason::UnsupportedOs.recovery(), RecoveryKind::None);
         assert_eq!(
             FallbackReason::ModelsUnavailable.recovery(),
             RecoveryKind::None
         );
         assert_eq!(
-            FallbackReason::PingFailed {
-                error: "x".into()
-            }
-            .recovery(),
+            FallbackReason::PingFailed { error: "x".into() }.recovery(),
             RecoveryKind::Reinstall
         );
     }
@@ -655,7 +649,10 @@ mod tests {
     #[tokio::test]
     async fn open_tab_appends_and_projects() {
         let core = boot_test_core().await;
-        let project = core.create_project("P".into(), "/tmp".into()).await.unwrap();
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
         let ws = core
             .create_workspace(project.id, "ws".into(), "main".into())
             .await
@@ -673,9 +670,18 @@ mod tests {
     #[tokio::test]
     async fn spine_project_altitude_counts_workspaces() {
         let core = boot_test_core().await;
-        let p = core.create_project("P".into(), "/tmp".into()).await.unwrap();
-        let _ = core.create_workspace(p.id, "a".into(), "main".into()).await.unwrap();
-        let _ = core.create_workspace(p.id, "b".into(), "main".into()).await.unwrap();
+        let p = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let _ = core
+            .create_workspace(p.id, "a".into(), "main".into())
+            .await
+            .unwrap();
+        let _ = core
+            .create_workspace(p.id, "b".into(), "main".into())
+            .await
+            .unwrap();
 
         let rows = core.spine(None).await;
         assert_eq!(rows.len(), 1);
@@ -688,8 +694,14 @@ mod tests {
     #[tokio::test]
     async fn spine_workspace_altitude_maps_state() {
         let core = boot_test_core().await;
-        let p = core.create_project("P".into(), "/tmp".into()).await.unwrap();
-        let w = core.create_workspace(p.id, "ws".into(), "main".into()).await.unwrap();
+        let p = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let w = core
+            .create_workspace(p.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
 
         let rows = core.spine(Some(w.id)).await;
         assert_eq!(rows.len(), 1);

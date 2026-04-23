@@ -1,0 +1,24 @@
+[
+  {
+    "from": "researcher",
+    "text": "**Designer** is a local-first macOS application for orchestrating AI-managed product work via a Tauri-based cockpit. Tech stack: Rust core + TypeScript/React frontend + Swift helpers. All execution is local (invokes user's Claude Code as subprocess). Currently in Phase 12a per roadmap.",
+    "summary": "Project overview: Designer macOS app",
+    "timestamp": "2026-04-22T15:17:04.858Z",
+    "color": "blue",
+    "read": false
+  },
+  {
+    "from": "researcher",
+    "text": "{\"type\":\"idle_notification\",\"from\":\"researcher\",\"timestamp\":\"2026-04-22T15:17:07.459Z\",\"idleReason\":\"available\"}",
+    "timestamp": "2026-04-22T15:17:07.459Z",
+    "color": "blue",
+    "read": false
+  },
+  {
+    "from": "researcher",
+    "text": "{\"type\":\"shutdown_approved\",\"requestId\":\"shutdown-1776871026907@researcher\",\"from\":\"researcher\",\"timestamp\":\"2026-04-22T15:17:09.479Z\",\"paneId\":\"in-process\",\"backendType\":\"in-process\"}",
+    "timestamp": "2026-04-22T15:17:09.479Z",
+    "color": "blue",
+    "read": false
+  }
+]

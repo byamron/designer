@@ -7,7 +7,15 @@
 //! added at the binary edge.
 
 pub mod commands;
+pub mod commands_agents;
+pub mod commands_git;
+pub mod commands_local;
+pub mod commands_safety;
 pub mod core;
+pub mod core_agents;
+pub mod core_git;
+pub mod core_local;
+pub mod core_safety;
 pub mod crash;
 pub mod events;
 pub mod ipc;

@@ -130,7 +130,13 @@ async fn generate_caches_identical_prompts() {
         return;
     };
     let helper = Arc::new(SwiftFoundationHelper::new(path));
-    let first = helper.generate(JobKind::SummarizeRow, "hello").await.expect("first");
-    let second = helper.generate(JobKind::SummarizeRow, "hello").await.expect("second");
+    let first = helper
+        .generate(JobKind::SummarizeRow, "hello")
+        .await
+        .expect("first");
+    let second = helper
+        .generate(JobKind::SummarizeRow, "hello")
+        .await
+        .expect("second");
     assert_eq!(first, second, "cache must return the identical string");
 }

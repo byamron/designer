@@ -6,8 +6,8 @@
 //! `PairingCode` is a short human-readable confirmation derived from the
 //! secret's SHA-256 prefix.
 
-use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairingMaterial {
@@ -26,7 +26,9 @@ impl PairingMaterial {
             use std::io::Read;
             let _ = f.read_exact(&mut buf);
         } else {
-            let ts = time::OffsetDateTime::now_utc().unix_timestamp_nanos().to_le_bytes();
+            let ts = time::OffsetDateTime::now_utc()
+                .unix_timestamp_nanos()
+                .to_le_bytes();
             buf[..ts.len().min(32)].copy_from_slice(&ts[..ts.len().min(32)]);
         }
         Self { secret: buf }

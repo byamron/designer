@@ -1,0 +1,19 @@
+{
+  "name": "dir-recon",
+  "description": "Brief directory reconnaissance by a researcher teammate",
+  "createdAt": 1776871009160,
+  "leadAgentId": "team-lead@dir-recon",
+  "leadSessionId": "fc51fcf4-125c-4b37-a372-d46ea70a1577",
+  "members": [
+    {
+      "agentId": "team-lead@dir-recon",
+      "name": "team-lead",
+      "agentType": "coordinator",
+      "model": "claude-opus-4-7[1m]",
+      "joinedAt": 1776871009160,
+      "tmuxPaneId": "",
+      "cwd": "/Users/benyamron/conductor/workspaces/designer/damascus-v1",
+      "subscriptions": []
+    }
+  ]
+}

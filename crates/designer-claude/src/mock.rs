@@ -8,9 +8,7 @@ use crate::orchestrator::{
     TeamSpec,
 };
 use async_trait::async_trait;
-use designer_core::{
-    Actor, AgentId, EventPayload, EventStore, StreamId, TaskId, WorkspaceId,
-};
+use designer_core::{Actor, AgentId, EventPayload, EventStore, StreamId, TaskId, WorkspaceId};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -35,7 +35,7 @@ Capabilities inventory. Sequencing and status live in `roadmap.md`.
 
 | Feature | Description |
 |---|---|
-| Project / workspace / tab primitives | Three-level hierarchy: project > workspace (team of agents) > tabs (surfaces) |
+| Project / workspace / track / tab primitives | Four-level hierarchy: project > workspace (persistent feature-level context) > track (bounded shipping unit, one per agent team) > tabs (surfaces). See "Workspace and Track" below. |
 | Three-pane layout | Project strip + workspace sidebar + main view with tabs + activity spine |
 | Home tab per project | Notion-style page: vision, roadmap, active workspaces, reports, needs-attention |
 | Tab templates | Plan / Design / Build / Blank; defaults, not constraints |
@@ -95,10 +95,11 @@ Token economics are a defensive pillar: using local models for the ops layer (au
 ## Nomenclature
 
 - **Project** — a codebase and the ongoing effort around it (typically one repo). Owns vision, roadmap, design language, and canonical docs. Contains many workspaces.
-- **Workspace** — a feature or initiative inside a project. Variable scope — can be one PR or many. Has a persistent team lead agent. Eventually maps to a Linear project, Jira epic, or Linear initiative.
+- **Workspace** — a feature or initiative inside a project. Persistent context lives here: docs, chat history, decisions, attention state. Named after the feature, not a branch. Maps to a Linear project, Jira epic, or Linear initiative. A workspace contains many **tracks** over its lifetime.
+- **Track** — a bounded unit of shipping work under a workspace. Each track owns one git worktree, one branch, one agent team, and produces one (or a small series of related) PRs. Tracks are ephemeral: when the PR lands, the track completes. Workspaces persist across many tracks — sequential (feature iteration) or parallel (divergent work toward the same goal).
 - **Tab** — the working-surface primitive inside a workspace. Shares workspace context. Linked via `@` references. Split-viewable on demand.
 
-Why this split: the unit of work is neither a PR (too narrow) nor a Linear issue (still too narrow). A feature or initiative often spans many PRs and several agents. Matching the primitive to the level people actually plan at keeps the metaphor coherent.
+Why this split: the unit of work is neither a PR (too narrow) nor a Linear issue (still too narrow). A feature or initiative often spans many PRs and several agents. **Workspaces decouple the manager's primitive (the feature) from the engineer's primitive (the branch/PR).** Tracks sit between them: bounded shipping units that the user can drill into but doesn't have to think about by default. As agents become more capable per turn, tracks grow while the workspace stays stable as the manager's anchor.
 
 ---
 
@@ -107,6 +108,49 @@ Why this split: the unit of work is neither a PR (too narrow) nor a Linear issue
 The user is a **manager of a team of agents**. Agents have role-based identities (team lead, design reviewer, test runner). The manager sets direction, reviews outcomes, and intervenes when needed. Git, branches, PRs, worktrees are plumbing.
 
 No human names for agents. Predictability and scalability beat personification; as the fleet grows into tens of agents, named individuals become noise.
+
+---
+
+## Workspace and Track
+
+The workspace/track split is the structural move that lets Designer operate at the manager's level of abstraction while still respecting the primitives below it.
+
+### Why two primitives, not one
+
+A workspace is a **feature with persistent context** — the thing the user thinks and talks about ("the billing rebuild", "the onboarding overhaul"). Features outlive PRs. A single feature often ships across many PRs, over days or weeks, with interleaved design decisions, spec changes, and conversations.
+
+A track is **one bounded unit of shipping work** — one worktree, one branch, one agent team, one PR's worth of effort. Tracks are short-lived and git-bound; workspaces are long-lived and context-bound.
+
+This decoupling means: you never have to "open a new workspace to iterate on a feature after the first PR lands." You start another track. The workspace carries the accumulated context forward. As agents get more powerful and one turn produces more code, the track grows; the workspace stays the human-level anchor.
+
+### How tracks relate to Claude's agent-teams primitive
+
+Claude Code's agent-teams feature is single-cwd, single-lead, no nested teams. Each track uses the primitive fully and unmodified: one team per track, one worktree per team, one lead per team. We don't rebuild Claude's coordination — we use it at the track level and compose above it at the workspace level.
+
+### Sequential and parallel tracks
+
+- **Sequential** (common case): a workspace has one active track at a time. Track completes → archived as history → workspace starts the next track for the next iteration.
+- **Parallel** (power case): a workspace has multiple active tracks simultaneously, each doing independent work toward the same feature. Cross-track conflict detection fires on shared files.
+
+Default UX is sequential — most features ship that way. Parallel is available for users who need it; not the primary mental model to learn.
+
+### Workspace lead
+
+The workspace has a **lead** — a persistent Claude Code session scoped to the workspace. This is the user's primary interlocutor at the manager level; chatting with "the workspace" is chatting with this session.
+
+The workspace lead is distinct from a track lead: it is a standalone Claude Code session — not itself the lead of an agent team — that orchestrates tracks via Designer's coordination layer. Track-level agent teams live below it and are spawned or dissolved as work flows.
+
+The lead reads workspace-level context (docs in `core-docs/`, the workspace's decisions log, recaps of completed tracks digested by local models) and handles three things: manager-level conversation, track-spawning decisions ("what should we do next?"), and cross-track reconciliation ("these two tracks touched the same file — how do we resolve?"). When it determines work is needed, it asks Designer to spawn a track; when a track completes, Designer digests the output and feeds the summary back into the lead's context.
+
+**Future direction — hybrid routing for token optimization.** A later phase may introduce selective escalation: local models (Apple Foundation Models / MLX) handle routine workspace chat (status rollups, context Q&A, recap), and the Claude session is invoked only for consequential decisions. This matches Decision 3 (local models for the ops layer) and is a structural token-cost optimization Designer can claim. v1 ships the simpler model — full Claude session at the workspace level — so the manager experience is rich from day one. The routing policy is an opt-in mode when explored (Phase 18 or later), not a default.
+
+### Workspace forking (reserved)
+
+A **fork** creates a sibling workspace from a common ancestor — used for variant exploration ("try approach A and approach B as parallel directions, not as pick-one"). The fork inherits the parent's docs, decisions, and chat history as a read-only baseline; from the fork point forward, both workspaces progress independently. Forks can later be **reconciled** — one absorbs the other, or one is archived, or both persist permanently.
+
+Fork is a **Designer-level primitive**, not a git operation. It is distinct from multi-track: multi-track is parallel shipping toward one goal; forking is divergent exploration from a common baseline. A workspace can be forked *and* multi-track; the axes are orthogonal.
+
+Fork is reserved for post-v1 implementation. The event vocabulary (`WorkspaceForked`, `WorkspacesReconciled`) is allocated now so future migration is zero.
 
 ---
 
@@ -183,13 +227,16 @@ Vision, roadmap, status, specs are `.md` files in `core-docs/`. Designer is a vi
 
 ### Persistence
 
-- **Team lead** — persistent per workspace; user's primary interlocutor.
-- **Subagents / teammates** — ephemeral, spawned as needed.
-- No agent-level persistence beyond the workspace. Documentation is rich enough that a fresh agent with good context can pick up.
+- **Workspace lead** — a persistent Claude Code session scoped to the workspace; the user's primary interlocutor at the manager level. Chat with "the workspace" is chat with this session. Orchestrates tracks via Designer's coordination layer (see "Workspace and Track" above). Future: hybrid routing (local models for routine chat, Claude for decisions) as a token-cost optimization.
+- **Track lead + teammates** — a Claude Code agent team, one per track. The lead coordinates; teammates execute. Ephemeral: the team dissolves when the track's PR merges. Multiple tracks → multiple teams, never nested.
+- **Subagents** — ephemeral helper agents within a track team; return results to their caller.
+- No agent-level persistence beyond the workspace. Documentation in `core-docs/` plus the workspace's own event log provides rich enough context that a fresh track can pick up where previous tracks left off.
 
-### One workspace ≈ one Claude Code agent team (default)
+### One track = one Claude Code agent team
 
-Claude Code's agent-teams feature gives us the coordination primitive: team lead, teammates with independent contexts, shared task list, mailbox. One workspace = one team by default. Power users can spawn multiple teams in a workspace for complex scope.
+Claude Code's agent-teams feature gives us the coordination primitive: team lead, teammates with independent contexts, shared task list, mailbox, hook firing points. **One track = one team** is the exact match: single-cwd, single-lead, one bounded scope of work.
+
+A workspace is composed of many such teams over its lifetime — sequential or occasionally parallel — but never nests them (matching Claude's "no nested teams" limitation). The workspace lead orchestrates at a level above agent-teams, using local models by default and escalating to its own Claude Code session for consequential decisions.
 
 ### Orchestrator abstraction
 
@@ -197,11 +244,27 @@ The Rust core defines an `Orchestrator` trait (`spawn_worker`, `assign_task`, `p
 
 ### Cross-workspace coordination
 
-Claude Code has no project-level coordination; Designer fills the gap:
+Claude Code has no project-level coordination; Designer fills the gap. Coordination operates on two axes — **reactive** (detect divergence after it starts) and **proactive** (prevent it before it starts).
 
+**Reactive — detection + communication.**
 - Workspaces read freely from shared project state (roadmap, design language, project thread, activity log).
 - Team leads do not DM each other — they post to a project thread that other leads read. Auditable; keeps the user at the top of the hierarchy.
-- Conflict detection flags overlapping file or intent changes to the user. Day-one version: "two workspaces touched the same file in the last 24h."
+- Conflict detection flags overlapping file or intent changes to the user. Day-one version: "two workspaces touched the same file in the last 24h." Semantic-overlap v2 is backlog.
+
+**Proactive — parallel-work coordination (Phase 19).**
+
+When a project intends to run N workspaces or tracks in parallel toward a shared goal, the project layer analyzes contention *before* the work starts and produces a scaffold that makes the parallelism safe. Concretely:
+
+- **Contention analyzer** — given the intended work splits, enumerate files each will touch (using `core-docs/`, recent event ownership, and per-role system prompts) and emit a contention report.
+- **Scaffold generator** — for each contention zone, propose a partition: sibling modules, trait seams at shared hot spots, frozen event / IPC contracts. Emit a diff for user review.
+- **Per-agent brief** — each workspace / track agent receives a scoped system prompt: "these files you own, these events you read, these hooks you stub with `TODO(…)` until the other track lands."
+- **In-flight drift detection** — extends the reactive "same file, last 24h" primitive to watch for agents editing outside their assigned surface; flags immediately, not at merge time.
+- **Merge-order planner** — after all agents complete, recommend integration order with rationale.
+- **Auto-integration PR** — scaffold a cross-track integration test PR after the N track PRs land.
+
+This is Designer's differentiating value at the project layer. Conductor, Crystal, and Claude Code Desktop are session-scoped — they coordinate *nothing* between parallel sessions, so users manually absorb the integration cost every time they fan out. The proactive layer is what turns "N parallel sessions" into "N coordinated teammates."
+
+Phase 13.0 (pre-track scaffolding) executes this workflow by hand for the 13.D/E/F/G split. Phase 19 automates it.
 
 ---
 
@@ -346,7 +409,7 @@ Chronological record of architectural and product decisions. Replace the entry, 
 | 5 | Project / Workspace / Tab nomenclature | PRs and Linear issues are too narrow; features span multiple PRs. Workspace matches the unit of work people actually plan at. |
 | 6 | Manager-of-agents metaphor | Scales as the fleet grows. Names the user's role (direction) and agents' role (execution) without jargon. |
 | 7 | Role-based agent identities, no human names | Human names become noise at scale. Roles compose and self-describe. |
-| 8 | One Claude Code agent team per workspace (default) | Matches our primitive to theirs; allows multi-team for complex scope. Avoid rebuilding coordination. |
+| 8 | One Claude Code agent team per **track** (not per workspace) | Matches our bounded-work primitive (track) to Claude's single-cwd coordination primitive (agent team). Workspaces contain many tracks over their lifetime. Avoid rebuilding coordination. Supersedes the prior "one team per workspace" framing. |
 | 9 | Abstract `Orchestrator` trait | Anthropic will iterate. Interface isolation lets us swap backends. |
 | 10 | Cross-workspace coordination via project thread, not DMs | Keeps user at top of hierarchy. Auditable. No invented inter-agent protocol. |
 | 11 | Tabs as sole working-surface primitive | Panels within tabs were complexity. `@` references + split view cover the cases. |
@@ -367,3 +430,10 @@ Chronological record of architectural and product decisions. Replace the entry, 
 | 26 | Designer never touches Claude OAuth tokens | Anti-OpenClaw compliance invariant. Claude Code holds its own credentials. |
 | 27 | Working name: Designer | Simple, evokes target user, easy to change later. |
 | 28 | Core docs follow byamron/project-template | Consistent structure across projects. `core-docs/` for Designer's own docs; same pattern recommended for user projects. |
+| 29 | Workspace is a persistent feature-level primitive, decoupled from git | Managers think in features, not PRs. A workspace survives many PRs; it holds the context, decisions, and conversation. As agents produce more per turn, a worktree/PR will be small relative to a feature's scope — the workspace must be the stable anchor above it. Reframes "workspace = worktree" from the pre-track model. |
+| 30 | Track introduced as the git-bound unit below workspace | A track = one worktree + one branch + one agent team + one PR series. Tracks are ephemeral; workspaces persist across many tracks. Matches Claude Code's agent-teams primitive at the track level (single-cwd) and leaves room above for multi-track orchestration. |
+| 31 | Workspace lead is a persistent Claude Code session; hybrid routing reserved as future token-optimization | v1 keeps the manager-level interface simple and rich: chat with the workspace is chat with a Claude session that reads context, orchestrates tracks, and handles manager-level decisions. A future phase may introduce selective escalation (local models for routine chat; Claude only for consequential decisions) as a token-cost optimization matching Decision 3. Reserved as Phase 18-or-later exploration, not v1. |
+| 32 | Workspace forking reserved for future; event vocabulary allocated now | Forking = sibling workspace from a common ancestor for variant exploration. Orthogonal to multi-track. Not v1; adding `WorkspaceForked` / `WorkspacesReconciled` event types now keeps future implementation a zero-migration change. |
+| 33 | Self-hosted GitHub Actions runner for live Claude integration tests | Mirrors the product's local-first architecture: tests run on user's Mac against user's Claude Code install with user's auth. No API-key CI path (would test a different code path than production); no service subscription (would invite OpenClaw-adjacent compliance risk). Compliance-clean and fidelity-matched. |
+| 34 | Fleet-scale usage: rely on Anthropic's own signals; no Designer-imposed caps | Designer's workspace/track model encourages running ~10–12 concurrent tracks (Conductor-scale power-user norm) which is well within intended use for Max-tier subscriptions. Anthropic publishes 5-hour session limits (Pro ~40 msgs, Max 5x ~225, Max 20x ~900) and weekly compute-hour caps (Pro ~40–80 Sonnet hours, Max up to ~480), and Claude Code itself emits warning messages as capacity depletes. Designer surfaces those signals — a topbar usage chip (toggleable in settings, off by default) and ambient notices when approaching known thresholds — without building parallel tracking, tier detection, or concurrency caps. Conservative default: one active track per workspace; parallel tracks are opt-in (matches Decision 19). |
+| 35 | Parallel-work coordination is a first-class project-level primitive | Session-scoped tools (Conductor, Crystal, Claude Code Desktop) coordinate nothing between parallel sessions; users absorb the integration cost manually. Designer's project layer owns proactive coordination: analyze contention *before* work starts, partition files and freeze contracts via a scaffold PR, emit per-agent briefs with scoped file ownership, detect drift in-flight (not at merge), and plan merge order. Manual v1 of this workflow is Phase 13.0 (the pre-track scaffold for 13.D/E/F/G); automation is Phase 19. Complements the existing reactive detection primitive (spec §"Cross-workspace coordination"). |

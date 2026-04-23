@@ -175,7 +175,12 @@ impl GitOps for RealGitOps {
     }
 
     async fn diff(&self, repo: &Path, base: &str) -> GitResult<Vec<DiffEntry>> {
-        let out = run(repo, "git", &["diff", "--numstat", &format!("{base}...HEAD")]).await?;
+        let out = run(
+            repo,
+            "git",
+            &["diff", "--numstat", &format!("{base}...HEAD")],
+        )
+        .await?;
         let text = String::from_utf8_lossy(&out.stdout).to_string();
         let mut entries = Vec::new();
         for line in text.lines() {
@@ -218,11 +223,12 @@ impl GitOps for RealGitOps {
         )
         .await?;
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-        let parsed: PullRequest = serde_json::from_str(&stdout).map_err(|e| GitError::GhFailed {
-            command: "pr create".into(),
-            status: 0,
-            stderr: format!("parse json: {e}; raw: {stdout}"),
-        })?;
+        let parsed: PullRequest =
+            serde_json::from_str(&stdout).map_err(|e| GitError::GhFailed {
+                command: "pr create".into(),
+                status: 0,
+                stderr: format!("parse json: {e}; raw: {stdout}"),
+            })?;
         Ok(parsed)
     }
 }
@@ -236,8 +242,10 @@ pub async fn recent_overlap(
     hours: u64,
 ) -> GitResult<Vec<(String, String, PathBuf)>> {
     let since = format!("--since={hours} hours ago");
-    let mut changed_by_branch: std::collections::BTreeMap<String, std::collections::HashSet<PathBuf>> =
-        Default::default();
+    let mut changed_by_branch: std::collections::BTreeMap<
+        String,
+        std::collections::HashSet<PathBuf>,
+    > = Default::default();
     for br in branches {
         let out = run(
             repo,

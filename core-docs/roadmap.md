@@ -27,10 +27,11 @@ Phase 12 — Real-integration validation     (3 parallel tracks)
   └─ 12.C  Tauri shell binary                ─┘
 
 Phase 13 — Wire the real runtime            (4 tracks, gated individually)
-  ├─ 13.D  Agent wire          (← 12.A + 12.C)
-  ├─ 13.E  Git + repo linking  (← 12.C)
-  ├─ 13.F  Local-model surfaces (← 12.B + 12.C)
-  └─ 13.G  Safety + Keychain   (← 12.C)
+  ├─ 13.0  Pre-track scaffolding         (← 12.A + 12.C; blocks all 13.X)
+  ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.0)
+  ├─ 13.E  Track primitive + git wire    (← 12.C + 13.0)   [introduces Track]
+  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.0)
+  └─ 13.G  Safety + Keychain             (← 12.C + 13.0)
 
 Phase 14 — Sync transport        (parallel with 13, 15)
 Phase 15 — Hardening + polish    (parallel with 13, 14)
@@ -39,6 +40,19 @@ Phase 16 — Shippable desktop build  (← 13 + 15;  14 optional)
   └─ Signing, notarization, updater, crash-report endpoint, install QA.
 
 Phase 17 — Mobile  (← 14 + 16;  was Phase 12 in the original spec)
+
+Phase 18 — Workspace scales up  (multi-track UX, forking, reconciliation)
+  └─ Gates on 13 + 16; parts pullable into 15 if the manager UX feels pinched.
+
+Phase 19 — Parallel-work coordination layer
+  └─ Project-level primitive that analyzes contention, partitions files,
+     freezes contracts, and generates a scaffold PR before N parallel agents
+     fan out. Builds on Phases 6 (project thread) + 18 (multi-track).
+     Gates on 13 + 18 substantially complete.
+
+Phase 20 — Learning layer  (local-model session analysis → workflow proposals)
+  └─ Gates on 13.F (local-model surfaces) + 13.D (real agent traffic to analyze).
+     Independent of 14, 16, 18, 19; can pull earlier once 13.D/F are green.
 ```
 
 ---
@@ -67,11 +81,15 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 ### Still-open phases
 
 - **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
-- **Phase 13** — Wire the real runtime. Four tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety + Keychain). Each gated on specific Phase-12 tracks; most can proceed in parallel.
+- **Phase 13** — Wire the real runtime. One prerequisite sub-phase (13.0) plus four tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety + Keychain). Each gated on specific Phase-12 tracks + 13.0; the four tracks can run in parallel after 13.0 lands.
+- **Phase 13.0** — Pre-track scaffolding. Partitions hot-spot files so the four 13.X agents don't collide; freezes event / IPC / permission-handler contracts. Completed by the scaffolding PR; blocks 13.D/E/F/G.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
 - **Phase 16** — Shippable desktop build (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA). Gates on 13 + 15; Phase 14 optional for MVP.
 - **Phase 17** — Mobile (formerly Phase 12; renumbered). Requires Phase 14 in full and Phase 16.
+- **Phase 18** — Workspace scales up: multi-track UX, forking, reconciliation, workspace-lead routing policy. Primitive lands in Phase 13.E; this phase ships the user-visible affordances. Gates on 13 + 16; pullable into 15 partial.
+- **Phase 19** — Parallel-work coordination layer. Project-level primitive that analyzes contention across multiple workspaces / tracks running in parallel, partitions shared files, freezes contracts (events, IPC DTOs, trait seams), generates a pre-integration scaffold, and plans merge order. Automates what Phase 13.0 did by hand. Gates on 13 + 18 substantially complete.
+- **Phase 20** — Learning layer: local-model analysis of session transcripts produces editable workflow + context optimization proposals on the project Home tab. Gates on 13.D + 13.F (needs real agent traffic and working local-model surfaces).
 
 See the "Gaps after the preliminary build" section below for the full gap → phase mapping.
 
@@ -300,7 +318,7 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
 | G2 | Swift Foundation Models helper not built | `LanguageModelSession.respond(to:)` call unverified; helper binary missing | 12.B |
 | G3 | Tauri shell binary absent | React app + Rust core can't talk in one process; no window chrome | 12.C |
 | G4 | PlanTab chat hardcodes `ackFor()` | No `Orchestrator::post_message` path from UI to agent | 13.D |
-| G5 | `create_workspace` doesn't create a git worktree | `GitOps` wired but never called from UI; no branch, no PR on disk | 13.E |
+| G5 | `create_workspace` doesn't create a track (worktree + branch) | `GitOps` wired but never called from UI; no track on disk. Resolution introduces the Track primitive per spec Decisions 29–30. | 13.E |
 | G6 | Local-model jobs (`recap`, `audit_claim`, `summarize_row`) have no caller | Activity spine summaries, morning recap, audit verdicts all stubbed | 13.F |
 | G7 | Approval resolution surface is a `setTimeout` in BuildTab | Real approvals need a real inbox; currently non-interactive | 13.G |
 | G8 | No repo-linking UI or file picker | User can't point Designer at a codebase | 13.E |
@@ -329,7 +347,7 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
 
  Phase 13 — Wire the real runtime (four tracks, gated by inputs)
  ├─ 13.D Agent wire      (needs 12.A + 12.C)
- ├─ 13.E Git wire + repo-linking UI + core-docs persistence  (needs 12.C)
+ ├─ 13.E Track primitive + git wire + repo-linking UI + core-docs persistence  (needs 12.C)
  ├─ 13.F Local-model surfaces       (needs 12.B + 12.C)
  └─ 13.G Safety surfaces + Keychain (needs 12.C)
 
@@ -354,19 +372,28 @@ Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–G). Any le
 
 **Goal:** replace three trait mocks with live runtimes. Every track is independent — pick whichever is cheapest to access (hardware, auth, setup time).
 
-### Track 12.A — Real Claude Code subprocess (gap G1)
+### Track 12.A — Real Claude Code subprocess (gap G1) *(completed 2026-04-22)*
 
 **Blocks:** 13.D.
 **Needs:** a working Claude Code install + auth on the dev machine.
 
-**Steps:**
-- Run `ClaudeCodeOrchestrator::spawn_team` against a throwaway team with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
-- Catalog the actual file shapes in `~/.claude/teams/{team}/` and `~/.claude/tasks/{team}/`; write the inventory to `core-docs/integration-notes.md`.
-- Update `crates/designer-claude/src/watcher.rs::classify` against observed paths.
-- If `claude team init / task / message` CLI args differ from the placeholders in `claude_code.rs`, rewrite and note the final invocation pattern.
-- Add an integration test gated by `CLAUDE_CODE_INSTALLED=1` so CI stays green elsewhere.
+**Actual outcome** (historical record of what shipped; see `history.md` and `core-docs/adr/0001-claude-runtime-primitive.md` for the full story):
 
-**Done when:** a gated integration test spawns a real team, observes `TaskCreated` / `TaskCompleted` / `TeammateIdle` through our trait surface, and round-trips cleanly.
+- Initial probe revealed that the placeholder's `claude team init/task/message` CLI subcommands don't exist. A follow-up web check confirmed agent teams are a real, env-var-gated, natural-language-driven feature; file paths in the placeholder were correct.
+- Pivoted to the native agent-teams primitive. `Orchestrator` trait shape unchanged.
+- Load-bearing spike resolved: option (a) — non-tty `--teammate-mode in-process` works cleanly. No pty, no tmux, no Phase 16 packaging impact.
+- `crates/designer-claude/src/stream.rs` — new stream-json translator, 12 unit tests.
+- `crates/designer-claude/src/claude_code.rs` — full rewrite: per-workspace long-lived subprocess, stream-json on both sides, `--permission-prompt-tool stdio`, deterministic `--session-id`, 60s graceful shutdown fallback. 6 unit tests.
+- `crates/designer-claude/src/watcher.rs::classify` — rewritten against real shapes (config.json / inboxes/{role}.json / tasks/{team}/*.json). `None` for out-of-scope paths, `Some(Unknown)` only inside the watched dirs for unrecognized shapes.
+- Live integration test `tests/claude_live.rs` behind `--features claude_live` — spawns a real team end-to-end through `ClaudeCodeOrchestrator`, observes events, shuts down cleanly. Passes in ~28s against Claude 2.1.117.
+- 44 workspace tests pass; `cargo clippy --workspace --all-targets -- -D warnings` clean.
+- CI workflows in `.github/workflows/`: Tier 1 hermetic (`ci.yml`), Tier 2 self-hosted-runner live integration (`claude-live.yml`), Tier 3 scheduled drift probe (`claude-probe.yml`).
+- Docs: `core-docs/integration-notes.md` (reproducible source-of-truth), `core-docs/adr/0001-claude-runtime-primitive.md` (decision record), `.claude/agents/track-lead.md` + `teammate-default.md` (subagent definitions), `.claude/prompts/workspace-lead.md` (reserved stub).
+
+**Deferred into Phase 13** (not blocking 13.D start):
+- `designer-hook` binary as secondary feed (hooks are visible in stream-json; file-based backup is a 13.G concern when approval-gate file triggers arrive).
+- `PreToolUse` approval-gate spike (moves to 13.G scope; the stdio permission-prompt path is already wired and will carry this).
+- Partial-message coalescer at 120ms (moves to 13.D scope; only matters when the UI renders live chat).
 
 ### Track 12.B — Swift Foundation Models helper build (gap G2)
 
@@ -406,9 +433,29 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 ---
 
-## Phase 13 — Wire the real runtime *(four tracks, gated individually)*
+## Phase 13.0 — Pre-track scaffolding *(blocks 13.D/E/F/G)*
 
-**Goal:** turn the "scaffold that demos the UX" into "a product that actually does the thing." Each track replaces a stubbed frontend path with a real backend call.
+**Goal:** make the four 13.X tracks buildable in parallel by partitioning hot-spot files and freezing shared contracts. Without this, four parallel agents collide on `core.rs`, `commands.rs`, `designer-ipc/src/lib.rs`, `designer-core/src/event.rs`, and `claude_code.rs`'s permission handler. With it, each agent edits sibling modules with zero code-level contention.
+
+**Needs:** 12.A + 12.C.
+
+**Steps:**
+- **Partition `AppCore` and `commands` surfaces.** Sibling modules per track in `apps/desktop/src-tauri/src/`: `core_agents.rs` / `core_git.rs` / `core_local.rs` / `core_safety.rs` for `impl AppCore { … }` blocks; `commands_agents.rs` / `commands_git.rs` / `commands_local.rs` / `commands_safety.rs` for `#[tauri::command]` handlers. Each file empty except a track-reservation docstring; each agent fills in their module without touching the others' files.
+- **Freeze event shapes** in `designer-core/src/event.rs`. Add `TrackStarted`, `TrackCompleted`, `PullRequestOpened`, `ScopeDenied` (used by 13.E / 13.G) plus reserved `TrackArchived`, `WorkspaceForked`, `WorkspacesReconciled` (Phase 18 reserves these now so future migration is zero). Round-trip tests for each.
+- **Introduce `PermissionHandler` trait** in `designer-claude` so 13.D and 13.G don't fight over the stdio permission-prompt code path. Default impl `AutoAcceptSafeTools` auto-accepts read-only tools (Read/Grep/Glob + safe `Bash`) and denies writes; 13.G swaps in an inbox-routing impl via `ClaudeCodeOrchestrator::with_permission_handler()`.
+- **Freeze IPC DTOs** in `designer-ipc/src/lib.rs` for each track's command set; agent fills in behavior, types don't churn.
+- **Document the `TODO(13.X):` stub convention** in `CLAUDE.md` so cross-track hooks grep cleanly.
+- **ADR 0002** records the four v1 scoping decisions (workspace-lead session model, repo-linking UX, default permission policy, cost chip thresholds).
+
+**Done when:** new sibling modules compile + pass tests empty; event shapes added with round-trip coverage; `PermissionHandler` trait live with default impl; `designer-ipc` DTOs for each track defined; `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --check` all green; `CLAUDE.md` documents the convention; ADR 0002 merged.
+
+**Why this is its own sub-phase:** Designer's own Phase 19 will eventually automate this step (analyze contention, propose partition, freeze contracts). For now it's a manual one-time cost that unblocks true parallelism on Phase 13.
+
+---
+
+## Phase 13 — Wire the real runtime *(four tracks, gated individually, parallel-safe after 13.0)*
+
+**Goal:** turn the "scaffold that demos the UX" into "a product that actually does the thing." Each track replaces a stubbed frontend path with a real backend call. After 13.0 lands, all four tracks can be built in parallel by separate agents with zero file contention.
 
 ### Track 13.D — Agent wire (gaps G4)
 
@@ -423,18 +470,22 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Done when:** a user message travels UI → Rust → Claude → events → UI with no hardcoded text anywhere; the activity spine shows the lead going active during the reply.
 
-### Track 13.E — Git wire + repo linking + core-docs persistence (gaps G5, G8, G9)
+### Track 13.E — Track primitive + git wire + repo linking + core-docs persistence (gaps G5, G8, G9)
 
 **Needs:** 12.C.
 
+**Introduces the `Track` primitive** (per spec §"Workspace and Track" and Decisions 29–30, 32). A workspace owns a list of tracks; v1 creates exactly one track per workspace, but the data shape supports N — future multi-track UI lands in Phase 18 without a data-model migration.
+
 **Steps:**
 - Add a "Link repository" flow in the project-creation dialog (native file picker for a directory; validate it's a git repo root).
-- Extend `create_workspace` to call `GitOps::init_worktree` and append a `WorkspaceWorktreeAttached` event with the real path. Surface the worktree path in the workspace sidebar meta.
-- On first workspace create, also seed `core-docs/spec.md` / `plan.md` / `history.md` / `design-language.md` in the user's repo if absent (per spec decision #28).
-- Wire "Request merge" in `BuildTab` to `GitOps::open_pr` via a new command; feed `gh pr create --json` output back as a `PullRequestOpened` event.
-- Auto-cleanup: `WorkspaceArchived` removes the worktree.
+- Introduce `TrackStarted { workspace_id, track_id, worktree_path, branch }` and `TrackCompleted { track_id }` events; projector tracks a `tracks: Vec<TrackState>` field per workspace. Reserve (do not implement) `WorkspaceForked`, `WorkspacesReconciled`, `TrackArchived`.
+- Extend `create_workspace` to append `WorkspaceCreated` plus a first `TrackStarted` event; `GitOps::init_worktree` creates the worktree for the new track.
+- Surface the track in the workspace sidebar meta as a status badge (not a navigation primitive); the user sees "the workspace," not "the track," by default.
+- On first workspace create, seed `core-docs/spec.md` / `plan.md` / `history.md` / `design-language.md` in the user's repo if absent (per Decision 28).
+- Wire "Request merge" in `BuildTab` to `GitOps::open_pr` via a new command; feed `gh pr create --json` output back as `PullRequestOpened { track_id, pr_number }`. On merge, emit `TrackCompleted`.
+- Auto-cleanup: `TrackCompleted` removes the track's worktree (branch stays until the user archives). `WorkspaceArchived` cleans up all remaining tracks.
 
-**Done when:** creating a workspace in the UI creates a real worktree + branch on disk; merging creates a real PR in the linked GitHub repo; archiving cleans up.
+**Done when:** creating a workspace in the UI creates a real worktree + branch on disk (as a length-1 track list); merging creates a real PR in the linked GitHub repo and emits `TrackCompleted`; archiving the workspace cleans up all tracks. User-facing UI reads "workspace" without exposing "track" as a word.
 
 ### Track 13.F — Local-model surfaces (gap G6)
 
@@ -455,7 +506,7 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 **Steps:**
 - Build an approval inbox (either a drawer inside `ActivitySpine` or a dedicated `/inbox` route). Lists pending `ApprovalRequested` events with grant/deny actions bound to `cmd_resolve_approval`.
 - Replace `BuildTab`'s `setTimeout(900)` with a real pending state that resolves only when the inbox grants.
-- Add a cost chip to the topbar (`CostTracker.usage`) with a color ramp as it approaches `CostCap.max_dollars_cents`.
+- Add a usage chip to the topbar (`CostTracker.usage` + rate-limit signals parsed from Claude Code stream-json / stderr). Color ramps as spend approaches `CostCap.max_dollars_cents` *or* as Anthropic's own capacity warnings surface. Toggleable in settings, off by default (Decision 34). Ambient notice in the activity spine when a known 5-hour or weekly threshold is approached; hard-stop messages surface the specific limit + reset time.
 - Surface `ScopeDenied` events in the inbox with the denied path and the rule that matched.
 - Integrate `security-framework` (macOS Keychain) via a `SecretStore` trait; store any future agent credentials there (initial use: GitHub token discovery hint for `gh`).
 
@@ -556,6 +607,369 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 
 ---
 
+## Phase 18 — Workspace scales up *(multi-track UX, forking, reconciliation)*
+
+**Goal:** deliver the full workspace/track model to the user. The primitive landed in Phase 13.E; this phase unlocks what it enables.
+
+**Why a dedicated phase:** the spec commits the primitive early (Decisions 29–32) so the data shape is right from Phase 13.E onward. The UI and coordination affordances are staged into this phase to avoid over-investing before concrete use cases land in dogfooding. Can begin once Phase 16 ships; some sub-items (sequential-track succession) are small enough to pull forward into Phase 15 polish if the manager experience feels pinched before 16.
+
+**Steps:**
+
+- **Sequential track succession.** "Start the next track on this workspace." Preserves workspace-level context; seeds the new track with a recap of the previous one via `LocalOps::recap`. UI: a "Next track" action on a workspace whose last track just completed.
+- **Parallel tracks.** Allow multiple active tracks simultaneously per workspace. Cross-track conflict detection extends the existing cross-workspace primitive (same-file-last-24h rule, scoped to a workspace's tracks).
+- **Workspace lead hybrid routing (exploratory, opt-in).** v1 ships the workspace lead as a persistent Claude Code session; this phase explores selective escalation — local-model default path for routine Q&A, status, recap; Claude invoked only for consequential decisions (spec Decision 31's "future direction"). Opt-in mode in settings, not a default. Token-cost optimization, not a UX change users need to learn.
+- **Track archive + history.** Completed tracks become read-only history visible in the workspace. Workspace chat can `@track:name` to reference past work.
+- **Workspace forking.** Implement `WorkspaceForked` (event already reserved in Phase 13.E). UI: "Fork workspace" action; fork inherits docs, decisions, chat history as a read-only baseline. First track of the fork branches from the parent's last-merged main (default) or parent's current working state (opt-in).
+- **Workspace reconciliation.** Implement `WorkspacesReconciled`: absorb one into another (copy new decisions/tracks/docs; archive the absorbed) or diverge permanently (retain lineage but stop affecting behavior).
+- **Activity spine extension.** New altitude: workspace → track → agent → artifact. Spine summaries at the track level show "this track's progress" in one line.
+
+**Done when:** a user can (a) iterate on a feature across multiple sequential tracks without manual workspace bookkeeping, (b) fork a workspace to try an alternative approach, (c) reconcile the fork back or archive it cleanly, (d) chat with the workspace lead about the feature at large and only occasionally drop into specific tracks.
+
+**Gates on:** Phase 13.E (track primitive), Phase 13.F (local-model surfaces, for the workspace-lead default path), Phase 16 (shippable desktop, for most users; power users can dogfood earlier).
+
+---
+
+## Phase 19 — Parallel-work coordination layer
+
+**Goal:** automate what Phase 13.0 did by hand. When a project intends to run N parallel workspaces / tracks toward a shared goal, Designer analyzes file contention across the intended splits, proposes a pre-integration scaffold, freezes shared contracts, assigns per-agent file ownership, and plans merge order.
+
+**Why:** this is Designer's differentiating value at the *project* layer — the coordination work a human manager does when dividing a feature across teammates that session-scoped tools (Conductor, Crystal, Claude Code Desktop) can't. Cross-workspace conflict detection (spec §"Cross-workspace coordination") is *reactive* — this is its *proactive* counterpart. Without it, users scale horizontally by launching parallel workspaces and paying a manual coordination cost on every integration; with it, the cost collapses to a button.
+
+**Steps:**
+- **Contention analyzer.** Given a set of intended work items (e.g., "tracks D/E/F/G all land in one sprint"), enumerate the files each is likely to touch — using `core-docs/` indices, file-level ownership metadata attached to recent events, and the per-role system prompts loaded from `.claude/agents/`. Produce a contention report: shared files, shared event shapes, shared IPC surfaces.
+- **Scaffold generator.** For each contention zone, propose a partition: sibling modules, per-track submodules, trait seams at shared hot spots. Emit a diff. User reviews, approves, merges — before any track agent starts.
+- **Contract freezer.** Event shapes, IPC DTOs, trait interfaces that will be shared across tracks get committed in the scaffold diff. Each track agent codes against frozen types; no schema drift mid-flight.
+- **Per-agent brief generator.** From the scaffold + contention report, emit a per-track brief: "you own these files, you read from these events, you implement these trait methods, you stub these cross-track hooks with `TODO(…)`." Each brief becomes the initial system prompt for the track agent.
+- **In-flight drift detector.** As each track agent works, cross-track conflict detection (an extension of the existing "same file, last 24h" primitive — spec §"Cross-workspace coordination") watches for an agent editing files outside its assigned surface. Flags to the manager immediately, not at merge time.
+- **Merge-order planner.** After all agents complete, produce the recommended merge order with rationale (dependency order, smallest-integration-first, etc.).
+- **Auto-integration PR.** After the N track PRs merge, scaffold a follow-up integration PR that runs the cross-track tests (e.g., "chat-triggers-real-Claude ∧ spine-summarizes-real-events ∧ approval-inbox-catches-real-merge ∧ cost-chip-shows-real-spend").
+
+**Done when:** (a) given a multi-track feature, the project layer can output a scaffold PR + per-agent briefs that make N parallel track builds collision-free without human analysis; (b) drift is detected during, not after; (c) first-use case is re-running today's Phase-13-scaffolding workflow end-to-end on a new feature and matching (or improving on) what we did by hand.
+
+**Gates on:** Phase 13 (real runtime wired — needed so agents can actually execute), Phase 18 (multi-track primitives — Phase 19 is the manager layer above them).
+
+---
+
+## Phase 20 — Learning layer *(local-model session analysis → workflow proposals)*
+
+**Goal:** turn every Claude Code session into a feedback signal that makes the next session cheaper, faster, and better-contexted — without burning Claude tokens to do it. A local-model pipeline (built on Phase 13.F's `LocalOps`) watches what actually happened and proposes editable improvements — to CLAUDE.md, rules, skills, agents, hooks, scope guards, cost caps, and context composition — that the user reviews, tweaks, and accepts on the project Home tab.
+
+**Why a dedicated phase:** this is the "workflow" leg of the "Workflow, opinion, trust" principle and the most load-bearing differentiator above the model. Forge — a Claude Code plugin the same user already built and dogfoods daily — proves the core shape: collect → analyze → propose → generate → place, with a two-phase pipeline (deterministic Phase A scripts + LLM Phase B quality gate) and a multi-tier feedback loop. Bringing it in-product gives Designer (a) a persistent, editable proposal surface on the Home tab instead of ephemeral session-start nudges, (b) richer analysis inputs that a plugin can't see (approval-gate history, scope denials, cost-cap hits, activity spine, cross-workspace coincidences), (c) multi-project and multi-track aggregation, and (d) an obvious surface where the product visibly gets smarter over time. The local-model-only constraint is load-bearing: a passive observer that costs Claude tokens every session is a non-starter for a daily-driver cockpit.
+
+**Prior art — Forge:** `/Users/benyamron/Desktop/coding/forge/`. Python-stdlib scripts under `forge/scripts/` (analyze-config, analyze-transcripts, analyze-memory, build-proposals, check-pending, format-proposals, cache-manager, finalize-proposals) + two subagents (`session-analyzer`, formerly `artifact-generator`) + three skills (`/forge`, `/forge:settings`, `/forge:version`) + SessionStart/SessionEnd hooks. v0.4.1 shipped; Phase 4 (quality + polish) in progress; Phase 5 (cross-project aggregation) planned. The pipeline, detector list, proposal types, calibration loop, and storage split are all load-bearing reference designs for Phase 20 — but Forge lives *inside* a Claude Code session, whereas Designer lives *around* it. The detector set below extends Forge's because Designer has richer inputs.
+
+**Needs:** 13.F (`LocalOps` surfaces wired to the real Foundation helper), 13.D (real agent traffic — analyzing mock streams proves nothing), plus Phase 13.G (approval gate + scope guard + cost tracker surfaces existing as event streams the detectors can consume).
+
+### Analysis inputs — what the layer reads
+
+The local model and the deterministic detectors both read from a canonical `SessionAnalysisInput` bundle per track:
+
+- **Event log.** The full event-sourced stream for the track: `MessagePosted`, `TaskCreated/Completed`, `ApprovalRequested/Granted/Denied`, `ScopeDenied`, `AgentSpawned/Idle`, `TrackStarted/Completed`, cost-tracker emissions. Designer owns this natively; Forge has to reconstruct it from `~/.claude/projects/<hash>/*.jsonl`.
+- **Tool-call inventory.** Per-tool counts, file-path touch list, re-reads, grep repetition, bash commands executed.
+- **Project configuration snapshot.** `CLAUDE.md`, `.claude/rules/*.md`, `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, `.claude/settings.json`, project-level `core-docs/*.md`. Used for gap detection and staleness.
+- **Project tech-stack fingerprint.** `package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, formatter/linter configs (`.prettierrc*`, `eslint.config.*`, `biome.json`, `ruff.toml`, `rustfmt.toml`), test-runner configs (`jest.config.*`, `vitest.config.*`, `pytest.ini`, `cargo test`). Detectors suggest missing auto-format / auto-lint / test hooks when configs exist but hooks don't.
+- **Auto-memory.** When Claude writes to `~/.claude/projects/<project>/memory/`, those notes become promotion candidates (note → rule / skill / CLAUDE.md / reference doc).
+- **Approval/scope/cost history.** Designer's unique advantage over a plugin: we see the full gate log and can detect approval-gate fatigue, scope false-positives, and cost-cap hot streaks directly.
+- **Cross-workspace/track overlap.** From Phase 4's `recent_overlap()` primitive and Phase 18's multi-track view.
+
+### Two-phase pipeline (mirrors Forge's split)
+
+**Phase A — deterministic detectors (pure Rust, zero tokens).** Implemented as functions `Detector: Fn(&SessionAnalysisInput, &DetectorConfig) -> Vec<Finding>`. Fast, reproducible, testable. Each detector has explicit threshold configs and produces evidence anchors (message-span / tool-call / file-path, reusing Phase 15.H anchor primitives). Phase A is gate-free: every finding flows to Phase B.
+
+**Phase B — local-model synthesis + quality gate.** `LocalOps::analyze_session` runs two jobs through the Foundation helper:
+
+1. **Quality gate.** Filters Phase A findings. Removes generic coding patterns (read→write→execute, plan→implement→test), human-in-the-loop workflows where automation would destroy valuable approval steps, duplicates, and weak-evidence findings (<3 occurrences or <2 sessions → downgrade; <1 session → drop). Transparency: emits `removal_reasons` per dropped finding.
+2. **Semantic pattern finding.** Detects patterns Phase A can't see from syntax alone:
+   - **Position-aware signals.** Same phrase at `turn_index: 0` = startup-routine skill candidate; same phrase after an assistant tool block = post-task workflow hook/rule candidate.
+   - **Implicit preferences.** User volunteers state without being asked ("I'm on mobile", "we use pnpm") → CLAUDE.md / rule candidate.
+   - **Approval-gated deliberation.** User asks → Claude explains → user says "go ahead" → pattern: "always explain before implementing, wait for explicit approval on non-trivial changes."
+   - **Review-to-directive.** Claude delivers a long review → user issues a short action directive without discussion → pattern: "present reviews concisely, don't volunteer next steps."
+   - Minimum evidence: 2+ instances across sessions, or 3+ within one session. Never flag single-occurrence observations.
+
+Both jobs emit `Finding` records; Phase B output feeds proposal synthesis.
+
+### Detectors (Phase A) — exhaustive list
+
+Each detector ships with a `DetectorConfig { enabled, min_occurrences, min_sessions, impact_override? }` and a confidence score in `[0.0, 1.0]`. Thresholds mirror Forge where they've been validated; Designer-unique detectors call out their novelty.
+
+| Detector | What it catches | Threshold | Output kind |
+|---|---|---|---|
+| `repeated_correction` | Correction keywords ("I told you", "don't use X", "we use Y not X", "scratch that") + structural negation-before-verb | 3+ occurrences across 2+ sessions, same phrasing | `feedback-rule` or `claude-md-entry` |
+| `post_action_deterministic` | Claude runs Write/Edit → user's next message is a deterministic command (prettier, eslint, cargo fmt, pytest) | 5+ occurrences across 3+ sessions, safe (non-destructive) command | `hook` (PostToolUse) |
+| `repeated_prompt_opening` | Session-opening user messages with >0.5 Jaccard similarity | 4+ sessions | `skill-candidate` |
+| `multi_step_tool_sequence` | Same 3+ tool-call sequence in same order | 3+ identical sequences across 3+ sessions | `skill-candidate` or `agent-candidate` |
+| `config_gap` | Formatter/linter/test config exists in repo but no corresponding hook in `.claude/settings.json` | Static detection; one evidence anchor per config file | `hook` (Post-format, Pre-commit, etc.) |
+| `domain_specific_in_claude_md` | CLAUDE.md lines tied to a specific file extension / framework / directory | Heuristic keyword match | `rule-extraction` (move to scoped `.claude/rules/<name>.md`) |
+| `rule_scope_broken` | Rules missing `paths:` frontmatter, or with `**/*` when content is domain-specific | Structural | `rule-adjustment` |
+| `memory_promotion` | Auto-memory note classified as preference / convention / workflow / debugging-knowledge, not yet covered by infra | Note is persistent + not duplicated by existing config | `claude-md-entry` / `rule` / `skill` / `reference-doc` |
+| `claude_md_demotion` | CLAUDE.md entries >3 lines; budget pressure when file nears 200 lines | Scales with file length (low <150, med 150–200, high >200) | `demotion` (extract to `.claude/references/<name>.md`, leave pointer) |
+| `stale_artifact` | Rule / skill / agent loaded but referenced in <25% of recent sessions | 10+ sessions of history, <25% reference rate | `removal-candidate` |
+| `config_conflict` | CLAUDE.md entry contradicts a rule; two skills with overlapping triggers | Semantic overlap (Phase B assists) | `conflict-resolution` |
+| `approval_always_granted` **(Designer-unique)** | Same `ApprovalRequested` class granted N times with zero denials | 5+ approvals, 0 denials, deterministic operation class | `auto-approve-hook` or `scope-expansion` |
+| `scope_false_positive` **(Designer-unique)** | `ScopeDenied` for a path the user then manually approved or widened immediately after | 3+ same-path denials | `scope-rule-relaxation` (with the risk note surfaced) |
+| `compaction_pressure` **(Designer-unique)** | `/compact` invoked ≥1×/session consistently | 3+ sessions in a week | `context-restructuring` (demotion + rule pruning bundle) |
+| `cost_hot_streak` **(Designer-unique)** | `CostTracker` shows a token-spend outlier vs the project baseline on a repeated task | Statistically above rolling p90 | `model-tier-suggestion` (prompt is expensive; consider cheaper model for this class of task) |
+| `context_never_read` **(Designer-unique)** | File added to context but never cited in a tool call or quoted back to the user | 3+ sessions where the same file loads but doesn't fire | `context-trim` |
+| `team_idle_overcount` **(Designer-unique)** | A teammate role is spawned but `TeammateIdle` fires within N seconds without meaningful work | 3+ sessions | `team-composition-change` (drop that role, or widen its scope) |
+| `workspace_lead_routing` **(Designer-unique)** | Workspace lead (Phase 18 hybrid routing) escalates to Claude for patterns the local model should have handled | Track per-pattern escalation rate | `routing-policy-tune` |
+
+Every detector's accept rate is tracked per project and globally. Below a rolling threshold (target: <20% accept over 10 emissions), the detector auto-downweights (`enabled: false` at project level with a "reconsider" button in settings). Mirrors Forge's skip-decay and impact-calibration mechanisms.
+
+**Detector API — streaming, not buffered.** Signature: `Detector: Fn(&mut DetectorState, &Event) -> Option<Finding>`. Each detector processes events one at a time with bounded per-detector state; composes with the tokio event stream. The `SessionAnalysisInput` bundle is a convenience wrapper over the stream, not an in-memory replacement — nothing holds the full 10 k-event track in RAM at once. Every detector runs under `catch_unwind` and a 250 ms `tokio::time::timeout` so a single bad detector cannot block the rest of the pipeline.
+
+**Incremental analysis.** Every detector records `last_analyzed_seq`; subsequent passes resume from there instead of re-reading the full track. A finding cache keyed by `(detector_version, window_digest)` reuses work across app restarts. Detector-version bumps opt in to historical replay, never retroactively; stale findings stay attached to the detector version that produced them.
+
+### Proposal kinds — exhaustive list
+
+Proposals synthesize findings into concrete, reversible edits. Each kind has a fixed target file or setting, a diff format, and a reviewer UI treatment.
+
+| Kind | Target | Auto-loaded? | Reviewer treatment |
+|---|---|---|---|
+| `claude-md-entry` | CLAUDE.md (project) or `~/.claude/CLAUDE.md` (user) | Yes | One-line preview, full diff on expand |
+| `feedback-rule` | `core-docs/feedback.md` (Designer convention) | Yes (Designer-specific) | Paragraph preview, full diff on expand |
+| `rule` | `.claude/rules/<name>.md` with `paths:` frontmatter | Yes (scoped) | Full rule file previewed as a diff against a blank baseline |
+| `hook` | `.claude/settings.json` (merged) | Yes | JSON diff; a "what this does" plain-English summary above the raw diff |
+| `skill-candidate` | `.claude/skills/<name>/SKILL.md` | On match | Draft flag; user must review trigger phrases before accepting |
+| `agent-candidate` | `.claude/agents/<name>.md` | On dispatch | Draft flag; reviewer surfaces tool allowlist + system-prompt excerpt |
+| `reference-doc` | `.claude/references/<name>.md` or `core-docs/references/` | On demand | Full file preview; lowest-priority tier |
+| `rule-extraction` | Move content from CLAUDE.md → new scoped rule | Yes (new target only) | Side-by-side diff: "before" CLAUDE.md vs "after" + new rule file |
+| `demotion` | Move verbose CLAUDE.md block to a reference doc + leave a pointer | Yes (pointer only) | Budget-pressure panel: "CLAUDE.md is 214 lines; extract this 18-line block?" |
+| `removal-candidate` | Delete / archive a stale rule, skill, or agent | — | "Not used in 12/15 recent sessions. Archive or delete?" |
+| `conflict-resolution` | User-chosen merge between two conflicting artifacts | Varies | Three-column diff: "Artifact A" / "Artifact B" / "Proposed merge" |
+| `scope-rule-relaxation` | `ScopeGuard` config in settings | Yes (core) | **Safety-gated:** risk note required; user must re-type the path to confirm |
+| `auto-approve-hook` | Approval-gate bypass for a specific operation class | Yes (core) | **Safety-gated:** dry-run toggle; shows the last 5 approvals inline |
+| `context-trim` | Remove a file/block from `CLAUDE.md` / rule / skill context | Yes | One-line preview: "Remove `[path]` from context — loaded but never cited in last 5 sessions" |
+| `context-restructuring` | Bundled demotion + rule pruning (from `compaction_pressure`) | Yes | Multi-file diff; grouped accept/reject |
+| `model-tier-suggestion` | Hint-card, not a diff: "Consider Haiku for summarize-row calls — Sonnet runs 4× cost for the same output" | — | Chart: token spend vs baseline; link to model override setting |
+| `team-composition-change` | Workspace-lead team definition | Yes | Before/after team chart; evidence list per role |
+| `routing-policy-tune` | Phase 18 workspace-lead routing thresholds | Yes | Slider diff + evidence log |
+| `prompt-template` | Project-scoped prompt library (new surface) | — | Raw text preview; copy-to-clipboard action; "make this a skill" shortcut |
+
+Draft-flagged kinds (`skill-candidate`, `agent-candidate`) cannot be one-click accepted — they require the user to open the editor at least once. Matches Forge's "drafts must be tested" discipline.
+
+### Surfaces (Home tab, ambient signal, explain mode)
+
+**Primary surface — "Learnings" section on the project Home tab.** Not a nudge; a persistent, editable dashboard. Layout:
+
+- **Proposals list.** One card per open proposal, grouped by confidence tier (high / medium / low, collapsible). Each card: one-line description, kind badge, confidence chip, "seen in N/M sessions" support, Accept / Edit / Dismiss / Snooze actions. Expanding shows the full diff and the evidence anchors (click-to-jump to session span).
+- **Config health panel.** Derived from `analyze-config`-equivalent detectors: CLAUDE.md size vs budget, rule scope distribution, stale-artifact count, config-gap count. One glance tells you whether the project's infra is drifting.
+- **Top prompts view.** Read-only leaderboard of the N most-repeated prompts in the project. Columns: frequency, recency, variance. Per-row action: "make this a skill" (converts to a `skill-candidate` proposal) or "copy best phrasing."
+- **Effectiveness panel.** For each applied artifact: "Rule X used in 8/10 recent sessions" or "Rule X not used in last 12 sessions — archive?" This is how the product visibly gets smarter.
+- **Activity log.** Append-only list of `ProposalEmitted` / `ProposalResolved` / `ProposalExpired` — lets the user scroll back through the learning timeline.
+
+**Ambient signal (opt-in).** The activity spine's Home-tab cluster surfaces new-proposal counts at session start without mid-session interruption. Three flavors mirror Forge's `check-pending`:
+
+- **Proactive.** "3 new proposals since yesterday — open Home." Shown only when high-confidence proposals exist.
+- **Effectiveness alert.** "Rule 'always-use-vitest' may not be working — same correction appeared 3 times since it was applied." Drives calibration.
+- **Health signal.** "Designer is tracking 23 sessions on this project. All 5 applied artifacts effective." Low-priority; shown when nothing else is.
+
+**Explain mode (reverse direction).** The user clicks any rule / skill / CLAUDE.md entry / hook and asks "why is this here?" → Designer traces back to the evidence anchors that produced it (if it came from a Phase 20 proposal) or marks it as user-authored. Implements Forge's planned P5. Reuses Phase 15.H's anchor primitive for the evidence pointers.
+
+**Inline acceptance (opt-in, bounded).** The Plan-tab composer gains a one-line "Forge-style" affordance when a just-completed task produced a high-confidence proposal: a single card appears inline above the composer with "Accept / Edit / Skip." Bounded: max one inline proposal per chat turn, never more than 2 per session, opt-out in settings. This is the *only* place proposals interrupt the main flow.
+
+### Settings (per-project + user-level; mirrors Forge)
+
+- **Nudge frequency.** `quiet` (no session-start signal; proposals only visible on the Home tab) · `balanced` (default; signal when proposals pending or every 5+ new sessions) · `eager` (every 2+ sessions).
+- **Proactive inline acceptance.** On / off. Default off until dogfooding confirms the rate-limit is comfortable.
+- **Detector enable map.** Per-detector on/off + threshold override, surfaced in settings but collapsed by default. Power-user escape hatch.
+- **Write-scope.** Per-project default. `project-only` (writes to `core-docs/feedback.md`, `.claude/*`, project settings) · `user-ok` (may elevate cross-project patterns to `~/.claude/CLAUDE.md` after explicit confirmation).
+- **Model tier for analysis.** Defaults to the small Foundation model. Power users can opt into a larger local tier for slower-but-better synthesis.
+- **Redaction policy.** Evidence anchors are full quotes by default. User can toggle to "redacted snippets" (first 40 chars + ellipsis) for screen-shareable Home tabs.
+
+All settings are event-sourced (`LearningSettingChanged`), so changes are auditable and reversible.
+
+### Storage split (mirrors Forge's shared/personal divide)
+
+- **Shared, in-repo (git-tracked):** `core-docs/feedback.md` entries, applied `.claude/rules/*`, `.claude/skills/*`, `.claude/agents/*`, `.claude/references/*`, `.claude/settings.json` hook merges. These are team-portable.
+- **Project-level, gitignored:** `.designer/learning/dismissed.json`, `.designer/learning/applied-history.json`, `.designer/learning/feedback-signals.json`. Useful for teammates to avoid resurfacing patterns already decided on, but personal enough to keep out of git by default (like Forge's `.claude/forge/`, but Designer defaults to gitignore — the user can opt to track them).
+- **User-level, machine-local:** `~/.designer/learning/analyzer-stats.json`, `~/.designer/learning/projects/<hash>/cache/deep-analysis.json` (24 h TTL), `~/.designer/learning/projects/<hash>/settings.json`. Never synced cross-device except via Phase 14.
+- **Content-addressable diff store** (`~/.designer/learning/diffs/<sha>.patch`). `ProposalEmitted` carries the `diff_sha`; the diff blob lives on disk. Keeps `events.db` small, enables natural dedup across proposal resurfaces, and makes the event log cheap to replicate over Phase 14 sync.
+- **Spotlight + Time Machine exclusions.** `~/.designer/learning/cache/` and `~/.designer/learning/diffs/` carry the `com.apple.metadata:com_apple_backup_excludeItem` xattr plus a `.metadata_never_index` sentinel. Indexing and backing up derived caches is pure overhead.
+
+### Calibration loop (three mechanisms)
+
+1. **Skip decay.** A proposal snoozed 3+ times without action is silently dropped from pending. Mirrors Forge's skip-decay.
+2. **Impact calibration.** If >40% of dismissals for a `kind` cite "low impact," the synthesis step deflates future proposals of that kind from high → medium.
+3. **Safety gate.** 3+ "missing safety note" dismissals OR 3+ "added approval gate" modifications on a `kind` trigger a persistent safety label on that kind's future proposals — reviewer sees the label + the original reason text.
+
+Each mechanism updates an `AnalyzerStats` projection. Stats are visible in settings under "Detector health" — turns the learning layer into a debuggable system, not a black box.
+
+### Scheduling and resource budget
+
+**Core framing.** Local-model work is scheduled by urgency × power state, not run continuously. Phase A detectors (Rust, zero LLM) are always on; LLM passes are *triggered*. An extra turn or two of latency on a rare signal is an accepted cost; a constantly-warm model pinning RAM and denying the CPU deep sleep is not. The benefit of deferring work is sustained **thermal headroom** (fans don't spin, P-cores stay in deep sleep, chassis stays cool) more than raw watts — active ANE inference is 3–7 W, an idle session single-digit watts.
+
+**Tiers.**
+
+| Tier | Trigger | Wakes the model? | Deferral policy |
+|---|---|---|---|
+| 0 — Always-on | Every event | No | Never defers; ~1 ms/event Rust detectors only |
+| 1 — Wake-on-threshold | Phase A finding crosses confidence + support gate | Yes, debounced 30–60 s, batched | Deferred under `.serious` thermal or battery <30 % |
+| 2 — End-of-track | `TrackCompleted` event | Yes, single synthesis pass | Deferred on battery <30 %; queued for next charger connection |
+| 3 — Periodic | Weekly cross-project aggregation | Yes, low-priority | Runs on charger + display-sleep; skippable without functional loss |
+| 4 — On-demand | User-triggered (counterfactual preview, ad-hoc NL detector, explain mode) | Yes, immediately | User pays latency; ignores quiet-hour rules |
+
+**Model lifecycle.** Two sizes. A small quantized classifier (sub-1B, ~400 MB) stays warm during active sessions for Phase A→B gating and cheap semantic checks. The larger synthesis model is loaded on demand and released by terminating the Swift helper after 5 min idle. Never both warm simultaneously. Important nuance: the Apple Foundation Models model itself is *system-managed* and shared across apps — our "unload" releases the helper's `LanguageModelSession` handle; the underlying model may stay warm system-wide (shared with Safari, Mail, Photos). Activity Monitor will not show the ~400 MB RSS drop users might expect from an "unload" label. MLX fallback is different: that model's RSS *is* ours, and killing the helper genuinely releases it. Messaging must reflect this, not overclaim.
+
+**Power-state awareness — native APIs, not polling.**
+- `NSProcessInfo.thermalState` → `.nominal | .fair | .serious | .critical`. At `.serious`+, drop Tier 2/3.
+- `NSProcessInfo.isLowPowerModeEnabled` → user said "save battery." Collapse to Tier 0 only; don't second-guess.
+- `IOPSGetProvidingPowerSourceType` + `IOPSGetTimeRemainingEstimate` → charger vs battery detection; defer Tier 2+ when battery <30 min remaining.
+- Subscribe to `NSProcessInfoThermalStateDidChangeNotification` and `NSProcessInfoPowerStateDidChange`; never poll.
+- Display sleep (`CGDisplayIsActive(CGMainDisplayID())`) is a more reliable Tier-3 trigger than keyboard idle.
+
+**QoS classes, not custom throttling.** Tier 2 runs at `DispatchQoS.utility`; Tier 3 at `.background`. Apple Silicon pins these to efficiency cores and the OS auto-pauses them under system pressure. Declare intent; let the OS enforce. Don't fight App Nap when Designer is backgrounded — that's free scheduling we want.
+
+**Compute budget.** Hard daily cap on active inference wall-time (default: 10 min, user-adjustable). Measured with the monotonic clock (`std::time::Instant` / `mach_continuous_time`), never wall-clock — clock-change attacks don't grant or steal budget. Visible in the topbar next to the cost chip: "Local model: 3 min used / 10 min budget." Exceeding queues to next day or prompts.
+
+**Hardware capability gates.** Boot-time probe via `FoundationHelper::capabilities()`. Requires Apple Silicon + macOS 26+ + Apple Intelligence enabled + ≥8 GB RAM. On `NSProcessInfo.physicalMemory < 12 GB`, Tier 2/3 default to *disabled* with an opt-in toggle; docs explain that enabling them on 8 GB machines can slow other apps. If capability check fails, Phase A still runs (≈80 % of value) and the Home tab surfaces "Semantic analysis requires Apple Intelligence — deterministic detectors still active" rather than silently no-opping.
+
+**Helper crash circuit breaker.** Exponential backoff restart (1 s → 5 s → 30 s → 5 min); circuit-break after 3 failures in 10 min and surface as a settings health indicator. A crashlooping helper is the single worst battery-drain failure mode — must be contained.
+
+**Re-mapped opportunities.** Where earlier "what token-freeness unlocks" items land on the tier table:
+
+| Opportunity | Tier | Notes |
+|---|---|---|
+| Continuous / live analysis | 0 + 1 | Rust detectors always; LLM only on threshold |
+| Multi-pass synthesis (generator → critic → judge) | 2 | Bundled with end-of-track; proposals are rare |
+| Evidence verification pass | 2 | Bundled with synthesis |
+| Embedding-based dedup of findings | 3 | Periodic re-index, not per-finding |
+| Negative-signal detectors | 2 | Semantic; runs once per track |
+| Counterfactual preview | 4 | User-paid latency |
+| Ad-hoc NL detectors | 4 | User-paid |
+| Richer explain-mode narratives | 4 | User-paid |
+| Fine-tuning on accept/dismiss signals | **Out of scope** | Too expensive for local hardware; revisit in a later phase |
+
+### Reliability and observability
+
+**Idempotency.** `ProposalResolved` with Accept carries an idempotency key `(proposal_id, resolution_kind)`; duplicate writes are no-ops. Side-effect apply events (`RuleFileWritten`, `SkillCreated`, …) check a "last-applied digest" before writing so double-click Accept, retry-after-timeout, and sync races all converge on one side-effect.
+
+**Transactional boundary (apply flow).** Write-then-emit: the file write happens first; the side-effect event is appended only on success. On failure, the pipeline emits `ApplyFailed { proposal_id, reason }` and the Home tab surfaces a retryable banner. The event log and the repo are never allowed to disagree.
+
+**Multi-device conflict resolution.** A proposal can be Accepted on desktop and Dismissed on mobile before Phase 14 sync reconciles. Deterministic rule: the resolution event with the earliest monotonic timestamp wins; ties break by device ID. `ProposalResolved` records `device_id` + `resolved_at_monotonic`.
+
+**Partial-failure containment.** Each detector runs under `catch_unwind` with a 250 ms `tokio::time::timeout`. Panics emit `DetectorFailed { detector, reason }`; timeouts emit `DetectorTimedOut { detector, elapsed_ms }`; the remaining detectors proceed. Same isolation per Phase B pass.
+
+**Schema evolution.** Every event type carries an explicit `schema_version` discriminator. `Finding` and `Proposal` structs are versioned independently of events. Detectors are versioned; stale findings stay attached to the detector version that produced them, with opt-in replay when a version bumps. Projections are rebuildable from scratch — event log is truth, projection is cache, snapshot is lazy cache of cache.
+
+**Projection snapshots.** `open_proposals`, `artifact_effectiveness`, and `analyzer_stats` are snapshotted periodically (every N events or every T seconds). First-boot latency becomes O(events since snapshot), not O(history) — stays under 500 ms even on a project with 100 k+ events.
+
+**Prompt + model + OS versioning.** Every `SessionAnalyzed` records `(prompt_version, fm_version, os_version)`. fm bumps invalidate caches but never retroactively re-evaluate historical findings. Matches event-sourcing orthodoxy: past is immutable.
+
+**Claude session ID mapping.** Claude's session IDs aren't stable across `/resume`; evidence anchors use Designer's event seq as the stable reference. A `ClaudeSessionRemapped { old_session_id, new_session_id, first_event_seq }` event keeps the mapping table. Phase B runs a best-effort re-anchor pass on resume so long-lived anchors survive session renumbering.
+
+**Observability surface.** `tracing` spans on every detector and Phase B pass; `metrics` counters for analysis latency, detector accept rate, model wake frequency, queue depth, helper crash rate, compute-budget consumption. A settings → "Detector health" panel reads the same projections the Home tab reads — turns the learning layer into a debuggable system, not a black box.
+
+**Phase B test story.** Foundation output is non-deterministic, so classic unit tests don't work. Instead: a golden-findings corpus pinned to a fm_version; a `designer analyze --replay <session>` CLI that re-runs historical analyses and diffs output against the corpus; snapshot drift surfaces as CI failure on fm bumps. The corpus lives in `crates/designer-learning/fixtures/`, versioned in the repo.
+
+### Event shape (spec impact)
+
+```
+SessionAnalyzed { session_id, track_id, input_digest, phase_a_findings, phase_b_findings, removed_count, removal_reasons, duration_ms, model_version }
+ProposalEmitted { proposal_id, kind, detector, evidence: Vec<AnchorRef>, diff, confidence, support, expires_at }
+ProposalResolved { proposal_id, resolution: Accepted { applied_diff, side_effect_event_id } | Edited { final_diff, side_effect_event_id } | Dismissed { reason? } | Snoozed { until } }
+ProposalExpired { proposal_id }
+LearningSettingChanged { key, old, new }
+AnalyzerStatsUpdated { detector, accept_rate, dismiss_rate, skip_rate }
+
+// Side-effect events (emitted when a proposal is applied):
+FeedbackRuleAdded { path, content }
+RuleFileWritten { path, content }
+SkillCreated { path }
+AgentCreated { path }
+HookMerged { settings_path, hook_config }
+ReferenceDocCreated { path }
+ClaudeMdEdited { path, diff }
+ScopeRuleChanged { rule_id, old, new }
+CostCapChanged { workspace_id, old_cap, new_cap }
+ContextTrimmed { source_file, removed_block }
+ArtifactArchived { path, reason }
+
+// Reliability / observability events:
+DetectorFailed { detector, reason }
+DetectorTimedOut { detector, elapsed_ms }
+ApplyFailed { proposal_id, reason }
+ClaudeSessionRemapped { old_session_id, new_session_id, first_event_seq }
+ProjectionSnapshotWritten { projection, up_to_seq, path }
+HelperCrashed { reason, restart_attempt }
+HelperCircuitBroken { until }
+ComputeBudgetExceeded { budget_sec, used_sec, queued_tasks }
+```
+
+Every event carries an explicit `schema_version` discriminator. Proposal diffs are stored by hash (`diff_sha`), not inline — `ProposalEmitted` carries the hash and the blob lives in `~/.designer/learning/diffs/`. All events are append-only; the Home tab reads projections (`open_proposals`, `recent_learnings`, `artifact_effectiveness`, `analyzer_stats`), snapshotted periodically for cold-start latency.
+
+### Steps
+
+**Minimum viable slice (L0–L5).** Ship the vertical first: `LocalRuntime` primitive, Phase A scaffolding with 4 detectors, Phase B synthesis + quality gate, proposal synthesis, Home-tab "Learnings" section, and the apply path. That's the smallest thing that proves the end-to-end loop — session analyzed, proposal emitted, user accepts, repo changes, next session reflects it — and it's the cut we'd put behind a feature flag for dogfooding. Everything after L5 (ambient signal, inline acceptance, Designer-unique detectors, cross-project aggregation, calibration, explain mode, effectiveness tracking, observability polish, content-addressable diff migration, scheduling polish, capability-downgrade UX) is valuable but defers cleanly — ship when dogfooding identifies the specific gap each step fills.
+
+- **L0 — Shared `LocalRuntime` primitive.** A reusable runtime every future local-model surface builds on (Phase 13.F jobs today, Phase 20 detectors next, future voice / live-coach features after). Owns: helper lifecycle (spawn + heartbeat + crash-recovery with exponential backoff and circuit breaker), QoS-aware tier scheduler wired to the native thermal/power/low-power notifications, Apple Intelligence + hardware-memory capability gate, compute-budget accounting via monotonic clock, per-detector `catch_unwind` + `tokio::time::timeout` harness, two-stage model lifecycle (small classifier warm + large synthesis on demand), and the Phase B `--replay` + golden-findings test harness. Phase 20's scheduler becomes a thin policy layer over this primitive. Most of this isn't Phase-20-specific; factoring it out now avoids retrofitting when the next local-model feature lands.
+- **L1 — `SessionAnalysisInput` bundle + Phase A detector scaffolding.** Define the input struct, event-stream extractor, and the `Detector` trait. Ship 4 detectors first: `repeated_correction`, `post_action_deterministic`, `repeated_prompt_opening`, `approval_always_granted`. Each with tests against canned event logs.
+- **L2 — Phase B local-model synthesis + quality gate.** `LocalOps::analyze_session(input)` routes to the Foundation helper with a frozen, versioned prompt. Output: `AnalyzeSessionResult { filtered_findings, additional_findings, removal_reasons }`. Prompt pins covered in an ADR; model version recorded in the event so traces stay reproducible.
+- **L3 — Proposal synthesis.** `LocalOps::synthesize_proposal(finding) -> Proposal`. Generates the concrete diff per proposal kind (CLAUDE.md append, rule file creation, hook JSON, skill/agent frontmatter+body, etc.). Safety gates and confidence tiering applied here.
+- **L4 — Home tab "Learnings" section.** Proposals list, config health panel, effectiveness panel, activity log. Accept / Edit / Dismiss / Snooze actions wired to command handlers. Edit opens the proposed diff in an in-app composer.
+- **L5 — Application layer.** Accepted proposals emit the concrete side-effect event and write to the correct path (project repo for shared, `~/.designer/` for personal, `~/.claude/` for user-scope with explicit consent). Reversible via the standard event-log undo surface.
+- **L6 — Top prompts view + prompt templates.** Reuses `repeated_prompt_opening` output. Adds frequency / recency / variance columns and a "make this a skill" shortcut that converts to a `skill-candidate` proposal.
+- **L7 — Ambient signal + effectiveness alerts.** Session-start signal generator; `artifact_effectiveness` projector that flags "applied but not used" rules/skills.
+- **L8 — Inline-at-chat acceptance (opt-in).** The one-per-turn, bounded inline card in Plan-tab composer. Gated by setting; off by default.
+- **L9 — Designer-unique detectors.** Add `scope_false_positive`, `compaction_pressure`, `cost_hot_streak`, `context_never_read`, `team_idle_overcount`, `workspace_lead_routing`. Each requires event-stream fields Phase 13.D/G surface.
+- **L10 — Cross-project aggregation.** Scheduled weekly local-model pass elevates strong single-project patterns into user-scope proposals. Explicit consent to write outside the project boundary. Unlocks what Forge P5 planned but didn't ship.
+- **L11 — Calibration loop.** Skip decay, impact calibration, safety gate. Detector accept-rate tracked per project and globally; auto-downweight below threshold. Settings → "Detector health" view for transparency.
+- **L12 — Explain mode.** Click any rule / skill / CLAUDE.md entry / hook → trace to the originating proposal and its evidence anchors. Implements Forge P5.
+- **L13 — Applied-artifact effectiveness tracking.** For every accepted proposal, track reference count across subsequent N sessions. Low-reference artifacts surface as `removal-candidate` proposals. Closes the learning loop: the system learns which of its own suggestions worked.
+- **L14 — Observability + test harness.** Wire `tracing` + `metrics` on every detector and synthesis pass. Ship the "Detector health" settings panel reading the `AnalyzerStats` projection. Build the golden-findings corpus under `crates/designer-learning/fixtures/` + `designer analyze --replay <session>` CLI that surfaces snapshot drift as CI failure on fm bumps.
+- **L15 — Content-addressable diff storage.** Hash-keyed diff store under `~/.designer/learning/diffs/<sha>.patch`. `ProposalEmitted` carries `diff_sha`, not inline diffs. Migrate any inline diffs from earlier iterations; add Spotlight + Time Machine exclusion xattrs on the diff and cache dirs.
+- **L16 — Prioritized scheduling polish.** Confidence-ordered queue (high-confidence proposals synthesize first under tight budget; low-confidence defer to charger + idle). Opportunistic precompute on charger-connect + thermal-nominal drains the deferred queue proactively. WAL-friendly batched `ProposalEmitted` writes per synthesis pass (one transaction per batch).
+- **L17 — Capability-downgrade UX.** Boot-time capability probe surfaces an explicit degraded state on the Home tab ("deterministic detectors only; semantic analysis requires Apple Intelligence — enable instructions below") rather than silently no-opping. Re-probes on OS update, Apple Intelligence toggle, and RAM-tier change (external boot into a different machine). Capability changes emit `LearningCapabilityChanged` events so the degradation is auditable.
+
+### Product-principle checks
+
+- **Manager, not engineer:** proposals are plain-language cards, not config forms. The user's job is "accept / tune / dismiss / snooze."
+- **Claude Code is the runtime:** the learning layer never calls Claude. Analysis and synthesis are 100% local. Accepted proposals may change what Claude sees next session; nothing here runs on Claude tokens.
+- **Workflow, opinion, trust:** this phase *is* the workflow leg. The opinions are the detector thresholds and the synthesis prompt. Trust is earned by the calibration loop (auto-downweight, safety gate) and by every side-effect being reversible.
+- **Context lives in the repo:** every accepted proposal's side-effect lands in `core-docs/*.md`, `.claude/*`, `CLAUDE.md`, or settings — never in a DB-shadowed "learnings" store. Mirrors Forge's placement discipline.
+- **Summarize by default, drill on demand:** Home cards are one-line; evidence, diff, and trace are behind a click.
+- **Suggest, do not act (by default):** no proposal self-applies; auto-expire only archives, never edits. Safety-gated kinds (`scope-rule-relaxation`, `auto-approve-hook`) require typed confirmation.
+
+### Open questions (before picking this up)
+
+- **Granularity of a "session."** Track-level is the default; a noisy multi-day track should be sub-divided. Proposal: introduce a `SessionWindow { track_id, start_event_seq, end_event_seq }` so the analyzer can work on arbitrary slices without changing detector code.
+- **Dedup window.** How long does an emitted-but-unresolved proposal suppress a new one for the same pattern? Default 7 days per kind, overridable.
+- **Anchor durability across resume.** Phase 15.H anchors handle in-memory spans; resumed sessions need those anchors to survive re-entry via `CommentAnchorResolved`-style fallback.
+- **Runaway-proposal risk.** Rate-limit: max N active proposals per project (default 12); lowest-confidence age out first. Inline-at-chat is separately capped.
+- **Skill / agent generation scope.** Project-first writes by default (`<project>/.claude/skills/`) with an "elevate to global" action on Accept. Matches cross-project aggregation.
+- **Redaction for screen-share.** Evidence quotes can contain sensitive strings. Settings toggle exists; do we also auto-redact common patterns (emails, API-key shapes)? Probably yes, with a deny list.
+- **Team-portable proposals.** A future-facing question — can two teammates co-approve a proposal via the synced event log (Phase 14)? Out of scope for v1, but the event shapes don't preclude it.
+- **Forge coexistence.** During migration, a user might run both Forge (plugin) and Designer (learning layer) against the same project. Detection: check for `.claude/forge/` and surface a "Forge proposals detected — import into Designer?" banner. Out of scope for v1 but the event shape should accommodate imported proposals with `source: "forge"`.
+- **Desktop / mobile resolution conflict.** Proposal Accepted on desktop + Dismissed on mobile before Phase 14 sync reconciles: earliest monotonic resolution wins, ties break by device ID. Confirm that's acceptable UX before Phase 14 ships — or introduce a "pending reconciliation" banner on the losing device.
+- **Apply-failed retry UX.** After `ApplyFailed`, does the Home tab retry silently, surface a banner, or both? Default proposal: surface once, silent retry on next app boot, persistent banner after 3 consecutive failures.
+- **Historical re-evaluation on detector upgrades.** When a detector's version bumps, do we re-run against historical sessions? Opt-in per bump, never automatic — expensive in compute and could resurface dismissed findings that the user already decided against.
+- **8 GB machine default.** Default-disable Tier 2/3 with opt-in, or default-enable with a throttled budget (3 min/day vs 10 min/day)? Requires dogfooding data on base-model MacBook Airs before committing.
+
+### Done when
+
+- Every completed track emits a `SessionAnalyzed` event within ~1 min of completion, produced entirely by the local model. Phase A detectors run in <500 ms for a 10 k-event track.
+- The Home tab "Learnings" section shows ≥3 real, specific, repo-grounded proposals on a project after a week of dogfooding — not generic "consider adding more context" nudges.
+- All 18 detector kinds in the table above fire at least once during dogfooding and produce at least one accepted proposal each.
+- Accepting a proposal measurably changes the next session: new rule observed by Claude, new skill fires, trimmed CLAUDE.md block absent from the prompt, scope relaxation no longer triggers a false denial, approved operation no longer gates.
+- Top prompts view ranks repeated prompts and successfully converts at least one to a skill.
+- Effectiveness panel identifies at least one "applied but unused" artifact and surfaces it as a `removal-candidate` proposal that the user acts on.
+- Calibration loop auto-downweights at least one detector during dogfooding; user can re-enable it from settings.
+- Explain mode traces an existing rule back to its originating session and evidence anchors.
+- Cross-project aggregation elevates at least one pattern from project to user scope after explicit consent.
+- Zero Claude tokens spent on any analysis pass; verifiable in the cost chip.
+- Privacy: `rm -rf ~/.designer/learning/ <project>/.designer/learning/` removes every learning-layer artifact Designer created outside the user's repo. In-repo artifacts (`core-docs/`, `.claude/`) are theirs.
+- `LocalRuntime` capability probe correctly identifies Apple Silicon / macOS 26+ / Apple Intelligence / RAM tier; degraded-state UI renders when any gate fails; Phase A still produces findings on degraded machines.
+- Helper-crash chaos test: killing the Swift helper 10× in a 10-min window trips the circuit breaker and surfaces a settings health indicator without draining battery (measured: no sustained >5 % CPU during the crashloop).
+- Idempotency test: double-clicking Accept, and accepting the same proposal on two synced devices, each produce exactly one side-effect event.
+- Transactional test: simulating a disk-full condition on Accept leaves the event log and repo in agreement — no spurious `RuleFileWritten` — and surfaces `ApplyFailed` with a retryable banner.
+- Partial-failure test: panicking one detector does not block the other 17 or the synthesis pass; timing-out detector does not consume > 250 ms of pipeline wall-time.
+- Compute budget: 10 min/day cap enforced against the monotonic clock; system-clock-change attacks don't grant or steal budget.
+- First-boot latency: projection snapshots keep cold start under 500 ms even with 100 k+ events in history.
+- Tier scheduler behaves under pressure: `.serious` thermal state, Low Power Mode, and battery <30 % each demonstrably defer Tier 2/3 work within one notification cycle.
+
+**Gates on:** Phase 13.D (real agent traffic), Phase 13.F (`LocalOps` wired to the real Foundation helper), Phase 13.G (approval / scope / cost event streams), and — for the shared `LocalRuntime` primitive itself — concurrent landing with Phase 13.F since they share the same substrate. Can ship before Phase 18 or Phase 19; early steps (L0–L4) are pullable forward during Phase 15 polish if dogfooding surfaces strong patterns worth automating earlier.
+
+---
+
 ## Milestones (summary)
 
 | Milestone | Phases | Parallel? | State |
@@ -566,12 +980,16 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 | Multi-workspace + sync protocol | 6, 7 | — | ✅ Preliminary build |
 | First user-visible surface | 8, 9 | — | ✅ Preliminary build |
 | Design lab + polish scaffolding | 10, 11 | — | ✅ Preliminary build |
-| **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.C done; 12.A + 12.B open** |
-| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after Phase 12) | Pending |
+| **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.A ✅ 2026-04-22; 12.C ✅ 2026-04-21; 12.B infrastructure landed, real-hardware validation pending** |
+| Pre-track scaffolding | 13.0 | — (single PR) | Pending |
+| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after 13.0) | Pending |
 | Sync transport | 14 | Yes (parallel with 13/15) | Pending |
 | Hardening + polish | 15 | Yes (parallel with 13/14) | Pending |
 | Shippable desktop beta | 16 | After 13 + 15 | Blocked on Apple Developer ID |
 | Mobile | 17 | After 16 + 14 | Phase 2 |
+| Workspace scales up (multi-track, forking) | 18 | After 13 + 16; parts pullable into 15 | Pending |
+| Parallel-work coordination layer | 19 | After 13 + 18 substantially complete | Pending |
+| Learning layer (local-model workflow proposals) | 20 | After 13.D + 13.F; independent of 14/16/18/19 | Pending |
 
 ---
 
