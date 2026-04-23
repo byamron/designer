@@ -15,6 +15,7 @@
 mod claude_code;
 mod mock;
 mod orchestrator;
+mod permission;
 mod stream;
 mod watcher;
 
@@ -23,6 +24,9 @@ pub use mock::MockOrchestrator;
 pub use orchestrator::{
     Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult, TaskAssignment,
     TeamSpec,
+};
+pub use permission::{
+    AutoAcceptSafeTools, PermissionDecision, PermissionHandler, PermissionRequest,
 };
 pub use stream::{ClaudeStreamTranslator, TranslatorOutput};
 pub use watcher::{ClaudeFileWatcher, WatcherEvent};

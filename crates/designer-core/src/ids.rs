@@ -62,6 +62,11 @@ id_type!(AgentId, "agt");
 id_type!(TaskId, "tsk");
 id_type!(ApprovalId, "apv");
 id_type!(EventId, "evt");
+// Phase 13.E introduces the Track primitive (see spec §"Workspace and
+// Track" and Decisions 29–30). Reserved by the Phase 13.0 scaffolding so
+// 13.E's events carry a typed id from day one; 13.E / Phase 18 never have
+// to migrate event payloads to add a string-typed field later.
+id_type!(TrackId, "trk");
 
 /// A stream is the logical append-only log for a given aggregate. Every event
 /// belongs to exactly one stream; streams are replayed to build projections.

@@ -36,6 +36,7 @@ use crate::orchestrator::{
     Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult, TaskAssignment,
     TeamSpec,
 };
+use crate::permission::{AutoAcceptSafeTools, PermissionHandler};
 use crate::stream::{ClaudeStreamTranslator, TranslatorOutput};
 use async_trait::async_trait;
 use designer_core::{Actor, EventPayload, EventStore, StreamId, WorkspaceId};
@@ -116,6 +117,16 @@ pub struct ClaudeCodeOrchestrator<S: EventStore> {
     /// CostTracker) can subscribe independently.
     signal_tx: broadcast::Sender<ClaudeSignal>,
     teams: Mutex<HashMap<WorkspaceId, TeamHandle>>,
+    /// Policy deciding whether a permission-prompted tool use should be
+    /// accepted or denied. Default is [`AutoAcceptSafeTools`] (read-only
+    /// tools + safe `Bash` prefixes); Phase 13.G replaces this with an
+    /// inbox-routing handler via [`Self::with_permission_handler`].
+    /// Reserved by Phase 13.0 scaffolding so 13.D and 13.G don't fight over
+    /// the stdio permission code path. TODO(13.D): wire this into the
+    /// stdio permission-prompt reader once the subprocess protocol is
+    /// plumbed.
+    #[allow(dead_code)]
+    permission_handler: Arc<dyn PermissionHandler>,
 }
 
 /// Side-channel signals. Not part of the normalized `OrchestratorEvent`
@@ -143,7 +154,16 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
             tx,
             signal_tx,
             teams: Mutex::new(HashMap::new()),
+            permission_handler: Arc::new(AutoAcceptSafeTools),
         }
+    }
+
+    /// Swap the permission-prompt handler. Phase 13.G replaces the default
+    /// `AutoAcceptSafeTools` with an inbox-routing handler here. Builder-
+    /// style: returns `self` for chainability.
+    pub fn with_permission_handler(mut self, handler: Arc<dyn PermissionHandler>) -> Self {
+        self.permission_handler = handler;
+        self
     }
 
     pub fn subscribe_signals(&self) -> broadcast::Receiver<ClaudeSignal> {

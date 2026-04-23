@@ -27,10 +27,11 @@ Phase 12 — Real-integration validation     (3 parallel tracks)
   └─ 12.C  Tauri shell binary                ─┘
 
 Phase 13 — Wire the real runtime            (4 tracks, gated individually)
-  ├─ 13.D  Agent wire                    (← 12.A + 12.C)
-  ├─ 13.E  Track primitive + git wire    (← 12.C)   [introduces Track]
-  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C)
-  └─ 13.G  Safety + Keychain             (← 12.C)
+  ├─ 13.0  Pre-track scaffolding         (← 12.A + 12.C; blocks all 13.X)
+  ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.0)
+  ├─ 13.E  Track primitive + git wire    (← 12.C + 13.0)   [introduces Track]
+  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.0)
+  └─ 13.G  Safety + Keychain             (← 12.C + 13.0)
 
 Phase 14 — Sync transport        (parallel with 13, 15)
 Phase 15 — Hardening + polish    (parallel with 13, 14)
@@ -42,6 +43,12 @@ Phase 17 — Mobile  (← 14 + 16;  was Phase 12 in the original spec)
 
 Phase 18 — Workspace scales up  (multi-track UX, forking, reconciliation)
   └─ Gates on 13 + 16; parts pullable into 15 if the manager UX feels pinched.
+
+Phase 19 — Parallel-work coordination layer
+  └─ Project-level primitive that analyzes contention, partitions files,
+     freezes contracts, and generates a scaffold PR before N parallel agents
+     fan out. Builds on Phases 6 (project thread) + 18 (multi-track).
+     Gates on 13 + 18 substantially complete.
 ```
 
 ---
@@ -70,12 +77,14 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 ### Still-open phases
 
 - **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
-- **Phase 13** — Wire the real runtime. Four tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety + Keychain). Each gated on specific Phase-12 tracks; most can proceed in parallel.
+- **Phase 13** — Wire the real runtime. One prerequisite sub-phase (13.0) plus four tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety + Keychain). Each gated on specific Phase-12 tracks + 13.0; the four tracks can run in parallel after 13.0 lands.
+- **Phase 13.0** — Pre-track scaffolding. Partitions hot-spot files so the four 13.X agents don't collide; freezes event / IPC / permission-handler contracts. Completed by the scaffolding PR; blocks 13.D/E/F/G.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
 - **Phase 16** — Shippable desktop build (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA). Gates on 13 + 15; Phase 14 optional for MVP.
 - **Phase 17** — Mobile (formerly Phase 12; renumbered). Requires Phase 14 in full and Phase 16.
 - **Phase 18** — Workspace scales up: multi-track UX, forking, reconciliation, workspace-lead routing policy. Primitive lands in Phase 13.E; this phase ships the user-visible affordances. Gates on 13 + 16; pullable into 15 partial.
+- **Phase 19** — Parallel-work coordination layer. Project-level primitive that analyzes contention across multiple workspaces / tracks running in parallel, partitions shared files, freezes contracts (events, IPC DTOs, trait seams), generates a pre-integration scaffold, and plans merge order. Automates what Phase 13.0 did by hand. Gates on 13 + 18 substantially complete.
 
 See the "Gaps after the preliminary build" section below for the full gap → phase mapping.
 
@@ -419,9 +428,29 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 ---
 
-## Phase 13 — Wire the real runtime *(four tracks, gated individually)*
+## Phase 13.0 — Pre-track scaffolding *(blocks 13.D/E/F/G)*
 
-**Goal:** turn the "scaffold that demos the UX" into "a product that actually does the thing." Each track replaces a stubbed frontend path with a real backend call.
+**Goal:** make the four 13.X tracks buildable in parallel by partitioning hot-spot files and freezing shared contracts. Without this, four parallel agents collide on `core.rs`, `commands.rs`, `designer-ipc/src/lib.rs`, `designer-core/src/event.rs`, and `claude_code.rs`'s permission handler. With it, each agent edits sibling modules with zero code-level contention.
+
+**Needs:** 12.A + 12.C.
+
+**Steps:**
+- **Partition `AppCore` and `commands` surfaces.** Sibling modules per track in `apps/desktop/src-tauri/src/`: `core_agents.rs` / `core_git.rs` / `core_local.rs` / `core_safety.rs` for `impl AppCore { … }` blocks; `commands_agents.rs` / `commands_git.rs` / `commands_local.rs` / `commands_safety.rs` for `#[tauri::command]` handlers. Each file empty except a track-reservation docstring; each agent fills in their module without touching the others' files.
+- **Freeze event shapes** in `designer-core/src/event.rs`. Add `TrackStarted`, `TrackCompleted`, `PullRequestOpened`, `ScopeDenied` (used by 13.E / 13.G) plus reserved `TrackArchived`, `WorkspaceForked`, `WorkspacesReconciled` (Phase 18 reserves these now so future migration is zero). Round-trip tests for each.
+- **Introduce `PermissionHandler` trait** in `designer-claude` so 13.D and 13.G don't fight over the stdio permission-prompt code path. Default impl `AutoAcceptSafeTools` auto-accepts read-only tools (Read/Grep/Glob + safe `Bash`) and denies writes; 13.G swaps in an inbox-routing impl via `ClaudeCodeOrchestrator::with_permission_handler()`.
+- **Freeze IPC DTOs** in `designer-ipc/src/lib.rs` for each track's command set; agent fills in behavior, types don't churn.
+- **Document the `TODO(13.X):` stub convention** in `CLAUDE.md` so cross-track hooks grep cleanly.
+- **ADR 0002** records the four v1 scoping decisions (workspace-lead session model, repo-linking UX, default permission policy, cost chip thresholds).
+
+**Done when:** new sibling modules compile + pass tests empty; event shapes added with round-trip coverage; `PermissionHandler` trait live with default impl; `designer-ipc` DTOs for each track defined; `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --check` all green; `CLAUDE.md` documents the convention; ADR 0002 merged.
+
+**Why this is its own sub-phase:** Designer's own Phase 19 will eventually automate this step (analyze contention, propose partition, freeze contracts). For now it's a manual one-time cost that unblocks true parallelism on Phase 13.
+
+---
+
+## Phase 13 — Wire the real runtime *(four tracks, gated individually, parallel-safe after 13.0)*
+
+**Goal:** turn the "scaffold that demos the UX" into "a product that actually does the thing." Each track replaces a stubbed frontend path with a real backend call. After 13.0 lands, all four tracks can be built in parallel by separate agents with zero file contention.
 
 ### Track 13.D — Agent wire (gaps G4)
 
@@ -595,6 +624,27 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 
 ---
 
+## Phase 19 — Parallel-work coordination layer
+
+**Goal:** automate what Phase 13.0 did by hand. When a project intends to run N parallel workspaces / tracks toward a shared goal, Designer analyzes file contention across the intended splits, proposes a pre-integration scaffold, freezes shared contracts, assigns per-agent file ownership, and plans merge order.
+
+**Why:** this is Designer's differentiating value at the *project* layer — the coordination work a human manager does when dividing a feature across teammates that session-scoped tools (Conductor, Crystal, Claude Code Desktop) can't. Cross-workspace conflict detection (spec §"Cross-workspace coordination") is *reactive* — this is its *proactive* counterpart. Without it, users scale horizontally by launching parallel workspaces and paying a manual coordination cost on every integration; with it, the cost collapses to a button.
+
+**Steps:**
+- **Contention analyzer.** Given a set of intended work items (e.g., "tracks D/E/F/G all land in one sprint"), enumerate the files each is likely to touch — using `core-docs/` indices, file-level ownership metadata attached to recent events, and the per-role system prompts loaded from `.claude/agents/`. Produce a contention report: shared files, shared event shapes, shared IPC surfaces.
+- **Scaffold generator.** For each contention zone, propose a partition: sibling modules, per-track submodules, trait seams at shared hot spots. Emit a diff. User reviews, approves, merges — before any track agent starts.
+- **Contract freezer.** Event shapes, IPC DTOs, trait interfaces that will be shared across tracks get committed in the scaffold diff. Each track agent codes against frozen types; no schema drift mid-flight.
+- **Per-agent brief generator.** From the scaffold + contention report, emit a per-track brief: "you own these files, you read from these events, you implement these trait methods, you stub these cross-track hooks with `TODO(…)`." Each brief becomes the initial system prompt for the track agent.
+- **In-flight drift detector.** As each track agent works, cross-track conflict detection (an extension of the existing "same file, last 24h" primitive — spec §"Cross-workspace coordination") watches for an agent editing files outside its assigned surface. Flags to the manager immediately, not at merge time.
+- **Merge-order planner.** After all agents complete, produce the recommended merge order with rationale (dependency order, smallest-integration-first, etc.).
+- **Auto-integration PR.** After the N track PRs merge, scaffold a follow-up integration PR that runs the cross-track tests (e.g., "chat-triggers-real-Claude ∧ spine-summarizes-real-events ∧ approval-inbox-catches-real-merge ∧ cost-chip-shows-real-spend").
+
+**Done when:** (a) given a multi-track feature, the project layer can output a scaffold PR + per-agent briefs that make N parallel track builds collision-free without human analysis; (b) drift is detected during, not after; (c) first-use case is re-running today's Phase-13-scaffolding workflow end-to-end on a new feature and matching (or improving on) what we did by hand.
+
+**Gates on:** Phase 13 (real runtime wired — needed so agents can actually execute), Phase 18 (multi-track primitives — Phase 19 is the manager layer above them).
+
+---
+
 ## Milestones (summary)
 
 | Milestone | Phases | Parallel? | State |
@@ -606,12 +656,14 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 | First user-visible surface | 8, 9 | — | ✅ Preliminary build |
 | Design lab + polish scaffolding | 10, 11 | — | ✅ Preliminary build |
 | **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.A ✅ 2026-04-22; 12.C ✅ 2026-04-21; 12.B infrastructure landed, real-hardware validation pending** |
-| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after Phase 12) | Pending |
+| Pre-track scaffolding | 13.0 | — (single PR) | Pending |
+| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after 13.0) | Pending |
 | Sync transport | 14 | Yes (parallel with 13/15) | Pending |
 | Hardening + polish | 15 | Yes (parallel with 13/14) | Pending |
 | Shippable desktop beta | 16 | After 13 + 15 | Blocked on Apple Developer ID |
 | Mobile | 17 | After 16 + 14 | Phase 2 |
 | Workspace scales up (multi-track, forking) | 18 | After 13 + 16; parts pullable into 15 | Pending |
+| Parallel-work coordination layer | 19 | After 13 + 18 substantially complete | Pending |
 
 ---
 
