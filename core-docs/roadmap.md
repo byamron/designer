@@ -2,7 +2,7 @@
 
 Backend-first phasing. Infrastructure, safety, orchestration, and local-model ops ship before any user-visible surface. The frontend is built on top of a working, tested core — not alongside an evolving one.
 
-This document sequences the work described in `spec.md`. It is the single source of truth for "what's next"; `plan.md` tracks near-term focus; `history.md` records what shipped.
+This document sequences the work described in `spec.md`. It is the single source of truth for "what's next"; `plan.md` tracks near-term focus; `history.md` records what shipped. Security-specific work — threat model, invariants, and the 13.H / 16.S / 17.T tranches — lives in `security.md` and is referenced from the phase sections below.
 
 ---
 
@@ -26,21 +26,26 @@ Phase 12 — Real-integration validation     (3 parallel tracks)
   ├─ 12.B  Foundation Models helper build   ─┼── gate → Phase 13
   └─ 12.C  Tauri shell binary                ─┘
 
-Phase 13 — Wire the real runtime            (4 tracks, gated individually)
+Phase 13 — Wire the real runtime            (5 tracks, gated individually)
   ├─ 13.D  Agent wire                    (← 12.A + 12.C)
   ├─ 13.E  Track primitive + git wire    (← 12.C)   [introduces Track]
   ├─ 13.F  Local-model surfaces          (← 12.B + 12.C)
-  └─ 13.G  Safety + Keychain             (← 12.C)
+  ├─ 13.G  Safety surfaces + Keychain    (← 12.C)
+  └─ 13.H  Safety enforcement            (← 13.G)   [GA gate; see security.md]
 
 Phase 14 — Sync transport        (parallel with 13, 15)
 Phase 15 — Hardening + polish    (parallel with 13, 14)
 
 Phase 16 — Shippable desktop build  (← 13 + 15;  14 optional)
-  └─ Signing, notarization, updater, crash-report endpoint, install QA.
+  ├─ 16.R  Signing, notarization, updater, crash-report, install QA.
+  └─ 16.S  Supply-chain posture        [DMG gate; see security.md]
 
-Phase 17 — Mobile  (← 14 + 16;  was Phase 12 in the original spec)
+Phase 17 — Team-tier trust           (← 16; gates team pricing)
+  └─ 17.T  Encryption, MDM, SIEM export, bug bounty, GitHub App.
 
-Phase 18 — Workspace scales up  (multi-track UX, forking, reconciliation)
+Phase 18 — Mobile  (← 14 + 16 + 17;  was Phase 12 in the original spec)
+
+Phase 19 — Workspace scales up  (multi-track UX, forking, reconciliation)
   └─ Gates on 13 + 16; parts pullable into 15 if the manager UX feels pinched.
 ```
 
@@ -70,12 +75,13 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 ### Still-open phases
 
 - **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
-- **Phase 13** — Wire the real runtime. Four tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety + Keychain). Each gated on specific Phase-12 tracks; most can proceed in parallel.
+- **Phase 13** — Wire the real runtime. Five tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on specific Phase-12 tracks and largely parallelizable; H gates on G and blocks GA. See `security.md` for 13.H detail.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
-- **Phase 16** — Shippable desktop build (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA). Gates on 13 + 15; Phase 14 optional for MVP.
-- **Phase 17** — Mobile (formerly Phase 12; renumbered). Requires Phase 14 in full and Phase 16.
-- **Phase 18** — Workspace scales up: multi-track UX, forking, reconciliation, workspace-lead routing policy. Primitive lands in Phase 13.E; this phase ships the user-visible affordances. Gates on 13 + 16; pullable into 15 partial.
+- **Phase 16** — Shippable desktop build. Splits into 16.R (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA) and 16.S (supply-chain posture — blocking audit CI, SBOM, SLSA, dual-key updater, pentest, SECURITY.md). Gates on 13 + 15; Phase 14 optional for MVP. Signed DMG blocked until 16.S lands. Detail in `security.md`.
+- **Phase 17** — Team-tier trust. Encryption at rest, MDM policy, SIEM export, bug bounty, narrowly-scoped GitHub App, inter-workspace isolation. Gates team pricing. Detail in `security.md`.
+- **Phase 18** — Mobile (formerly Phase 12; renumbered). Requires Phase 14 in full, Phase 16, and the E2EE-with-untrusted-relay constraint from `security.md`.
+- **Phase 19** — Workspace scales up: multi-track UX, forking, reconciliation, workspace-lead routing policy. Primitive lands in Phase 13.E; this phase ships the user-visible affordances. Gates on 13 + 16; pullable into 15 partial.
 
 See the "Gaps after the preliminary build" section below for the full gap → phase mapping.
 
@@ -343,14 +349,18 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
  Phase 15 — Hardening & polish
  └─ Independent. Can run in parallel with Phase 13 or Phase 14.
 
- Phase 16 — Shippable desktop build
+ Phase 16 — Shippable desktop build  (16.R release mechanics + 16.S supply-chain posture)
  └─ Requires Phases 13 + 15 substantially complete; Phase 14 optional for MVP.
+ └─ 16.S blocks the first signed DMG; see `security.md`.
 
- Phase 17 — Mobile  (formerly Phase 12; same scope, renumbered for clarity)
- └─ Requires Phase 14 in full (sync) + Phase 16 (signed desktop).
+ Phase 17 — Team-tier trust
+ └─ Requires Phase 16; gates team pricing. Detail in `security.md`.
+
+ Phase 18 — Mobile  (formerly Phase 12; same scope, renumbered for clarity)
+ └─ Requires Phase 14 in full (sync) + Phase 16 (signed desktop) + Phase 17 (team-tier trust).
 ```
 
-Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–G). Any letter-suffixed track can start as soon as its inputs are green. Nothing in the graph requires multiple humans — parallelism just means a solo builder can pick up whichever track unblocks the most next work.
+Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–H; 16.R / 16.S). Any letter-suffixed track can start as soon as its inputs are green. Nothing in the graph requires multiple humans — parallelism just means a solo builder can pick up whichever track unblocks the most next work.
 
 ---
 
@@ -440,7 +450,7 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Needs:** 12.C.
 
-**Introduces the `Track` primitive** (per spec §"Workspace and Track" and Decisions 29–30, 32). A workspace owns a list of tracks; v1 creates exactly one track per workspace, but the data shape supports N — future multi-track UI lands in Phase 18 without a data-model migration.
+**Introduces the `Track` primitive** (per spec §"Workspace and Track" and Decisions 29–30, 32). A workspace owns a list of tracks; v1 creates exactly one track per workspace, but the data shape supports N — future multi-track UI lands in Phase 19 without a data-model migration.
 
 **Steps:**
 - Add a "Link repository" flow in the project-creation dialog (native file picker for a directory; validate it's a git repo root).
@@ -478,6 +488,27 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Done when:** merge / publish / deploy gates block real agent writes until the inbox approves; cost chip visibly warns before cap; Keychain is the only place secrets live.
 
+### Track 13.H — Safety enforcement *(GA gate; detail in `security.md`)*
+
+**Needs:** 13.G (approval inbox surface + Keychain trait must exist to build on).
+
+**Why a separate track:** 13.G builds the UX surfaces for safety (inbox, cost chip, Keychain trait). 13.H hardens the *enforcement* — pre-write gates, binary verification, tamper-evidence, scope canonicalization. Shipping 13.G without 13.H would leave the user with a safety UI whose enforcement is advisory. GA cannot ship without 13.H.
+
+**Steps:**
+
+- Flip `ApprovalGate` enforcement from post-append (log-then-allow) to pre-write (check-then-append). Agent writes that fail scope or lack an approval are rejected before hitting the event log.
+- Symlink-safe scope: replace relative-path glob matching with `canonicalize()` + worktree-root prefix check; reject symlinks that resolve outside the track's worktree.
+- Risk-tiered gate resolution. *In-app approval* (existing 13.G surface) for routine writes; *Touch ID* (`LocalAuthentication.framework`) for irreversible-or-cross-org actions (push to new remote, merge to `main`, spend-cap raise, write outside worktree); *per-track capability grants* for first-use-per-tool in a track (grant scoped to the track; revokes on `TrackCompleted`).
+- `claude` binary pinning: `SecStaticCodeCheckValidity` against Anthropic's Developer ID requirement before spawn. Refuse to start the orchestrator if the signature does not match; surface a distinctive error in the UI.
+- Context manifest at turn boundaries: when net-new context enters an agent turn (new file in scope, changed `CLAUDE.md`, freshly merged doc), render a diffable manifest in the activity spine before the agent acts. Untrusted-lane content (unmerged PR, fork, non-user-authored commit) is tagged and requires an additional capability grant.
+- Event schema adds `(track_id, role, claude_session_id, tool_name)` to every event; tool-call events become a first-class queryable kind.
+- HMAC chain over events keyed from a session-sealed Keychain item (the Keychain trait from 13.G). Chain is domain-separated per-workspace so a compromised workspace cannot forge another's history. Periodic external anchor to a user-owned git notes ref; chain breaks surface as attention-level alerts.
+- Secrets scanner on pre-write: curated `gitleaks`-equivalent ruleset for strong patterns (AWS keys, PEM blocks, GitHub tokens, Anthropic keys) blocks writes; high-entropy matches warn only, to avoid training users to click through noise.
+- Secret-input mode in chat: dedicated composer affordance for pasted secrets; content is session-only, redacted from the event store, evicted from Claude's context after the agent's immediate reply.
+- CSP adds `frame-ancestors 'self'`; helper IPC gets a max-frame cap + fuzz-test harness; webview lockdown audit documented.
+
+**Done when:** a deliberately-malicious test agent cannot (a) write outside its worktree, (b) follow a symlink out of scope, (c) write a file containing a strong-pattern secret, (d) spawn against an unsigned `claude` binary, (e) tamper with event history without triggering a chain-break alert. Touch ID fires on exactly the four listed irreversible actions and nothing else. Capability grants are visible and revocable per track.
+
 ---
 
 ## Phase 14 — Sync transport *(parallel with Phase 13 or 15)* (gap G10)
@@ -493,7 +524,7 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 - Wire `OfflineQueue.drain` on reconnect.
 - Integration test: two Designer processes in the same `cargo test` sync a 20-event log bidirectionally without a server.
 
-**Done when:** two desktop instances on the same LAN (or the same user's iPhone tethered to desktop in Phase 17) sync workspaces without a hosted relay.
+**Done when:** two desktop instances on the same LAN (or the same user's iPhone tethered to desktop in Phase 18) sync workspaces without a hosted relay.
 
 ---
 
@@ -540,15 +571,18 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 ## Phase 16 — Shippable desktop build *(gates on 13 + 15 being substantially done)* (gaps G17–G20)
 
-**Goal:** a `.dmg` a user can download and install.
+**Goal:** a signed `.dmg` a user can download and install, with a supply chain posture that withstands scrutiny.
 
 **Needs:** an Apple Developer identity (user-provided) and a host for the update channel.
 
-**Steps:**
+Splits into two sub-tracks. Both must land before the first signed DMG leaves the build server. Detail for 16.S lives in `security.md`.
+
+### Track 16.R — Release mechanics
+
 - Acquire Apple Developer identity + provisioning; set up CI secrets for signing.
 - First signed + notarized `.dmg` via `cargo tauri build` → `codesign` → `notarytool` (see `apps/desktop/PACKAGING.md`).
-- Updater backend: signed `latest.json` on a static host (Cloudflare Pages or similar). Ed25519 signing key in a sealed box; public key compiled into `Updater`.
-- Crash-report endpoint: opt-in upload to the same static host. Reports are structured JSON; no PII fields.
+- Updater backend: signed `latest.json` on a static host (Cloudflare Pages or similar). See 16.S for the dual-key signing posture.
+- Crash-report endpoint: opt-in upload to the same static host. Reports are structured JSON, stack-trace paths anonymized, diff-previewed before leaving the device; no PII fields.
 - Install QA checklist run on a fresh Mac:
   - `.dmg` opens without Gatekeeper warnings.
   - First launch creates `~/.designer/`, shows onboarding, Cmd+K works.
@@ -559,21 +593,63 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Done when:** someone who has never run `cargo` can install Designer, link a repo, and chat with a team lead.
 
+### Track 16.S — Supply-chain posture *(DMG gate; detail in `security.md`)*
+
+- Blocking CI: `cargo audit`, `cargo deny`, `cargo vet` (starter trust file), `npm audit --production`, `lockfile-lint`. A PR cannot merge with an open advisory.
+- SBOM (CycloneDX) generated per release; attached to each GitHub Release artifact.
+- SLSA v1.0 Level 3 provenance: ephemeral CI runners + `sigstore/cosign` attestation; build logs signed.
+- Updater dual-key Ed25519: primary signing key + separate revocation key, both HSM-backed (YubiKey Bio acceptable pre-scale). Documented rotation + revocation procedure.
+- Separate signing identity for the Foundation helper binary (defense in depth).
+- Hardened runtime entitlements committed to the repo; minimal surface — no camera, mic, location, AppleEvents, or accessibility unless justified in writing.
+- `SECURITY.md`, `.well-known/security.txt`, PGP key, responsible-disclosure SLA (30-day triage, 90-day remediation target for high-severity).
+- Third-party pentest scheduled to land before the first signed DMG (~$30–60k, 4–8 weeks; scope = IPC surface, webview + frontend, approval gates, supply chain, updater, helper IPC). Cadence afterward: annual + on every major-version release.
+- Self-hosted CI runner hardening: ephemeral VM per job, egress allowlist, scoped short-lived GitHub tokens, quarterly rotation.
+
+**Done when:** a fresh clone produces an identical signed artifact on a rebuild modulo Apple's notarization timestamp; the released DMG carries a verifiable SLSA provenance; every dep has passed audit gates; the pentest report is published alongside the release.
+
 ---
 
-## Phase 17 — Mobile *(formerly Phase 12; renumbered for clarity)* (originally spec §Mobile Strategy)
+## Phase 17 — Team-tier trust *(gates team pricing; detail in `security.md`)*
 
-Deferred until Phase 16 ships. Planned deliverables unchanged from the prior plan:
+**Goal:** cross the trust bar a buyer in procurement actually looks for — encryption at rest, fleet policy, SIEM export, revocable credentials, bug bounty — without reneging on the zero-data-collection promise.
+
+**Why a dedicated phase:** the individual-user launch (Phase 16) stands on its own — signed, tamper-evident, no egress. Team tier adds controls that individuals don't need (MDM, SIEM, GitHub App, encrypted event fields) and which, if shipped earlier, would bloat the individual experience. Gating team pricing on these avoids inviting sensitive-data teams before the controls they rely on exist.
+
+**Steps:**
+
+- App-level AES-GCM on sensitive event fields (agent messages, tool outputs, captured file contents). Key is Keychain-sealed, device-only, `kSecAttrSynchronizable = false`. Workspace metadata stays unencrypted for queryability.
+- Two-tier logging: default tier writes event envelopes (IDs, timestamps, costs, tool names, file paths) — no bodies. Bodies live in the encrypted store and are purged on a rolling window the user controls. Support bundles are explicit, user-reviewed exports with diff preview before leaving the device.
+- MDM / admin-signed managed-preferences policy at `/Library/Managed Preferences/com.designer.app.plist`. Admin-signed policies can pin scope rules, force-enable approval tiers, restrict tool allowlists, disable specific agents fleet-wide. Policy signature verified against a compiled-in admin root.
+- SIEM-ready audit-log export (JSON lines, CEF-compatible fields). User-initiated with diff preview; never network.
+- Narrowly-scoped GitHub App with per-workspace grants replacing ambient `gh` token reliance; revocable per-workspace. `gh` stays as the individual-tier default; team tier defaults to the App.
+- Inter-workspace isolation: per-workspace keyed HMAC domain separation on the event chain (builds on 13.H chain infrastructure).
+- Bug bounty live (HackerOne or equivalent); VDP discoverable via `.well-known/security.txt`.
+- Foundation helper data-deletion completeness: when a workspace is deleted, helper caches + model-session state go with it. Audit of where helper state lives, documented in `security.md`.
+- SOC 2 Type I: reactive to named enterprise deals, scoped narrowly to the zero-data-collection posture. Not pursued preemptively.
+
+**Done when:** an admin can push a signed policy that a user's Designer enforces on next launch; a security team can export an audit log for SIEM ingestion with a one-click flow; sensitive event fields are unreadable on disk without the Keychain-sealed key; the bug bounty is live with at least one external report closed.
+
+---
+
+## Phase 18 — Mobile *(formerly Phase 12; renumbered for clarity)* (originally spec §Mobile Strategy)
+
+Deferred until Phase 16 ships and Phase 17 establishes team-tier trust. Planned deliverables:
 
 - iOS client (read-only reports + approve/reject gates first).
 - Light editing (redirect agents, short replies, resume sessions).
 - Remote wake of desktop Claude Code sessions over the Phase 14 sync transport.
 
+Transport security is non-negotiable and spec-level (see `security.md` and spec §5):
+
+- Noise_XX or Signal-style double ratchet over WebRTC. Forward secrecy; post-compromise recovery.
+- Device pairing by QR + short-authentication-string verification. TOFU with explicit out-of-band re-verify affordance.
+- Relay is untrusted — ciphertext-only, no metadata persistence, selectable per session.
+
 Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 
 ---
 
-## Phase 18 — Workspace scales up *(multi-track UX, forking, reconciliation)*
+## Phase 19 — Workspace scales up *(multi-track UX, forking, reconciliation)*
 
 **Goal:** deliver the full workspace/track model to the user. The primitive landed in Phase 13.E; this phase unlocks what it enables.
 
@@ -607,11 +683,13 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 | Design lab + polish scaffolding | 10, 11 | — | ✅ Preliminary build |
 | **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.A ✅ 2026-04-22; 12.C ✅ 2026-04-21; 12.B infrastructure landed, real-hardware validation pending** |
 | Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after Phase 12) | Pending |
+| **GA safety enforcement** | **13.H** | After 13.G | **Pending — blocks GA** |
 | Sync transport | 14 | Yes (parallel with 13/15) | Pending |
 | Hardening + polish | 15 | Yes (parallel with 13/14) | Pending |
-| Shippable desktop beta | 16 | After 13 + 15 | Blocked on Apple Developer ID |
-| Mobile | 17 | After 16 + 14 | Phase 2 |
-| Workspace scales up (multi-track, forking) | 18 | After 13 + 16; parts pullable into 15 | Pending |
+| Shippable desktop beta | 16.R + 16.S | After 13 + 15 | Blocked on Apple Developer ID; 16.S blocks signed DMG |
+| **Team-tier trust** | **17.T** | After 16 | **Pending — gates team pricing** |
+| Mobile | 18 | After 16 + 17 + 14 | Phase 2 |
+| Workspace scales up (multi-track, forking) | 19 | After 13 + 16; parts pullable into 15 | Pending |
 
 ---
 

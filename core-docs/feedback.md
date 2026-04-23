@@ -33,13 +33,31 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0018: Enterprise-grade security is a launch requirement, not a follow-on
+**Date:** 2026-04-22
+**Source:** user direction
+
+**What was said:** *"I want to make sure that we are planning for enterprise tool grade security as we prepare to launch this product. individuals and teams with sensitive data need to be able to rely on this. we as the builders shouldn't be able to see any of their code or requests (those should just run through the local claude on their machines) and the app should store local data to feed local llms etc, but we shouldn't collect data from users."*
+
+**Synthesized rule:** Sensitive-data teams are a named target user, not a post-launch segment. Security work is folded into GA, ship, and team-tier gates — not deferred to a separate hardening phase. The operating principles:
+
+- **Zero network traffic from Designer itself.** Every observable egress must be attributable to Claude Code, the user's own git / gh operations, or a tool an agent explicitly invoked. Updater and opt-in crash-report are the only Designer-owned endpoints and both require user consent.
+- **Worktree is the enforcement boundary.** We constrain what agents *write* (pre-write scope + approval gates in Rust core) and surface what they *do* (activity spine, signed event log). We do *not* sandbox Claude's network egress or strip prompt-injection patterns from repo content — both would break the product.
+- **Risk-tiered gates, not prompt-on-everything.** The many-agents value prop dies under approval fatigue. Irreversible-or-cross-org actions get Touch ID; routine writes get in-app approval; first-use-per-tool gets a per-track capability grant. Approval density scales with blast radius.
+- **Credibility via pentest, not SOC 2 theater.** Independent third-party pentest + plain-language trust statement ship with the first signed DMG. SOC 2 is reactive to named enterprise deals, not pursued preemptively.
+- **Tamper-evidence at GA, not at team-tier.** If we claim sensitive-data teams can rely on Designer at launch, the event log must actually be tamper-evident at launch (HMAC chain + periodic anchor).
+
+Codified in spec §5 (new hard invariants) and `security.md` (threat model, 13.H / 16.S / 17.T / 18 phase tranches, plain-language trust statement).
+
+**Applies to:** architecture, product, roadmap, launch positioning, ux (approval flows), compliance
+
 ### FB-0017: Workspace is a persistent feature-level primitive, decoupled from git
 **Date:** 2026-04-21
 **Source:** user direction
 
 **What was said:** During Phase 12.A planning, the user pushed back on "one workspace = one worktree = one PR" as the workspace model. Verbatim: *"I don't really accept that 1 workspace needs to be one worktree — i use this in conductor and as a non engineer, it's limiting for me because i don't think in terms of PRs. I often want to continue working in a workspace after the first PR because that workspace has my context for that feature, and feature iteration often includes multiple PRs. if i was working with a team of people, their work would not all fit into one PR. As agents get more powerful, one PR/worktree will be tiny in the grand scheme of things."*
 
-**Synthesized rule:** The workspace is a persistent, feature-level primitive that holds context, decisions, chat history, and attention state across many PRs. It must not be coupled to any git artifact. A new primitive — **track** — sits below it and owns the git-bound state (one worktree + one branch + one agent team + one PR series per track). A workspace contains many tracks over its lifetime, sequential or parallel. The user never has to think in branches or worktrees; those surface as status details only on drill-in. This is a structural product differentiator — the manager's abstraction level above git, above sessions, above Claude's agent-teams primitive. Codified in spec Decisions 29–32 and Phase 18.
+**Synthesized rule:** The workspace is a persistent, feature-level primitive that holds context, decisions, chat history, and attention state across many PRs. It must not be coupled to any git artifact. A new primitive — **track** — sits below it and owns the git-bound state (one worktree + one branch + one agent team + one PR series per track). A workspace contains many tracks over its lifetime, sequential or parallel. The user never has to think in branches or worktrees; those surface as status details only on drill-in. This is a structural product differentiator — the manager's abstraction level above git, above sessions, above Claude's agent-teams primitive. Codified in spec Decisions 29–32 and Phase 19.
 
 **Applies to:** architecture, data model, ux, agent orchestration, product differentiation
 

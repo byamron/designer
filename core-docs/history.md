@@ -67,7 +67,7 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
    - `.github/workflows/claude-probe.yml` — Tier 3 scheduled daily probe; opens a GitHub issue on version drift from the pinned `integration-notes.md`.
 
 5. **Spec evolution (landed in the same session before code):**
-   - New primitive: **track**. A workspace owns many tracks over its lifetime; each track is one worktree + branch + agent team + PR series. Spec §"Workspace and Track" + Decisions 29–32. Phase 18 added to the roadmap for multi-track UX.
+   - New primitive: **track**. A workspace owns many tracks over its lifetime; each track is one worktree + branch + agent team + PR series. Spec §"Workspace and Track" + Decisions 29–32. Phase 19 added to the roadmap for multi-track UX (originally numbered Phase 18; shifted when the security phases — 13.H, 16.S, 17.T — were folded in on 2026-04-22).
    - Workspace lead committed as a persistent Claude Code session (Decision 31); hybrid routing reserved as future token optimization.
    - Fleet-scale stance: rely on Anthropic's own `rate_limit_event` signal + opt-in usage chip; no Designer-imposed concurrency caps (Decision 34). Phase 13.G updated.
    - Self-hosted-runner CI decision codified (Decision 33).
@@ -76,7 +76,7 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 **Why:**
 Phase 12.A of the roadmap required validating three bedrock assumptions: real Claude Code subprocess works as spec'd; file shapes match what the placeholder code assumed; the `Orchestrator` trait can absorb the real primitive without downstream ripple. The initial probe found the placeholder's `claude team init/task/message` CLI was speculative — no such subcommand exists. A follow-up web check showed agent teams are a real, shipped, env-var-gated feature with a natural-language-driven interaction model. The rewrite pivoted to the real primitive; the trait survived unchanged.
 
-In the middle of the planning, the user pushed back on the "workspace = worktree = PR" 1:1 model as limiting for a non-engineer manager-persona. That surfaced the track primitive. Committed the direction in the spec now; UI implementation staged into Phase 18.
+In the middle of the planning, the user pushed back on the "workspace = worktree = PR" 1:1 model as limiting for a non-engineer manager-persona. That surfaced the track primitive. Committed the direction in the spec now; UI implementation staged into Phase 19 (was Phase 18 at the time; shifted when the security phases folded in).
 
 **Design decisions:**
 - Native agent-teams primitive over pivoting to per-role `claude -p` workers (ADR 0001). Keeps Claude's built-in shared task list + mailbox + hook firing; rebuilds nothing.

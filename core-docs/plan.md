@@ -75,7 +75,7 @@ Infrastructure landed on 2026-04-21 (branch `phase-12b-plan`); real-binary valid
 Four tracks with individual input gates:
 
 - [ ] **13.D Agent wire** (needs 12.A + 12.C): replace `PlanTab::ackFor()` with `Orchestrator::post_message`; stream replies via `designer://event-stream`.
-- [ ] **13.E Track primitive + git wire** (needs 12.C): introduces the `Track` primitive per spec Decisions 29–30 (workspace owns a list of tracks; v1 creates length-1). Repo-linking UI + `TrackStarted` events + `GitOps::init_worktree` per track + `core-docs/*.md` seeding + "Request merge" → `gh pr create` → `TrackCompleted`. Reserves `WorkspaceForked` / `WorkspacesReconciled` / `TrackArchived` event types for Phase 18.
+- [ ] **13.E Track primitive + git wire** (needs 12.C): introduces the `Track` primitive per spec Decisions 29–30 (workspace owns a list of tracks; v1 creates length-1). Repo-linking UI + `TrackStarted` events + `GitOps::init_worktree` per track + `core-docs/*.md` seeding + "Request merge" → `gh pr create` → `TrackCompleted`. Reserves `WorkspaceForked` / `WorkspacesReconciled` / `TrackArchived` event types for Phase 19.
 - [ ] **13.F Local-model surfaces** (needs 12.B + 12.C): spine summaries via `LocalOps::summarize_row`; Home recap via `LocalOps::recap`; audit verdicts via `LocalOps::audit_claim`.
 - [ ] **13.G Safety surfaces + Keychain** (needs 12.C): approval inbox, cost chip in topbar, scope-denied in inbox, `security-framework` keychain integration.
 
@@ -97,15 +97,49 @@ Six independent items:
 - [ ] Auto-grow chat textarea.
 - [ ] `AppCore::sync_projector_from_log` incrementalization (last-seen sequence per stream).
 
-### Phase 16 — Shippable desktop build *(after 13 + 15)*
+### Phase 13.H — Safety enforcement *(after 13.G; GA gate; detail in `security.md`)*
+
+- [ ] Flip approval-gate enforcement from post-append to pre-write.
+- [ ] Symlink-safe scope (`canonicalize()` + worktree-prefix check).
+- [ ] Risk-tiered gates: in-app approval / Touch ID for irreversible-or-cross-org / per-track capability grants.
+- [ ] `claude` binary pinning via `SecStaticCodeCheckValidity`.
+- [ ] Context manifest surfaced at turn boundaries with untrusted-lane tagging.
+- [ ] Event schema: `(track_id, role, claude_session_id, tool_name)` on every event; tool-call events first-class.
+- [ ] HMAC chain over events with session-sealed key; periodic external anchor.
+- [ ] Secrets scanner on pre-write (`gitleaks`-equivalent ruleset); secret-input mode in chat.
+- [ ] CSP `frame-ancestors 'self'`; helper IPC max-frame + fuzz harness; webview lockdown audit.
+
+### Phase 16.R — Release mechanics *(after 13 + 15)*
 
 - [ ] Apple Developer identity + CI signing secrets.
 - [ ] First signed + notarized `.dmg` (`cargo tauri build` → `codesign` → `notarytool`).
-- [ ] Updater backend: signed `latest.json` on static host + Ed25519 keypair.
-- [ ] Crash-report endpoint (opt-in upload).
+- [ ] Updater backend: signed `latest.json` on static host (dual-key in 16.S).
+- [ ] Crash-report endpoint (opt-in upload; stack-trace paths anonymized, diff-preview before send).
 - [ ] Install QA checklist on a fresh Mac (see `apps/desktop/PACKAGING.md`).
 
-### Phase 18 — Workspace scales up *(after 13 + 16; parts pullable into 15)*
+### Phase 16.S — Supply-chain posture *(DMG gate; detail in `security.md`)*
+
+- [ ] Blocking CI: `cargo audit` / `cargo deny` / `cargo vet` / `npm audit` / `lockfile-lint`.
+- [ ] SBOM (CycloneDX) per release + SLSA v1.0 L3 provenance.
+- [ ] Updater dual-key Ed25519 (primary + revocation), HSM-backed signing, rotation doc.
+- [ ] Separate signing identity for the Foundation helper binary.
+- [ ] Hardened runtime entitlements published; minimal surface.
+- [ ] `SECURITY.md`, `.well-known/security.txt`, PGP key, 30/90-day disclosure SLA.
+- [ ] Third-party pentest (~$30–60k, 4–8 weeks) scheduled pre-DMG.
+- [ ] Self-hosted CI runner hardening: ephemeral VMs, egress allowlist, scoped short-lived tokens.
+
+### Phase 17.T — Team-tier trust *(gates team pricing; detail in `security.md`)*
+
+- [ ] App-level AES-GCM on sensitive event fields; Keychain-sealed device-only key.
+- [ ] Two-tier logging (envelopes default, encrypted bodies with user-controlled purge).
+- [ ] MDM / admin-signed managed-preferences policy at `/Library/Managed Preferences/com.designer.app.plist`.
+- [ ] SIEM-ready JSONL / CEF audit-log export (user-initiated, diff-previewed).
+- [ ] Narrowly-scoped GitHub App with per-workspace grants (individual-tier stays on `gh`).
+- [ ] Inter-workspace HMAC domain separation.
+- [ ] Bug bounty live (HackerOne or equivalent); VDP discoverable.
+- [ ] Foundation helper data-deletion completeness audit.
+
+### Phase 19 — Workspace scales up *(after 13 + 16; parts pullable into 15)*
 
 Delivers the user-visible affordances of the workspace/track model (spec §"Workspace and Track"). Primitive lands in 13.E; this phase unlocks what it enables.
 
