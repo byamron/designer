@@ -59,12 +59,11 @@
      Role-named, granular. Override per-role size/leading/weight/tracking
      without touching siblings. */
 
-  /* Families */
+  /* Families — sans + mono (axiom #6). Serif was pruned; re-add here if a
+     product surface ever justifies it. */
   --type-family-sans:
     "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --type-family-serif:
-    ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --type-family-mono:
     "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
@@ -74,62 +73,53 @@
   --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* Role: caption */
-  --type-caption-size:     0.75rem;   /* 12px */
+  /* Type roles — only the steps that ship are defined here.
+     caption / body / lead / h3 are chrome (axiom #15).
+     h2 is onboarding-only and lives outside chrome.
+     h1 / h4 / display were pruned as dead tokens; re-add here if a
+     surface ever justifies one, and log it in pattern-log.md.
+     Role-weight tokens (--type-*-weight) were also pruned — consumers
+     reference the --weight-* scale directly, which is where the
+     dev-panel overrides apply. */
+
+  /* Role: caption — 13px. Meta, labels, kbd, branch chip, row meta. */
+  --type-caption-size:     0.8125rem; /* 13px */
   --type-caption-leading:  1.4;
-  --type-caption-weight:   var(--weight-regular);
   --type-caption-tracking: 0.01em;
 
-  /* Role: body — 14px tool register (axiom #15). */
-  --type-body-size:        0.875rem;  /* 14px */
-  --type-body-leading:     1.45;
-  --type-body-weight:      var(--weight-regular);
+  /* Role: body — 15px. The chrome default. Leading 1.5 gives 22.5px rows —
+     one extra pixel of breathing room over the prior 1.45 at 15px body. */
+  --type-body-size:        0.9375rem; /* 15px */
+  --type-body-leading:     1.5;
   --type-body-tracking:    0;
 
-  /* Role: lead — 18px. Reserved for hero-input surfaces (palette prompt,
-     quick-switcher). Not a general chrome size; see axiom #15. */
-  --type-lead-size:        1.125rem;  /* 18px */
-  --type-lead-leading:     1.45;
-  --type-lead-weight:      var(--weight-regular);
+  /* Role: lead — 15px by default (collapsed to body). Kept as a separate
+     role so palette / quick-switcher inputs can be bumped to a hero size
+     independently if that pattern comes back. */
+  --type-lead-size:        0.9375rem; /* 15px */
+  --type-lead-leading:     1.5;
   --type-lead-tracking:    0;
 
-  /* Role: h4 */
-  --type-h4-size:          1.25rem;   /* 20px */
-  --type-h4-leading:       1.3;
-  --type-h4-weight:        var(--weight-semibold);
-  --type-h4-tracking:      -0.01em;
-
-  /* Role: h3 — 18px semibold. The one heading role in app chrome. */
+  /* Role: h3 — 18px semibold. The one heading role in chrome. */
   --type-h3-size:          1.125rem;  /* 18px */
   --type-h3-leading:       1.3;
-  --type-h3-weight:        var(--weight-semibold);
   --type-h3-tracking:      -0.01em;
 
-  /* Role: h2 */
+  /* Role: h2 — 32px. Onboarding hero only; outside chrome. */
   --type-h2-size:          2rem;      /* 32px */
   --type-h2-leading:       1.2;
-  --type-h2-weight:        var(--weight-semibold);
   --type-h2-tracking:      -0.02em;
 
-  /* Role: h1 */
-  --type-h1-size:          2.5rem;    /* 40px */
-  --type-h1-leading:       1.15;
-  --type-h1-weight:        var(--weight-semibold);
-  --type-h1-tracking:      -0.025em;
-
-  /* Role: display */
-  --type-display-size:     3.5rem;    /* 56px */
-  --type-display-leading:  1.05;
-  --type-display-weight:   var(--weight-bold);
-  --type-display-tracking: -0.03em;
-
   /* ==================== Radius (role-named) ====================
-     Axiom: soft (sharper side) — button = 6px base. */
+     Axiom: soft (sharper side) — button = 6px base. Modal dropped from
+     14 → 12 to keep a sharper tool register with the denser 15px body;
+     modal still reads distinct from card (10) but no longer drifts into
+     consumer-product softness. */
   --radius-none:    0;
   --radius-badge:   0.1875rem;  /*  3px */
   --radius-button:  0.375rem;   /*  6px */
   --radius-card:    0.625rem;   /* 10px */
-  --radius-modal:   0.875rem;   /* 14px */
+  --radius-modal:   0.75rem;    /* 12px */
   --radius-pill:    9999px;
 
   /* ==================== Motion ==================== */
@@ -149,9 +139,10 @@
   --motion-exit:         var(--motion-quick)    var(--ease-in-exit);
   --motion-interactive:  var(--motion-instant)  var(--ease-standard);
 
-  /* Spring approximations (bezier, not real springs) */
+  /* Spring approximation (bezier, not a real spring). --motion-spring-weighted
+     was pruned until a caller justifies it; re-add if a second spring
+     register is needed. */
   --motion-spring-snappy:    180ms cubic-bezier(0.30, 1.40, 0.30, 1);
-  --motion-spring-weighted:  320ms cubic-bezier(0.20, 1.15, 0.35, 1);
 
   /* ==================== Elevation (role-named) ====================
      Elevation is two paired token families: shadow and stack layer.
@@ -199,11 +190,12 @@
   --icon-lg:         1rem;     /* 16px */
 
   /* Hit-target sizing (axiom #14). Two steps. sm = dense inline affordance
-     (chip remove, inline-row controls). md = standard icon button — the
-     default for anything on a navigation, top bar, or compose surface.
-     Anything smaller than sm fails tap accessibility on touch devices. */
-  --target-sm:       1.5rem;   /* 24px */
-  --target-md:       2rem;     /* 32px */
+     (chip remove, inline-row controls) — 26px gives 4px of breathing room
+     over a 22.5px body row, just above the one-pixel-of-air floor. md =
+     standard icon button for nav / topbar / compose. Anything smaller
+     than sm fails tap accessibility on touch devices. */
+  --target-sm:       1.625rem;  /* 26px */
+  --target-md:       2rem;      /* 32px */
 
   /* ==================== Color — logical layer ==================== */
 

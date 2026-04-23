@@ -43,7 +43,7 @@ These defaults are *not* a design language. `core-docs/design-language.md` is th
 - **Duration slots** — `instant 50ms` / `quick 120ms` / `standard 250ms` / `emphasized 400ms`. Snappy personality; upper bound stays under the WCAG-recommended ~500ms ceiling for non-opt-in motion.
 - **Easing** — `ease-out-enter: cubic-bezier(0.20, 0, 0, 1)` (material-like, gentle-land), `ease-in-exit: cubic-bezier(0.40, 0, 1, 0.30)` (fast-exit). Same bezier for enter and standard — distinction lives in duration.
 - **Composed role tokens** — `motion-enter` (standard + out-enter), `motion-exit` (quick + in-exit), `motion-interactive` (instant + standard).
-- **Spring approximations** — `motion-spring-snappy`, `motion-spring-weighted`. CSS can't spring natively; these are tuned beziers that feel spring-ish.
+- **Spring approximation** — `motion-spring-snappy`. CSS can't spring natively; a tuned bezier that feels spring-ish. Add a second spring token (e.g. `motion-spring-weighted`) if a heavier register is needed.
 - **Reduced-motion** — all transitions/animations collapse to `0.01ms` via the global axiom in `axioms.css`.
 
 ### Elevation

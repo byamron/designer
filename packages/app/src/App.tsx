@@ -4,6 +4,7 @@ import { AppShell } from "./layout/AppShell";
 import { QuickSwitcher } from "./layout/QuickSwitcher";
 import { Onboarding } from "./components/Onboarding";
 import { AppDialog } from "./components/AppDialog";
+import { TypeDevPanel } from "./dev/TypeDevPanel";
 import {
   bootData,
   dataStore,
@@ -98,6 +99,7 @@ export function App() {
       <AppDialog />
       <Onboarding />
       {import.meta.env.MODE === "development" && <Agentation />}
+      {import.meta.env.MODE === "development" && <TypeDevPanel />}
     </>
   );
 }
