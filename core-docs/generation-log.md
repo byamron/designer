@@ -100,4 +100,59 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - tokens: added --icon-sm / --icon-md / --icon-lg to packages/ui/styles/tokens.css as the icon-size family (axiom #13). Fixed 5 consumer-side references from --type-weight-* → --weight-* (non-existent token); applied the same fix in Onboarding.tsx. Added box-shadow focus-within ring on .compose wrapper using existing --focus-outline-* tokens.
 - invariants: 6/6 on all touched files; typecheck clean; 14/14 tests pass (new tests for closeTab and variant-toggle).
 - deviations: TabContent keyed by `${workspace.id}:${activeTab}` to force remount on workspace switch (prevents PlanTab draft state from bleeding across workspaces). PlanTab serializes model/effort/planMode into the outgoing message body as a temporary measure until Phase 13.D carries them as first-class fields.
+- feedback: accepted
+
+## 2026-04-22T07:45:00Z — manual (22-annotation UX-feedback pass)
+- prompt: "Review the code and implement this frontend feedback from the perspective of a staff UX designer and staff design engineer team. Keep the code clean and performant and stay aligned with the design system and design language. Evolve the system docs based on the feedback."
+- trigger: manual (22 annotations in a single paste, implementation + doc evolution in one pass)
+- archetype-reused: compose dock, tab button, variant toggle, state-dot, workspace-status glyphs
+- components-reused: AppShell, ProjectStrip, WorkspaceSidebar, ActivitySpine, MainView, HomeTabA, HomeTabB, PlanTab, DesignTab
+- components-new: Tooltip (immediate-on-hover popover with shortcut-as-kbd slot), IconButton (single icon-only archetype, sm/md hit targets, primary filled variant), AppDialog (Settings + Help modal stubs)
+- components-removed: sidebar-group__add class (superseded by IconButton); home-b__brief / home-b__brief-row / home-b__brief-label / home-b__brief-body / home-b__brief-toggle (drawer cut — Panels mode is the canonical drill-in); compose__inline-actions and compose__icon-btn (consolidated into .btn-icon + .compose__actions); main-topbar__title / main-topbar__sep / main-topbar__project / main-topbar__meta (topbar minimized)
+- primitives: (still deferred; tracked as G12)
+- tokens: added --target-sm (24px) and --target-md (32px) to packages/ui/styles/tokens.css (axiom #14 — hit-target sizing). No other token additions — every surface change composes from existing tokens.
+- axioms: three updates. #14 new (hit-target sizing). #15 new (three text roles in app chrome — caption / body / h3). §Patterns expanded with: Tooltip-component-not-title, IconButton-as-single-archetype, entire-control-is-focus-target, chat asymmetry (user bubbles, agent on surface), project-strip utility cluster, project-scoped spine, sidebar/spine toggles + drag handles, topbar minimalism, trailing '+' IS a tab, palette bounded/open densities.
+- app-store: added paletteDensity, sidebarVisible, spineVisible, dialog to AppState; three localStorage-persisted keys (designer.paletteDensity, designer.sidebarVisible, designer.spineVisible).
+- keyboard: added ⌘[ (toggle workspaces), ⌘] (toggle activity), ⌘? (open Help). Existing ⌘K / ⌘T / ⌘W / ⌘\\ / ⌘↵ retained.
+- invariants: 6/6 on the 27 files in packages/app/src.
+- typecheck: clean (tsc --noEmit).
+- tests: 14/14 pass. Updated tabs.test.tsx "renders the project name as h1 in the topbar" → "renders the active project name in the sidebar" to match the new IA.
+- deviations: the hover-revealed .pane-toggle handles toggle-on-click only; drag-to-reorder to different shell sides is deferred — the handles are the anchor for that future pass. Settings + Help dialogs ship as read-only stubs (Appearance / Account / Models / Preferences in Settings; question input + kbd list + About in Help); wiring to the real settings core is Phase 13 scope. The Tooltip uses a magic-number 6px gap in its JS positioning math (client pixels, not a token) — acceptable because getBoundingClientRect returns client-pixel coordinates; a follow-up could read --space-2 from computed style.
+- feedback: accepted
+
+## 2026-04-22T08:45:00Z — manual (second UX-feedback pass, 8 annotations)
+- prompt: "Review comments on the updated build: spine events should be newest-first; compose actions too cramped; blank tab should be the palette; annotation pins aren't viewable after save; workspace topbar reads as a bullet, kill it and make tabs the top; panes should actually be resizable; model info shouldn't appear inside user message; tabs-bar container shouldn't fill or have a separator."
+- trigger: manual (annotation pass #2 on the evolved surface)
+- archetype-reused: compose dock, tab button, IconButton, Tooltip, variant toggle
+- components-reused: AppShell, WorkspaceSidebar, ActivitySpine, MainView, HomeTabB, PlanTab, AnnotationLayer, BlankTab
+- components-new: Palette (shared prompt+suggestions primitive), PaneResizer (drag-to-resize edge handle)
+- components-removed: pane-toggle click-button pattern (replaced by PaneResizer); BlankTab's card-based prompt-suggestions layout (replaced by Palette)
+- primitives: (still deferred; tracked as G12)
+- tokens: no new tokens. Width constants (PANE_MIN_WIDTH=180, PANE_MAX_WIDTH=480, PANE_DEFAULT_WIDTH=256) are product constants in store/app.ts — resizing is a product behavior, not a tokenized value.
+- app-store: added sidebarWidth, spineWidth to AppState; clampPaneWidth helper; setSidebarWidth / setSpineWidth actions; two new localStorage keys (designer.sidebarWidth, designer.spineWidth).
+- axioms: no new axioms. §Patterns added: palette-is-the-blank-tab-surface, workspace-view-has-no-topbar, tabs-bar-is-transparent, panes-are-resizable-not-just-togglable, compose-metadata-in-payload-not-body, annotations-are-first-class-objects.
+- invariants: 6/6 on 29 files in packages/app/src.
+- typecheck: clean.
+- tests: 14/14 pass.
+- deviations: Duplicate-key warning in spine events is fixed by including the index in the key, because the mock seeds duplicate stream_id+sequence pairs across workspaces — a mock-data fix would be cleaner and is tracked for the next ipc/mock.ts pass.
+- feedback: accepted
+
+## 2026-04-22T09:15:00Z — /simplify (staff review on the UX-feedback pass)
+- prompt: "Review the changes from the perspective of a staff UX designer and a staff design engineer, and make any fixes or optimizations. Use /simplify and ensure that the design system (and its docs) are in alignment and updated to evolve based on the feedback."
+- trigger: /simplify (three parallel audits: reuse, quality, efficiency; converged fix list applied in sequence)
+- archetype-reused: all existing (IconButton, Tooltip, Palette, PaneResizer)
+- components-reused: everything in the diff
+- components-new: components/icons.tsx (shared icon set), components/SegmentedToggle.tsx (generic two-to-N pill), util/cx.ts, util/persisted.ts
+- components-removed: VariantToggle's bespoke markup (replaced by SegmentedToggle); all inline copies of IconX, IconPlus, IconCollapseLeft/Right across AppShell, ActivitySpine, WorkspaceSidebar, MainView, ProjectStrip, AppDialog, PlanTab
+- css-renames: .variant-toggle → .segmented-toggle; .home-b* → .palette* (palette surface class renamed from palette__palette → palette__surface)
+- store changes: replaced 4 bespoke readStored* helpers with `persisted()` instantiations; every setter now short-circuits on same-value via `Object.is(s, s)` so store listeners don't fire on no-op updates; split `setSidebarWidth` / `setSpineWidth` into `{setSidebarWidthLive, commitSidebarWidth}` and the equivalent for the spine — live updates during drag, persist on release.
+- PaneResizer: `onLiveChange` + `onCommit` prop split (was single `onCommit`), `aria-valuemin`/`aria-valuemax` added, `hasPointerCapture` guard before releasing.
+- Tooltip: scroll/resize listener now rAF-coalesced and passive.
+- IconButton: `aria-pressed` only rendered when `pressed !== undefined`.
+- HomeTabB: `needsYou` memoized so the downstream `useMemo` doesn't invalidate on every event tick.
+- primitives: (still deferred; tracked as G12)
+- invariants: 6/6 on 31 files.
+- typecheck: clean.
+- tests: 14/14 pass.
+- deviations: none added. Tooltip cloneElement + ref-forwarding still works as-is; noted in the audit as a Slot-pattern candidate but deferred — no caller is breaking. AppDialog kind/open split skipped: two dialogs is fine as a union.
 - feedback: pending

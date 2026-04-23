@@ -15,14 +15,14 @@ export function DesignTab({ tab, workspace }: { tab: Tab; workspace: Workspace }
       </header>
 
       <section aria-labelledby="prototype-heading" style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-        <h3 id="prototype-heading" className="card__title" style={{ fontSize: "var(--type-h3-size)" }}>
+        <h3 id="prototype-heading" className="card__title">
           Prototype preview
         </h3>
         <PrototypePreview workspace={workspace} />
       </section>
 
       <section aria-labelledby="catalog-heading" style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-        <h3 id="catalog-heading" className="card__title" style={{ fontSize: "var(--type-h3-size)" }}>
+        <h3 id="catalog-heading" className="card__title">
           Component catalog
         </h3>
         <ComponentCatalog />

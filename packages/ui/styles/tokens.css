@@ -197,6 +197,13 @@
   --icon-md:         0.875rem; /* 14px */
   --icon-lg:         1rem;     /* 16px */
 
+  /* Hit-target sizing (axiom #14). Two steps. sm = dense inline affordance
+     (chip remove, inline-row controls). md = standard icon button — the
+     default for anything on a navigation, top bar, or compose surface.
+     Anything smaller than sm fails tap accessibility on touch devices. */
+  --target-sm:       1.5rem;   /* 24px */
+  --target-md:       2rem;     /* 32px */
+
   /* ==================== Color — logical layer ==================== */
 
   /* Gray scale: sourced from the sand Radix scale (axiom #4). Warm

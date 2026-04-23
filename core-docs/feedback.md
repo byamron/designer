@@ -33,6 +33,36 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0015: Every pane should be togglable, and rails need drag affordances
+**Date:** 2026-04-22
+**Source:** user direction
+
+**What was said:** "There should be a way to toggle this sidebar on and off (this goes for all sidebars). Ideally, they would be draggable as well to different sides. We may need a drag handle indicator that should show up on hover."
+
+**Synthesized rule:** Workspace sidebar, activity spine, and project strip are each independently togglable via keyboard shortcut (⌘[, ⌘], ⌘\\) and via an IconButton in the pane's header. Collapsed state persists per install. Every pane edge has a hover-revealed drag handle (4px wide, col-resize cursor) that currently clicks-to-toggle; when drag-to-reorder lands, the same handle anchors it. Visible state is the exception to the default (panes open); user-collapsed state is durable.
+
+**Applies to:** ux, layout, frontend
+
+### FB-0014: Three text sizes in app chrome, not eight
+**Date:** 2026-04-22
+**Source:** user correction
+
+**What was said:** "This text feels too large — I want to do an audit of all the text styles we have. I don't think we need more than 2 or 3 sizes, and they don't have to be super different. Then we should have clear guidelines about what size gets used when." Separately: "This feels too big in relation to the standard text it's next to" (on the branch chip).
+
+**Synthesized rule:** App chrome uses three text roles — `caption` (12px, meta/labels/kbd), `body` (16px, the default for every control/message/list-row/title), and `h3` (24px, reserved for empty-state and onboarding hero). Hierarchy inside the body band comes from `--weight-medium` and `--color-muted`, not from new intermediate sizes. The other tokens (`lead`, `h4`, `h2`, `h1`, `display`) stay in the token file for edge surfaces but must be justified if introduced to shipped UI. Codified as axiom #15.
+
+**Applies to:** ux, typography, design-language
+
+### FB-0013: Icon-only buttons need standard hit targets and the tooltip system must be first-class
+**Date:** 2026-04-22
+**Source:** user correction
+
+**What was said:** "Make sure that click/hover targets are large enough to meet minimum accessibility standards — this one also just looks way too small. Icon buttons should have a standard target size. Also, the tooltips are good but they should show immediately on hover for all the interactive elements that have them. Also, for those with keyboard shortcuts, they should show in the tooltip."
+
+**Synthesized rule:** Two hit-target sizes: `--target-sm` (24px, dense inline affordance) and `--target-md` (32px, the default for nav/topbar/compose icons). Every icon-only button flows through an `IconButton` component that enforces the size, carries a required tooltip label, and exposes a `shortcut` prop. Tooltips must appear immediately on hover and on keyboard focus (no delay), render in a custom popover, and render the shortcut as a right-aligned kbd. Codified as axiom #14. The HTML `title` attribute remains as a graceful fallback but new UI should reach for the `Tooltip` component.
+
+**Applies to:** ux, a11y, component-library, design-language
+
 ### FB-0012: Monochrome (Notion/Linear register) is Designer's visual identity
 **Date:** 2026-04-21
 **Source:** user direction
