@@ -53,6 +53,17 @@ Agents live in `.claude/agents/` (not yet populated — scaffolded in Phase 1 pe
 2. **Keep docs and code in sync.** When a decision changes, update the spec and log a feedback entry.
 3. **Respect the compliance invariants** in `core-docs/spec.md` §5. Never touch Claude OAuth tokens; never run Claude Code anywhere but the user's machine.
 
+## Parallel track conventions
+
+Designer's Phase 13 is built by four parallel agents (13.D / E / F / G). The Phase 13.0 scaffolding PR partitioned the hot-spot files so agents edit sibling modules with zero contention. A few conventions keep the parallelism clean:
+
+- **Stay in your assigned files.** Each 13.X track owns a sibling module pair in `apps/desktop/src-tauri/src/`: `core_agents.rs` + `commands_agents.rs` for 13.D, `core_git.rs` + `commands_git.rs` for 13.E, `core_local.rs` + `commands_local.rs` for 13.F, `core_safety.rs` + `commands_safety.rs` for 13.G. Do **not** edit another track's sibling; do not add new methods to `core.rs` or `commands.rs` directly.
+- **Cross-track hooks are `TODO(13.X):`.** When one track needs a future hook from another, leave `// TODO(13.G): replace AutoAcceptSafeTools with InboxPermissionHandler once the inbox lands`. Grep-able, deterministic cleanup at integration time.
+- **Shared contracts are frozen.** Event shapes (`designer-core/src/event.rs`), IPC DTOs (`designer-ipc/src/lib.rs`), and the `PermissionHandler` trait (`designer-claude/src/permission.rs`) were locked by 13.0. Don't extend them without touching ADR 0002 or a new ADR.
+- **New IPC commands register in `lib.rs`.** The one shared surface that all four tracks touch is `tauri::generate_handler![...]`. Keep entries alphabetical; that minimizes conflict during integration merges.
+- **Read ADR 0002** (`core-docs/adr/0002-v1-scoping-decisions.md`) before re-litigating scoping choices. The workspace-lead session model, repo-linking UX, default permission policy, and cost-chip thresholds are all locked for v1.
+- **Integration merge order is D → E → G → F.** D lands first (chat with real Claude), E second (tracks + git), G third (swap the permission handler, wire cost chip), F last (local-model surfaces against real events). Each track ships a green `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --check` before handoff.
+
 ## Quality Bar
 
 Code does not ship unless it meets all four simultaneously:
