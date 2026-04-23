@@ -21,3 +21,6 @@ dist/
 
 # Tauri
 apps/desktop/src-tauri/gen/
+
+# Claude Code runtime scratch
+.claude/scheduled_tasks.lock
