@@ -71,7 +71,7 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
    - Workspace lead committed as a persistent Claude Code session (Decision 31); hybrid routing reserved as future token optimization.
    - Fleet-scale stance: rely on Anthropic's own `rate_limit_event` signal + opt-in usage chip; no Designer-imposed concurrency caps (Decision 34). Phase 13.G updated.
    - Self-hosted-runner CI decision codified (Decision 33).
-   - Two feedback entries: FB-0013 (test infrastructure mirrors product architecture) and FB-0014 (workspace as persistent feature-level primitive).
+   - Two feedback entries: FB-0016 (test infrastructure mirrors product architecture) and FB-0017 (workspace as persistent feature-level primitive). Renumbered from 13/14 after rebase because main's UI-critique commit had already taken 13/14/15.
 
 **Why:**
 Phase 12.A of the roadmap required validating three bedrock assumptions: real Claude Code subprocess works as spec'd; file shapes match what the placeholder code assumed; the `Orchestrator` trait can absorb the real primitive without downstream ripple. The initial probe found the placeholder's `claude team init/task/message` CLI was speculative — no such subcommand exists. A follow-up web check showed agent teams are a real, shipped, env-var-gated feature with a natural-language-driven interaction model. The rewrite pivoted to the real primitive; the trait survived unchanged.

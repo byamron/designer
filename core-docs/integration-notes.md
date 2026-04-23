@@ -349,7 +349,7 @@ From live `ps` on the dev machine while Conductor was running alongside the prob
 - Conductor spawns `claude` subprocesses with `--permission-prompt-tool stdio`, `--max-turns 1000`, `--model opus[1m]`, `--resume <session-id>`, `--disallowedTools AskUserQuestion`.
 - Not using `--dangerously-skip-permissions` — responds to permission prompts programmatically.
 - Not (visibly) using `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` — Conductor predates the teams primitive and rolls its own session-per-workspace model, confirming our differentiation thesis.
-- Ships its own Claude Code binary bundled with the Mac app. Designer will use the system install (spec §5 / FB-0013).
+- Ships its own Claude Code binary bundled with the Mac app. Designer will use the system install (spec §5 / FB-0016).
 
 ### Known limitations observed + from docs
 

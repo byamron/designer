@@ -89,7 +89,7 @@ All spec §5 invariants hold:
 - Rejected. No such subcommand is on Anthropic's public roadmap. The feature is exposed via natural language, and the underlying files/hooks are stable. Waiting for a CLI surface that may never ship blocks Phase 13.D indefinitely.
 
 **Option D (nearby) — bundle Claude Code with Designer.**
-- Rejected. Conductor does this (`~/Library/Application Support/com.conductor.app/bin/claude`). We explicitly defer to the user's installed Claude per spec §5 and FB-0013 — the product thesis is that Claude Code is *their* runtime, not something Designer ships.
+- Rejected. Conductor does this (`~/Library/Application Support/com.conductor.app/bin/claude`). We explicitly defer to the user's installed Claude per spec §5 and FB-0016 — the product thesis is that Claude Code is *their* runtime, not something Designer ships.
 
 ## Reversal trigger
 
@@ -105,7 +105,7 @@ In each case, re-run `scripts/probe-claude.sh --live`, update `core-docs/integra
 
 - `core-docs/integration-notes.md` — full probe findings
 - `core-docs/spec.md` Decisions 8, 26, 29–34
-- `core-docs/feedback.md` FB-0013, FB-0014
+- `core-docs/feedback.md` FB-0016, FB-0017
 - <https://code.claude.com/docs/en/agent-teams> — canonical docs
 - `scripts/probe-claude.sh` — reproducible probe
 - `crates/designer-claude/tests/fixtures/` — captured fixtures for unit tests

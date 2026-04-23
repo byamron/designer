@@ -8,7 +8,7 @@
 //!
 //! **Compliance:** we never touch Claude auth. `claude` handles its own
 //! credentials (keychain OAuth). Designer only invokes the binary; Anthropic
-//! is the only party ever in the auth path. See spec Decision 26 and FB-0013.
+//! is the only party ever in the auth path. See spec Decision 26 and FB-0016.
 //!
 //! **Resume / recovery:** Claude Code's in-process teammates do not survive
 //! `/resume`. The orchestrator derives a deterministic lead session id from
