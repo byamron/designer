@@ -20,7 +20,11 @@ impl Default for ScopeRule {
         // The per-workspace config is responsible for opening scope.
         Self {
             allow: vec![],
-            deny: vec!["**/.env*".into(), "**/secrets/**".into(), "**/.ssh/**".into()],
+            deny: vec![
+                "**/.env*".into(),
+                "**/secrets/**".into(),
+                "**/.ssh/**".into(),
+            ],
         }
     }
 }

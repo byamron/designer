@@ -64,9 +64,7 @@ impl<S: EventStore> InMemoryApprovalGate<S> {
 #[async_trait]
 impl<S: EventStore + 'static> ApprovalGate for InMemoryApprovalGate<S> {
     async fn request(&self, req: ApprovalRequest, actor: Actor) -> Result<EventEnvelope> {
-        self.pending
-            .lock()
-            .insert(req.id, ApprovalStatus::Pending);
+        self.pending.lock().insert(req.id, ApprovalStatus::Pending);
         self.store
             .append(
                 StreamId::Workspace(req.workspace_id),

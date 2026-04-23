@@ -313,7 +313,10 @@ mod tests {
         assert_eq!(out.len(), 1);
         match &out[0] {
             TranslatorOutput::RateLimit(info) => {
-                assert_eq!(info.get("rateLimitType").and_then(Value::as_str), Some("five_hour"));
+                assert_eq!(
+                    info.get("rateLimitType").and_then(Value::as_str),
+                    Some("five_hour")
+                );
             }
             other => panic!("unexpected output: {other:?}"),
         }
@@ -322,7 +325,8 @@ mod tests {
     #[test]
     fn result_success_emits_cost() {
         let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
-        let line = r#"{"type":"result","subtype":"success","total_cost_usd":0.36,"duration_ms":17222}"#;
+        let line =
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.36,"duration_ms":17222}"#;
         let out = t.translate(line);
         assert_eq!(out.len(), 1);
         match &out[0] {
@@ -338,7 +342,9 @@ mod tests {
         let out = t.translate(line);
         assert_eq!(out.len(), 1);
         match &out[0] {
-            TranslatorOutput::Event(OrchestratorEvent::MessagePosted { body, author_role, .. }) => {
+            TranslatorOutput::Event(OrchestratorEvent::MessagePosted {
+                body, author_role, ..
+            }) => {
                 assert_eq!(body, "Hello from the lead.");
                 assert_eq!(author_role, "team-lead");
             }

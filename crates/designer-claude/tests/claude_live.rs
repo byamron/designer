@@ -74,7 +74,9 @@ async fn spawn_team_and_observe_lifecycle() {
         env: Default::default(),
     };
 
-    orch.spawn_team(spec).await.expect("spawn_team should succeed");
+    orch.spawn_team(spec)
+        .await
+        .expect("spawn_team should succeed");
 
     // Fastest observable signal is the synthetic `TeamSpawned` emit.
     let team_spawned = await_event(&mut events, Duration::from_secs(5), |e| {

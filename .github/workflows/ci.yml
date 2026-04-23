@@ -48,12 +48,16 @@ jobs:
 
   frontend:
     name: frontend
-    runs-on: ubuntu-latest
+    # macOS matches the product's target platform and sidesteps npm's
+    # optional-deps bug (rollup's linux-x64-gnu native binary isn't in a
+    # lockfile generated on macOS — https://github.com/npm/cli/issues/4828).
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
       - run: |
           if [ -f package.json ]; then
             npm ci

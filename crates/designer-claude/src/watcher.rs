@@ -176,13 +176,10 @@ fn classify(path: &Path) -> Option<WatcherEvent> {
 /// use human-readable team names (no hyphens of the UUID shape).
 fn looks_like_uuid(s: &str) -> bool {
     s.len() == 36
-        && s.as_bytes()
-            .iter()
-            .enumerate()
-            .all(|(i, b)| match i {
-                8 | 13 | 18 | 23 => *b == b'-',
-                _ => b.is_ascii_hexdigit(),
-            })
+        && s.as_bytes().iter().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => *b == b'-',
+            _ => b.is_ascii_hexdigit(),
+        })
 }
 
 #[cfg(test)]
@@ -225,10 +222,11 @@ mod tests {
 
     #[test]
     fn skips_per_session_todo_dir_silently() {
-        let p = Path::new(
-            "/Users/me/.claude/tasks/04f8a70a-acff-4e79-9e46-f0dfe34929a1/1.json",
+        let p = Path::new("/Users/me/.claude/tasks/04f8a70a-acff-4e79-9e46-f0dfe34929a1/1.json");
+        assert!(
+            classify(p).is_none(),
+            "per-session dirs should drop silently"
         );
-        assert!(classify(p).is_none(), "per-session dirs should drop silently");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use designer_core::{
-    Actor, EventPayload, EventStore, Projection, Projector, ProjectId, SqliteEventStore, StreamId,
+    Actor, EventPayload, EventStore, ProjectId, Projection, Projector, SqliteEventStore, StreamId,
     StreamOptions, WorkspaceId,
 };
 use std::path::PathBuf;
@@ -53,7 +53,10 @@ async fn optimistic_concurrency_detects_conflict() {
         .unwrap_err();
     assert!(matches!(
         err,
-        designer_core::CoreError::Concurrency { expected: 0, actual: 1 }
+        designer_core::CoreError::Concurrency {
+            expected: 0,
+            actual: 1
+        }
     ));
 }
 
@@ -128,5 +131,8 @@ async fn subscriber_receives_live_events() {
         .await
         .expect("timeout waiting for event")
         .expect("channel closed");
-    assert_eq!(received.kind(), designer_core::event::EventKind::ProjectCreated);
+    assert_eq!(
+        received.kind(),
+        designer_core::event::EventKind::ProjectCreated
+    );
 }

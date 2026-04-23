@@ -11,12 +11,29 @@ pub const HANDSHAKE_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SyncMessage {
-    Hello { version: u32, node: NodeId },
-    Welcome { version: u32, node: NodeId, clock: VectorClock },
-    Pull { since: VectorClock, max: u32 },
-    PullResponse { events: Vec<SyncEvent>, clock: VectorClock },
-    Push { events: Vec<SyncEvent> },
-    Ack { accepted: u64 },
+    Hello {
+        version: u32,
+        node: NodeId,
+    },
+    Welcome {
+        version: u32,
+        node: NodeId,
+        clock: VectorClock,
+    },
+    Pull {
+        since: VectorClock,
+        max: u32,
+    },
+    PullResponse {
+        events: Vec<SyncEvent>,
+        clock: VectorClock,
+    },
+    Push {
+        events: Vec<SyncEvent>,
+    },
+    Ack {
+        accepted: u64,
+    },
     Bye,
 }
 
@@ -49,7 +66,10 @@ impl SyncSession {
         match msg {
             SyncMessage::Hello { version, node } => {
                 if version != HANDSHAKE_VERSION {
-                    return Err(crate::SyncError::VersionMismatch(version, HANDSHAKE_VERSION));
+                    return Err(crate::SyncError::VersionMismatch(
+                        version,
+                        HANDSHAKE_VERSION,
+                    ));
                 }
                 self.remote = Some(node);
                 Ok(Some(SyncMessage::Welcome {
@@ -58,9 +78,16 @@ impl SyncSession {
                     clock: self.local_clock.clone(),
                 }))
             }
-            SyncMessage::Welcome { version, node, clock } => {
+            SyncMessage::Welcome {
+                version,
+                node,
+                clock,
+            } => {
                 if version != HANDSHAKE_VERSION {
-                    return Err(crate::SyncError::VersionMismatch(version, HANDSHAKE_VERSION));
+                    return Err(crate::SyncError::VersionMismatch(
+                        version,
+                        HANDSHAKE_VERSION,
+                    ));
                 }
                 self.remote = Some(node);
                 self.remote_clock = clock;

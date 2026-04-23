@@ -221,15 +221,18 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
             .spawn()
             .map_err(|e| OrchestratorError::Spawn(format!("{}: {e}", bin.display())))?;
 
-        let stdin = child.stdin.take().ok_or_else(|| {
-            OrchestratorError::Spawn("child did not expose stdin pipe".into())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            OrchestratorError::Spawn("child did not expose stdout pipe".into())
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
-            OrchestratorError::Spawn("child did not expose stderr pipe".into())
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| OrchestratorError::Spawn("child did not expose stdin pipe".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| OrchestratorError::Spawn("child did not expose stdout pipe".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| OrchestratorError::Spawn("child did not expose stderr pipe".into()))?;
 
         let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>(64);
 
@@ -578,8 +581,7 @@ mod tests {
 
     #[test]
     fn session_id_is_deterministic_per_workspace() {
-        let store =
-            Arc::new(designer_core::SqliteEventStore::open_in_memory().unwrap());
+        let store = Arc::new(designer_core::SqliteEventStore::open_in_memory().unwrap());
         let orch = ClaudeCodeOrchestrator::new(store, ClaudeCodeOptions::default());
         let ws = WorkspaceId::new();
         let a = orch.derive_session_id(ws);

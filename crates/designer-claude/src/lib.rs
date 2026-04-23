@@ -18,7 +18,7 @@ mod orchestrator;
 mod stream;
 mod watcher;
 
-pub use claude_code::{ClaudeCodeOrchestrator, ClaudeCodeOptions};
+pub use claude_code::{ClaudeCodeOptions, ClaudeCodeOrchestrator};
 pub use mock::MockOrchestrator;
 pub use orchestrator::{
     Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult, TaskAssignment,

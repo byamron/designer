@@ -194,15 +194,24 @@ mod tests {
         assert!(ev.timestamp.starts_with("1970-01-01"));
         // Payload round-trips the tag and fields.
         let payload = ev.payload.as_ref().expect("payload present");
-        assert_eq!(payload.get("kind").and_then(|v| v.as_str()), Some("project_created"));
-        assert_eq!(payload.get("name").and_then(|v| v.as_str()), Some("Designer"));
+        assert_eq!(
+            payload.get("kind").and_then(|v| v.as_str()),
+            Some("project_created")
+        );
+        assert_eq!(
+            payload.get("name").and_then(|v| v.as_str()),
+            Some("Designer")
+        );
     }
 
     #[test]
     fn stream_event_serializes_with_camel_flattening() {
         let pid = ProjectId::new();
         let env = envelope_with(
-            EventPayload::ProjectRenamed { project_id: pid, name: "New".into() },
+            EventPayload::ProjectRenamed {
+                project_id: pid,
+                name: "New".into(),
+            },
             StreamId::Project(pid),
         );
         let ev = StreamEvent::from(env);
@@ -210,7 +219,10 @@ mod tests {
         let json = serde_json::to_value(&ev).unwrap();
         assert!(json.get("summary").is_none());
         assert!(json.get("payload").is_some());
-        assert_eq!(json.get("kind").and_then(|v| v.as_str()), Some("project_renamed"));
+        assert_eq!(
+            json.get("kind").and_then(|v| v.as_str()),
+            Some("project_renamed")
+        );
     }
 }
 

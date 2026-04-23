@@ -144,7 +144,10 @@ impl<H: FoundationHelper + ?Sized + 'static> LocalOps for FoundationLocalOps<H> 
     }
 
     async fn recap(&self, input: RecapInput) -> HelperResult<RecapOutput> {
-        let text = self.helper.generate(JobKind::Recap, &prompt_recap(&input)).await?;
+        let text = self
+            .helper
+            .generate(JobKind::Recap, &prompt_recap(&input))
+            .await?;
         if let Ok(parsed) = serde_json::from_str::<RecapOutput>(&text) {
             Ok(parsed)
         } else {
@@ -156,7 +159,10 @@ impl<H: FoundationHelper + ?Sized + 'static> LocalOps for FoundationLocalOps<H> 
     }
 
     async fn audit_claim(&self, input: AuditClaim) -> HelperResult<AuditVerdict> {
-        let text = self.helper.generate(JobKind::AuditClaim, &prompt_audit(&input)).await?;
+        let text = self
+            .helper
+            .generate(JobKind::AuditClaim, &prompt_audit(&input))
+            .await?;
         // Real-model responses often include trailing punctuation ("Supported.")
         // or wrap the verdict in a sentence ("The claim is supported."). Normalize
         // aggressively: take the first word of the lowercased, trimmed response

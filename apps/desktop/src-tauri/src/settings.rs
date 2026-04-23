@@ -166,7 +166,13 @@ mod tests {
     #[test]
     fn resolved_theme_bg_matches_token() {
         // mauve-1 at two paint surfaces: NSWindow + WKWebView.
-        assert_eq!(ResolvedTheme::Light.background_rgba(), (0xFD, 0xFC, 0xFD, 0xFF));
-        assert_eq!(ResolvedTheme::Dark.background_rgba(), (0x18, 0x18, 0x1A, 0xFF));
+        assert_eq!(
+            ResolvedTheme::Light.background_rgba(),
+            (0xFD, 0xFC, 0xFD, 0xFF)
+        );
+        assert_eq!(
+            ResolvedTheme::Dark.background_rgba(),
+            (0x18, 0x18, 0x1A, 0xFF)
+        );
     }
 }

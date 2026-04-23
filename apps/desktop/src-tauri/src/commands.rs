@@ -18,9 +18,7 @@ use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
-pub async fn list_projects(
-    core: State<'_, Arc<AppCore>>,
-) -> Result<Vec<ProjectSummary>, IpcError> {
+pub async fn list_projects(core: State<'_, Arc<AppCore>>) -> Result<Vec<ProjectSummary>, IpcError> {
     ipc::cmd_list_projects(&core).await
 }
 
@@ -49,10 +47,7 @@ pub async fn create_workspace(
 }
 
 #[tauri::command]
-pub async fn open_tab(
-    core: State<'_, Arc<AppCore>>,
-    req: OpenTabRequest,
-) -> Result<Tab, IpcError> {
+pub async fn open_tab(core: State<'_, Arc<AppCore>>, req: OpenTabRequest) -> Result<Tab, IpcError> {
     ipc::cmd_open_tab(&core, req).await
 }
 
