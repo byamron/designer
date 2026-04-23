@@ -10,7 +10,11 @@
  */
 
 :root {
-  --color-background: var(--gray-1);
+  /* Page bg is sand-2 (not sand-1) so the pure-white content surface
+   * reads as visibly brighter than the sidebars. Sand-1 and white differ
+   * by only ~2 brightness points; sand-2 opens that gap to something
+   * the eye actually picks up without crossing into "beige page". */
+  --color-background: var(--gray-2);
   --color-surface-flat: var(--gray-2);
   --color-surface-raised: var(--gray-3);
   --color-surface-overlay: var(--gray-4);
@@ -18,6 +22,54 @@
   --color-muted: var(--gray-11);
   --color-border: var(--gray-6);
   --color-border-strong: var(--gray-8);
+  /* Soft border — alpha scale at step 5, so the stroke picks up the
+   * underlying surface rather than painting a hard line. Used on the
+   * floating surface and its tabs where the full-weight --color-border
+   * read as "framing" rather than "separation". */
+  --color-border-soft: var(--gray-a5);
+
+  /* Content surface — the floating main panel and the active tab both
+   * consume this. In light mode it's pure white (one step brighter than
+   * --color-background). In dark mode it inverts to off-black (sand-dark-1,
+   * one step darker than the dark-sand page) so the work still reads as
+   * "the figure" against the sand-toned chrome — the contrast direction
+   * flips with the mode, but the hierarchy stays the same. */
+  --color-content-surface: white;
+
+  /* Two-tier page / floating-surface register.
+   * Sidebars + spine sit on --color-background; the main content panel is
+   * a raised rectangle separated by --surface-gutter from the page and
+   * from the tabs by --surface-tab-gap. All three knobs are tunable live
+   * via the SurfaceDevPanel (dev-only). Production defaults below; the
+   * panel writes overrides on :root in development. */
+  /* Locked-in surface register. The SurfaceDevPanel that tuned these
+   * was removed 2026-04-23 after we settled the values:
+   *   Gutter      12px  (between space-3 and space-4; tighter than airy)
+   *   Tab gap     6px   (between space-2 and space-3)
+   *   Text pad    24px  (space-5 — tab-body inset from surface edge)
+   *   Compose pad 16px  (space-4 — concentric with --radius-surface)
+   *   Shadow      --elevation-raised (1px offset, ~5% black)
+   * These can be re-exposed behind a dev panel if we need to tune again. */
+  --surface-gutter: calc(var(--space-3) * 1.5);
+  --surface-tab-gap: calc(var(--space-2) * 1.5);
+  --surface-shadow: var(--elevation-raised);
+  --surface-text-pad: var(--space-5);
+  --surface-inner-pad: var(--space-4);
+}
+
+/* Dark-mode override — matches Radix Colors v3's activation model
+ * (`.dark` / `.dark-theme` classes) + Designer's own `data-theme="dark"`
+ * escape hatch. Surface flips to sand-dark-1 (off-black), one step
+ * darker than the page (sand-dark-2). */
+.dark,
+.dark-theme,
+[data-theme="dark"] {
+  --color-content-surface: var(--gray-1);
+  /* In dark mode the alpha-5 border isn't strong enough to differentiate
+   * the active tab pill from the page (sand-dark-1 pill on sand-dark-2
+   * page differ by ~1 luminance step). Promote the "soft" border to the
+   * full --color-border only in dark; light mode keeps the hairline. */
+  --color-border-soft: var(--gray-a7);
 }
 
 /* --- skip link ---------------------------------------------------------- */
@@ -106,10 +158,14 @@ body,
   flex: 0 0 auto;
 }
 
+/* Sidebars render on --color-background — they ARE the page surface.
+ * The floating main-surface rectangle is the only Tier-2 raised area
+ * inside the workspace view. Project strip keeps its own surface-flat
+ * fill + hairline divider above (it's Tier-1 chrome, not content). */
+
 .app-sidebar {
   grid-area: sidebar;
-  background: var(--color-surface-flat);
-  border-right: var(--border-thin) solid var(--color-border);
+  background: transparent;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
@@ -124,13 +180,22 @@ body,
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--color-background);
+  background: transparent;
+  /* Inset rhythm around the floating surface. When a sidebar is collapsed
+   * the rail renders inside its own grid column, so the surface can push
+   * right up against --surface-gutter on that side regardless. */
+  padding: var(--surface-gutter) var(--surface-gutter) var(--surface-gutter) 0;
+}
+
+/* When the workspace sidebar is hidden, restore the left gutter so the
+ * surface doesn't kiss the pane-rail. */
+.app-shell[data-sidebar="hidden"] .app-main {
+  padding-left: var(--surface-gutter);
 }
 
 .app-spine {
   grid-area: spine;
-  border-left: var(--border-thin) solid var(--color-border);
-  background: var(--color-surface-flat);
+  background: transparent;
   padding: var(--space-4);
   overflow-y: auto;
   display: flex;
@@ -222,6 +287,10 @@ body,
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  /* Match the tabs-bar vertical rhythm so the title text center-aligns
+   * with the tab labels across the shell. `--target-md` is the tab
+   * button's min-height after padding. */
+  min-height: var(--target-md);
 }
 
 .sidebar-title {
@@ -347,7 +416,7 @@ body,
 
 .workspace-row {
   display: grid;
-  grid-template-columns: var(--space-3) 1fr auto;
+  grid-template-columns: var(--icon-sm) 1fr;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -385,15 +454,7 @@ body,
   white-space: nowrap;
 }
 
-.workspace-row__branch {
-  font-family: var(--type-family-mono);
-  font-size: var(--type-caption-size);
-  color: var(--color-muted);
-}
-
-/* Legacy alias retained only for the few callers outside sidebar rows
-   (the main-topbar previously used it). New code: use workspace-row__branch
-   or spine-row__summary. */
+/* Legacy alias retained for BuildTab's task-row meta column. */
 .workspace-row__meta {
   font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
@@ -403,8 +464,8 @@ body,
 /* --- workspace status icons ---- */
 
 .workspace-status {
-  width: var(--space-3);
-  height: var(--space-3);
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -461,23 +522,19 @@ body,
 }
 
 /* --- main-view top bar ---- */
-/* Minimal chrome. Project/workspace identity is carried by the sidebar;
- * the topbar here is reserved for workspace state (lifecycle dot + branch
- * chip) on the workspace view, and the Panels/Palette variant toggle on
- * the project-home view. */
+/* On project-home, this carries the Panels/Palette variant toggle and
+ * sits above the floating surface, occupying the same visual slot the
+ * tabs-bar would on a workspace view. Transparent — the page shows
+ * through; the surface below provides Tier-2. */
 
 .main-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-5);
-  background: var(--color-background);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
   min-height: var(--target-md);
-}
-
-.main-topbar--workspace {
-  border-bottom: var(--border-thin) solid var(--color-border);
 }
 
 .main-topbar__heading {
@@ -513,16 +570,24 @@ body,
   margin-left: auto;
 }
 
-/* --- tabs bar (Linear-style pills that flex-grow) ---- */
-/* Flat container: no background fill, no bottom separator. Selected
- * state lives on the individual tab via data-active. */
+/* --- tabs bar (Linear-style pills above the floating surface) ---- */
+/* Bar is transparent and sits on the page. Horizontal gap between tabs
+ * and vertical gap to the surface below are both driven by the single
+ * --surface-tab-gap custom property — tunable 4 / 6 / 8 via the
+ * SurfaceDevPanel.
+ *
+ * Tab style is switched via [data-tab-style="A"|"B"|"C"] on .app-shell.
+ * The active tab always uses --color-content-surface so it reads as the
+ * same material as the surface below (no merge — the gap replaces it). */
 
 .tabs-bar {
   display: flex;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-5);
+  gap: var(--surface-tab-gap);
+  padding: var(--space-2) var(--space-3) var(--surface-tab-gap) var(--space-3);
   background: transparent;
-  align-items: center;
+  align-items: flex-end;
+  position: relative;
+  z-index: var(--layer-raised);
 }
 
 .tab-button-wrap {
@@ -542,8 +607,8 @@ body,
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   padding-right: calc(var(--space-6));
-  background: var(--color-surface-flat);
-  border: var(--border-thin) solid var(--color-border);
+  background: transparent;
+  border: var(--border-thin) solid transparent;
   border-radius: var(--radius-button);
   color: var(--color-muted);
   font-size: var(--type-body-size);
@@ -551,6 +616,54 @@ body,
   cursor: pointer;
   transition: color var(--motion-interactive), background var(--motion-interactive), border-color var(--motion-interactive);
   position: relative;
+}
+
+/* --- style A: selected-only container (default) ---------------------- */
+/* Inactive tabs are just labels on the page. Active tab is a fully
+ * bordered pill in --color-content-surface, sitting above the surface
+ * with --surface-tab-gap of air between them. */
+
+.app-shell:not([data-tab-style]) .tab-button[data-active="true"],
+.app-shell[data-tab-style="A"] .tab-button[data-active="true"] {
+  color: var(--color-foreground);
+  background: var(--color-content-surface);
+  border-color: var(--color-border-soft);
+  font-weight: var(--weight-medium);
+}
+
+/* --- style B: translucent-white inactive, floating selected ----------- */
+/* Inactive tabs are a translucent white — lets the sand page show through
+ * so they read as muted but are still visibly distinct from the page.
+ * Active tab is opaque --color-content-surface and bordered, still
+ * separated from the surface by --surface-tab-gap. */
+
+.app-shell[data-tab-style="B"] .tab-button {
+  background: color-mix(in srgb, var(--color-content-surface) 80%, transparent);
+  border-color: transparent;
+}
+
+.app-shell[data-tab-style="B"] .tab-button[data-active="true"] {
+  color: var(--color-foreground);
+  background: var(--color-content-surface);
+  border-color: var(--color-border-soft);
+  font-weight: var(--weight-medium);
+}
+
+/* --- style C: all floating -------------------------------------------- */
+/* Every tab is a bordered pill sitting above the page. Active is the
+ * content-surface fill with strong border; inactive are surface-raised
+ * (muted sand) with a soft border and muted label. */
+
+.app-shell[data-tab-style="C"] .tab-button {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-soft);
+}
+
+.app-shell[data-tab-style="C"] .tab-button[data-active="true"] {
+  color: var(--color-foreground);
+  background: var(--color-content-surface);
+  border-color: var(--color-border);
+  font-weight: var(--weight-medium);
 }
 
 .tab-button__close {
@@ -589,15 +702,8 @@ body,
   outline-offset: calc(var(--focus-outline-offset) * -1);
 }
 
-.tab-button:hover {
+.tab-button:hover:not([data-active="true"]) {
   color: var(--color-foreground);
-}
-
-.tab-button[data-active="true"] {
-  color: var(--color-foreground);
-  background: var(--color-surface-overlay);
-  border-color: var(--color-border-strong);
-  font-weight: var(--weight-medium);
 }
 
 .tab-button:focus-visible {
@@ -624,6 +730,24 @@ body,
   white-space: nowrap;
 }
 
+/* --- main surface (Tier-2 floating rectangle) --------------------- */
+/* The raised content panel inside .app-main. Carries the elevation +
+ * rounded corners that separate content from page. Tabs sit above it
+ * (outside .main-surface) and the active tab merges into its top edge
+ * via negative margin in styles A and B. */
+
+.main-surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-content-surface);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--surface-shadow);
+  overflow: hidden;
+}
+
 /* --- tab body ---- */
 
 .tab-body {
@@ -643,16 +767,19 @@ body,
   overflow: hidden;
 }
 
+/* Tab content scroll area: padded by --surface-text-pad (24 px). Compose
+ * dock: padded by --surface-inner-pad (tunable 8–24). The two are
+ * separate knobs so the content-reading register stays stable while the
+ * compose affordance can be dialed tighter or airier. */
+
 .tab-layout__scroll {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-6) var(--space-5);
+  padding: var(--surface-text-pad);
 }
 
 .tab-layout__inner {
-  max-width: calc(var(--space-8) * 12);
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
@@ -661,12 +788,14 @@ body,
 .tab-layout__dock {
   flex-shrink: 0;
   background: transparent;
-  padding: 0 var(--space-5) var(--space-5);
+  padding: 0 var(--surface-inner-pad) var(--surface-inner-pad);
 }
 
 .tab-layout__dock-inner {
-  max-width: calc(var(--space-8) * 12);
-  margin: 0 auto;
+  /* Compose fills the full width of the dock (minus the surface-inner-pad
+   * gutter on either side). No inner max-width — the user asked for
+   * edge-to-edge compose against the pad. */
+  width: 100%;
 }
 
 /* Header shared across tabs — title + subtitle, no kicker.
@@ -694,15 +823,18 @@ body,
   margin: 0;
 }
 
-/* Compose — the docked chat input. */
+/* Compose — the docked chat input. Corner radius is computed so the
+ * compose sits concentric with the surface: inner radius = outer radius
+ * minus the pad that separates them. With the ship defaults this is
+ * 24 − 16 = 8px. */
 .compose {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
   background: var(--color-surface-flat);
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-card);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: calc(var(--radius-surface) - var(--surface-inner-pad));
   transition: border-color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive);
 }
 
@@ -971,24 +1103,23 @@ body,
   max-width: calc(var(--space-8) * 10);
 }
 
-.home-a__kicker {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.home-a__kicker-hint {
+.home-a__explain {
   font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
   color: var(--color-muted);
   max-width: calc(var(--space-8) * 10);
+  margin: 0;
 }
 
-.home-a__lede {
-  font-size: var(--type-body-size);
-  line-height: var(--type-body-leading);
-  font-weight: var(--weight-medium);
+.home-a__explain strong {
   color: var(--color-foreground);
-  margin: 0;
+  font-weight: var(--weight-medium);
+}
+
+/* Active-workspaces variant: the first column is an icon (sidebar-style
+ * status glyph), not a bare dot. Icon sits 12px wide with space-2 gap. */
+.home-a__list--workspaces > li {
+  grid-template-columns: var(--icon-sm) 1fr auto;
 }
 
 .home-a__section {
@@ -1126,29 +1257,6 @@ body,
   font-size: var(--type-caption-size);
 }
 
-.home-a__autonomy {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-1);
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  align-self: flex-start;
-}
-
-.home-a__autonomy > span {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--type-caption-size);
-  color: var(--color-muted);
-  border-radius: var(--radius-pill);
-}
-
-.home-a__autonomy > span[data-active="true"] {
-  background: var(--color-surface-overlay);
-  color: var(--color-foreground);
-  font-weight: var(--weight-medium);
-}
-
 /* --- home variant B: palette-first (Dia-inspired) ---- */
 
 .palette {
@@ -1217,22 +1325,19 @@ body,
   box-sizing: border-box;
 }
 
+/* Open density: prompt has no container, border, or background — the
+ * user types directly on the surface (Notion / Linear feel). Only the
+ * native caret + placeholder make the input discoverable. Padding
+ * matches the suggestion rows below so items align on the left edge. */
 .palette__surface[data-density="open"] .palette__input {
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-modal);
-  background: var(--color-surface-flat);
+  padding: var(--space-2) 0;
   margin-bottom: var(--space-3);
-  transition: border-color var(--motion-interactive), background var(--motion-interactive);
-}
-
-.palette__surface[data-density="open"] .palette__input:hover {
-  background: var(--color-surface-raised);
+  background: transparent;
+  border: none;
 }
 
 .palette__surface[data-density="open"] .palette__input:focus-visible {
-  outline: var(--focus-outline-width) solid var(--focus-outline-color);
-  outline-offset: var(--focus-outline-offset);
-  background: var(--color-surface-raised);
+  outline: none;
 }
 
 .palette__input::placeholder {
@@ -1462,6 +1567,25 @@ body,
   font-size: var(--type-body-size);
 }
 
+/* Build stream: tighter, monospaced body so diffs and file paths read
+ * like a terminal — the build tab is "where code happens". */
+.chat--build {
+  gap: var(--space-3);
+}
+
+.chat__body--mono {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  color: var(--color-foreground);
+}
+
+.compose__hint {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
 .streaming-cursor {
   display: inline-block;
   width: var(--space-1);
@@ -1567,6 +1691,8 @@ body,
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  /* Aligns with the tabs-bar label row (matches .sidebar-header__row). */
+  min-height: var(--target-md);
 }
 
 .spine-summary {
@@ -2019,9 +2145,11 @@ kbd {
 }
 
 /* --- pane resizer (edge drag handle) ---------------------------------- */
-/* 6px-wide grip at each pane's resize edge. Invisible by default; a
- * hairline brightens on hover and a full accent bar shows while dragging.
- * Click = nothing (the pane header carries the collapse IconButton). */
+/* Invisible grip that changes the cursor to col-resize on hover. No
+ * visible bar or hairline — the user asked for cursor-only feedback
+ * so the drag target doesn't compete visually with the sidebar content.
+ * Positioned at the edge of the floating surface (not the pane rail),
+ * so the affordance matches where the user expects to grab. */
 
 .pane-resizer {
   position: absolute;
@@ -2035,32 +2163,11 @@ kbd {
   touch-action: none;
 }
 
-.pane-resizer[data-side="right"] { right: calc(var(--space-2) * -0.5); }
-.pane-resizer[data-side="left"] { left: calc(var(--space-2) * -0.5); }
-
-.pane-resizer::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: var(--border-thin);
-  background: transparent;
-  transform: translateX(calc(var(--border-thin) * -0.5));
-  transition: background var(--motion-interactive), width var(--motion-interactive);
-}
-
-.app-sidebar:hover .pane-resizer::before,
-.app-spine:hover .pane-resizer::before,
-.pane-resizer:hover::before,
-.pane-resizer:focus-visible::before {
-  background: var(--color-border-strong);
-}
-
-.pane-resizer[data-dragging="true"]::before {
-  background: var(--color-foreground);
-  width: var(--border-strong);
-}
+/* Anchor at the surface edge (`--surface-gutter` from the pane boundary),
+ * not at the pane's content edge — the user reads "the edge of the main
+ * tab container" as the grabbable zone. */
+.pane-resizer[data-side="right"] { right: calc(var(--surface-gutter) * -1); }
+.pane-resizer[data-side="left"] { left: calc(var(--surface-gutter) * -1); }
 
 .pane-resizer:focus-visible {
   outline: var(--focus-outline-width) solid var(--focus-outline-color);
@@ -2079,13 +2186,11 @@ kbd {
   align-items: center;
   width: var(--space-6);
   padding: var(--space-3) 0;
-  background: var(--color-surface-flat);
-  border-right: var(--border-thin) solid var(--color-border);
+  background: transparent;
 }
 
 .pane-rail--right {
-  border-right: none;
-  border-left: var(--border-thin) solid var(--color-border);
+  /* no border — sidebars and spine now sit on the page surface */
 }
 
 /* --- project strip activity dot --------------------------------------- */
@@ -2180,7 +2285,10 @@ kbd {
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-2) 0;
-  border-bottom: var(--border-thin) solid var(--color-border);
+  /* Soft divider inside an already-bordered overlay — the outer dialog
+   * frame carries the full --color-border, so inner dividers use -soft
+   * to avoid visual double-framing. */
+  border-bottom: var(--border-thin) solid var(--color-border-soft);
 }
 
 .app-dialog__row:last-child { border-bottom: none; }
@@ -2214,262 +2322,3 @@ kbd {
   justify-self: end;
 }
 
-/* --- type dev panel (development only) -------------------------------- */
-/* Floating panel for real-time tuning of type tokens. Mounted only when
- * Vite MODE === "development" (see App.tsx). Writes overrides to
- * :root as inline CSS custom properties and persists them in localStorage. */
-
-.type-dev__fab {
-  position: fixed;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  width: var(--target-md);
-  height: var(--target-md);
-  border-radius: var(--radius-pill);
-  background: var(--color-foreground);
-  color: var(--color-background);
-  border: none;
-  font-family: var(--type-family-sans);
-  font-size: var(--type-caption-size);
-  font-weight: var(--weight-semibold);
-  cursor: pointer;
-  box-shadow: var(--elevation-overlay);
-  z-index: var(--layer-modal);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.6;
-  transition: opacity var(--motion-interactive), transform var(--motion-interactive);
-}
-
-.type-dev__fab:hover {
-  opacity: 1;
-  transform: scale(1.04);
-}
-
-.type-dev__fab:focus-visible {
-  outline: var(--focus-outline-width) solid var(--focus-outline-color);
-  outline-offset: var(--focus-outline-offset);
-  opacity: 1;
-}
-
-.type-dev__fab-badge {
-  position: absolute;
-  top: calc(var(--space-1) * -1);
-  right: calc(var(--space-1) * -1);
-  min-width: var(--space-4);
-  height: var(--space-4);
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-pill);
-  background: var(--info-9);
-  color: var(--info-1);
-  font-size: var(--type-caption-size);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-}
-
-.type-dev {
-  position: fixed;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  width: calc(var(--space-8) * 4.5);
-  max-height: calc(100vh - var(--space-6));
-  background: var(--color-surface-overlay);
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--elevation-modal);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  z-index: var(--layer-modal);
-  font-family: var(--type-family-sans);
-  color: var(--color-foreground);
-}
-
-.type-dev__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: var(--border-thin) solid var(--color-border);
-}
-
-.type-dev__title {
-  font-size: var(--type-caption-size);
-  font-weight: var(--weight-medium);
-  color: var(--color-foreground);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.type-dev__head-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.type-dev__reset {
-  appearance: none;
-  background: transparent;
-  border: var(--border-thin) solid var(--color-border);
-  color: var(--color-muted);
-  font-size: var(--type-caption-size);
-  padding: 0 var(--space-2);
-  height: var(--target-sm);
-  border-radius: var(--radius-badge);
-  cursor: pointer;
-}
-
-.type-dev__reset:hover:not([disabled]) {
-  color: var(--color-foreground);
-  background: var(--color-surface-raised);
-}
-
-.type-dev__reset[disabled] {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.type-dev__section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: var(--border-thin) solid var(--color-border);
-  overflow-y: auto;
-}
-
-.type-dev__section-label {
-  font-size: var(--type-caption-size);
-  color: var(--color-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: var(--space-1);
-}
-
-.type-dev__row-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: var(--space-1) 0;
-}
-
-.type-dev__row {
-  display: grid;
-  grid-template-columns: calc(var(--space-8) * 1.1) var(--space-6) 1fr auto;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--type-caption-size);
-}
-
-.type-dev__row-note {
-  grid-column: 1 / -1;
-  padding-left: calc(var(--space-8) * 1.1 + var(--space-6) + var(--space-2) * 2);
-  font-size: var(--type-caption-size);
-  color: var(--color-muted);
-  font-family: var(--type-family-mono);
-  margin-top: calc(var(--space-1) * -1);
-}
-
-.type-dev__row-group[data-dirty] .type-dev__row-label,
-.type-dev__row-group[data-dirty] .type-dev__row-value {
-  color: var(--info-11);
-  font-weight: var(--weight-medium);
-}
-
-.type-dev__row-label {
-  color: var(--color-foreground);
-  font-family: var(--type-family-mono);
-}
-
-.type-dev__row-value {
-  color: var(--color-muted);
-  font-family: var(--type-family-mono);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.type-dev__slider {
-  appearance: none;
-  width: 100%;
-  height: var(--space-3);
-  background: transparent;
-  cursor: pointer;
-}
-
-.type-dev__slider::-webkit-slider-runnable-track {
-  height: var(--border-strong);
-  background: var(--color-border);
-  border-radius: var(--radius-pill);
-}
-
-.type-dev__slider::-webkit-slider-thumb {
-  appearance: none;
-  width: var(--space-3);
-  height: var(--space-3);
-  background: var(--color-foreground);
-  border-radius: var(--radius-pill);
-  border: none;
-  margin-top: calc((var(--space-3) - var(--border-strong)) * -0.5);
-}
-
-.type-dev__slider:focus-visible {
-  outline: var(--focus-outline-width) solid var(--focus-outline-color);
-  outline-offset: var(--focus-outline-offset);
-}
-
-.type-dev__select {
-  appearance: none;
-  background: transparent;
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-badge);
-  color: var(--color-foreground);
-  font-family: var(--type-family-mono);
-  font-size: var(--type-caption-size);
-  padding: 0 var(--space-2);
-  height: var(--target-sm);
-  cursor: pointer;
-  width: 100%;
-}
-
-.type-dev__select:focus-visible {
-  outline: var(--focus-outline-width) solid var(--focus-outline-color);
-  outline-offset: var(--focus-outline-offset);
-}
-
-.type-dev__clear {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--color-muted);
-  font-size: var(--type-caption-size);
-  width: var(--target-sm);
-  height: var(--target-sm);
-  cursor: pointer;
-  border-radius: var(--radius-badge);
-}
-
-.type-dev__clear:hover:not([disabled]) {
-  color: var(--color-foreground);
-  background: var(--color-surface-raised);
-}
-
-.type-dev__clear[disabled] {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.type-dev__foot {
-  padding: var(--space-2) var(--space-3);
-  display: flex;
-  justify-content: flex-end;
-}
-
-.type-dev__hint {
-  font-size: var(--type-caption-size);
-  color: var(--color-muted);
-  font-family: var(--type-family-mono);
-}

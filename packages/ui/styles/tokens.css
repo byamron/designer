@@ -183,6 +183,13 @@
   --motion-pulse:    1200ms;   /* subtle "active" state pulse */
   --motion-blink:    700ms;    /* streaming cursor blink */
 
+  /* Floating content surface — the raised Tier-2 rectangle that holds
+     tab bodies (axiom #8). 24px so concentric math holds across the
+     dev-panel compose-pad range (8–24 px): inner-element radius =
+     --radius-surface − --surface-inner-pad. At pad 8 → 16px inner, at
+     pad 16 (default) → 8px inner, at pad 24 → 0 (sharp rectangle). */
+  --radius-surface:    1.5rem;   /* 24px */
+
   /* Icon sizing (axiom #13). All Designer SVGs use currentColor; pick one
      of these three sizes. stroke-width 1.25 at sm/md, 1.5 at lg. */
   --icon-sm:         0.75rem;  /* 12px */

@@ -1,3 +1,4 @@
+import { Cog, HelpCircle } from "lucide-react";
 import { openDialog, selectProject, useAppState } from "../store/app";
 import { promptCreateProject, useDataState } from "../store/data";
 import { Tooltip } from "../components/Tooltip";
@@ -69,7 +70,7 @@ export function ProjectStrip() {
         onClick={onCreate}
         className="strip-icon-btn"
       >
-        <IconPlus size={14} />
+        <IconPlus size={16} />
       </IconButton>
       <div className="app-strip__spacer" />
       <IconButton
@@ -77,7 +78,7 @@ export function ProjectStrip() {
         onClick={() => openDialog("settings")}
         className="strip-icon-btn"
       >
-        <IconSettings />
+        <Cog size={16} strokeWidth={1.5} aria-hidden="true" />
       </IconButton>
       <IconButton
         label="Help"
@@ -85,27 +86,8 @@ export function ProjectStrip() {
         onClick={() => openDialog("help")}
         className="strip-icon-btn"
       >
-        <IconHelp />
+        <HelpCircle size={16} strokeWidth={1.5} aria-hidden="true" />
       </IconButton>
     </nav>
-  );
-}
-
-function IconSettings() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="7" cy="7" r="2" />
-      <path d="M7 1.5v1.5M7 11v1.5M1.5 7h1.5M11 7h1.5M3.1 3.1l1.05 1.05M9.85 9.85l1.05 1.05M3.1 10.9l1.05-1.05M9.85 4.15l1.05-1.05" />
-    </svg>
-  );
-}
-
-function IconHelp() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
-      <circle cx="7" cy="7" r="5" />
-      <path d="M5.5 5.5a1.5 1.5 0 0 1 3 0c0 1-1.5 1.25-1.5 2.25" />
-      <circle cx="7" cy="10" r="0.5" fill="currentColor" stroke="none" />
-    </svg>
   );
 }

@@ -1,6 +1,6 @@
 // App-level state: current project, current workspace, open tab per workspace.
 import { createStore, useStore } from "./index";
-import type { ProjectId, TabId, WorkspaceId } from "../ipc/types";
+import type { Autonomy, ProjectId, TabId, WorkspaceId } from "../ipc/types";
 import {
   persisted,
   stringDecoder,
@@ -8,7 +8,6 @@ import {
   intDecoder,
 } from "../util/persisted";
 
-export type DashboardVariant = "A" | "B";
 export type PaletteDensity = "bounded" | "open";
 export type AppDialog = "settings" | "help" | null;
 
@@ -22,15 +21,9 @@ export function clampPaneWidth(width: number): number {
   return Math.round(width);
 }
 
-const variantStore = persisted<DashboardVariant>(
-  "designer.dashboardVariant",
-  "A",
-  stringDecoder(["A", "B"] as const),
-);
-
 const densityStore = persisted<PaletteDensity>(
   "designer.paletteDensity",
-  "bounded",
+  "open",
   stringDecoder(["bounded", "open"] as const),
 );
 
@@ -65,7 +58,6 @@ export interface AppState {
   quickSwitcherOpen: boolean;
   followingAgent: string | null;
   inboxOpen: boolean;
-  dashboardVariant: DashboardVariant;
   paletteDensity: PaletteDensity;
   projectStripVisible: boolean;
   sidebarVisible: boolean;
@@ -73,6 +65,11 @@ export interface AppState {
   sidebarWidth: number;
   spineWidth: number;
   dialog: AppDialog;
+  /* Optimistic autonomy per project. The real mutation will land in Phase
+   * 13 via IPC; in the meantime this makes the HomeTabA Autonomy control
+   * feel responsive instead of being a false affordance. When IPC lands
+   * we swap the reader to prefer the server value. */
+  autonomyOverrides: Record<ProjectId, Autonomy>;
 }
 
 export const appStore = createStore<AppState>({
@@ -82,7 +79,6 @@ export const appStore = createStore<AppState>({
   quickSwitcherOpen: false,
   followingAgent: null,
   inboxOpen: false,
-  dashboardVariant: variantStore.read(),
   paletteDensity: densityStore.read(),
   projectStripVisible: true,
   sidebarVisible: sidebarVisibleStore.read(),
@@ -90,6 +86,7 @@ export const appStore = createStore<AppState>({
   sidebarWidth: sidebarWidthStore.read(),
   spineWidth: spineWidthStore.read(),
   dialog: null,
+  autonomyOverrides: {},
 });
 
 export const useAppState = <U,>(selector: (s: AppState) => U) =>
@@ -132,22 +129,21 @@ export const toggleInbox = (open?: boolean) =>
     return s.inboxOpen === next ? s : { ...s, inboxOpen: next };
   });
 
-export const setDashboardVariant = (variant: DashboardVariant) => {
-  appStore.set((s) => {
-    if (s.dashboardVariant === variant) return s;
-    variantStore.write(variant);
-    return { ...s, dashboardVariant: variant };
-  });
-};
-
-export const cycleDashboardVariant = () =>
-  setDashboardVariant(appStore.get().dashboardVariant === "A" ? "B" : "A");
-
 export const toggleProjectStrip = (visible?: boolean) =>
   appStore.set((s) => {
     const next = visible ?? !s.projectStripVisible;
     return s.projectStripVisible === next ? s : { ...s, projectStripVisible: next };
   });
+
+export const setAutonomyOverride = (projectId: ProjectId, level: Autonomy) =>
+  appStore.set((s) =>
+    s.autonomyOverrides[projectId] === level
+      ? s
+      : {
+          ...s,
+          autonomyOverrides: { ...s.autonomyOverrides, [projectId]: level },
+        },
+  );
 
 export const setPaletteDensity = (density: PaletteDensity) => {
   appStore.set((s) => {

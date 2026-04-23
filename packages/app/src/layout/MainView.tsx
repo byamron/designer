@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { selectTab, setDashboardVariant, useAppState } from "../store/app";
-import type { DashboardVariant } from "../store/app";
+import {
+  ClipboardList,
+  Compass,
+  ListChecks,
+  Square,
+} from "lucide-react";
+import { selectTab, useAppState } from "../store/app";
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
 import type { Project, Tab, TabTemplate, Workspace } from "../ipc/types";
 import { HomeTabA } from "../home/HomeTabA";
-import { HomeTabB } from "../home/HomeTabB";
 import { PlanTab } from "../tabs/PlanTab";
 import { DesignTab } from "../tabs/DesignTab";
 import { BuildTab } from "../tabs/BuildTab";
@@ -14,14 +18,12 @@ import { emptyArray } from "../util/empty";
 import type { WorkspaceSummary } from "../ipc/types";
 import { Tooltip } from "../components/Tooltip";
 import { IconButton } from "../components/IconButton";
-import { SegmentedToggle } from "../components/SegmentedToggle";
 import { IconX, IconPlus } from "../components/icons";
 
 export function MainView() {
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
   const activeProjectId = useAppState((s) => s.activeProject);
   const activeTabByWorkspace = useAppState((s) => s.activeTabByWorkspace);
-  const dashboardVariant = useAppState((s) => s.dashboardVariant);
   const projects = useDataState((s) => s.projects);
   const workspaces = useDataState((s) => s.workspaces);
 
@@ -40,11 +42,13 @@ export function MainView() {
   if (!project) {
     return (
       <main className="app-main" aria-label="Main" id="main-content" tabIndex={-1}>
-        <div className="main-empty">
-          <h2 className="main-empty__title">Pick a project</h2>
-          <p className="main-empty__body">
-            Select a project from the sidebar to see its home.
-          </p>
+        <div className="main-surface">
+          <div className="main-empty">
+            <h2 className="main-empty__title">Pick a project</h2>
+            <p className="main-empty__body">
+              Select a project from the sidebar to see its home.
+            </p>
+          </div>
         </div>
       </main>
     );
@@ -53,28 +57,20 @@ export function MainView() {
   if (!workspace) {
     return (
       <main className="app-main" aria-label="Main" id="main-content" tabIndex={-1}>
-        {/* Project home — no topbar. The project name and path live in the
-            sidebar; duplicating them here was the "too much" signal in the
-            UX pass. Variant toggle is the only chrome needed. */}
-        <div className="main-topbar main-topbar--ambient">
-          <div className="main-topbar__actions">
-            <VariantToggle value={dashboardVariant} onChange={setDashboardVariant} />
-          </div>
-        </div>
-
-        <section
-          className="tab-body"
-          role="region"
-          id="project-home"
-          aria-label={`${project.name} home`}
-          tabIndex={0}
-        >
-          {dashboardVariant === "B" ? (
-            <HomeTabB project={project} />
-          ) : (
+        {/* Project home — always the Panels variant. The palette is still
+            available for blank tabs (BlankTab) where it better fits the
+            "I don't know what I want yet; show me affordances" intent. */}
+        <div className="main-surface">
+          <section
+            className="tab-body"
+            role="region"
+            id="project-home"
+            aria-label={`${project.name} home`}
+            tabIndex={0}
+          >
             <HomeTabA project={project} />
-          )}
-        </section>
+          </section>
+        </div>
       </main>
     );
   }
@@ -124,30 +120,32 @@ export function MainView() {
         <TemplateMenu onOpen={onOpenTab} />
       </div>
 
-      {visibleTabs.length > 0 && activeTab !== null ? (
-        <section
-          className="tab-body"
-          role="tabpanel"
-          id={`tabpanel-${activeTab}`}
-          aria-labelledby={`tab-${workspace.id}-${activeTab}`}
-          tabIndex={0}
-        >
-          <TabContent
-            key={`${workspace.id}:${activeTab}`}
-            tab={visibleTabs.find((t) => t.id === activeTab)!}
-            workspace={workspace}
-          />
-        </section>
-      ) : (
-        <section className="tab-body" role="region" tabIndex={0}>
-          <div className="main-empty">
-            <h2 className="main-empty__title">No tabs yet</h2>
-            <p className="main-empty__body">
-              Open a Plan, Design, Build, or Blank tab with the + button above.
-            </p>
-          </div>
-        </section>
-      )}
+      <div className="main-surface">
+        {visibleTabs.length > 0 && activeTab !== null ? (
+          <section
+            className="tab-body"
+            role="tabpanel"
+            id={`tabpanel-${activeTab}`}
+            aria-labelledby={`tab-${workspace.id}-${activeTab}`}
+            tabIndex={0}
+          >
+            <TabContent
+              key={`${workspace.id}:${activeTab}`}
+              tab={visibleTabs.find((t) => t.id === activeTab)!}
+              workspace={workspace}
+            />
+          </section>
+        ) : (
+          <section className="tab-body" role="region" tabIndex={0}>
+            <div className="main-empty">
+              <h2 className="main-empty__title">No tabs yet</h2>
+              <p className="main-empty__body">
+                Open a Plan, Design, Build, or Blank tab with the + button above.
+              </p>
+            </div>
+          </section>
+        )}
+      </div>
     </main>
   );
 }
@@ -234,34 +232,16 @@ function TabButton({
 }
 
 function TemplateIcon({ template }: { template: TabTemplate }) {
+  const common = { size: 14, strokeWidth: 1.25, "aria-hidden": true as const };
   switch (template) {
     case "plan":
-      return (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-          <rect x="2.5" y="2.5" width="9" height="9" rx="1.25" />
-          <path d="M4.5 5.5h5" />
-          <path d="M4.5 8h3" />
-        </svg>
-      );
+      return <ClipboardList {...common} />;
     case "design":
-      return (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-          <circle cx="7" cy="7" r="4.5" />
-          <path d="M4.5 4.5l5 5" />
-        </svg>
-      );
+      return <Compass {...common} />;
     case "build":
-      return (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 7l3 3 5-6" />
-        </svg>
-      );
+      return <ListChecks {...common} />;
     case "blank":
-      return (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-          <rect x="2.5" y="2.5" width="9" height="9" rx="1.25" />
-        </svg>
-      );
+      return <Square {...common} />;
   }
 }
 
@@ -380,43 +360,3 @@ function descriptionForTemplate(template: TabTemplate): string {
   }
 }
 
-function VariantToggle({
-  value,
-  onChange,
-}: {
-  value: DashboardVariant;
-  onChange: (v: DashboardVariant) => void;
-}) {
-  return (
-    <SegmentedToggle<DashboardVariant>
-      ariaLabel="Home variant"
-      value={value}
-      onChange={onChange}
-      options={[
-        {
-          value: "A",
-          label: "Panels",
-          tooltip: "Panels — dashboard with titled sections",
-          icon: (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden="true">
-              <rect x="1.5" y="1.5" width="9" height="4" rx="1" />
-              <rect x="1.5" y="6.5" width="9" height="4" rx="1" />
-            </svg>
-          ),
-        },
-        {
-          value: "B",
-          label: "Palette",
-          tooltip: "Palette — centered prompt + suggestions",
-          icon: (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
-              <rect x="1.5" y="3.5" width="9" height="2.5" rx="1.25" />
-              <path d="M3 8.25h6" />
-              <path d="M3 10h4" />
-            </svg>
-          ),
-        },
-      ]}
-    />
-  );
-}

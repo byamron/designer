@@ -17,14 +17,27 @@ export function persisted<T>(
   return {
     read() {
       if (typeof window === "undefined") return fallback;
-      const raw = window.localStorage.getItem(key);
+      let raw: string | null;
+      try {
+        // localStorage.getItem can throw under strict sandboxes (file://
+        // origins, Safari private mode, iframe same-origin violations).
+        raw = window.localStorage.getItem(key);
+      } catch {
+        return fallback;
+      }
       if (raw == null) return fallback;
       const parsed = decode(raw);
       return parsed === undefined ? fallback : parsed;
     },
     write(value) {
       if (typeof window === "undefined") return;
-      window.localStorage.setItem(key, encode(value));
+      try {
+        window.localStorage.setItem(key, encode(value));
+      } catch {
+        // Quota exceeded or sandbox restriction — drop silently. The
+        // in-memory store still has the latest value; persistence is a
+        // best-effort optimization, not a correctness requirement.
+      }
     },
   };
 }

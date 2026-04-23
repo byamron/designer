@@ -1,135 +1,166 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { ArrowUp } from "lucide-react";
 import type { Tab, Workspace } from "../ipc/types";
 import { ipcClient } from "../ipc/client";
 import { TabLayout } from "../layout/TabLayout";
+import { StreamingText } from "../components/StreamingText";
+import { IconButton } from "../components/IconButton";
+import { Tooltip } from "../components/Tooltip";
 
-interface Task {
+interface Line {
   id: string;
-  title: string;
-  status: "todo" | "in_progress" | "done";
-  assignee?: string;
+  author: "you" | "builder";
+  body: string;
+  streaming?: boolean;
 }
 
-export function BuildTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) {
-  const [tasks, setTasks] = useState<Task[]>([
-    { id: crypto.randomUUID(), title: "Implement auth middleware", status: "in_progress", assignee: "team-lead" },
-    { id: crypto.randomUUID(), title: "Write integration tests", status: "todo", assignee: "test-runner" },
-    { id: crypto.randomUUID(), title: "Review design spec", status: "done", assignee: "design-reviewer" },
+/**
+ * Build — a chat / terminal-style surface where code actually gets built.
+ * No task-board chrome: the builder agent (team-lead on the Claude Code
+ * runtime) streams its work here, and the user drops instructions back.
+ * The merge gate is a slash command ("/merge") rather than a separate
+ * approval panel — the gate itself is still enforced in the Rust core
+ * (see spec §5); this is just the UI affordance for asking.
+ */
+export function BuildTab({ workspace }: { tab: Tab; workspace: Workspace }) {
+  /* `tab` is part of the shared TabContent prop shape but BuildTab renders
+   * the same chat for any tab of template "build"; no tab-specific state. */
+  const [lines, setLines] = useState<Line[]>([
+    {
+      id: "seed",
+      author: "builder",
+      body: `I'm on ${workspace.base_branch}. Type an instruction or /merge when ready.`,
+    },
   ]);
-  const [title, setTitle] = useState("");
-  const [approvalState, setApprovalState] = useState<"idle" | "pending" | "granted" | "denied">("idle");
+  const [draft, setDraft] = useState("");
+  const [merging, setMerging] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const add = () => {
-    if (!title.trim()) return;
-    setTasks((t) => [...t, { id: crypto.randomUUID(), title: title.trim(), status: "todo" }]);
-    setTitle("");
-  };
+  const send = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    const id = crypto.randomUUID();
+    setLines((l) => [...l, { id, author: "you", body: text }]);
+    setDraft("");
 
-  const requestMerge = async () => {
-    setApprovalState("pending");
-    const id = await ipcClient().requestApproval(
-      workspace.id,
-      "merge",
-      `Merge workspace '${workspace.name}' into ${workspace.base_branch}`,
-    );
-    // In a real app this would wait for a user to resolve it. Here we
-    // simulate a grant after a tick so the visual feedback is smooth.
-    setTimeout(async () => {
-      await ipcClient().resolveApproval(id, true);
-      setApprovalState("granted");
-    }, 900);
+    if (text === "/merge") {
+      setMerging(true);
+      const approvalId = await ipcClient().requestApproval(
+        workspace.id,
+        "merge",
+        `Merge workspace '${workspace.name}' into ${workspace.base_branch}`,
+      );
+      setLines((l) => [
+        ...l,
+        {
+          id: crypto.randomUUID(),
+          author: "builder",
+          body: `Approval gate requested (${approvalId}). Waiting on your confirmation — gate is enforced in core, not here.`,
+          streaming: true,
+        },
+      ]);
+      setTimeout(async () => {
+        await ipcClient().resolveApproval(approvalId, true);
+        setLines((l) => [
+          ...l,
+          {
+            id: crypto.randomUUID(),
+            author: "builder",
+            body: `Merged ${workspace.name} → ${workspace.base_branch}.`,
+            streaming: true,
+          },
+        ]);
+        setMerging(false);
+      }, 900);
+      return;
+    }
+
+    setLines((l) => [
+      ...l,
+      {
+        id: crypto.randomUUID(),
+        author: "builder",
+        body: `Working on it. I'll stream diffs and test output here as the run progresses.`,
+        streaming: true,
+      },
+    ]);
   };
 
   return (
-    <TabLayout>
-      <header className="tab-header">
-        <h2 className="tab-title">{tab.title}</h2>
-        <p className="tab-subtitle">
-          Task list + agent streams. When the team is ready, request the merge
-          gate — Designer asks you to approve before any write to{" "}
-          {workspace.base_branch}.
-        </p>
-      </header>
-
-      <section className="card" aria-label="Task list">
-        <span className="card__kicker">Tasks</span>
-        <ul role="list" style={{ margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-          {tasks.map((t) => (
-            <li
-              key={t.id}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "var(--space-2) var(--space-3)",
-                borderRadius: "var(--radius-button)",
-                background: "var(--color-background)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <span
-                  className="state-dot"
-                  data-state={t.status === "in_progress" ? "active" : t.status === "done" ? "idle" : "blocked"}
-                  aria-hidden="true"
-                />
-                <span>{t.title}</span>
-              </span>
-              <span className="workspace-row__meta">
-                {t.assignee ?? "unassigned"} · {t.status.replace("_", " ")}
-              </span>
-            </li>
-          ))}
-        </ul>
+    <TabLayout
+      dock={
         <form
+          className="compose"
+          aria-label="Send an instruction to the builder"
           onSubmit={(e) => {
             e.preventDefault();
-            add();
+            send();
           }}
-          style={{ display: "flex", gap: "var(--space-2)" }}
         >
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="New task…"
-            aria-label="New task"
-            title="Add a task for the team to pick up"
-            style={{
-              all: "unset",
-              flex: 1,
-              padding: "var(--space-2) var(--space-3)",
-              borderRadius: "var(--radius-button)",
-              border: "1px solid var(--color-border)",
-              background: "var(--color-background)",
-              color: "var(--color-foreground)",
-            }}
-          />
-          <button type="submit" className="btn" title="Add task to the list">Add</button>
+          <div className="compose__body">
+            <textarea
+              ref={inputRef}
+              className="compose__input"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={
+                merging
+                  ? "Waiting on approval…"
+                  : "Instruction, diff request, or /merge…"
+              }
+              rows={2}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              aria-label="Instruction"
+              disabled={merging}
+            />
+          </div>
+          <div className="compose__footer">
+            <div className="compose__footer-left">
+              <Tooltip label="Slash commands run locally first and enter the approval gate before any write.">
+                <span className="compose__hint">
+                  /plan · /diff · /test · /merge
+                </span>
+              </Tooltip>
+            </div>
+            <div className="compose__actions">
+              <IconButton
+                type="submit"
+                label="Run"
+                shortcut="⌘↵"
+                className="btn-icon--primary"
+                disabled={merging}
+              >
+                <ArrowUp size={14} strokeWidth={1.5} aria-hidden="true" />
+              </IconButton>
+            </div>
+          </div>
         </form>
-      </section>
-
-      <section className="card" aria-label="Merge gate">
-        <span className="card__kicker">Approval gate</span>
-        <h3 className="card__title">Merge to {workspace.base_branch}</h3>
-        <p style={{ margin: 0, color: "var(--color-muted)" }}>
-          Approval gates are enforced in the Rust core, not here. A frontend bug
-          cannot bypass them; the agent will wait until you grant.
-        </p>
-        <div className="card__footer">
-          <button
-            type="button"
-            className="btn"
-            data-variant="primary"
-            onClick={requestMerge}
-            disabled={approvalState !== "idle" && approvalState !== "denied"}
-            title={`Request approval to merge into ${workspace.base_branch}`}
+      }
+    >
+      <section
+        className="chat chat--build"
+        aria-label="Build stream"
+        aria-live="polite"
+      >
+        {lines.map((m) => (
+          <article
+            key={m.id}
+            className="chat__message"
+            data-author={m.author === "you" ? "you" : "agent"}
           >
-            {approvalState === "idle" && "Request merge"}
-            {approvalState === "pending" && "Waiting for approval…"}
-            {approvalState === "granted" && "Merged"}
-            {approvalState === "denied" && "Denied — try again"}
-          </button>
-        </div>
+            {m.author !== "you" && (
+              <span className="chat__author">{m.author}</span>
+            )}
+            <span className="chat__body chat__body--mono">
+              {m.streaming ? <StreamingText text={m.body} /> : m.body}
+            </span>
+          </article>
+        ))}
       </section>
     </TabLayout>
   );

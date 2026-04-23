@@ -1,7 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { closeDialog, useAppState } from "../store/app";
 import { IconButton } from "./IconButton";
+import { SegmentedToggle } from "./SegmentedToggle";
 import { IconX } from "./icons";
+import {
+  getThemeMode,
+  setThemeMode,
+  subscribeTheme,
+  type ThemeMode,
+} from "../theme";
 
 /**
  * Stub dialogs for Settings and Help — scoped to what the UX feedback calls
@@ -63,7 +70,7 @@ function SettingsBody() {
         <span className="app-dialog__section-label">Appearance</span>
         <div className="app-dialog__row">
           <span className="app-dialog__row-label">Theme</span>
-          <span className="app-dialog__row-meta">system</span>
+          <ThemePicker />
         </div>
         <div className="app-dialog__row">
           <span className="app-dialog__row-label">Density</span>
@@ -96,6 +103,28 @@ function SettingsBody() {
         </div>
       </section>
     </>
+  );
+}
+
+function ThemePicker() {
+  const [mode, setMode] = useState<ThemeMode>(() => getThemeMode());
+
+  useEffect(() => {
+    const unsub = subscribeTheme((m) => setMode(m));
+    return unsub;
+  }, []);
+
+  return (
+    <SegmentedToggle<ThemeMode>
+      ariaLabel="Theme"
+      value={mode}
+      onChange={setThemeMode}
+      options={[
+        { value: "system", label: "System", tooltip: "Follow macOS appearance" },
+        { value: "light", label: "Light", tooltip: "Force light mode" },
+        { value: "dark", label: "Dark", tooltip: "Force dark mode" },
+      ]}
+    />
   );
 }
 
