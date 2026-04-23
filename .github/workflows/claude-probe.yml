@@ -1,0 +1,84 @@
+name: claude-probe
+
+# Tier 3 — scheduled contract probe. Re-runs scripts/probe-claude.sh
+# (Phase A only: no-cost inventory) and diffs the captured CLI surface and
+# home-dir layout against what core-docs/integration-notes.md pins. On drift,
+# opens a GitHub issue so the translator rewrite doesn't silently rot when
+# Anthropic ships a new Claude Code version.
+#
+# Runs on the self-hosted runner because it needs a real `claude` binary.
+
+on:
+  schedule:
+    # 13:00 UTC daily ≈ 06:00 PT. Aligns with pre-start-of-day triage.
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: claude-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: claude surface probe
+    runs-on: [self-hosted, macOS, claude]
+    timeout-minutes: 10
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Phase A probe (no tokens consumed)
+        run: bash scripts/probe-claude.sh
+
+      - name: Compare CLI surface against pinned version
+        id: diff
+        run: |
+          set -euo pipefail
+          PINNED_VER="$(awk -F'|' '/^\| Claude Code version \|/ { gsub(/^[ ]+|[ ]+$/, "", $3); print $3 }' core-docs/integration-notes.md)"
+          OBSERVED_VER="$(awk '{print $1; exit}' .context/probe-output/claude-version.txt)"
+          printf 'pinned=%s\n' "$PINNED_VER" >> "$GITHUB_OUTPUT"
+          printf 'observed=%s\n' "$OBSERVED_VER" >> "$GITHUB_OUTPUT"
+          if [ "$PINNED_VER" != "$OBSERVED_VER" ]; then
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open drift issue
+        if: steps.diff.outputs.drift == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Claude Code version drift: ${{ steps.diff.outputs.observed }} (pinned ${{ steps.diff.outputs.pinned }})`;
+            const body = [
+              `Scheduled probe detected a version change.`,
+              ``,
+              `- Pinned in \`core-docs/integration-notes.md\`: \`${{ steps.diff.outputs.pinned }}\``,
+              `- Observed on the self-hosted runner: \`${{ steps.diff.outputs.observed }}\``,
+              ``,
+              `Next steps:`,
+              `1. Re-run \`scripts/probe-claude.sh --live\` locally against the new version.`,
+              `2. Diff \`.context/probe-output/\` vs. the previous capture.`,
+              `3. Update \`core-docs/integration-notes.md\` and the translator (\`crates/designer-claude/src/stream.rs\`) if any shapes moved.`,
+              `4. Run \`cargo test --features claude_live -p designer-claude --test claude_live\` before closing this issue.`,
+            ].join('\n');
+            // De-dup: if an open issue with the same title exists, skip.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'claude-drift',
+            });
+            if (existing.data.some(i => i.title === title)) {
+              core.info('drift issue already open; skipping create');
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['claude-drift'],
+            });

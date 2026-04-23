@@ -33,7 +33,10 @@ pub fn spawn_event_bridge(app: AppHandle, core: Arc<AppCore>) {
                     }
                 }
                 Err(RecvError::Lagged(n)) => {
-                    tracing::warn!(dropped = n, "event bridge lagged — frontend may need to resync");
+                    tracing::warn!(
+                        dropped = n,
+                        "event bridge lagged — frontend may need to resync"
+                    );
                 }
                 Err(RecvError::Closed) => {
                     tracing::info!("event store closed; stopping event bridge");

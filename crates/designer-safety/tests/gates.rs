@@ -1,7 +1,7 @@
 use designer_core::{Actor, ApprovalId, SqliteEventStore, WorkspaceId};
 use designer_safety::{
-    ApprovalGate, ApprovalRequest, CostCap, CostTracker, CostUsage, CspBuilder, InMemoryApprovalGate,
-    ScopeGuard, ScopeRule, ScopeVerdict,
+    ApprovalGate, ApprovalRequest, CostCap, CostTracker, CostUsage, CspBuilder,
+    InMemoryApprovalGate, ScopeGuard, ScopeRule, ScopeVerdict,
 };
 use std::sync::Arc;
 
@@ -69,7 +69,10 @@ async fn cost_tracker_enforces_cap() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(err, designer_safety::SafetyError::CostCapExceeded(_)));
+    assert!(matches!(
+        err,
+        designer_safety::SafetyError::CostCapExceeded(_)
+    ));
 }
 
 #[test]

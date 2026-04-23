@@ -1,6 +1,5 @@
 use designer_sync::{
-    NodeId, OfflineQueue, PairingMaterial, SyncMessage, SyncSession, VectorClock,
-    HANDSHAKE_VERSION,
+    NodeId, OfflineQueue, PairingMaterial, SyncMessage, SyncSession, VectorClock, HANDSHAKE_VERSION,
 };
 
 #[test]
@@ -28,7 +27,10 @@ fn session_handshake_version_mismatch_errors() {
             node: NodeId::new(),
         })
         .unwrap_err();
-    assert!(matches!(err, designer_sync::SyncError::VersionMismatch(_, _)));
+    assert!(matches!(
+        err,
+        designer_sync::SyncError::VersionMismatch(_, _)
+    ));
 }
 
 #[test]

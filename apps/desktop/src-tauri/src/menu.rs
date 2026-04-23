@@ -65,7 +65,9 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .id("designer.devtools")
             .accelerator("CmdOrCtrl+Alt+I")
             .build(app)?;
-        SubmenuBuilder::new(app, "View").item(&toggle_devtools).build()?
+        SubmenuBuilder::new(app, "View")
+            .item(&toggle_devtools)
+            .build()?
     };
 
     let window_menu = SubmenuBuilder::new(app, "Window")

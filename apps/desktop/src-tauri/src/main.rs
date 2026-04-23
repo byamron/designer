@@ -119,12 +119,16 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("tauri build")
         .run(|app, event| {
-            if let RunEvent::Reopen { has_visible_windows, .. } = event {
+            if let RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } = event
+            {
                 // macOS dock-click convention: when no window is visible,
                 // rebuild it. Quit remains explicit via Cmd+Q.
                 if !has_visible_windows && app.get_webview_window(MAIN_WINDOW_LABEL).is_none() {
-                    let theme = Settings::load(&app.state::<Arc<AppCore>>().config.data_dir)
-                        .resolve();
+                    let theme =
+                        Settings::load(&app.state::<Arc<AppCore>>().config.data_dir).resolve();
                     if let Err(err) = make_main_window(app, theme) {
                         tracing::warn!(error = %err, "failed to rebuild main window on reopen");
                     }
@@ -136,10 +140,7 @@ fn main() {
 /// Build the main window. Kept a free function (not inside `.setup()`) so the
 /// reopen handler can reuse the exact same configuration — the cold boot and
 /// dock-reopen code paths cannot drift.
-fn make_main_window<R: Runtime, M: Manager<R>>(
-    app: &M,
-    theme: ResolvedTheme,
-) -> tauri::Result<()> {
+fn make_main_window<R: Runtime, M: Manager<R>>(app: &M, theme: ResolvedTheme) -> tauri::Result<()> {
     let url = WebviewUrl::App(format!("index.html#theme={}", theme.as_str()).into());
     let (r, g, b, a) = theme.background_rgba();
     let tauri_theme = match theme {

@@ -183,10 +183,7 @@ fn helper_status_to_response(status: HelperStatus, health: HelperHealth) -> Help
 /// The `id` is a stable kebab-case token suitable for `aria-describedby`.
 fn provenance_for(status: &HelperStatus) -> (String, String) {
     match (&status.kind, status.fallback_reason.as_ref()) {
-        (HelperStatusKind::Live, _) => (
-            "Summarized on-device".into(),
-            "provenance-live".into(),
-        ),
+        (HelperStatusKind::Live, _) => ("Summarized on-device".into(), "provenance-live".into()),
         (
             HelperStatusKind::Fallback,
             Some(FallbackReason::UnsupportedOs | FallbackReason::ModelsUnavailable),
@@ -263,7 +260,10 @@ mod tests {
     #[test]
     fn user_disabled_is_user_recoverable() {
         let resp = helper_status_to_response(
-            status(HelperStatusKind::Fallback, Some(FallbackReason::UserDisabled)),
+            status(
+                HelperStatusKind::Fallback,
+                Some(FallbackReason::UserDisabled),
+            ),
             HelperHealth::default(),
         );
         assert_eq!(resp.fallback_reason.as_deref(), Some("user_disabled"));
@@ -310,7 +310,10 @@ mod tests {
     #[test]
     fn ping_timeout_offers_reinstall() {
         let resp = helper_status_to_response(
-            status(HelperStatusKind::Fallback, Some(FallbackReason::PingTimeout)),
+            status(
+                HelperStatusKind::Fallback,
+                Some(FallbackReason::PingTimeout),
+            ),
             HelperHealth::default(),
         );
         assert_eq!(resp.fallback_reason.as_deref(), Some("ping_timeout"));

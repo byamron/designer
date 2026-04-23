@@ -24,16 +24,9 @@ pub enum JobKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HelperResponse {
-    Pong {
-        version: String,
-        model: String,
-    },
-    Text {
-        text: String,
-    },
-    Error {
-        message: String,
-    },
+    Pong { version: String, model: String },
+    Text { text: String },
+    Error { message: String },
 }
 
 /// Framing: 4-byte BE length, then JSON payload. Keeps things portable and

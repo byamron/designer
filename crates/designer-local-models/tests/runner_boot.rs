@@ -44,7 +44,10 @@ async fn happy_path_ping_and_generate() {
     assert!(text.starts_with("stub generated"));
 
     let health = helper.health();
-    assert!(health.running, "should be running after a successful round-trip");
+    assert!(
+        health.running,
+        "should be running after a successful round-trip"
+    );
     assert_eq!(health.consecutive_failures, 0);
     assert!(health.version.is_some());
 }
@@ -89,7 +92,10 @@ async fn supervisor_demotes_after_max_failures() {
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline {
         let res = helper.ping().await;
-        assert!(res.is_err(), "always_die must never produce a successful ping");
+        assert!(
+            res.is_err(),
+            "always_die must never produce a successful ping"
+        );
         let h = helper.health();
         if !h.running && h.consecutive_failures >= 5 {
             break;
@@ -136,7 +142,10 @@ async fn backoff_window_rejects_fast() {
 async fn stderr_is_captured_on_failure() {
     let helper = fresh_helper_with_mode("panic_to_stderr");
     let err = helper.ping().await.expect_err("ping should fail");
-    assert!(matches!(err, HelperError::Unavailable(_) | HelperError::Io(_)));
+    assert!(matches!(
+        err,
+        HelperError::Unavailable(_) | HelperError::Io(_)
+    ));
     let health = helper.health();
     assert!(health.consecutive_failures >= 1);
 }

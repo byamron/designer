@@ -4,7 +4,7 @@
 
 use designer_claude::{MockOrchestrator, Orchestrator, TaskAssignment, TeamSpec};
 use designer_core::{
-    Actor, EventPayload, EventStore, Projection, Projector, ProjectId, SqliteEventStore, StreamId,
+    Actor, EventPayload, EventStore, ProjectId, Projection, Projector, SqliteEventStore, StreamId,
     StreamOptions, TaskId, WorkspaceId,
 };
 use std::path::PathBuf;
@@ -116,7 +116,14 @@ async fn run_demo() -> anyhow::Result<()> {
     }
 
     println!("\nTimeline:");
-    for e in events.iter().rev().take(20).collect::<Vec<_>>().iter().rev() {
+    for e in events
+        .iter()
+        .rev()
+        .take(20)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+    {
         println!(
             "  [{}] {:?} — seq={} by {:?}",
             e.timestamp.unix_timestamp(),

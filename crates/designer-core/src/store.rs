@@ -274,9 +274,7 @@ impl EventStore for SqliteEventStore {
         let broadcaster = self.broadcaster.clone();
 
         let result = task::spawn_blocking(move || -> Result<EventEnvelope> {
-            let mut conn = pool
-                .get()
-                .map_err(|e| StoreError::Pool(e.to_string()))?;
+            let mut conn = pool.get().map_err(|e| StoreError::Pool(e.to_string()))?;
             let tx = conn.transaction().map_err(StoreError::Sqlite)?;
 
             let stream_kind = stream.discriminant();
@@ -319,16 +317,12 @@ impl EventStore for SqliteEventStore {
             let (actor_kind, actor_team, actor_role) = match &actor {
                 crate::domain::Actor::User => ("user", None, None),
                 crate::domain::Actor::System => ("system", None, None),
-                crate::domain::Actor::Agent { team, role } => (
-                    "agent",
-                    Some(team.clone()),
-                    Some(role.clone()),
-                ),
+                crate::domain::Actor::Agent { team, role } => {
+                    ("agent", Some(team.clone()), Some(role.clone()))
+                }
             };
-            let payload_json =
-                serde_json::to_string(&envelope.payload).map_err(|e| {
-                    StoreError::Append(format!("serialize payload: {e}"))
-                })?;
+            let payload_json = serde_json::to_string(&envelope.payload)
+                .map_err(|e| StoreError::Append(format!("serialize payload: {e}")))?;
 
             tx.execute(
                 "INSERT INTO events (id, stream_kind, stream_id, sequence, timestamp,
@@ -373,9 +367,7 @@ impl EventStore for SqliteEventStore {
     ) -> Result<Vec<EventEnvelope>> {
         let pool = self.pool.clone();
         task::spawn_blocking(move || -> Result<Vec<EventEnvelope>> {
-            let conn = pool
-                .get()
-                .map_err(|e| StoreError::Pool(e.to_string()))?;
+            let conn = pool.get().map_err(|e| StoreError::Pool(e.to_string()))?;
             let stream_kind = stream.discriminant();
             let stream_id_str = stream.raw();
             let after = options.after_sequence.unwrap_or(0) as i64;
@@ -409,14 +401,10 @@ impl EventStore for SqliteEventStore {
     async fn read_all(&self, options: StreamOptions) -> Result<Vec<EventEnvelope>> {
         let pool = self.pool.clone();
         task::spawn_blocking(move || -> Result<Vec<EventEnvelope>> {
-            let conn = pool
-                .get()
-                .map_err(|e| StoreError::Pool(e.to_string()))?;
+            let conn = pool.get().map_err(|e| StoreError::Pool(e.to_string()))?;
             let limit = options.limit.map(|x| x as i64).unwrap_or(i64::MAX);
             let mut stmt = conn
-                .prepare(
-                    "SELECT * FROM events ORDER BY timestamp ASC, sequence ASC LIMIT ?1",
-                )
+                .prepare("SELECT * FROM events ORDER BY timestamp ASC, sequence ASC LIMIT ?1")
                 .map_err(StoreError::Sqlite)?;
             let rows = stmt
                 .query_map(params![limit], row_to_envelope)

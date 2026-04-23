@@ -367,8 +367,8 @@ impl SwiftFoundationHelper {
             .min(steps.len().saturating_sub(1));
         let delay_ms = steps.get(idx).copied().unwrap_or(0);
         state.next_attempt_at = Some(Instant::now() + Duration::from_millis(delay_ms));
-        let just_demoted = !state.demoted
-            && state.consecutive_failures >= self.tuning.max_consecutive_failures;
+        let just_demoted =
+            !state.demoted && state.consecutive_failures >= self.tuning.max_consecutive_failures;
         if just_demoted {
             state.demoted = true;
         }

@@ -6,13 +6,13 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 **Phase 12.B + 12.C shipped (2026-04-21).** 12.C: Tauri v2 shell binary, event bridge, theme persistence, macOS menu, drag regions. 12.B: Swift Foundation Models helper supervisor, config wiring, IPC surface, stub-tested boot path. Remaining Phase 12 track (12.A real Claude Code) still open; 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the integration-notes SDK-shape delta.
 
-Phase 12 tracks:
+Phase 12 tracks — status:
 
-- **12.A — Real Claude Code subprocess.** Needs a local Claude Code install. Blocks 13.D (agent wire). **Not started.**
-- **12.B — Swift Foundation Models helper build.** Infrastructure complete; real-hardware validation pending. Blocks 13.F.
-- **12.C — Tauri shell binary.** ✅ Done. Unblocks 13.D / 13.E / 13.F / 13.G.
+- **12.A — Real Claude Code subprocess.** ✅ Done 2026-04-22 (branch `phase-12a-plan`). Real Claude Code integration validated end-to-end: orchestrator rewrite, stream-json translator, watcher fix, live integration test, three-tier CI, spec update introducing the **track** primitive. See `history.md` and `core-docs/adr/0001-claude-runtime-primitive.md`.
+- **12.B — Swift Foundation Models helper build.** Infrastructure complete; real-hardware validation still pending (needs `./scripts/build-helper.sh` on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B).
+- **12.C — Tauri shell binary.** ✅ Done 2026-04-21. Unblocks 13.D / 13.E / 13.F / 13.G.
 
-13.E and 13.F are now valid parallel starts (12.C unblocks both; 12.B pre-supplies the `helper_status` IPC and `HelperEvent` broadcast 13.F needs). 13.D remains gated on 12.A. Next recommended step: run `./scripts/build-helper.sh` on an AI-capable Mac to close 12.B, then pick whichever of 12.A / 13.E / 13.F unblocks the most downstream work.
+All three 12.X tracks are either done or infrastructure-landed. Next recommended work: any of 13.D / 13.E / 13.F / 13.G in parallel. 13.D (agent wire) now unblocked by both 12.A and 12.C; 13.E (track primitive + git wire) unblocked by 12.C; 13.F (local-model surfaces) unblocked by 12.B infra + 12.C; 13.G (safety + keychain) unblocked by 12.C.
 
 ## Handoff Notes
 
@@ -22,13 +22,21 @@ Phase 12 tracks:
 
 ## Active Work Items
 
-### Phase 12.A — Real Claude Code subprocess *(blocks 13.D)*
+### Phase 12.A — Real Claude Code subprocess *(completed 2026-04-22; unblocks 13.D)*
 
-- [ ] Install Claude Code + auth on dev machine.
-- [ ] Run `ClaudeCodeOrchestrator::spawn_team` against a throwaway team; catalog file shapes under `~/.claude/teams/` and `~/.claude/tasks/` into `core-docs/integration-notes.md`.
-- [ ] Update `crates/designer-claude/src/watcher.rs::classify`.
-- [ ] Adjust `claude team init/task/message` CLI args in `claude_code.rs` to match the real shape.
-- [ ] Add integration test gated by `CLAUDE_CODE_INSTALLED=1`.
+- [x] Install Claude Code + auth on dev machine (was already installed: 2.1.117, keychain OAuth).
+- [x] Probe + spike: `scripts/probe-claude.sh` with Phase A (safe inventory) + Phase B (live team spawn). Captured `~/.claude/teams/{team}/config.json`, inbox shapes, stream-json event vocabulary (including `rate_limit_event`).
+- [x] Resolve in-process-in-subprocess spike: option (a) — works cleanly, no pty/tmux needed.
+- [x] `core-docs/integration-notes.md` written; pinned `claude --version 2.1.117`.
+- [x] `core-docs/adr/0001-claude-runtime-primitive.md` written.
+- [x] Rewrite `ClaudeCodeOrchestrator` against real primitive (native agent teams, natural-language team creation, stream-json in/out via persistent stdin pipe, `--permission-prompt-tool stdio`, deterministic session-id per workspace, 60s graceful shutdown).
+- [x] Write `crates/designer-claude/src/stream.rs` translator with fixture-based tests.
+- [x] Rewrite `crates/designer-claude/src/watcher.rs::classify` for real shapes; `None` for out-of-scope paths.
+- [x] Live integration test `tests/claude_live.rs` (gated by `--features claude_live`) passes against real Claude install.
+- [x] CI workflows: `.github/workflows/ci.yml` (Tier 1 hermetic), `claude-live.yml` (Tier 2 self-hosted), `claude-probe.yml` (Tier 3 scheduled drift detection).
+- [x] Commit subagent definitions: `.claude/agents/track-lead.md`, `teammate-default.md`; reserve `.claude/prompts/workspace-lead.md` stub (per D4).
+- [ ] Register self-hosted runner (user action: GitHub → Settings → Actions → Runners → new self-hosted runner, macOS arm64, labels `self-hosted macOS claude`).
+- [ ] (Deferred to 13.G / 13.D) `designer-hook` binary for secondary feed; `PreToolUse` approval-gate spike; partial-message coalescer at 120ms.
 
 ### Phase 12.B — Swift Foundation Models helper *(blocks 13.F)*
 
@@ -67,7 +75,7 @@ Infrastructure landed on 2026-04-21 (branch `phase-12b-plan`); real-binary valid
 Four tracks with individual input gates:
 
 - [ ] **13.D Agent wire** (needs 12.A + 12.C): replace `PlanTab::ackFor()` with `Orchestrator::post_message`; stream replies via `designer://event-stream`.
-- [ ] **13.E Git + repo linking** (needs 12.C): repo-linking UI + `GitOps::init_worktree` + `core-docs/*.md` seeding + "Request merge" → `gh pr create`.
+- [ ] **13.E Track primitive + git wire** (needs 12.C): introduces the `Track` primitive per spec Decisions 29–30 (workspace owns a list of tracks; v1 creates length-1). Repo-linking UI + `TrackStarted` events + `GitOps::init_worktree` per track + `core-docs/*.md` seeding + "Request merge" → `gh pr create` → `TrackCompleted`. Reserves `WorkspaceForked` / `WorkspacesReconciled` / `TrackArchived` event types for Phase 18.
 - [ ] **13.F Local-model surfaces** (needs 12.B + 12.C): spine summaries via `LocalOps::summarize_row`; Home recap via `LocalOps::recap`; audit verdicts via `LocalOps::audit_claim`.
 - [ ] **13.G Safety surfaces + Keychain** (needs 12.C): approval inbox, cost chip in topbar, scope-denied in inbox, `security-framework` keychain integration.
 
@@ -96,6 +104,18 @@ Six independent items:
 - [ ] Updater backend: signed `latest.json` on static host + Ed25519 keypair.
 - [ ] Crash-report endpoint (opt-in upload).
 - [ ] Install QA checklist on a fresh Mac (see `apps/desktop/PACKAGING.md`).
+
+### Phase 18 — Workspace scales up *(after 13 + 16; parts pullable into 15)*
+
+Delivers the user-visible affordances of the workspace/track model (spec §"Workspace and Track"). Primitive lands in 13.E; this phase unlocks what it enables.
+
+- [ ] Sequential track succession ("start the next track on this workspace") with context recap via `LocalOps::recap`.
+- [ ] Parallel tracks per workspace + cross-track conflict detection (extends the existing cross-workspace primitive).
+- [ ] Workspace lead hybrid routing (exploratory, opt-in — spec Decision 31 "future direction"): local-model default path for routine chat; Claude Code escalation for consequential decisions; settings toggle, not a default.
+- [ ] Track archive + history surface; `@track:name` references.
+- [ ] Workspace forking (`WorkspaceForked`): inherits parent docs/decisions/chat history as read-only baseline.
+- [ ] Workspace reconciliation (`WorkspacesReconciled`): absorb or diverge cleanly.
+- [ ] Activity spine extension: new altitude for tracks; one-line summaries per track.
 
 ---
 
