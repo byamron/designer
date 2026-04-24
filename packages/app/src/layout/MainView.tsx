@@ -232,7 +232,7 @@ function TabButton({
 }
 
 function TemplateIcon({ template }: { template: TabTemplate }) {
-  const common = { size: 14, strokeWidth: 1.25, "aria-hidden": true as const };
+  const common = { size: 16, strokeWidth: 1.5, "aria-hidden": true as const };
   switch (template) {
     case "plan":
       return <ClipboardList {...common} />;
@@ -308,7 +308,7 @@ function TemplateMenu({ onOpen }: { onOpen: (t: TabTemplate) => void }) {
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        <IconPlus size={12} strokeWidth={1.5} />
+        <IconPlus />
       </IconButton>
       {open && (
         <div role="menu" className="new-tab__menu" aria-label="New tab template">

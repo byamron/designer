@@ -201,13 +201,13 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
                 label="Attach file"
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Paperclip size={14} strokeWidth={1.25} aria-hidden="true" />
+                <Paperclip size={16} strokeWidth={1.5} aria-hidden="true" />
               </IconButton>
               <IconButton
                 label="Dictation — coming soon"
                 disabled
               >
-                <Mic size={14} strokeWidth={1.25} aria-hidden="true" />
+                <Mic size={16} strokeWidth={1.5} aria-hidden="true" />
               </IconButton>
               <IconButton
                 type="submit"
@@ -215,7 +215,7 @@ export function PlanTab({ tab, workspace }: { tab: Tab; workspace: Workspace }) 
                 shortcut="⌘↵"
                 className="btn-icon--primary"
               >
-                <ArrowUp size={14} strokeWidth={1.5} aria-hidden="true" />
+                <ArrowUp size={16} strokeWidth={1.5} aria-hidden="true" />
               </IconButton>
             </div>
           </div>

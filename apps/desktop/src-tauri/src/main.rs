@@ -77,6 +77,7 @@ fn main() {
             commands::resolve_approval,
             commands::get_theme,
             commands::set_theme,
+            commands::reveal_in_finder,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

@@ -9,9 +9,21 @@ import { clampPaneWidth, PANE_MAX_WIDTH, PANE_MIN_WIDTH } from "../store/app";
  * serializes localStorage across tabs with a file lock, and a per-pixel
  * write cadence janked pane drags.
  *
+ * Stickiness: as the dragged width approaches `defaultWidth`, the handle
+ * snaps to it when the delta falls inside SNAP_RADIUS (12px). The snap
+ * is one-shot per pass (tracked in snappedRef) so that once the user
+ * keeps dragging past the default, the pane breaks free smoothly and
+ * doesn't flicker. On entry to the snap zone we fire a subtle haptic
+ * pulse via `navigator.vibrate` — where supported — to mimic macOS's
+ * magnet-at-center pattern that Finder and Preview use.
+ *
  * Keyboard: ← / → adjust by 16px (48px with shift) and commit immediately.
  * Double-click snaps to default and commits.
  */
+
+const SNAP_RADIUS = 12;
+const SNAP_RELEASE = 20;
+
 export function PaneResizer({
   side,
   width,
@@ -30,6 +42,7 @@ export function PaneResizer({
   const [dragging, setDragging] = useState(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
+  const snappedRef = useRef(false);
 
   const signedDelta = useCallback(
     (deltaX: number) =>
@@ -44,6 +57,7 @@ export function PaneResizer({
       e.preventDefault();
       startXRef.current = e.clientX;
       startWidthRef.current = width;
+      snappedRef.current = false;
       setDragging(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -53,10 +67,24 @@ export function PaneResizer({
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!dragging) return;
-      const next = startWidthRef.current + signedDelta(e.clientX - startXRef.current);
+      const raw = startWidthRef.current + signedDelta(e.clientX - startXRef.current);
+      const distance = Math.abs(raw - defaultWidth);
+      let next = raw;
+      if (!snappedRef.current && distance <= SNAP_RADIUS) {
+        next = defaultWidth;
+        snappedRef.current = true;
+        // `navigator.vibrate` is the closest web approximation of a macOS
+        // haptic tick. Unsupported browsers (Safari macOS) silently no-op
+        // which matches the spec's best-effort contract.
+        navigator.vibrate?.(8);
+      } else if (snappedRef.current && distance >= SNAP_RELEASE) {
+        snappedRef.current = false;
+      } else if (snappedRef.current) {
+        next = defaultWidth;
+      }
       onLiveChange(clampPaneWidth(next));
     },
-    [dragging, onLiveChange, signedDelta],
+    [dragging, defaultWidth, onLiveChange, signedDelta],
   );
 
   const endDrag = useCallback(

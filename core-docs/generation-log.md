@@ -279,3 +279,57 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - tests: 13/13 pass.
 - deviations: none.
 - feedback: pending
+
+## 2026-04-23T17:55:00Z — manual (17-item Agentation feedback pass, ottawa-v1 recovery)
+- prompt: 17 Agentation comments recovered from Dia's leveldb for origin `http://localhost:5184` (kingston/ottawa/prague-era session). User asked to address them all.
+- trigger: manual (feedback attachment at `.context/attachments/pasted_text_2026-04-23_17-46-09.txt`)
+- archetype-reused: Sidebar (SettingsPage left rail), Overlay (full-screen page layer)
+- components-reused: IconButton, Tooltip, SegmentedToggle, PaneResizer (extended)
+- components-new: `SurfaceDevPanel.tsx` (re-introduced with two knobs: compose fill, surface sand), `SettingsPage.tsx` (full-screen replacement for the settings modal)
+- components-modified:
+  - `icons.tsx`: default size for IconPlus, IconChevronLeft/Right, IconCollapseLeft/Right bumped 12 → 16 so chrome affordances match the ProjectStrip Plus (the user's reference)
+  - `WorkspaceStatusIcon.tsx`: glyph size 12 → 16, container class sized from `--icon-sm` → `--icon-lg`
+  - `WorkspaceSidebar.tsx`: Home icon 14 → 16 stroke 1.5; sidebar-path upgraded to a `<button>` that calls `reveal_in_finder` in Tauri (TODO: 13.E Rust shim) with a clipboard fallback in the web build
+  - `PlanTab.tsx`: compose action icons (Paperclip, Mic, ArrowUp) bumped 14 → 16
+  - `ActivitySpine.tsx`: rewritten — strictly workspace-scoped (no project fallback); new section stack is Artifacts → Code files → Agents → Recent events; artifacts open as tabs via `openTab({ template: "blank" })` until a real artifact TabTemplate lands
+  - `AppDialog.tsx`: now only renders Help; settings body + theme picker extracted into SettingsPage
+  - `PaneResizer.tsx`: adds snap-to-default-width with a 12px snap radius and 20px release threshold; fires `navigator.vibrate(8)` haptic on snap entry
+  - `App.tsx`: mounts SurfaceDevPanel (dev-only) and swaps SettingsPage in for AppShell when `dialog === "settings"`
+  - `Palette.tsx`: adds a leading Search icon in the prompt (aligned to the suggestion-icon column); removes the `.palette__suggestion-meta` role-label column
+- css-modified:
+  - `--surface-tab-gap`: `calc(var(--space-2) * 1.5)` → `0` (tabs flush against main surface per item #1)
+  - `--surface-inner-pad`: `var(--space-4)` → `var(--space-3)` (preserve concentric math after the surface-radius reduction)
+  - `--radius-surface`: `1.5rem` → `1rem` (reduced per item #15; compose radius is now a clean `--radius-button` neighbor)
+  - `.strip-icon` radius: `--radius-card` → `--radius-button` (item #6, match tabs)
+  - `.tab-button`: inactive fill = `color-mix(…content-surface 80%, transparent)`; font size `body` → `caption`; bottom radius squared so active tab merges visually into surface
+  - `.compose__input` padding equalized to `var(--space-3)` (item #17); `.compose__select` + `.compose__toggle` radii bumped to `--radius-button`
+  - `.sidebar-path` restyled as a clickable button with hover/focus states
+  - `.app-sidebar` / `.app-spine`: `overflow` switched from `auto` → `visible` so PaneResizer isn't clipped; scroll ownership moved to `.sidebar-group` / `.spine-list`
+  - `.pane-resizer` width `--space-2` → `--space-3` (wider grab target, still no visible bar)
+  - `.workspace-row` + `.workspace-status` icon columns/containers sized at `--icon-lg`
+  - dark-mode `--color-content-surface` flipped to `color-mix(in oklab, var(--sand-dark-1) var(--dev-surface-sand), var(--sand-dark-3))` so the new dev slider spans both modes
+  - new `.surface-dev-panel__*`, `.settings-page__*`, `.spine-items`, `.spine-item` blocks
+- tokens: `--radius-surface` reduced to 1rem (16px) in `packages/ui/styles/tokens.css` — only Designer project-level token, not a Mini primitive
+- feedback-mapping (1 → 17):
+  - 1 (tabs flush with main) — `--surface-tab-gap` = 0, bottom-corners of active tab squared
+  - 2 (icons too small across the site) — WorkspaceStatusIcon + icons.tsx defaults → 16; see 8, 9
+  - 3 (Palette search icon) — added leading Search icon in `palette__prompt`
+  - 4 (remove role labels) — dropped `.palette__suggestion-meta` and the third grid column
+  - 5 (unselected tab fill) — semi-transparent color-mix on `.tab-button`
+  - 6 (strip-icon corner radius) — switched to `--radius-button`
+  - 7 (sidebar-path clickable) — `<button>` + `reveal_in_finder` IPC (TODO) + clipboard fallback
+  - 8 (Home icon size) — `<House size={16} strokeWidth={1.5} />`
+  - 9 (reference icon size) — baseline for the icon-size sweep
+  - 10 (compose color dev panel) — SurfaceDevPanel "Compose fill" slider → `--dev-compose-mix`
+  - 11 (surface sand dev panel) — SurfaceDevPanel "Surface sand" slider → `--dev-surface-sand`; default 50% so there's symmetric travel in both directions
+  - 12 (resizable + sticky default) — fixed overflow-clipping on pane containers; added snap + `navigator.vibrate(8)` on snap entry
+  - 13 (ActivitySpine restructure) — workspace-only scope + four-section stack (Artifacts / Code files / Agents / Recent events)
+  - 14 (Settings dialog → page) — new SettingsPage full-viewport surface with left rail, section content, "Back to app" button
+  - 15 (main surface radius too large) — `--radius-surface` 24px → 16px; compose radius now 8px (concentric)
+  - 16 (smaller tab font) — `.tab-button` font-size stepped down to `--type-caption-size`
+  - 17 (compose model button concentric + equal padding) — compose__input padding unified at `var(--space-3)`; model button + plan-mode toggle radii → `--radius-button`
+- invariants: pending node run
+- typecheck: clean
+- tests: 13/13 pass
+- deviations: `reveal_in_finder` Rust shim not yet wired (TODO(13.E)); artifacts still open as Blank tabs until a first-class `artifact` TabTemplate lands (TODO(13.D))
+- feedback: pending

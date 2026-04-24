@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Search } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import { SegmentedToggle } from "./SegmentedToggle";
 import { setPaletteDensity, useAppState, type PaletteDensity } from "../store/app";
@@ -44,6 +45,9 @@ export function Palette({
         )}
         <div className="palette__surface" data-density={density}>
           <div className="palette__prompt">
+            <span className="palette__prompt-icon" aria-hidden="true">
+              <Search size={16} strokeWidth={1.5} />
+            </span>
             <input
               type="text"
               className="palette__input"
@@ -64,7 +68,6 @@ export function Palette({
                       {s.icon}
                     </span>
                     <span className="palette__suggestion-label">{s.label}</span>
-                    <span className="palette__suggestion-meta">{s.meta}</span>
                   </button>
                 </Tooltip>
               </li>

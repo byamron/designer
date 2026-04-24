@@ -115,3 +115,22 @@ pub fn set_theme(
         resolved,
     })
 }
+
+#[tauri::command]
+pub fn reveal_in_finder(path: String) -> Result<(), IpcError> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| IpcError::Unknown(format!("reveal_in_finder failed: {e}")))?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Err(IpcError::Unknown(
+            "reveal_in_finder only supported on macOS".into(),
+        ))
+    }
+}

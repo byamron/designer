@@ -34,7 +34,12 @@
    * one step darker than the dark-sand page) so the work still reads as
    * "the figure" against the sand-toned chrome — the contrast direction
    * flips with the mode, but the hierarchy stays the same. */
-  --color-content-surface: white;
+  /* Light-mode content surface — blend between bright (white) and sandy
+   * (sand-3) driven by --dev-surface-sand (0–100%, set by SurfaceDevPanel;
+   * defaults to 50 so the production surface is already a subtle step
+   * warmer than pure white). 0% = white (slider left), 100% = sand-3. */
+  --dev-surface-sand: 50%;
+  --color-content-surface: color-mix(in oklab, var(--sand-3) var(--dev-surface-sand), white);
 
   /* Two-tier page / floating-surface register.
    * Sidebars + spine sit on --color-background; the main content panel is
@@ -42,18 +47,35 @@
    * from the tabs by --surface-tab-gap. All three knobs are tunable live
    * via the SurfaceDevPanel (dev-only). Production defaults below; the
    * panel writes overrides on :root in development. */
-  /* Locked-in surface register. The SurfaceDevPanel that tuned these
-   * was removed 2026-04-23 after we settled the values:
-   *   Gutter      12px  (between space-3 and space-4; tighter than airy)
-   *   Tab gap     6px   (between space-2 and space-3)
-   *   Text pad    24px  (space-5 — tab-body inset from surface edge)
-   *   Compose pad 16px  (space-4 — concentric with --radius-surface)
+  /* Locked-in surface register (2026-04-23 tuning pass):
+   *   Gutter      12px  (space-3 * 1.5)
+   *   Tab gap     0     (active tab flush against surface)
+   *   Text pad    24px  (space-5 — tab-body inset)
+   *   Compose pad 8px   (space-3 — concentric with smaller surface radius)
    *   Shadow      --elevation-raised (1px offset, ~5% black)
-   * These can be re-exposed behind a dev panel if we need to tune again. */
+   * These are re-exposable behind the SurfaceDevPanel if we need to tune
+   * again (the panel is the canonical runtime knob for this surface register). */
   --surface-gutter: calc(var(--space-3) * 1.5);
+  /* Tabs float at the same elevation as the main content surface — same
+   * fill (--color-content-surface), same shadow register, separated by a
+   * real gap so they read as sibling rectangles rather than a merged
+   * seam. Drives BOTH the horizontal gap between adjacent tabs AND the
+   * vertical gap from the tab row down to the main surface, so the two
+   * axes stay equal (user spec: 6px).
+   *   calc(var(--space-2) * 1.5) = 6px — same 1.5x pattern as
+   *   --surface-gutter, lets us hit 6px without introducing a bespoke
+   *   token for a single caller. */
   --surface-tab-gap: calc(var(--space-2) * 1.5);
   --surface-shadow: var(--elevation-raised);
   --surface-text-pad: var(--space-5);
+  /* 16 px inset around the compose, per the user's concentric-corners
+   * spec. With --radius-surface = 16 and this pad = 16, the concentric
+   * math resolves the compose corner radius to 0 (16 − 16) — the
+   * compose is a sharp rectangle nested in the rounded-corner pocket
+   * of the surface, with its corner arc collapsed to a point at the
+   * outer arc's center. That's geometrically perfectly concentric.
+   * If the compose ever needs a non-zero radius again, bump the
+   * surface radius by the same delta so the math keeps holding. */
   --surface-inner-pad: var(--space-4);
 }
 
@@ -64,7 +86,13 @@
 .dark,
 .dark-theme,
 [data-theme="dark"] {
-  --color-content-surface: var(--gray-1);
+  /* Dark-mode content surface — blend between a brighter anchor
+   * (sand-dark-3) and a slightly darker anchor (sand-dark-1) driven by
+   * the same --dev-surface-sand slider. 0% = brighter, 100% = sandiest.
+   * 50% default leaves the production surface at sand-dark-2 — sitting
+   * between the two and reading as the same "one step darker than page"
+   * hierarchy the light mode uses (just inverted). */
+  --color-content-surface: color-mix(in oklab, var(--sand-dark-1) var(--dev-surface-sand), var(--sand-dark-3));
   /* In dark mode the alpha-5 border isn't strong enough to differentiate
    * the active tab pill from the page (sand-dark-1 pill on sand-dark-2
    * page differ by ~1 luminance step). Promote the "soft" border to the
@@ -170,8 +198,18 @@ body,
   flex-direction: column;
   gap: var(--space-5);
   padding: var(--space-4);
-  overflow-y: auto;
+  /* Overflow is visible so the PaneResizer can bleed past the right edge
+   * to sit over the gutter between sidebar and main surface. The inner
+   * sidebar-group owns scrolling when the workspace list gets long. */
+  overflow: visible;
   box-sizing: border-box;
+  min-height: 0;
+}
+
+.app-sidebar .sidebar-group {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .app-main {
@@ -197,11 +235,20 @@ body,
   grid-area: spine;
   background: transparent;
   padding: var(--space-4);
-  overflow-y: auto;
+  /* Overflow visible so the left-edge PaneResizer is not clipped. The
+   * .spine-list and .spine-section children own any vertical scroll. */
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
   box-sizing: border-box;
+  min-height: 0;
+}
+
+.app-spine .spine-list {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 0 1 auto;
 }
 
 /* Custom properties can't be used inside @media conditions (CSS limitation).
@@ -223,7 +270,10 @@ body,
 .strip-icon {
   width: var(--target-md);
   height: var(--target-md);
-  border-radius: var(--radius-card);
+  /* Matches the tab-button radius (--radius-button, 6px) so the left-rail
+   * squares read in the same corner register as the tabs across the top
+   * of the main surface — one "tool" radius for chrome boxes. */
+  border-radius: var(--radius-button);
   background: var(--color-surface-raised);
   border: var(--border-thin) solid var(--color-border);
   display: flex;
@@ -300,12 +350,33 @@ body,
 }
 
 .sidebar-path {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: inline-block;
+  width: 100%;
+  text-align: left;
   font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
   color: var(--color-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--motion-interactive);
+}
+
+.sidebar-path:hover,
+.sidebar-path:focus-visible {
+  color: var(--color-foreground);
+}
+
+.sidebar-path:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-badge);
 }
 
 .sidebar-group {
@@ -339,7 +410,7 @@ body,
 .sidebar-home {
   appearance: none;
   display: grid;
-  grid-template-columns: var(--space-3) 1fr;
+  grid-template-columns: var(--icon-lg) 1fr;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -416,7 +487,7 @@ body,
 
 .workspace-row {
   display: grid;
-  grid-template-columns: var(--icon-sm) 1fr;
+  grid-template-columns: var(--icon-lg) 1fr;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -464,8 +535,8 @@ body,
 /* --- workspace status icons ---- */
 
 .workspace-status {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
+  width: var(--icon-lg);
+  height: var(--icon-lg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -521,55 +592,6 @@ body,
   .state-dot { animation: none; }
 }
 
-/* --- main-view top bar ---- */
-/* On project-home, this carries the Panels/Palette variant toggle and
- * sits above the floating surface, occupying the same visual slot the
- * tabs-bar would on a workspace view. Transparent — the page shows
- * through; the surface below provides Tier-2. */
-
-.main-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  background: transparent;
-  min-height: var(--target-md);
-}
-
-.main-topbar__heading {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.main-topbar__branch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-muted);
-  font-family: var(--type-family-mono);
-  font-size: var(--type-caption-size);
-  line-height: var(--type-caption-leading);
-  padding: 0 var(--space-2);
-  border: var(--border-thin) solid var(--color-border);
-  border-radius: var(--radius-badge);
-  height: var(--space-5);
-}
-
-.main-topbar__branch svg {
-  color: var(--color-muted);
-  flex-shrink: 0;
-}
-
-.main-topbar__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-left: auto;
-}
-
 /* --- tabs bar (Linear-style pills above the floating surface) ---- */
 /* Bar is transparent and sits on the page. Horizontal gap between tabs
  * and vertical gap to the surface below are both driven by the single
@@ -607,28 +629,39 @@ body,
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   padding-right: calc(var(--space-6));
-  background: transparent;
-  border: var(--border-thin) solid transparent;
+  /* Inactive tabs are a translucent white over the sand page — prominent
+   * enough to read as a tab (not a label), muted enough to cede weight
+   * to the selected tab's opaque white. 90% mix is a step down from
+   * full white and a clear step up from the 80% earlier pass, which the
+   * user judged too faint to stand out from the sand surface. */
+  background: color-mix(in srgb, var(--color-content-surface) 90%, transparent);
+  /* No border — fills + shadow carry all the separation. Earlier rev
+   * leaned on soft borders; user feedback: too prominent. */
+  border: none;
   border-radius: var(--radius-button);
   color: var(--color-muted);
-  font-size: var(--type-body-size);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
   font-family: var(--type-family-sans);
   cursor: pointer;
-  transition: color var(--motion-interactive), background var(--motion-interactive), border-color var(--motion-interactive);
+  transition: color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive);
   position: relative;
 }
 
 /* --- style A: selected-only container (default) ---------------------- */
-/* Inactive tabs are just labels on the page. Active tab is a fully
- * bordered pill in --color-content-surface, sitting above the surface
- * with --surface-tab-gap of air between them. */
+/* Active tab is a fully-rounded white pill floating above the page at
+ * the same elevation as the main surface below. --surface-tab-gap
+ * drives the air between the tab row and the surface — same value as
+ * the horizontal gap between tabs so the two axes stay equal. No
+ * border; the shadow + full-white fill differentiate it from the 90%
+ * translucent siblings without needing a dark outline. */
 
 .app-shell:not([data-tab-style]) .tab-button[data-active="true"],
 .app-shell[data-tab-style="A"] .tab-button[data-active="true"] {
   color: var(--color-foreground);
   background: var(--color-content-surface);
-  border-color: var(--color-border-soft);
   font-weight: var(--weight-medium);
+  box-shadow: var(--surface-shadow);
 }
 
 /* --- style B: translucent-white inactive, floating selected ----------- */
@@ -832,7 +865,13 @@ body,
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
-  background: var(--color-surface-flat);
+  /* Background blends between the main-tab fill (--color-surface-flat) and
+   * the content surface (--color-content-surface), driven by the
+   * SurfaceDevPanel "Compose fill" slider (--dev-compose-mix, default 0%
+   * = main-tab color). Lets us dial compose warmth live without touching
+   * either anchor token. */
+  --dev-compose-mix: 0%;
+  background: color-mix(in oklab, var(--color-content-surface) var(--dev-compose-mix), var(--color-surface-flat));
   border: var(--border-thin) solid var(--color-border-soft);
   border-radius: calc(var(--radius-surface) - var(--surface-inner-pad));
   transition: border-color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive);
@@ -898,7 +937,10 @@ body,
   all: unset;
   flex: 1;
   min-height: calc(var(--space-7));
-  padding: var(--space-2) var(--space-3);
+  /* Equal horizontal + vertical padding so the textarea's breathing room
+   * matches the compose footer's model/effort chips — both sit at
+   * --space-3 from the compose edge, the user asked for parity here. */
+  padding: var(--space-3);
   color: var(--color-foreground);
   background: transparent;
   font-family: var(--type-family-sans);
@@ -957,8 +999,13 @@ body,
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-badge);
+  padding: var(--space-2) var(--space-3);
+  /* Concentric with the compose container: compose radius − compose pad.
+   * With --radius-surface = 16 and --surface-inner-pad = 8, compose
+   * radius is 8; take one more pad in (--space-3 = 8) and the inside
+   * corner should be ~0 for true concentric math. --radius-button (6px)
+   * reads as a harmonic neighbor without going visually flat. */
+  border-radius: var(--radius-button);
   background: transparent;
   border: var(--border-thin) solid var(--color-border);
   cursor: pointer;
@@ -1010,8 +1057,8 @@ body,
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-badge);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
   background: transparent;
   border: var(--border-thin) solid var(--color-border);
   color: var(--color-muted);
@@ -1309,15 +1356,26 @@ body,
 }
 
 .palette__prompt {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--space-4) 1fr;
   align-items: center;
+  gap: var(--space-3);
   width: 100%;
+  padding: var(--space-3);
+  box-sizing: border-box;
+}
+
+.palette__prompt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
 }
 
 .palette__input {
   all: unset;
   width: 100%;
-  padding: var(--space-3) var(--space-4);
+  padding: 0;
   font-size: var(--type-lead-size);
   line-height: var(--type-lead-leading);
   color: var(--color-foreground);
@@ -1329,11 +1387,15 @@ body,
  * user types directly on the surface (Notion / Linear feel). Only the
  * native caret + placeholder make the input discoverable. Padding
  * matches the suggestion rows below so items align on the left edge. */
-.palette__surface[data-density="open"] .palette__input {
+.palette__surface[data-density="open"] .palette__prompt {
   padding: var(--space-2) 0;
   margin-bottom: var(--space-3);
   background: transparent;
   border: none;
+}
+
+.palette__surface[data-density="open"] .palette__input {
+  background: transparent;
 }
 
 .palette__surface[data-density="open"] .palette__input:focus-visible {
@@ -1364,7 +1426,7 @@ body,
   all: unset;
   cursor: pointer;
   display: grid;
-  grid-template-columns: var(--space-4) 1fr auto;
+  grid-template-columns: var(--space-4) 1fr;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
@@ -1402,11 +1464,10 @@ body,
   white-space: nowrap;
 }
 
-.palette__suggestion-meta {
-  color: var(--color-muted);
-  font-family: var(--type-family-mono);
-  font-size: var(--type-caption-size);
-}
+/* Suggestion meta (role labels like "spine · context") removed — users
+ * reported role labels were not self-explanatory. Keep the class as a
+ * legacy alias in case palette consumers still reference it, but it
+ * renders nothing in the DOM. */
 
 /* --- segmented toggle + template menu ---- */
 /* Shared pill toggle — Panels/Palette, Bounded/Open, and any future
@@ -1721,6 +1782,61 @@ body,
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+/* Artifact / file list — grid rows with icon + label + optional meta.
+ * Separate from .spine-list (tree) because these rows are leaves: no
+ * indent, no depth gridline, straightforward "open this as a tab"
+ * affordance. */
+.spine-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.spine-item {
+  all: unset;
+  display: grid;
+  grid-template-columns: var(--icon-md) 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  cursor: pointer;
+  color: var(--color-foreground);
+  width: 100%;
+  box-sizing: border-box;
+  transition: background var(--motion-interactive);
+}
+
+.spine-item:hover {
+  background: var(--color-surface-raised);
+}
+
+.spine-item:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: calc(var(--focus-outline-offset) * -1);
+}
+
+.spine-item__label {
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spine-item__meta {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: calc(var(--space-8) * 2);
 }
 
 .spine-row {
@@ -2155,7 +2271,10 @@ kbd {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: var(--space-2);
+  /* 8px wide — fat enough to grab without misses at Fitts' law targets,
+   * while still invisible so there's no vertical-bar competing with the
+   * sidebar content. Cursor is the only hover feedback, per user spec. */
+  width: var(--space-3);
   background: transparent;
   border: none;
   cursor: col-resize;
@@ -2320,5 +2439,354 @@ kbd {
 .app-dialog__kbd-list dd {
   margin: 0;
   justify-self: end;
+}
+
+/* --- settings page (full-screen, not a modal) ------------------------- */
+/* Replaces the AppShell when the Settings dialog is open. Structured as
+ * a left rail of section buttons + a main area holding the selected
+ * section's content. Topbar has a "Back to app" affordance so the user
+ * can always find the way out — the page register makes the AppShell
+ * chrome disappear, so the back button is the replacement for the
+ * AppDialog close button the old modal carried. */
+
+.settings-page {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  z-index: var(--layer-modal);
+}
+
+.settings-page__topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-thin) solid var(--color-border);
+  background: var(--color-surface-flat);
+  min-height: var(--target-md);
+}
+
+.settings-page__back {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: color var(--motion-interactive), background var(--motion-interactive);
+}
+
+.settings-page__back:hover {
+  background: var(--color-surface-raised);
+}
+
+.settings-page__back:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.settings-page__title {
+  margin: 0;
+  font-size: var(--type-h3-size);
+  line-height: var(--type-h3-leading);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-page__body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: calc(var(--space-8) * 4) 1fr;
+  min-height: 0;
+}
+
+.settings-page__nav {
+  border-right: var(--border-thin) solid var(--color-border);
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.settings-page__nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-page__nav-item {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  font-family: var(--type-family-sans);
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background var(--motion-interactive), color var(--motion-interactive);
+}
+
+.settings-page__nav-item:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-foreground);
+}
+
+.settings-page__nav-item[data-active="true"] {
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+}
+
+.settings-page__nav-item:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: calc(var(--focus-outline-offset) * -1);
+}
+
+.settings-page__nav-label {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  color: inherit;
+}
+
+.settings-page__nav-meta {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.settings-page__content {
+  overflow-y: auto;
+  padding: var(--space-5);
+  min-width: 0;
+}
+
+.settings-page__surface {
+  max-width: calc(var(--space-8) * 12);
+  margin: 0 auto;
+  background: var(--color-content-surface);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-surface);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  box-shadow: var(--surface-shadow);
+}
+
+.settings-page__section-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-page__section-title {
+  margin: 0;
+  font-size: var(--type-h3-size);
+  line-height: var(--type-h3-leading);
+  font-weight: var(--weight-semibold);
+  color: var(--color-foreground);
+}
+
+.settings-page__section-description {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+}
+
+.settings-page__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+
+.settings-page__row:last-child {
+  border-bottom: none;
+}
+
+.settings-page__row-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-page__row-label {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+}
+
+.settings-page__row-description {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  line-height: var(--type-caption-leading);
+}
+
+.settings-page__row-control {
+  justify-self: end;
+}
+
+.settings-page__meta {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+/* --- surface dev panel (dev-only floating tuner) ---------------------- */
+/* Fixed to the bottom-right corner. Collapsed to a round handle when the
+ * panel is closed; expands upward with two range sliders (compose fill
+ * and surface sand) that write CSS custom properties onto :root. Hotkey
+ * ⌘. toggles. Never shipped in production — App.tsx gates on MODE. */
+
+.surface-dev-panel {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--layer-overlay);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.surface-dev-panel > * {
+  pointer-events: auto;
+}
+
+.surface-dev-panel__handle {
+  appearance: none;
+  width: var(--target-md);
+  height: var(--target-md);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--elevation-raised);
+  transition: color var(--motion-interactive), background var(--motion-interactive);
+}
+
+.surface-dev-panel__handle:hover,
+.surface-dev-panel[data-open="true"] .surface-dev-panel__handle {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.surface-dev-panel__handle:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.surface-dev-panel__body {
+  order: -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: calc(var(--space-8) * 4);
+  padding: var(--space-4);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--elevation-overlay);
+  color: var(--color-foreground);
+  font-size: var(--type-caption-size);
+}
+
+.surface-dev-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.surface-dev-panel__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-foreground);
+  font-weight: var(--weight-medium);
+}
+
+.surface-dev-panel__value {
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+}
+
+.surface-dev-panel__hint {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+}
+
+.surface-dev-panel input[type="range"] {
+  appearance: none;
+  width: 100%;
+  height: var(--space-4);
+  background: transparent;
+  cursor: pointer;
+}
+
+.surface-dev-panel input[type="range"]::-webkit-slider-runnable-track {
+  height: var(--space-1);
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
+}
+
+.surface-dev-panel input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-foreground);
+  margin-top: calc(var(--space-1) * -1 - var(--border-thin));
+  cursor: grab;
+}
+
+.surface-dev-panel input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 var(--focus-outline-width) var(--focus-outline-color);
+}
+
+.surface-dev-panel__reset {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+  transition: color var(--motion-interactive), background var(--motion-interactive);
+}
+
+.surface-dev-panel__reset:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.surface-dev-panel__reset:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
 }
 

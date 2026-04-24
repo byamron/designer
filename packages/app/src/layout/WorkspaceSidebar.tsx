@@ -11,6 +11,7 @@ import {
 } from "../store/app";
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
+import { invoke, isTauri } from "../ipc/tauri";
 import type { Workspace, WorkspaceSummary } from "../ipc/types";
 import { emptyArray } from "../util/empty";
 import { IconButton } from "../components/IconButton";
@@ -68,7 +69,6 @@ export function WorkspaceSidebar() {
             {activeProject?.project.name ?? "Pick a project"}
           </strong>
           <IconButton
-            size="sm"
             label="Hide workspaces"
             shortcut="⌘["
             onClick={() => toggleSidebar(false)}
@@ -77,10 +77,14 @@ export function WorkspaceSidebar() {
           </IconButton>
         </div>
         {activeProject && (
-          <Tooltip label={activeProject.project.root_path}>
-            <span className="sidebar-path">
+          <Tooltip label={`Reveal ${activeProject.project.root_path} in Finder`}>
+            <button
+              type="button"
+              className="sidebar-path"
+              onClick={() => revealInFinder(activeProject.project.root_path)}
+            >
               {activeProject.project.root_path}
-            </span>
+            </button>
           </Tooltip>
         )}
       </header>
@@ -93,7 +97,7 @@ export function WorkspaceSidebar() {
           onClick={onHome}
           disabled={!activeProjectId}
         >
-          <House size={14} strokeWidth={1.25} aria-hidden="true" />
+          <House size={16} strokeWidth={1.5} aria-hidden="true" />
           <span>Home</span>
         </button>
       </Tooltip>
@@ -102,8 +106,8 @@ export function WorkspaceSidebar() {
         <div className="sidebar-group__head">
           <span className="sidebar-label">Workspaces</span>
           <IconButton
-            size="sm"
             label="New workspace"
+            shortcut="⌘⇧N"
             onClick={onCreate}
             disabled={!activeProjectId}
           >
@@ -126,6 +130,31 @@ export function WorkspaceSidebar() {
       </div>
     </aside>
   );
+}
+
+/**
+ * Reveal a repo root in Finder. In Tauri we call the `reveal_in_finder`
+ * IPC command (TODO(13.E): wire the Rust side to NSWorkspace). In the
+ * web/dev build we can't shell out, so we copy the path to the clipboard
+ * and return silently — the user still has a usable affordance without
+ * needing to manually select the text.
+ */
+async function revealInFinder(path: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invoke<void>("reveal_in_finder", { path });
+      return;
+    } catch (err) {
+      console.warn("reveal_in_finder failed; falling back to clipboard", err);
+    }
+  }
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(path);
+    } catch {
+      // clipboard blocked (insecure context or user gesture gated) — no-op
+    }
+  }
 }
 
 function WorkspaceRow({

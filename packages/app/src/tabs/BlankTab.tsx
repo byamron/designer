@@ -4,12 +4,12 @@ import type { Tab, Workspace } from "../ipc/types";
 import { TabLayout } from "../layout/TabLayout";
 import { Palette, type PaletteSuggestion } from "../components/Palette";
 
-const ICON_PROPS = { size: 14, strokeWidth: 1.25, "aria-hidden": true as const };
+const ICON_PROPS = { size: 16, strokeWidth: 1.5, "aria-hidden": true as const };
 
 /**
- * Blank tab = a palette scoped to the active workspace. The same UX as
- * HomeTabB, but suggestions speak in terms of *this workspace* rather
- * than the whole project.
+ * Blank tab = a palette scoped to the active workspace. Same pattern as
+ * the project-home palette on HomeTabA, but suggestions speak in terms
+ * of *this workspace* rather than the whole project.
  */
 export function BlankTab({ workspace }: { tab: Tab; workspace: Workspace }) {
   const suggestions = useMemo<PaletteSuggestion[]>(
