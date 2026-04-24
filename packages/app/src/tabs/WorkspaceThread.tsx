@@ -41,6 +41,21 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
     void refresh();
   }, [refresh]);
 
+  // Re-fetch whenever the backend emits an artifact lifecycle event on this
+  // workspace's stream. 13.D/E/F/G drive this — users don't need to reload
+  // the tab to see a new artifact land.
+  useEffect(() => {
+    const unsub = ipcClient().stream((event) => {
+      if (!event.kind.startsWith("artifact_")) return;
+      const wsScope =
+        event.stream_id === workspace.id ||
+        event.stream_id.startsWith(`${workspace.id}:`);
+      if (!wsScope) return;
+      void refresh();
+    });
+    return unsub;
+  }, [workspace.id, refresh]);
+
   const fetchPayload = useCallback(async (id: ArtifactId) => {
     if (payloads[id]) return;
     try {
@@ -68,10 +83,16 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
     [refresh],
   );
 
-  const onSend = useCallback((_payload: ComposeSendPayload) => {
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
+  const onSend = useCallback((payload: ComposeSendPayload) => {
     // Wire the real message append in Phase 13.D (Orchestrator.post_message).
-    // Until then clear the draft; artifacts don't refresh because the mock
-    // doesn't emit message artifacts yet.
+    // Until then surface an explicit "not yet wired" notice instead of
+    // silently eating the draft — the user otherwise wonders why nothing
+    // happens and whether their text was lost.
+    if (payload.text || payload.attachments.length > 0) {
+      setSendNotice("Agent wiring lands in Phase 13.D. Draft cleared.");
+      window.setTimeout(() => setSendNotice(null), 3000);
+    }
   }, []);
 
   const showEmpty = useMemo(
@@ -118,6 +139,11 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
         })}
       </div>
       <div className="workspace-thread__compose">
+        {sendNotice && (
+          <div className="workspace-thread__notice" role="status">
+            {sendNotice}
+          </div>
+        )}
         <ComposeDock ref={composeRef} onSend={onSend} />
       </div>
     </div>

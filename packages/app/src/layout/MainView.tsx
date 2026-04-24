@@ -147,10 +147,16 @@ export function MainView() {
 
 /** Normalize legacy tab titles ("Plan", "Design", "Build", "Blank tab") to
  *  "Tab N" so the unified surface doesn't telegraph the old rigid types.
+ *  Auto-generated titles ("Tab 1" / "Tab 2" from the + button) also reindex
+ *  based on current position so closing a middle tab doesn't leave a gap.
  *  User-renamed tabs keep their title. */
 function displayLabel(tab: Tab, index: number): string {
-  const legacy = new Set(["Plan", "Design", "Build", "Blank tab", "Thread"]);
-  return legacy.has(tab.title) ? `Tab ${index + 1}` : tab.title;
+  const legacyTypes = new Set(["Plan", "Design", "Build", "Blank tab", "Thread"]);
+  if (legacyTypes.has(tab.title)) return `Tab ${index + 1}`;
+  // Auto-generated "Tab N" titles reindex — this keeps the visible
+  // sequence tidy when intermediate tabs close.
+  if (/^Tab \d+$/.test(tab.title)) return `Tab ${index + 1}`;
+  return tab.title;
 }
 
 function TabButton({

@@ -2799,6 +2799,22 @@ kbd {
 /* values, no inline style props.                                         */
 /* ---------------------------------------------------------------------- */
 
+/* Fill in a few block-layer aliases that weren't in the base token set. */
+:root {
+  /* Deeper recess for monospace / file-listing backdrops; one step down
+     from --color-surface-flat. */
+  --color-surface-sunken: var(--gray-1);
+  /* Hover fill — same register as .workspace-row:hover etc. already uses. */
+  --color-surface-hover: var(--color-surface-raised);
+  /* Accent for interactive block elements (pin, approval grant, links).
+     Designer is monochrome; accent = step-9 of the gray scale. */
+  --color-accent: var(--accent-9);
+  /* Typography aliases so block CSS reads consistently with the existing
+     body-text register. */
+  --line-height-body: var(--type-body-leading);
+  --type-heading-size: var(--type-h3-size);
+}
+
 .thread {
   display: flex;
   flex-direction: column;
@@ -3114,11 +3130,12 @@ kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
+  opacity: 0.4;
   transition: opacity var(--motion-interactive), color var(--motion-interactive);
 }
 
 .spine-artifact:hover .spine-artifact__pin,
+.spine-artifact__pin:focus-visible,
 .spine-artifact__pin[aria-pressed="true"] {
   opacity: 1;
 }
@@ -3146,4 +3163,14 @@ kbd {
   padding: 0 var(--space-6) var(--space-5);
   border-top: var(--border-thin) solid var(--color-border);
   flex-shrink: 0;
+}
+
+.workspace-thread__notice {
+  padding: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0;
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-button);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  text-align: center;
 }
