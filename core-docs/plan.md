@@ -4,15 +4,17 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 ## Current Focus
 
-**Phase 12.B + 12.C shipped (2026-04-21).** 12.C: Tauri v2 shell binary, event bridge, theme persistence, macOS menu, drag regions. 12.B: Swift Foundation Models helper supervisor, config wiring, IPC surface, stub-tested boot path. Remaining Phase 12 track (12.A real Claude Code) still open; 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the integration-notes SDK-shape delta.
+**Phase 13.1 shipped (2026-04-24).** Tab model unified: Plan / Design / Build retired, every tab renders `WorkspaceThread`, typed artifact blocks live inline. Backend artifact foundation in place — `ArtifactCreated/Updated/Pinned/Unpinned/Archived` events, `PayloadRef` inline/hash discriminant, rail projection (`pinned_artifacts` per workspace), four new IPC commands. Block renderer registry with 12 renderers (7 real, 5 stubs) lifted from the tab-model-rethink sketch into production modules; sketch file and URL-hash gate deleted. Pin/unpin wired into the workspace rail. ComposeDock adopted as the shared compose input. See `history.md` for the consolidation sourcing from tab-model-rethink + find-agentation-server branches.
 
-Phase 12 tracks — status:
+**13.D / 13.E / 13.F / 13.G / 13.H are now unblocked and parallelizable.** Each track emits into the block registry — no UI work required in those tracks:
 
-- **12.A — Real Claude Code subprocess.** ✅ Done 2026-04-22 (branch `phase-12a-plan`). Real Claude Code integration validated end-to-end: orchestrator rewrite, stream-json translator, watcher fix, live integration test, three-tier CI, spec update introducing the **track** primitive. See `history.md` and `core-docs/adr/0001-claude-runtime-primitive.md`.
-- **12.B — Swift Foundation Models helper build.** Infrastructure complete; real-hardware validation still pending (needs `./scripts/build-helper.sh` on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B).
-- **12.C — Tauri shell binary.** ✅ Done 2026-04-21. Unblocks 13.D / 13.E / 13.F / 13.G.
+- **13.D — Agent wire** (needs 12.A + 12.C + 13.1): emits `ArtifactCreated { kind: "message" }` and agent-produced artifacts (diagrams, reports) into the thread. Replaces `WorkspaceThread::onSend` stub with `Orchestrator::post_message` + streams replies via `designer://event-stream`. Partial-message coalescer lands here.
+- **13.E — Track primitive + git wire** (needs 12.C + 13.1): `TrackStarted`, `GitOps::init_worktree`, `core-docs/*.md` seeding, "Request merge" → `gh pr create` → `TrackCompleted`. **Emits `ArtifactCreated { kind: "code-change" }` per semantic edit batch and `{ kind: "pr" }` when a PR opens** — no new UI, just events feeding the registry. Wires `reveal_in_finder` IPC beyond the macOS-only shim shipped with 13.1.
+- **13.F — Local-model surfaces** (needs 12.B + 12.C + 13.1): write-time summaries via `LocalOps::summarize_row` (per-track debounce), Home recap via `LocalOps::recap`, audit verdicts via `LocalOps::audit_claim`. **Recaps emit `ArtifactCreated { kind: "report" }`; audit verdicts attach as `comment` artifacts anchored to claim artifacts.** Wires the `PrototypePreview` component into `PrototypeBlock`.
+- **13.G — Safety surfaces + Keychain** (needs 12.C + 13.1): approval inbox, cost chip in topbar, `security-framework` keychain. **Approval requests emit `ArtifactCreated { kind: "approval" }` with the interactive action surface already rendering; scope denials attach as `comment` artifacts on the offending code-change artifact.**
+- **13.H — Safety enforcement** (after 13.G; detail in `security.md`).
 
-All three 12.X tracks are either done or infrastructure-landed. Next recommended work: any of 13.D / 13.E / 13.F / 13.G in parallel. 13.D (agent wire) now unblocked by both 12.A and 12.C; 13.E (track primitive + git wire) unblocked by 12.C; 13.F (local-model surfaces) unblocked by 12.B infra + 12.C; 13.G (safety + keychain) unblocked by 12.C.
+12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
 
 ## Handoff Notes
 
@@ -70,14 +72,27 @@ Infrastructure landed on 2026-04-21 (branch `phase-12b-plan`); real-binary valid
 - [x] `bootData` parallelized: three waves via `Promise.all` instead of three nested sequential awaits.
 - [ ] Interactive smoke (`cargo tauri dev`) on user's machine — deferred; requires GUI session.
 
-### Phase 13 — Wire the real runtime *(after corresponding Phase 12 tracks)*
+### Phase 13.1 — Artifact foundation + unified workspace thread ✅ *(landed 2026-04-24)*
 
-Four tracks with individual input gates:
+Consolidated the tab-model-rethink + find-agentation-server branches. What shipped:
 
-- [ ] **13.D Agent wire** (needs 12.A + 12.C): replace `PlanTab::ackFor()` with `Orchestrator::post_message`; stream replies via `designer://event-stream`.
-- [ ] **13.E Track primitive + git wire** (needs 12.C): introduces the `Track` primitive per spec Decisions 29–30 (workspace owns a list of tracks; v1 creates length-1). Repo-linking UI + `TrackStarted` events + `GitOps::init_worktree` per track + `core-docs/*.md` seeding + "Request merge" → `gh pr create` → `TrackCompleted`. Reserves `WorkspaceForked` / `WorkspacesReconciled` / `TrackArchived` event types for Phase 19.
-- [ ] **13.F Local-model surfaces** (needs 12.B + 12.C): spine summaries via `LocalOps::summarize_row`; Home recap via `LocalOps::recap`; audit verdicts via `LocalOps::audit_claim`.
-- [ ] **13.G Safety surfaces + Keychain** (needs 12.C): approval inbox, cost chip in topbar, scope-denied in inbox, `security-framework` keychain integration.
+- Typed artifact events (`ArtifactCreated / Updated / Pinned / Unpinned / Archived`), `PayloadRef` (inline / hash — hash path is schema-only until a content-addressed store lands, see `TODO(13.1-storage)`), `ArtifactId`, `ArtifactKind` (12 kinds).
+- Rail projection: `ProjectorState.artifacts` map + `pinned_artifacts` per workspace, incremental update.
+- IPC: `cmd_list_pinned_artifacts`, `cmd_list_artifacts`, `cmd_get_artifact`, `cmd_toggle_pin_artifact`; `reveal_in_finder` shim (macOS).
+- Frontend block registry (`packages/app/src/blocks/`): 12 renderers, 7 rendering real data (`message`, `spec`, `code-change`, `pr`, `approval`, `comment`, `task-list`), 5 registered stubs rendering title + summary until their data source lands (`report`, `prototype`, `diagram`, `variant`, `track-rollup`). Generic fallback for unknown kinds.
+- Unified `WorkspaceThread` tab surface; Plan / Design / Build / Blank tab components deleted. TemplateMenu retired. ComposeDock adopted as the shared compose input. Starter-suggestion chips on empty state.
+- ActivitySpine rewired to read from the real artifact projection; "Pinned" section above the rest of "Artifacts"; hover-revealed pin toggle with `aria-pressed` state.
+- memphis-v2's 17-item polish pass folded in (full-page Settings, SurfaceDevPanel, haptic snap on PaneResizer, 12→16 icon audit, reveal-in-Finder on workspace path, `--radius-surface: 1rem`, Palette search icon).
+- Round-trip tests for the artifact lifecycle + PayloadRef serialization.
+
+### Phase 13 — Wire the real runtime *(all four tracks parallel after 13.1)*
+
+Each track now emits `ArtifactCreated` events into the block registry instead of painting bespoke UI. Per-track `TODO(13.X)` markers in the code mark the handoff points.
+
+- [ ] **13.D Agent wire** (needs 12.A + 12.C + 13.1): replace `WorkspaceThread::onSend` with `Orchestrator::post_message`; stream replies via `designer://event-stream` as `MessagePosted` thread events, agent-produced artifacts (diagrams, reports) as `ArtifactCreated`. Partial-message coalescer (deferred from 12.A) lands here.
+- [ ] **13.E Track primitive + git wire** (needs 12.C + 13.1): introduces the `Track` primitive per spec Decisions 29–30 (workspace owns a list of tracks; v1 creates length-1). Repo-linking UI + `TrackStarted` events + `GitOps::init_worktree` per track + `core-docs/*.md` seeding + "Request merge" → `gh pr create` → `TrackCompleted`. **Emits `ArtifactCreated { kind: "code-change" }` per semantic edit batch and `{ kind: "pr" }` when a PR opens.** Reserves `WorkspaceForked` / `WorkspacesReconciled` / `TrackArchived` event types for Phase 19.
+- [ ] **13.F Local-model surfaces** (needs 12.B + 12.C + 13.1): spine summaries via `LocalOps::summarize_row` (per-track debounce); Home recap via `LocalOps::recap`; audit verdicts via `LocalOps::audit_claim`. **Recaps emit `ArtifactCreated { kind: "report" }`; audit verdicts attach as `comment` artifacts anchored to claim artifacts.** Wires the `PrototypePreview` component into `PrototypeBlock`.
+- [ ] **13.G Safety surfaces + Keychain** (needs 12.C + 13.1): approval inbox, cost chip in topbar, scope-denied in inbox, `security-framework` keychain integration. **Approval requests emit `ArtifactCreated { kind: "approval" }` with the interactive action surface already rendering; scope denials attach as `comment` artifacts on the offending code-change artifact.**
 
 ### Phase 14 — Sync transport *(parallel with 13 or 15)*
 

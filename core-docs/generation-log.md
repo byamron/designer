@@ -333,3 +333,53 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - tests: 13/13 pass
 - deviations: `reveal_in_finder` Rust shim not yet wired (TODO(13.E)); artifacts still open as Blank tabs until a first-class `artifact` TabTemplate lands (TODO(13.D))
 - feedback: pending
+
+---
+
+## 2026-04-24T01:00:00Z — Phase 13.1 consolidation: unified workspace thread + artifact foundation
+
+Consolidates the tab-model-rethink (branch `tab-model-rethink`, workspace `lisbon`) and find-agentation-server (branch `find-agentation-server`, workspace `memphis-v2`) branches into a single PR.
+
+**From memphis-v2** (17-item Agentation feedback pass, all shipped):
+- Full-page Settings (`SettingsPage.tsx`); `AppDialog.tsx` narrowed to Help-only.
+- Re-introduced `SurfaceDevPanel.tsx` (⌘.) for sand / compose-mix tuning.
+- ActivitySpine rewrite — workspace-scoped, four sections became three (Pinned / Artifacts / Agents / Recent events) after 13.1 collapsed the artifact-source.
+- `Palette.tsx` leading search icon, meta column dropped.
+- `PaneResizer.tsx` haptic snap (12/20 + `navigator.vibrate(8)`).
+- 12→16 icon size audit.
+- `WorkspaceSidebar.tsx` path → reveal-in-Finder button. **Backed by a real Rust shim in this PR** (macOS-only `open -R`).
+- `--radius-surface: 1.5rem → 1rem`.
+- Dead code removal: `HomeTabB.tsx`.
+
+**From tab-model-rethink** (ideas promoted into production; sketch file deleted):
+- Tabs are views, not modes: Plan / Design / Build / Blank tab components retired, every tab renders `WorkspaceThread`.
+- Block renderer registry (`packages/app/src/blocks/`) with 12 kinds.
+- `ComposeDock.tsx` adopted as the shared compose input (no longer orphaned).
+- Empty-state starter suggestions on new threads.
+- Pin / unpin UX surfaced in the workspace rail.
+- Spec Decisions 36–39 + Decision 11 amended; Phase 13.1 in plan / roadmap; FB-0024 / FB-0025.
+
+**Dropped:**
+- Sketch file (`packages/app/src/sketch/WorkspaceThreadSketch.tsx`) — ideas absorbed, file deleted.
+- lisbon's floating-surface CSS diff — PR #11 already shipped it on main with `--radius-surface` / `--color-content-surface` / `--surface-inner-pad` / concentric compose corner.
+- lisbon's hand-drawn gear icon — main is Lucide.
+- lisbon's embedded-in-AppDialog Settings branch — memphis's separate `SettingsPage.tsx` is cleaner.
+
+**New Rust/IPC surface:** `Artifact`, `ArtifactKind` (12 kinds), `PayloadRef` (Inline/Hash), `ArtifactId`, five new events, `ProjectorState.pinned_artifacts`, `AppCore::toggle_pin_artifact`, four new Tauri commands (`list_artifacts`, `list_pinned_artifacts`, `get_artifact`, `toggle_pin_artifact`) + `reveal_in_finder`. Artifact round-trip test + PayloadRef serialization test.
+
+**Handoff:**
+- D/E/F/G/H can now run in parallel with zero UI contention. Each track emits `ArtifactCreated` events into the registry — no tab component work.
+- `PayloadRef::Hash` path is schema-only; content-addressed store (`~/.designer/artifacts/<hash>`) is a 13.1-storage follow-up, not blocking.
+- `LocalOps::summarize_row` write-time hook: reserved in 13.F scope (not blocked on UI).
+- Speculative block kinds (`report`, `prototype`, `diagram`, `variant`, `track-rollup`) ship as registered stub renderers that show title + summary; their emitters land in 13.D/E/F/G.
+
+**Design-language compliance:**
+- No inline styles; no hex / px / ms values.
+- New CSS selectors: `.thread`, `.thread__empty*`, `.block`, `.block__*`, `.block--*`, `.workspace-thread`, `.spine-artifact*`. All token-driven.
+- A11y: every block is an `<article>` with header + author + kind badge; pin toggle has `aria-pressed`; approval-block action surface is keyboard-reachable.
+
+- invariants: pending node run
+- typecheck: clean
+- tests: 13/13 frontend + 6/6 backend pass
+- deviations: `PayloadRef::Hash` path is schema-only (TODO(13.1-storage)); partial-message coalescer still deferred to 13.D
+- feedback: FB-0024 (tabs as views, not modes), FB-0025 (three-tier artifact presence)
