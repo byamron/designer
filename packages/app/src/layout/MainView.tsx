@@ -1,19 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ClipboardList,
-  Compass,
-  ListChecks,
-  Square,
-} from "lucide-react";
+import { useMemo } from "react";
 import { selectTab, useAppState } from "../store/app";
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
-import type { Project, Tab, TabTemplate, Workspace } from "../ipc/types";
+import type { Project, Tab, Workspace } from "../ipc/types";
 import { HomeTabA } from "../home/HomeTabA";
-import { PlanTab } from "../tabs/PlanTab";
-import { DesignTab } from "../tabs/DesignTab";
-import { BuildTab } from "../tabs/BuildTab";
-import { BlankTab } from "../tabs/BlankTab";
+import { WorkspaceThread } from "../tabs/WorkspaceThread";
 import { emptyArray } from "../util/empty";
 import type { WorkspaceSummary } from "../ipc/types";
 import { Tooltip } from "../components/Tooltip";
@@ -82,11 +73,13 @@ export function MainView() {
       ? storedTab
       : visibleTabs[0]?.id ?? null;
 
-  const onOpenTab = async (template: TabTemplate) => {
+  const onOpenTab = async () => {
+    // Post-13.1: every new tab is a thread. No template picker.
+    const tabIndex = visibleTabs.length + 1;
     const tab = await ipcClient().openTab({
       workspace_id: workspace.id,
-      title: titleForTemplate(template),
-      template,
+      title: `Tab ${tabIndex}`,
+      template: "thread",
     });
     if (workspace.project_id) {
       await refreshWorkspaces(workspace.project_id);
@@ -99,13 +92,12 @@ export function MainView() {
       {/* Workspace chrome: the tabs bar is the top row. Workspace name,
           branch, and lifecycle state all live in the left sidebar already. */}
       <div className="tabs-bar" role="tablist" aria-orientation="horizontal">
-        {visibleTabs.map((tab) => (
+        {visibleTabs.map((tab, idx) => (
           <TabButton
             key={tab.id}
             workspaceId={workspace.id}
             id={tab.id}
-            label={tab.title}
-            template={tab.template}
+            label={displayLabel(tab, idx)}
             active={activeTab === tab.id}
             onClose={async () => {
               await ipcClient().closeTab(workspace.id, tab.id);
@@ -117,7 +109,11 @@ export function MainView() {
             }}
           />
         ))}
-        <TemplateMenu onOpen={onOpenTab} />
+        <div className="new-tab">
+          <IconButton label="New tab" shortcut="⌘T" onClick={() => void onOpenTab()}>
+            <IconPlus />
+          </IconButton>
+        </div>
       </div>
 
       <div className="main-surface">
@@ -129,9 +125,8 @@ export function MainView() {
             aria-labelledby={`tab-${workspace.id}-${activeTab}`}
             tabIndex={0}
           >
-            <TabContent
+            <WorkspaceThread
               key={`${workspace.id}:${activeTab}`}
-              tab={visibleTabs.find((t) => t.id === activeTab)!}
               workspace={workspace}
             />
           </section>
@@ -140,7 +135,7 @@ export function MainView() {
             <div className="main-empty">
               <h2 className="main-empty__title">No tabs yet</h2>
               <p className="main-empty__body">
-                Open a Plan, Design, Build, or Blank tab with the + button above.
+                Open a new tab with the + button above to start a thread.
               </p>
             </div>
           </section>
@@ -150,18 +145,24 @@ export function MainView() {
   );
 }
 
+/** Normalize legacy tab titles ("Plan", "Design", "Build", "Blank tab") to
+ *  "Tab N" so the unified surface doesn't telegraph the old rigid types.
+ *  User-renamed tabs keep their title. */
+function displayLabel(tab: Tab, index: number): string {
+  const legacy = new Set(["Plan", "Design", "Build", "Blank tab", "Thread"]);
+  return legacy.has(tab.title) ? `Tab ${index + 1}` : tab.title;
+}
+
 function TabButton({
   id,
   workspaceId,
   label,
-  template,
   active,
   onClose,
 }: {
   id: Tab["id"];
   workspaceId: string;
   label: string;
-  template: TabTemplate;
   active: boolean;
   onClose?: () => void;
 }) {
@@ -177,7 +178,6 @@ function TabButton({
           tabIndex={active ? 0 : -1}
           className="tab-button"
           data-active={active}
-          data-template={template}
           onClick={() => selectTab(workspaceId, id)}
           onAuxClick={(e) => {
             if (e.button === 1 && onClose) {
@@ -207,9 +207,6 @@ function TabButton({
             }
           }}
         >
-          <span className="tab-button__icon" aria-hidden="true">
-            <TemplateIcon template={template} />
-          </span>
           <span className="tab-button__label">{label}</span>
         </button>
       </Tooltip>
@@ -229,142 +226,5 @@ function TabButton({
       )}
     </div>
   );
-}
-
-function TemplateIcon({ template }: { template: TabTemplate }) {
-  const common = { size: 16, strokeWidth: 1.5, "aria-hidden": true as const };
-  switch (template) {
-    case "plan":
-      return <ClipboardList {...common} />;
-    case "design":
-      return <Compass {...common} />;
-    case "build":
-      return <ListChecks {...common} />;
-    case "blank":
-      return <Square {...common} />;
-  }
-}
-
-function TabContent({ tab, workspace }: { tab: Tab; workspace: Workspace }) {
-  switch (tab.template) {
-    case "plan":
-      return <PlanTab tab={tab} workspace={workspace} />;
-    case "design":
-      return <DesignTab tab={tab} workspace={workspace} />;
-    case "build":
-      return <BuildTab tab={tab} workspace={workspace} />;
-    case "blank":
-      return <BlankTab tab={tab} workspace={workspace} />;
-  }
-}
-
-/**
- * Trailing "+" inside the tabs-bar. Opens a small template menu anchored to
- * the button. Matches the visual weight of a collapsed tab so the strip
- * reads as a single row. ⌘T toggles; click-outside or Escape closes.
- */
-function TemplateMenu({ onOpen }: { onOpen: (t: TabTemplate) => void }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const firstItemRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "t") {
-        e.preventDefault();
-        setOpen((o) => !o);
-      } else if (e.key === "Escape" && open) {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", onClick);
-    firstItemRef.current?.focus();
-    return () => window.removeEventListener("mousedown", onClick);
-  }, [open]);
-
-  const pick = (t: TabTemplate) => {
-    setOpen(false);
-    onOpen(t);
-  };
-
-  return (
-    <div className="new-tab" ref={wrapRef}>
-      <IconButton
-        label="New tab"
-        shortcut="⌘T"
-        pressed={open}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <IconPlus />
-      </IconButton>
-      {open && (
-        <div role="menu" className="new-tab__menu" aria-label="New tab template">
-          {(["plan", "design", "build", "blank"] as TabTemplate[]).map((t, i) => (
-            <button
-              key={t}
-              ref={i === 0 ? firstItemRef : undefined}
-              role="menuitem"
-              type="button"
-              className="new-tab__item"
-              onClick={() => pick(t)}
-            >
-              <span className="new-tab__item-icon" aria-hidden="true">
-                <TemplateIcon template={t} />
-              </span>
-              <span>{titleForTemplate(t)}</span>
-              <span className="new-tab__item-hint">{descriptionForTemplate(t)}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function titleForTemplate(template: TabTemplate): string {
-  switch (template) {
-    case "plan":
-      return "Plan";
-    case "design":
-      return "Design";
-    case "build":
-      return "Build";
-    case "blank":
-      return "Blank tab";
-    case "thread":
-      return "Thread";
-    default:
-      return "Tab";
-  }
-}
-
-function descriptionForTemplate(template: TabTemplate): string {
-  switch (template) {
-    case "plan":
-      return "Chat with the team lead";
-    case "design":
-      return "Prototype + catalog";
-    case "build":
-      return "Tasks + approvals";
-    case "blank":
-      return "Empty canvas";
-    case "thread":
-      return "Workspace thread";
-    default:
-      return "Workspace";
-  }
 }
 

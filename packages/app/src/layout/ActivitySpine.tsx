@@ -1,17 +1,16 @@
-import { useMemo } from "react";
-import { FileText, FolderCode, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, FolderCode, Pin, Sparkles } from "lucide-react";
 import {
   PANE_DEFAULT_WIDTH,
   commitSpineWidth,
-  selectTab,
   setFollowingAgent,
   setSpineWidthLive,
   toggleSpine,
   useAppState,
 } from "../store/app";
-import { refreshWorkspaces, useDataState } from "../store/data";
+import { useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
-import type { SpineRow, StreamEvent } from "../ipc/types";
+import type { ArtifactSummary, SpineRow, StreamEvent } from "../ipc/types";
 import { emptyArray } from "../util/empty";
 import { humanizeKind } from "../util/humanize";
 import { Tooltip } from "../components/Tooltip";
@@ -35,7 +34,6 @@ import { IconCollapseRight } from "../components/icons";
  * asking the user to pick a workspace, and the four sections disappear.
  */
 export function ActivitySpine() {
-  const activeProject = useAppState((s) => s.activeProject);
   const activeWorkspace = useAppState((s) => s.activeWorkspace);
   const spineWidth = useAppState((s) => s.spineWidth);
   const spine = useDataState<SpineRow[]>((s) =>
@@ -56,9 +54,38 @@ export function ActivitySpine() {
     return sorted.slice(0, 6);
   }, [activeWorkspace, allEvents]);
 
-  const artifacts = useMemo(
-    () => collectArtifacts(spine),
-    [spine],
+  // Artifacts are driven by the real 13.1 projection, not the legacy spine
+  // row pass-through. We re-fetch when the workspace changes or when a
+  // stream event signals an artifact lifecycle change.
+  const [artifacts, setArtifacts] = useState<ArtifactSummary[]>([]);
+  const refreshArtifacts = useCallback(async () => {
+    if (!activeWorkspace) {
+      setArtifacts([]);
+      return;
+    }
+    setArtifacts(await ipcClient().listArtifacts(activeWorkspace));
+  }, [activeWorkspace]);
+  useEffect(() => {
+    void refreshArtifacts();
+  }, [refreshArtifacts]);
+  useEffect(() => {
+    if (!activeWorkspace) return;
+    const hasArtifactEvent = allEvents.some(
+      (e) =>
+        e.kind.startsWith("artifact_") &&
+        (e.stream_id === activeWorkspace ||
+          e.stream_id.startsWith(`${activeWorkspace}:`)),
+    );
+    if (hasArtifactEvent) void refreshArtifacts();
+  }, [allEvents, activeWorkspace, refreshArtifacts]);
+
+  const pinnedArtifacts = useMemo(
+    () => artifacts.filter((a) => a.pinned),
+    [artifacts],
+  );
+  const unpinnedArtifacts = useMemo(
+    () => artifacts.filter((a) => !a.pinned),
+    [artifacts],
   );
 
   const agentRows = useMemo(
@@ -76,20 +103,13 @@ export function ActivitySpine() {
   const nothingStreaming =
     summary.activeCount + summary.needsYou + summary.errored === 0;
 
-  const openArtifactAsTab = async (artifact: SpineRow) => {
-    if (!activeWorkspace || !activeProject) return;
-    // TODO(13.D): artifacts will get a first-class TabTemplate ("artifact")
-    // with a dedicated content pane. For now we open a Blank tab seeded
-    // with the artifact's label so the user gets a scaffolded surface
-    // while the artifact template is designed.
-    const tab = await ipcClient().openTab({
-      workspace_id: activeWorkspace,
-      title: artifact.label,
-      template: "blank",
-    });
-    await refreshWorkspaces(activeProject);
-    selectTab(activeWorkspace, tab.id);
-  };
+  const togglePin = useCallback(
+    async (artifact: ArtifactSummary) => {
+      await ipcClient().togglePinArtifact(artifact.id);
+      void refreshArtifacts();
+    },
+    [refreshArtifacts],
+  );
 
   return (
     <aside
@@ -150,28 +170,37 @@ export function ActivitySpine() {
         <p className="sidebar-empty">Pick a workspace to see activity.</p>
       ) : (
         <>
+          {pinnedArtifacts.length > 0 && (
+            <div className="spine-section">
+              <span className="sidebar-label">Pinned</span>
+              <ul className="spine-items" role="list">
+                {pinnedArtifacts.map((a) => (
+                  <ArtifactRow
+                    key={a.id}
+                    artifact={a}
+                    onTogglePin={() => void togglePin(a)}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="spine-section">
             <span className="sidebar-label">Artifacts</span>
-            {artifacts.length === 0 ? (
-              <p className="sidebar-empty">No specs or prototypes yet.</p>
+            {unpinnedArtifacts.length === 0 ? (
+              <p className="sidebar-empty">
+                {pinnedArtifacts.length > 0
+                  ? "Everything's pinned."
+                  : "No artifacts yet. Pin blocks from the thread."}
+              </p>
             ) : (
               <ul className="spine-items" role="list">
-                {artifacts.map((a) => (
-                  <li key={a.id}>
-                    <Tooltip label={a.summary ? `${a.label} · ${a.summary}` : `Open ${a.label}`}>
-                      <button
-                        type="button"
-                        className="spine-item"
-                        onClick={() => void openArtifactAsTab(a)}
-                      >
-                        <FileText size={14} strokeWidth={1.5} aria-hidden="true" />
-                        <span className="spine-item__label">{a.label}</span>
-                        {a.summary && (
-                          <span className="spine-item__meta">{a.summary}</span>
-                        )}
-                      </button>
-                    </Tooltip>
-                  </li>
+                {unpinnedArtifacts.map((a) => (
+                  <ArtifactRow
+                    key={a.id}
+                    artifact={a}
+                    onTogglePin={() => void togglePin(a)}
+                  />
                 ))}
               </ul>
             )}
@@ -263,18 +292,6 @@ function flattenSpine(rows: SpineRow[], depth = 0): { row: SpineRow; depth: numb
   return out;
 }
 
-function collectArtifacts(rows: SpineRow[]): SpineRow[] {
-  const out: SpineRow[] = [];
-  const walk = (rs: SpineRow[]) => {
-    for (const r of rs) {
-      if (r.altitude === "artifact") out.push(r);
-      if (r.children?.length) walk(r.children);
-    }
-  };
-  walk(rows);
-  return out;
-}
-
 function filterOutArtifacts(rows: SpineRow[]): SpineRow[] {
   return rows
     .filter((r) => r.altitude !== "artifact")
@@ -291,4 +308,35 @@ function countState(rows: SpineRow[], state: SpineRow["state"]): number {
     total += countState(r.children ?? [], state);
   }
   return total;
+}
+
+function ArtifactRow({
+  artifact,
+  onTogglePin,
+}: {
+  artifact: ArtifactSummary;
+  onTogglePin: () => void;
+}) {
+  const label = artifact.title;
+  const secondary = artifact.summary;
+  return (
+    <li className="spine-artifact">
+      <Tooltip label={secondary ? `${label} · ${secondary}` : label}>
+        <div className="spine-artifact__body">
+          <FileText size={14} strokeWidth={1.5} aria-hidden="true" />
+          <span className="spine-item__label">{label}</span>
+          {secondary && <span className="spine-item__meta">{secondary}</span>}
+        </div>
+      </Tooltip>
+      <button
+        type="button"
+        className="spine-artifact__pin"
+        aria-label={artifact.pinned ? "Unpin" : "Pin"}
+        aria-pressed={artifact.pinned}
+        onClick={onTogglePin}
+      >
+        <Pin size={12} strokeWidth={1.5} aria-hidden="true" />
+      </button>
+    </li>
+  );
 }

@@ -3079,3 +3079,71 @@ kbd {
   font-size: var(--type-caption-size);
   text-align: center;
 }
+
+/* Spine artifact rows — hover reveals pin toggle, pinned state persists. */
+.spine-artifact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  transition: background var(--motion-interactive);
+}
+
+.spine-artifact:hover {
+  background: var(--color-surface-hover);
+}
+
+.spine-artifact__body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  color: var(--color-foreground);
+  font-size: var(--type-caption-size);
+}
+
+.spine-artifact__pin {
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  padding: var(--space-1);
+  border-radius: var(--radius-button);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--motion-interactive), color var(--motion-interactive);
+}
+
+.spine-artifact:hover .spine-artifact__pin,
+.spine-artifact__pin[aria-pressed="true"] {
+  opacity: 1;
+}
+
+.spine-artifact__pin[aria-pressed="true"] {
+  color: var(--color-accent);
+}
+
+.spine-artifact__pin:focus-visible {
+  opacity: 1;
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+/* WorkspaceThread container — thread fills, compose dock is sticky at the
+   bottom of the tab body with surface padding preserved. */
+.workspace-thread {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-thread__compose {
+  padding: 0 var(--space-6) var(--space-5);
+  border-top: var(--border-thin) solid var(--color-border);
+  flex-shrink: 0;
+}
