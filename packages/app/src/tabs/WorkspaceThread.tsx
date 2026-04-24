@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
 import {
   ComposeDock,
   type ComposeDockHandle,
@@ -10,11 +11,36 @@ import type { ArtifactDetail, ArtifactId, ArtifactSummary, PayloadRef } from "..
 import { ipcClient } from "../ipc/client";
 import "../blocks";
 
+/**
+ * Default suggestions for a fresh workspace. When the workspace already
+ * has artifacts in motion, `buildSuggestions()` below overrides these
+ * with context-aware prompts sourced from the most recent activity.
+ */
 const STARTER_SUGGESTIONS = [
   "What are we building?",
-  "Describe the feature",
-  "Paste a spec",
+  "Describe the feature in one paragraph",
+  "Paste a spec, diagram, or wireframe",
+  "Review the recent activity and suggest next steps",
 ];
+
+/** Derive a short suggestion list from the workspace's recent artifacts.
+ *  Falls back to the static starters when nothing interesting is in
+ *  flight — matches the "new tab picks up where you left off" pattern. */
+function buildSuggestions(artifacts: ArtifactSummary[]): string[] {
+  if (artifacts.length === 0) return STARTER_SUGGESTIONS;
+  const picks: string[] = [];
+  const latestSpec = artifacts.find((a) => a.kind === "spec");
+  if (latestSpec) picks.push(`Continue working on "${latestSpec.title}"`);
+  const openPr = artifacts.find((a) => a.kind === "pr");
+  if (openPr) picks.push(`Check on ${openPr.title}`);
+  const pendingApproval = artifacts.find((a) => a.kind === "approval");
+  if (pendingApproval) picks.push(`Resolve: ${pendingApproval.title}`);
+  const latestCodeChange = artifacts.find((a) => a.kind === "code-change");
+  if (latestCodeChange) picks.push(`Review the latest code changes`);
+  // Always keep a catch-all "describe something new" slot at the end.
+  picks.push("Describe something new");
+  return picks.slice(0, 5);
+}
 
 /**
  * The unified workspace surface — every tab renders this component. There
@@ -30,6 +56,11 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
   const [artifacts, setArtifacts] = useState<ArtifactSummary[] | null>(null);
   const [payloads, setPayloads] = useState<Record<ArtifactId, PayloadRef>>({});
   const [expanded, setExpanded] = useState<Record<ArtifactId, boolean>>({});
+  // A freshly mounted tab starts in "suggest" mode — shows roadmap /
+  // recent-activity prompts instead of the thread. First send (or first
+  // suggestion pick) flips it to "thread" mode. State is per-tab because
+  // WorkspaceThread is keyed on `${workspace}:${tab}` in MainView.
+  const [hasStarted, setHasStarted] = useState(false);
   const composeRef = useRef<ComposeDockHandle | null>(null);
 
   const refresh = useCallback(async () => {
@@ -90,54 +121,66 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
     // silently eating the draft — the user otherwise wonders why nothing
     // happens and whether their text was lost.
     if (payload.text || payload.attachments.length > 0) {
+      setHasStarted(true);
       setSendNotice("Agent wiring lands in Phase 13.D. Draft cleared.");
       window.setTimeout(() => setSendNotice(null), 3000);
     }
   }, []);
 
-  const showEmpty = useMemo(
-    () => artifacts !== null && artifacts.length === 0,
+  const pickSuggestion = useCallback((text: string) => {
+    composeRef.current?.setDraft(text);
+    composeRef.current?.focus();
+  }, []);
+
+  const suggestions = useMemo(
+    () => buildSuggestions(artifacts ?? []),
     [artifacts],
   );
 
+  const showSuggestions = !hasStarted;
+
   return (
     <div className="workspace-thread">
-      <div className="thread" role="log" aria-live="polite" aria-label="Workspace thread">
-        {showEmpty && (
-          <div className="thread__empty">
-            <h2 className="thread__empty-title">What are we building?</h2>
-            <div className="thread__empty-suggestions">
-              {STARTER_SUGGESTIONS.map((s) => (
+      {showSuggestions ? (
+        <div className="thread thread--suggestions" aria-label="Starter suggestions">
+          <ul className="suggestion-list" role="list">
+            {suggestions.map((s) => (
+              <li key={s}>
                 <button
-                  key={s}
                   type="button"
-                  className="thread__suggestion"
-                  onClick={() => {
-                    composeRef.current?.setDraft(s);
-                    composeRef.current?.focus();
-                  }}
+                  className="suggestion-row"
+                  onClick={() => pickSuggestion(s)}
                 >
-                  {s}
+                  <span className="suggestion-row__label">{s}</span>
+                  <ArrowRight
+                    size={16}
+                    strokeWidth={1.5}
+                    className="suggestion-row__arrow"
+                    aria-hidden="true"
+                  />
                 </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {artifacts?.map((a) => {
-          const Renderer = getBlockRenderer(a.kind) ?? GenericBlock;
-          return (
-            <Renderer
-              key={a.id}
-              artifact={a}
-              payload={payloads[a.id] ?? null}
-              isPinned={a.pinned}
-              onTogglePin={() => void onTogglePin(a.id)}
-              expanded={!!expanded[a.id]}
-              onToggleExpanded={() => onToggleExpanded(a.id)}
-            />
-          );
-        })}
-      </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="thread" role="log" aria-live="polite" aria-label="Workspace thread">
+          {artifacts?.map((a) => {
+            const Renderer = getBlockRenderer(a.kind) ?? GenericBlock;
+            return (
+              <Renderer
+                key={a.id}
+                artifact={a}
+                payload={payloads[a.id] ?? null}
+                isPinned={a.pinned}
+                onTogglePin={() => void onTogglePin(a.id)}
+                expanded={!!expanded[a.id]}
+                onToggleExpanded={() => onToggleExpanded(a.id)}
+              />
+            );
+          })}
+        </div>
+      )}
       <div className="workspace-thread__compose">
         {sendNotice && (
           <div className="workspace-thread__notice" role="status">

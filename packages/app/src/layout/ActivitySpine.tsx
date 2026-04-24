@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, FolderCode, Pin, Sparkles } from "lucide-react";
+import { FileText, Pin } from "lucide-react";
 import {
   PANE_DEFAULT_WIDTH,
   commitSpineWidth,
@@ -212,16 +212,12 @@ export function ActivitySpine() {
               * recently edited and currently-open files as first-class
               * entries that open as tabs. Empty until then. */}
             <p className="sidebar-empty">
-              <FolderCode size={12} strokeWidth={1.25} aria-hidden="true" />
-              <span> No files tracked in this workspace yet.</span>
+              No files tracked in this workspace yet.
             </p>
           </div>
 
           <div className="spine-section">
-            <span className="sidebar-label">
-              <Sparkles size={12} strokeWidth={1.25} aria-hidden="true" />
-              <span> Agents</span>
-            </span>
+            <span className="sidebar-label">Agents</span>
             {agentRows.length === 0 ? (
               <p className="sidebar-empty">No agents running.</p>
             ) : (

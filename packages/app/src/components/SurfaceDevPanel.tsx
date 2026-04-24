@@ -4,21 +4,23 @@ import { Tooltip } from "./Tooltip";
 import { persisted, intDecoder } from "../util/persisted";
 
 /**
- * SurfaceDevPanel — floating bottom-right panel that exposes two knobs
- * used to dial in the content surface color register.
+ * SurfaceDevPanel — floating bottom-right panel exposing three knobs that
+ * each control a distinct layer of the surface register.
  *
- *   1. composeMix (0–100): linear blend between --color-surface-flat
- *      ("main tab color", where compose sits today) and
- *      --color-content-surface. 0 = today's default; higher values push
- *      the compose toward the surface fill.
+ *   1. Compose fill   — `--dev-compose-mix` (0–100%). 0 = compose matches
+ *      the main-tab container (white); 100 = compose matches the parent
+ *      background.
  *
- *   2. surfaceSand (0–100): blend between two anchors — a bright anchor
- *      (white in light, sand-dark-3 in dark) and a sandier anchor
- *      (sand-3 in light, sand-dark-1 in dark). 50 is the default so the
- *      slider travels equally "whiter" and "sandier" from today.
+ *   2. Main tab fill  — `--dev-main-tab-sand` (0–100%). 0 = pure white
+ *      main-tab container (max contrast vs. the sand parent); 100 =
+ *      sandier main-tab fill.
  *
- * Both values persist to localStorage and apply as CSS vars on :root so
- * the rest of the app's tokens cascade normally. Dev-only — only mounted
+ *   3. Surface sand   — `--dev-surface-sand` (0–100%). 0 = brighter
+ *      parent surface (sidebars / spine / space behind tabs); 100 =
+ *      sandier parent. 50 is the production midpoint.
+ *
+ * All three persist to localStorage and apply as CSS vars on :root so
+ * the rest of the token cascade flows through. Dev-only — only mounted
  * when `import.meta.env.MODE === "development"` (see App.tsx).
  *
  * Hotkey: ⌘. (or Ctrl+.) toggles open/close.
@@ -30,26 +32,34 @@ const composeMixStore = persisted<number>(
   intDecoder((n) => Math.max(0, Math.min(100, n))),
 );
 
+const mainTabSandStore = persisted<number>(
+  "designer.dev.mainTabSand",
+  0,
+  intDecoder((n) => Math.max(0, Math.min(100, n))),
+);
+
 const surfaceSandStore = persisted<number>(
   "designer.dev.surfaceSand",
   50,
   intDecoder((n) => Math.max(0, Math.min(100, n))),
 );
 
-function applyCssVars(composeMix: number, surfaceSand: number): void {
+function applyCssVars(composeMix: number, mainTabSand: number, surfaceSand: number): void {
   const root = document.documentElement;
   root.style.setProperty("--dev-compose-mix", `${composeMix}%`);
+  root.style.setProperty("--dev-main-tab-sand", `${mainTabSand}%`);
   root.style.setProperty("--dev-surface-sand", `${surfaceSand}%`);
 }
 
 export function SurfaceDevPanel() {
   const [open, setOpen] = useState(false);
   const [composeMix, setComposeMix] = useState<number>(() => composeMixStore.read());
+  const [mainTabSand, setMainTabSand] = useState<number>(() => mainTabSandStore.read());
   const [surfaceSand, setSurfaceSand] = useState<number>(() => surfaceSandStore.read());
 
   useEffect(() => {
-    applyCssVars(composeMix, surfaceSand);
-  }, [composeMix, surfaceSand]);
+    applyCssVars(composeMix, mainTabSand, surfaceSand);
+  }, [composeMix, mainTabSand, surfaceSand]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -67,6 +77,11 @@ export function SurfaceDevPanel() {
     composeMixStore.write(value);
   };
 
+  const onMainTabSand = (value: number) => {
+    setMainTabSand(value);
+    mainTabSandStore.write(value);
+  };
+
   const onSurfaceSand = (value: number) => {
     setSurfaceSand(value);
     surfaceSandStore.write(value);
@@ -74,6 +89,7 @@ export function SurfaceDevPanel() {
 
   const onReset = () => {
     onComposeMix(0);
+    onMainTabSand(0);
     onSurfaceSand(50);
   };
 
@@ -109,10 +125,28 @@ export function SurfaceDevPanel() {
               max={100}
               value={composeMix}
               onChange={(e) => onComposeMix(Number(e.target.value))}
-              aria-valuetext={`${composeMix} percent — 0 is the muted main-tab fill, 100 matches the content surface`}
+              aria-valuetext={`${composeMix} percent — 0 matches the main-tab fill, 100 matches the parent surface`}
             />
             <span className="surface-dev-panel__hint">
-              tab color → surface color
+              tab fill ← default → surface fill
+            </span>
+          </div>
+          <div className="surface-dev-panel__row">
+            <label className="surface-dev-panel__label" htmlFor="surface-dev-main-tab-sand">
+              Main tab fill
+              <span className="surface-dev-panel__value">{mainTabSand}%</span>
+            </label>
+            <input
+              id="surface-dev-main-tab-sand"
+              type="range"
+              min={0}
+              max={100}
+              value={mainTabSand}
+              onChange={(e) => onMainTabSand(Number(e.target.value))}
+              aria-valuetext={`${mainTabSand} percent — 0 is pure white, 100 is sandiest`}
+            />
+            <span className="surface-dev-panel__hint">
+              white ← default → sandier
             </span>
           </div>
           <div className="surface-dev-panel__row">

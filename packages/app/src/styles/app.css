@@ -10,12 +10,25 @@
  */
 
 :root {
-  /* Page bg is sand-2 (not sand-1) so the pure-white content surface
-   * reads as visibly brighter than the sidebars. Sand-1 and white differ
-   * by only ~2 brightness points; sand-2 opens that gap to something
-   * the eye actually picks up without crossing into "beige page". */
-  --color-background: var(--gray-2);
-  --color-surface-flat: var(--gray-2);
+  /* Three-slider surface architecture (SurfaceDevPanel).
+   *
+   *   --dev-surface-sand  → drives --color-background (sidebars, spine,
+   *     space-behind-tabs). Mix between sand-1 (brighter) and sand-3
+   *     (sandier) with sand-2 as the 50% midpoint default.
+   *   --dev-main-tab-sand → drives --color-content-surface (the floating
+   *     main tab container). Default 0% = pure white (max contrast vs.
+   *     the sand parent). 100% = sandier fill.
+   *   --dev-compose-mix   → drives the compose-dock fill. 0% = same as
+   *     the main-tab container (white); 100% = matches the parent
+   *     background. Scoped on `.compose` below via var() fallback so
+   *     :root assignments flow through the cascade. */
+  --dev-surface-sand: 50%;
+  --dev-main-tab-sand: 0%;
+  --dev-compose-mix: 0%;
+
+  /* Parent surface (sidebars / spine / main-view gutter behind the tabs). */
+  --color-background: color-mix(in oklab, var(--sand-3) var(--dev-surface-sand), var(--sand-1));
+  --color-surface-flat: var(--color-background);
   --color-surface-raised: var(--gray-3);
   --color-surface-overlay: var(--gray-4);
   --color-foreground: var(--gray-12);
@@ -29,17 +42,11 @@
   --color-border-soft: var(--gray-a5);
 
   /* Content surface — the floating main panel and the active tab both
-   * consume this. In light mode it's pure white (one step brighter than
-   * --color-background). In dark mode it inverts to off-black (sand-dark-1,
-   * one step darker than the dark-sand page) so the work still reads as
-   * "the figure" against the sand-toned chrome — the contrast direction
-   * flips with the mode, but the hierarchy stays the same. */
-  /* Light-mode content surface — blend between bright (white) and sandy
-   * (sand-3) driven by --dev-surface-sand (0–100%, set by SurfaceDevPanel;
-   * defaults to 50 so the production surface is already a subtle step
-   * warmer than pure white). 0% = white (slider left), 100% = sand-3. */
-  --dev-surface-sand: 50%;
-  --color-content-surface: color-mix(in oklab, var(--sand-3) var(--dev-surface-sand), white);
+   * consume this. In light mode it's pure white by default (max contrast
+   * against the sand parent). In dark mode it inverts to off-black
+   * (sand-dark-1) so the work still reads as "the figure" against the
+   * sand-toned chrome. */
+  --color-content-surface: color-mix(in oklab, var(--sand-3) var(--dev-main-tab-sand), white);
 
   /* Two-tier page / floating-surface register.
    * Sidebars + spine sit on --color-background; the main content panel is
@@ -86,13 +93,14 @@
 .dark,
 .dark-theme,
 [data-theme="dark"] {
-  /* Dark-mode content surface — blend between a brighter anchor
-   * (sand-dark-3) and a slightly darker anchor (sand-dark-1) driven by
-   * the same --dev-surface-sand slider. 0% = brighter, 100% = sandiest.
-   * 50% default leaves the production surface at sand-dark-2 — sitting
-   * between the two and reading as the same "one step darker than page"
-   * hierarchy the light mode uses (just inverted). */
-  --color-content-surface: color-mix(in oklab, var(--sand-dark-1) var(--dev-surface-sand), var(--sand-dark-3));
+  /* Dark-mode inverts the hierarchy: parent surface is sand-dark-2
+   * (page), main tab container is sand-dark-1 (one step darker, reads
+   * as "the figure"). The sliders have symmetric meaning to light
+   * mode: surface-sand 50% = sand-dark-2 midpoint; main-tab-sand 0% =
+   * maximum contrast (the deepest sand-dark-1 anchor). */
+  --color-background: color-mix(in oklab, var(--sand-dark-1) var(--dev-surface-sand), var(--sand-dark-3));
+  --color-surface-flat: var(--color-background);
+  --color-content-surface: color-mix(in oklab, var(--sand-dark-3) var(--dev-main-tab-sand), var(--sand-dark-1));
   /* In dark mode the alpha-5 border isn't strong enough to differentiate
    * the active tab pill from the page (sand-dark-1 pill on sand-dark-2
    * page differ by ~1 luminance step). Promote the "soft" border to the
@@ -490,15 +498,20 @@ body,
   grid-template-columns: var(--icon-lg) 1fr;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-button);
+  /* Negative margin + matching padding breaks the row out of the
+   * sidebar's 16px padding so the hover/active fill spans edge-to-edge.
+   * The inner padding puts the icon back at the same X as the section
+   * label — status icons align with "Workspaces" above them. */
+  margin: 0 calc(var(--space-4) * -1);
+  padding: var(--space-2) var(--space-4);
+  border-radius: 0;
   cursor: pointer;
   text-align: left;
   background: transparent;
   border: none;
   color: var(--color-foreground);
   transition: background var(--motion-interactive);
-  width: 100%;
+  width: auto;
   box-sizing: border-box;
 }
 
@@ -865,13 +878,12 @@ body,
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
-  /* Background blends between the main-tab fill (--color-surface-flat) and
-   * the content surface (--color-content-surface), driven by the
-   * SurfaceDevPanel "Compose fill" slider (--dev-compose-mix, default 0%
-   * = main-tab color). Lets us dial compose warmth live without touching
-   * either anchor token. */
-  --dev-compose-mix: 0%;
-  background: color-mix(in oklab, var(--color-content-surface) var(--dev-compose-mix), var(--color-surface-flat));
+  /* Compose fill blends between the main-tab container fill (0%, default)
+   * and the parent background (100%), driven by the SurfaceDevPanel
+   * "Compose fill" slider. The `--dev-compose-mix` var is set on :root
+   * by the panel; the `var(...)` fallback only kicks in if the panel
+   * hasn't written anything yet. */
+  background: color-mix(in oklab, var(--color-background) var(--dev-compose-mix, 0%), var(--color-content-surface));
   border: var(--border-thin) solid var(--color-border-soft);
   border-radius: calc(var(--radius-surface) - var(--surface-inner-pad));
   transition: border-color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive);
@@ -2825,50 +2837,67 @@ kbd {
   min-height: 0;
 }
 
-.thread__empty {
-  display: flex;
-  flex-direction: column;
+/* Suggestions view — shown for a fresh tab before the user has sent
+ * anything. Centered vertically in the tab body; text + trailing arrow
+ * rows with no borders. Compose stays docked at the bottom. */
+.thread--suggestions {
   align-items: center;
   justify-content: center;
-  flex: 1;
-  min-height: 0;
-  gap: var(--space-5);
-  color: var(--color-muted);
-  padding: var(--space-7);
+  gap: var(--space-3);
 }
 
-.thread__empty-title {
-  font-size: var(--type-heading-size);
-  font-weight: var(--weight-medium);
-  color: var(--color-foreground);
+.suggestion-list {
+  list-style: none;
+  padding: 0;
   margin: 0;
-}
-
-.thread__empty-suggestions {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: min(32rem, 100%);
 }
 
-.thread__suggestion {
-  background: var(--color-surface-raised);
-  border: var(--border-thin) solid var(--color-border);
+.suggestion-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: none;
   border-radius: var(--radius-button);
-  padding: var(--space-2) var(--space-3);
   color: var(--color-foreground);
-  font-size: var(--type-caption-size);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  text-align: left;
   cursor: pointer;
   transition: background var(--motion-interactive);
 }
 
-.thread__suggestion:hover {
+.suggestion-row:hover {
   background: var(--color-surface-hover);
 }
 
-.thread__suggestion:focus-visible {
+.suggestion-row:focus-visible {
   outline: var(--focus-outline-width) solid var(--focus-outline-color);
   outline-offset: var(--focus-outline-offset);
+}
+
+.suggestion-row__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.suggestion-row__arrow {
+  color: var(--color-muted);
+  flex-shrink: 0;
+  transition: transform var(--motion-interactive), color var(--motion-interactive);
+}
+
+.suggestion-row:hover .suggestion-row__arrow {
+  color: var(--color-foreground);
+  transform: translateX(var(--space-1));
 }
 
 .block {
@@ -3160,9 +3189,15 @@ kbd {
 }
 
 .workspace-thread__compose {
-  padding: 0 var(--space-6) var(--space-5);
-  border-top: var(--border-thin) solid var(--color-border);
+  /* 16px on all sides so the compose card scales with the main-tab
+   * width when the sidebars resize. No divider above — the main tab is
+   * one continuous container. */
+  padding: var(--space-4);
   flex-shrink: 0;
+}
+
+.workspace-thread__compose > .compose {
+  width: 100%;
 }
 
 .workspace-thread__notice {
