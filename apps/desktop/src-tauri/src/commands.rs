@@ -8,10 +8,10 @@
 use crate::core::AppCore;
 use crate::ipc;
 use crate::settings::{ResolvedTheme, Settings, ThemeChoice};
-use designer_core::{ProjectId, Tab, WorkspaceId};
+use designer_core::{ArtifactId, ProjectId, Tab, WorkspaceId};
 use designer_ipc::{
-    CreateProjectRequest, CreateWorkspaceRequest, IpcError, OpenTabRequest, ProjectSummary,
-    SpineRow, WorkspaceSummary,
+    ArtifactDetail, ArtifactSummary, CreateProjectRequest, CreateWorkspaceRequest, IpcError,
+    OpenTabRequest, ProjectSummary, SpineRow, TogglePinRequest, WorkspaceSummary,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -114,6 +114,38 @@ pub fn set_theme(
         choice: settings.theme,
         resolved,
     })
+}
+
+#[tauri::command]
+pub async fn list_pinned_artifacts(
+    core: State<'_, Arc<AppCore>>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<ArtifactSummary>, IpcError> {
+    ipc::cmd_list_pinned_artifacts(&core, workspace_id).await
+}
+
+#[tauri::command]
+pub async fn list_artifacts(
+    core: State<'_, Arc<AppCore>>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<ArtifactSummary>, IpcError> {
+    ipc::cmd_list_artifacts(&core, workspace_id).await
+}
+
+#[tauri::command]
+pub async fn get_artifact(
+    core: State<'_, Arc<AppCore>>,
+    artifact_id: ArtifactId,
+) -> Result<ArtifactDetail, IpcError> {
+    ipc::cmd_get_artifact(&core, artifact_id).await
+}
+
+#[tauri::command]
+pub async fn toggle_pin_artifact(
+    core: State<'_, Arc<AppCore>>,
+    req: TogglePinRequest,
+) -> Result<bool, IpcError> {
+    ipc::cmd_toggle_pin_artifact(&core, req).await
 }
 
 #[tauri::command]

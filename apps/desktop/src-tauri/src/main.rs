@@ -76,8 +76,12 @@ fn main() {
             commands::request_approval,
             commands::resolve_approval,
             commands::get_theme,
-            commands::set_theme,
+            commands::get_artifact,
+            commands::list_artifacts,
+            commands::list_pinned_artifacts,
             commands::reveal_in_finder,
+            commands::set_theme,
+            commands::toggle_pin_artifact,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

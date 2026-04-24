@@ -5,7 +5,8 @@
 //! becomes painful).
 
 use designer_core::{
-    Autonomy, Project, ProjectId, TabTemplate, Workspace, WorkspaceId, WorkspaceState,
+    Artifact, ArtifactId, ArtifactKind, Autonomy, PayloadRef, Project, ProjectId, TabTemplate,
+    Workspace, WorkspaceId, WorkspaceState,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -70,7 +71,59 @@ pub struct WorkspaceSummary {
 pub struct OpenTabRequest {
     pub workspace_id: WorkspaceId,
     pub title: String,
+    /// Post-13.1 the template is effectively always `Thread`. The field
+    /// remains for replay compatibility with pre-13.1 events; the
+    /// frontend no longer exposes a picker.
+    #[serde(default = "default_tab_template")]
     pub template: TabTemplate,
+}
+
+fn default_tab_template() -> TabTemplate {
+    TabTemplate::Thread
+}
+
+// ---- Artifacts (Phase 13.1) ----------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactSummary {
+    pub id: ArtifactId,
+    pub workspace_id: WorkspaceId,
+    pub kind: ArtifactKind,
+    pub title: String,
+    pub summary: String,
+    pub author_role: Option<String>,
+    pub version: u32,
+    pub created_at: String,
+    pub updated_at: String,
+    pub pinned: bool,
+}
+
+impl From<Artifact> for ArtifactSummary {
+    fn from(a: Artifact) -> Self {
+        ArtifactSummary {
+            id: a.id,
+            workspace_id: a.workspace_id,
+            kind: a.kind,
+            title: a.title,
+            summary: a.summary,
+            author_role: a.author_role,
+            version: a.version,
+            created_at: a.created_at.to_string(),
+            updated_at: a.updated_at.to_string(),
+            pinned: a.pinned_at.is_some(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactDetail {
+    pub summary: ArtifactSummary,
+    pub payload: PayloadRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TogglePinRequest {
+    pub artifact_id: ArtifactId,
 }
 
 // ---- Settings ------------------------------------------------------------

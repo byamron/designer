@@ -3,9 +3,14 @@
 // with recognizable demo data so the first-run experience is substantial.
 
 import type {
+  ArtifactDetail,
+  ArtifactId,
+  ArtifactKind,
+  ArtifactSummary,
   CreateProjectRequest,
   CreateWorkspaceRequest,
   OpenTabRequest,
+  PayloadRef,
   Project,
   ProjectId,
   ProjectSummary,
@@ -40,6 +45,15 @@ export interface MockCore {
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string): string;
   resolveApproval(id: string, granted: boolean, reason?: string): void;
   approvals(): Approval[];
+  // Phase 13.1
+  listArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
+  listPinnedArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
+  getArtifact(id: ArtifactId): ArtifactDetail;
+  togglePinArtifact(id: ArtifactId): boolean;
+}
+
+interface MockArtifact extends ArtifactSummary {
+  payload: PayloadRef;
 }
 
 function uuid(): string {
@@ -109,6 +123,83 @@ export function createMockCore(): MockCore {
     tabs: [],
   };
   workspaces.push(activitySpine);
+
+  // Seed demo artifacts so first-run shows what block renderers produce.
+  const artifacts: MockArtifact[] = [];
+  const makeArtifact = (
+    workspaceId: WorkspaceId,
+    kind: ArtifactKind,
+    title: string,
+    summary: string,
+    body: string,
+    options: { pinned?: boolean; authorRole?: string | null } = {},
+  ): MockArtifact => {
+    const id = uuid();
+    const ts = now();
+    return {
+      id,
+      workspace_id: workspaceId,
+      kind,
+      title,
+      summary,
+      author_role: options.authorRole ?? null,
+      version: 1,
+      created_at: ts,
+      updated_at: ts,
+      pinned: options.pinned ?? false,
+      payload: { kind: "inline", body },
+    };
+  };
+  artifacts.push(
+    makeArtifact(
+      onboarding.id,
+      "spec",
+      "Onboarding spec",
+      "Three-step repo link + autonomy choice; skip for experimentation.",
+      "**Goal.** First-run user can link a repo and spawn a workspace in under 60 seconds.\n\n**States.** not-linked → linking → linked.\n\n**Surfaces.** onboarding overlay, workspace strip.",
+      { pinned: true, authorRole: "team-lead" },
+    ),
+  );
+  artifacts.push(
+    makeArtifact(
+      onboarding.id,
+      "message",
+      "Kickoff",
+      "What are we building?",
+      "What are we building?",
+      { authorRole: "user" },
+    ),
+  );
+  artifacts.push(
+    makeArtifact(
+      onboarding.id,
+      "code-change",
+      "Seed workspace data",
+      "+142 −18 across packages/app/src/store/data.ts, ipc/mock.ts — adds demo workspace seeding.",
+      "packages/app/src/store/data.ts\npackages/app/src/ipc/mock.ts",
+      { authorRole: "agent" },
+    ),
+  );
+  artifacts.push(
+    makeArtifact(
+      onboarding.id,
+      "approval",
+      "Grant git write access?",
+      "Team-lead wants to commit the seed data it just generated to a scratch branch.",
+      "scope: git.write\nreason: commit seed data to scratch branch",
+      { authorRole: "agent" },
+    ),
+  );
+  artifacts.push(
+    makeArtifact(
+      onboarding.id,
+      "pr",
+      "#41 — onboarding: seed demo data",
+      "Open · 2 checks green · 1 pending — awaiting review.",
+      "https://github.com/example/designer/pull/41",
+      { pinned: true, authorRole: "agent" },
+    ),
+  );
 
   const listProjects = (): ProjectSummary[] =>
     projects.map((p) => ({
@@ -282,6 +373,34 @@ export function createMockCore(): MockCore {
     },
     approvals() {
       return [...approvals];
+    },
+    listArtifacts(workspaceId) {
+      return artifacts
+        .filter((a) => a.workspace_id === workspaceId)
+        .map(({ payload: _p, ...rest }) => rest);
+    },
+    listPinnedArtifacts(workspaceId) {
+      return artifacts
+        .filter((a) => a.workspace_id === workspaceId && a.pinned)
+        .map(({ payload: _p, ...rest }) => rest);
+    },
+    getArtifact(id) {
+      const a = artifacts.find((a) => a.id === id);
+      if (!a) throw new Error(`artifact not found: ${id}`);
+      const { payload, ...summary } = a;
+      return { summary, payload };
+    },
+    togglePinArtifact(id) {
+      const a = artifacts.find((a) => a.id === id);
+      if (!a) return false;
+      a.pinned = !a.pinned;
+      emit({
+        kind: a.pinned ? "artifact_pinned" : "artifact_unpinned",
+        stream_id: a.workspace_id,
+        timestamp: now(),
+        summary: `${a.pinned ? "Pinned" : "Unpinned"} ${a.title}`,
+      });
+      return a.pinned;
     },
   };
 }

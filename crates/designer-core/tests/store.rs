@@ -1,6 +1,6 @@
 use designer_core::{
-    Actor, EventPayload, EventStore, ProjectId, Projection, Projector, SqliteEventStore, StreamId,
-    StreamOptions, WorkspaceId,
+    Actor, ArtifactId, ArtifactKind, EventPayload, EventStore, PayloadRef, ProjectId, Projection,
+    Projector, SqliteEventStore, StreamId, StreamOptions, WorkspaceId,
 };
 use std::path::PathBuf;
 
@@ -135,4 +135,96 @@ async fn subscriber_receives_live_events() {
         received.kind(),
         designer_core::event::EventKind::ProjectCreated
     );
+}
+
+#[tokio::test]
+async fn artifact_lifecycle_projects_through_pin_unpin_archive() {
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let projector = Projector::new();
+    let workspace_id = WorkspaceId::new();
+    let artifact_id = ArtifactId::new();
+    let stream = StreamId::Workspace(workspace_id);
+
+    // Created
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactCreated {
+                artifact_id,
+                workspace_id,
+                artifact_kind: ArtifactKind::Spec,
+                title: "Onboarding spec".into(),
+                summary: "Three-step link + autonomy choice.".into(),
+                payload: PayloadRef::inline("# Onboarding\n\nGoal: link + spawn under 60s."),
+                author_role: Some("team-lead".into()),
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    let found = projector.artifact(artifact_id).expect("artifact created");
+    assert_eq!(found.kind, ArtifactKind::Spec);
+    assert_eq!(found.version, 1);
+    assert!(found.pinned_at.is_none());
+
+    // Pinned
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactPinned { artifact_id },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    let pinned = projector.pinned_artifacts(workspace_id);
+    assert_eq!(pinned.len(), 1);
+    assert_eq!(pinned[0].id, artifact_id);
+
+    // Unpinned
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactUnpinned { artifact_id },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    assert!(projector.pinned_artifacts(workspace_id).is_empty());
+
+    // Archived
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactArchived { artifact_id },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    assert!(projector.artifacts_in(workspace_id).is_empty());
+    // Archived artifacts are still fetchable by id.
+    assert!(projector.artifact(artifact_id).is_some());
+}
+
+#[tokio::test]
+async fn payload_ref_inline_vs_hash_serialize_distinctly() {
+    let inline = PayloadRef::inline("short");
+    let hash = PayloadRef::Hash {
+        hash: "abc123".into(),
+        size: 50_000,
+    };
+    let inline_json = serde_json::to_string(&inline).unwrap();
+    let hash_json = serde_json::to_string(&hash).unwrap();
+    assert!(inline_json.contains("\"kind\":\"inline\""));
+    assert!(hash_json.contains("\"kind\":\"hash\""));
+    assert!(hash_json.contains("\"size\":50000"));
+    let round: PayloadRef = serde_json::from_str(&inline_json).unwrap();
+    assert!(round.is_inline());
 }

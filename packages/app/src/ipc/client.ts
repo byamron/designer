@@ -3,6 +3,9 @@
 // exercisable without the WebView. Callers never know which runtime they're on.
 
 import type {
+  ArtifactDetail,
+  ArtifactId,
+  ArtifactSummary,
   CreateProjectRequest,
   CreateWorkspaceRequest,
   OpenTabRequest,
@@ -33,6 +36,11 @@ export interface IpcClient {
     summary: string,
   ): Promise<string>;
   resolveApproval(id: string, granted: boolean, reason?: string): Promise<void>;
+  // Artifacts (Phase 13.1)
+  listArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
+  listPinnedArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
+  getArtifact(id: ArtifactId): Promise<ArtifactDetail>;
+  togglePinArtifact(id: ArtifactId): Promise<boolean>;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -67,6 +75,18 @@ class TauriIpcClient implements IpcClient {
   }
   resolveApproval(id: string, granted: boolean, reason?: string) {
     return invoke<void>("resolve_approval", { id, granted, reason });
+  }
+  listArtifacts(workspaceId: WorkspaceId) {
+    return invoke<ArtifactSummary[]>("list_artifacts", { workspaceId });
+  }
+  listPinnedArtifacts(workspaceId: WorkspaceId) {
+    return invoke<ArtifactSummary[]>("list_pinned_artifacts", { workspaceId });
+  }
+  getArtifact(id: ArtifactId) {
+    return invoke<ArtifactDetail>("get_artifact", { artifactId: id });
+  }
+  togglePinArtifact(id: ArtifactId) {
+    return invoke<boolean>("toggle_pin_artifact", { req: { artifact_id: id } });
   }
 }
 
@@ -103,6 +123,18 @@ class MockIpcClient implements IpcClient {
   resolveApproval(id: string, granted: boolean, reason?: string) {
     this.core.resolveApproval(id, granted, reason);
     return Promise.resolve();
+  }
+  listArtifacts(workspaceId: WorkspaceId) {
+    return Promise.resolve(this.core.listArtifacts(workspaceId));
+  }
+  listPinnedArtifacts(workspaceId: WorkspaceId) {
+    return Promise.resolve(this.core.listPinnedArtifacts(workspaceId));
+  }
+  getArtifact(id: ArtifactId) {
+    return Promise.resolve(this.core.getArtifact(id));
+  }
+  togglePinArtifact(id: ArtifactId) {
+    return Promise.resolve(this.core.togglePinArtifact(id));
   }
 }
 

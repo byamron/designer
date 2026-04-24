@@ -67,6 +67,11 @@ id_type!(EventId, "evt");
 // 13.E's events carry a typed id from day one; 13.E / Phase 18 never have
 // to migrate event payloads to add a string-typed field later.
 id_type!(TrackId, "trk");
+// Phase 13.1 — typed artifacts (specs, prototypes, code-change batches, PRs,
+// approvals, reports, comments, task-lists, diagrams, variants). The block
+// renderer registry matches on (kind, version) and looks up the artifact
+// payload via `cmd_get_artifact(artifact_id)`.
+id_type!(ArtifactId, "art");
 
 /// A stream is the logical append-only log for a given aggregate. Every event
 /// belongs to exactly one stream; streams are replayed to build projections.

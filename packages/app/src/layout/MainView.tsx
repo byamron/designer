@@ -344,6 +344,10 @@ function titleForTemplate(template: TabTemplate): string {
       return "Build";
     case "blank":
       return "Blank tab";
+    case "thread":
+      return "Thread";
+    default:
+      return "Tab";
   }
 }
 
@@ -357,6 +361,10 @@ function descriptionForTemplate(template: TabTemplate): string {
       return "Tasks + approvals";
     case "blank":
       return "Empty canvas";
+    case "thread":
+      return "Workspace thread";
+    default:
+      return "Workspace";
   }
 }
 
