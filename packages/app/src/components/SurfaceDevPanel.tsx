@@ -4,23 +4,23 @@ import { Tooltip } from "./Tooltip";
 import { persisted, intDecoder } from "../util/persisted";
 
 /**
- * SurfaceDevPanel — floating bottom-right panel exposing five knobs that
+ * SurfaceDevPanel — floating bottom-right panel exposing six knobs that
  * each control a distinct layer of the surface register.
  *
- *   1. Compose fill   — `--dev-compose-mix` (0–100%). 0 = matches the
- *      main-tab container; 100 = matches the parent background.
- *   2. Main tab fill  — `--dev-main-tab-sand` (0–100%). 0 = pure white;
+ *   1. Compose fill     — `--dev-compose-mix`. 0 = matches main-tab,
+ *      100 = matches parent surface.
+ *   2. Main tab fill    — `--dev-main-tab-sand`. 0 = pure white,
  *      100 = sandiest.
- *   3. Surface sand   — `--dev-surface-sand` (0–100%). 0 = brighter
- *      parent; 100 = sandier parent.
- *   4. Tab opacity    — `--dev-tab-opacity` (0–100%). Controls the
- *      unselected-tab fill alpha (and, transitively, its border alpha).
- *   5. Border intensity — `--dev-border-strength` (0–100%). Modulates
- *      the alpha of the border applied to the main tab container, the
- *      selected tab, and the unselected tabs (for the unselected, the
- *      effective alpha is strength × tab-opacity).
+ *   3. Surface sand     — `--dev-surface-sand`. 0 = brighter parent,
+ *      100 = sandier parent.
+ *   4. Tab opacity      — `--dev-tab-opacity`. Unselected-tab fill +
+ *      border alpha.
+ *   5. Border intensity — `--dev-border-strength`. Main + selected
+ *      tab border alpha; unselected = strength × tab-opacity.
+ *   6. Shadow intensity — `--dev-shadow-intensity`. Main tab + selected
+ *      tab shadow strength. Unselected tabs never have a shadow.
  *
- * All five persist to localStorage and apply as CSS vars on :root so
+ * All six persist to localStorage and apply as CSS vars on :root so
  * the rest of the token cascade flows through. Dev-only.
  *
  * Hotkey: ⌘. (or Ctrl+.) toggles open/close.
@@ -46,12 +46,18 @@ const surfaceSandStore = persisted<number>(
 
 const tabOpacityStore = persisted<number>(
   "designer.dev.tabOpacity",
-  90,
+  70,
   intDecoder((n) => Math.max(0, Math.min(100, n))),
 );
 
 const borderStrengthStore = persisted<number>(
   "designer.dev.borderStrength",
+  10,
+  intDecoder((n) => Math.max(0, Math.min(100, n))),
+);
+
+const shadowIntensityStore = persisted<number>(
+  "designer.dev.shadowIntensity",
   100,
   intDecoder((n) => Math.max(0, Math.min(100, n))),
 );
@@ -62,6 +68,7 @@ interface SurfaceVars {
   surfaceSand: number;
   tabOpacity: number;
   borderStrength: number;
+  shadowIntensity: number;
 }
 
 function applyCssVars(v: SurfaceVars): void {
@@ -71,6 +78,7 @@ function applyCssVars(v: SurfaceVars): void {
   root.style.setProperty("--dev-surface-sand", `${v.surfaceSand}%`);
   root.style.setProperty("--dev-tab-opacity", `${v.tabOpacity}%`);
   root.style.setProperty("--dev-border-strength", `${v.borderStrength}%`);
+  root.style.setProperty("--dev-shadow-intensity", `${v.shadowIntensity}%`);
 }
 
 export function SurfaceDevPanel() {
@@ -82,10 +90,20 @@ export function SurfaceDevPanel() {
   const [borderStrength, setBorderStrength] = useState<number>(() =>
     borderStrengthStore.read(),
   );
+  const [shadowIntensity, setShadowIntensity] = useState<number>(() =>
+    shadowIntensityStore.read(),
+  );
 
   useEffect(() => {
-    applyCssVars({ composeMix, mainTabSand, surfaceSand, tabOpacity, borderStrength });
-  }, [composeMix, mainTabSand, surfaceSand, tabOpacity, borderStrength]);
+    applyCssVars({
+      composeMix,
+      mainTabSand,
+      surfaceSand,
+      tabOpacity,
+      borderStrength,
+      shadowIntensity,
+    });
+  }, [composeMix, mainTabSand, surfaceSand, tabOpacity, borderStrength, shadowIntensity]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -98,37 +116,38 @@ export function SurfaceDevPanel() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const onComposeMix = (value: number) => {
-    setComposeMix(value);
-    composeMixStore.write(value);
+  const onComposeMix = (v: number) => {
+    setComposeMix(v);
+    composeMixStore.write(v);
   };
-
-  const onMainTabSand = (value: number) => {
-    setMainTabSand(value);
-    mainTabSandStore.write(value);
+  const onMainTabSand = (v: number) => {
+    setMainTabSand(v);
+    mainTabSandStore.write(v);
   };
-
-  const onSurfaceSand = (value: number) => {
-    setSurfaceSand(value);
-    surfaceSandStore.write(value);
+  const onSurfaceSand = (v: number) => {
+    setSurfaceSand(v);
+    surfaceSandStore.write(v);
   };
-
-  const onTabOpacity = (value: number) => {
-    setTabOpacity(value);
-    tabOpacityStore.write(value);
+  const onTabOpacity = (v: number) => {
+    setTabOpacity(v);
+    tabOpacityStore.write(v);
   };
-
-  const onBorderStrength = (value: number) => {
-    setBorderStrength(value);
-    borderStrengthStore.write(value);
+  const onBorderStrength = (v: number) => {
+    setBorderStrength(v);
+    borderStrengthStore.write(v);
+  };
+  const onShadowIntensity = (v: number) => {
+    setShadowIntensity(v);
+    shadowIntensityStore.write(v);
   };
 
   const onReset = () => {
     onComposeMix(24);
     onMainTabSand(5);
     onSurfaceSand(80);
-    onTabOpacity(90);
-    onBorderStrength(100);
+    onTabOpacity(70);
+    onBorderStrength(10);
+    onShadowIntensity(100);
   };
 
   return (
@@ -163,11 +182,9 @@ export function SurfaceDevPanel() {
               max={100}
               value={composeMix}
               onChange={(e) => onComposeMix(Number(e.target.value))}
-              aria-valuetext={`${composeMix} percent — 0 matches the main-tab fill, 100 matches the parent surface`}
+              aria-valuetext={`${composeMix} percent — 0 matches main-tab fill, 100 matches parent surface`}
             />
-            <span className="surface-dev-panel__hint">
-              tab fill ← default → surface fill
-            </span>
+            <span className="surface-dev-panel__hint">tab fill ← default → surface fill</span>
           </div>
           <div className="surface-dev-panel__row">
             <label className="surface-dev-panel__label" htmlFor="surface-dev-main-tab-sand">
@@ -183,9 +200,7 @@ export function SurfaceDevPanel() {
               onChange={(e) => onMainTabSand(Number(e.target.value))}
               aria-valuetext={`${mainTabSand} percent — 0 is pure white, 100 is sandiest`}
             />
-            <span className="surface-dev-panel__hint">
-              white ← default → sandier
-            </span>
+            <span className="surface-dev-panel__hint">white ← default → sandier</span>
           </div>
           <div className="surface-dev-panel__row">
             <label className="surface-dev-panel__label" htmlFor="surface-dev-surface-sand">
@@ -201,9 +216,7 @@ export function SurfaceDevPanel() {
               onChange={(e) => onSurfaceSand(Number(e.target.value))}
               aria-valuetext={`${surfaceSand} percent — 0 is bright, 100 is sandiest`}
             />
-            <span className="surface-dev-panel__hint">
-              brighter ← default midpoint → sandier
-            </span>
+            <span className="surface-dev-panel__hint">brighter ← default midpoint → sandier</span>
           </div>
           <div className="surface-dev-panel__row">
             <label className="surface-dev-panel__label" htmlFor="surface-dev-tab-opacity">
@@ -219,9 +232,7 @@ export function SurfaceDevPanel() {
               onChange={(e) => onTabOpacity(Number(e.target.value))}
               aria-valuetext={`${tabOpacity} percent — alpha applied to unselected tab fill and border`}
             />
-            <span className="surface-dev-panel__hint">
-              transparent ← default → opaque
-            </span>
+            <span className="surface-dev-panel__hint">transparent ← default → opaque</span>
           </div>
           <div className="surface-dev-panel__row">
             <label className="surface-dev-panel__label" htmlFor="surface-dev-border-strength">
@@ -235,11 +246,25 @@ export function SurfaceDevPanel() {
               max={100}
               value={borderStrength}
               onChange={(e) => onBorderStrength(Number(e.target.value))}
-              aria-valuetext={`${borderStrength} percent — main tab + selected tab border alpha; unselected tabs get strength × tab-opacity`}
+              aria-valuetext={`${borderStrength} percent — main + selected tab border alpha; unselected = strength × tab-opacity`}
             />
-            <span className="surface-dev-panel__hint">
-              none ← softer → full
-            </span>
+            <span className="surface-dev-panel__hint">none ← softer → full</span>
+          </div>
+          <div className="surface-dev-panel__row">
+            <label className="surface-dev-panel__label" htmlFor="surface-dev-shadow-intensity">
+              Shadow intensity
+              <span className="surface-dev-panel__value">{shadowIntensity}%</span>
+            </label>
+            <input
+              id="surface-dev-shadow-intensity"
+              type="range"
+              min={0}
+              max={100}
+              value={shadowIntensity}
+              onChange={(e) => onShadowIntensity(Number(e.target.value))}
+              aria-valuetext={`${shadowIntensity} percent — drop shadow on the main tab + selected tab. Unselected tabs are flat.`}
+            />
+            <span className="surface-dev-panel__hint">flat ← softer → full</span>
           </div>
           <button
             type="button"

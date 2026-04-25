@@ -33,8 +33,9 @@
   --dev-surface-sand: 80%;
   --dev-main-tab-sand: 5%;
   --dev-compose-mix: 24%;
-  --dev-tab-opacity: 90%;
-  --dev-border-strength: 100%;
+  --dev-tab-opacity: 70%;
+  --dev-border-strength: 10%;
+  --dev-shadow-intensity: 100%;
 
   /* Border colors derived from the strength + tab-opacity sliders. The
    * main surface and the active tab share `--surface-border-color` so
@@ -98,7 +99,16 @@
    *   --surface-gutter, lets us hit 6px without introducing a bespoke
    *   token for a single caller. */
   --surface-tab-gap: calc(var(--space-2) * 1.5);
-  --surface-shadow: var(--elevation-raised);
+  /* Shadow on the main tab container + the selected tab — the only two
+   * surfaces that read as "raised". Alpha is `0.05 × shadow-intensity`
+   * (calc'd via the percentage scale so the slider is a clean 0-100%).
+   * Unselected tabs never set a box-shadow — they're flat by spec. */
+  --surface-shadow: 0 1px 2px 0
+    color-mix(
+      in srgb,
+      black calc(5% * var(--dev-shadow-intensity) / 100%),
+      transparent
+    );
   --surface-text-pad: var(--space-5);
   /* 16 px inset around the compose, per the user's concentric-corners
    * spec. With --radius-surface = 16 and this pad = 16, the concentric
