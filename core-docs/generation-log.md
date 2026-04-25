@@ -429,3 +429,17 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: 13/13 frontend pass; 6/6 backend pass
 - deviations: dev panel mounts in dev mode only — production build retains the user-chosen defaults baked into `:root` and `.dark-theme`
 - feedback: FB-0026 (dev-panel-driven design exploration is the canonical mechanism)
+
+## 2026-04-25T09:06:45Z — manual (Phase 13.G)
+- prompt: "Phase 13.G — Safety surfaces + Keychain. Wire approval inbox, cost chip, scope-denied flow, macOS Keychain integration."
+- trigger: manual (skill not invoked; backend-heavy track. UI changes scoped to ApprovalBlock wiring + new CostChip + Settings rows.)
+- archetype-reused: none (CostChip is a custom topbar widget; Keychain row reuses existing SettingsRow archetype)
+- components-reused: ApprovalBlock, BlockHeader, SegmentedToggle, SettingsRow, MainView (tabs-bar)
+- components-new: CostChip (topbar widget + popover), KeychainStatusReadout (Settings → Account row), CostChipToggle (Settings → Preferences row)
+- primitives: none (consistent with 13.1 — primitives migration tracked in plan.md Phase 15)
+- tokens: --space-1..3, --color-content-surface, --color-border-soft, --color-border, --color-foreground, --color-muted, --color-background, --color-success, --color-warning, --color-danger, --radius-button, --radius-card, --border-thin, --type-family-mono, --type-caption-size, --type-body-size, --layer-overlay, --elevation-overlay, --motion-enter
+- invariants: not run (no new arbitrary px/hex outside fallback chains; all sizes routed through tokens; existing invariants pass under workspace check)
+- typecheck: clean
+- tests: 18/18 frontend pass (added 5 in `safety.test.tsx`); cargo test workspace clean (added 5 in `inbox_permission`, 6 in `core_safety`)
+- deviations: cost-chip color band uses `var(--color-success, fallback)` chains because the `--color-success` token isn't yet defined in the design language tokens.css. The fallback to a Radix accent (or hand-picked hex when no accent is set) keeps the chip readable until the token is named in a follow-up. Logged as a candidate for `elicit-design-language` amendment when the warn/danger/success palette is formalized.
+- feedback: pending

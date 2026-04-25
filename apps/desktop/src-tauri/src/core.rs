@@ -5,7 +5,10 @@
 
 use async_trait::async_trait;
 use designer_audit::{AuditLog, SqliteAuditLog};
-use designer_claude::{ClaudeCodeOptions, ClaudeCodeOrchestrator, MockOrchestrator, Orchestrator};
+use designer_claude::{
+    ClaudeCodeOptions, ClaudeCodeOrchestrator, InboxPermissionHandler, MockOrchestrator,
+    Orchestrator,
+};
 use designer_core::{
     Actor, Artifact, ArtifactId, EventPayload, EventStore, ProjectId, Projection, Projector,
     SqliteEventStore, StreamId, StreamOptions, Tab, TabId, TabTemplate, Workspace, WorkspaceId,
@@ -205,13 +208,22 @@ impl AppCoreBoot for AppCore {
         let history = store.read_all(StreamOptions::default()).await?;
         projector.replay(&history);
 
+        // Phase 13.G installs the inbox permission handler as the production
+        // default; AutoAcceptSafeTools remains the test/mock-orchestrator
+        // default so existing tests don't have to wait on a (never-arriving)
+        // user resolve. The handler is a process-global so the IPC layer
+        // (`cmd_resolve_approval`) and the orchestrator (caller of `decide`)
+        // share a single instance.
+        let inbox_handler = Arc::new(InboxPermissionHandler::new(store.clone()));
+        let inbox_handler = crate::core_safety::install_inbox_handler(inbox_handler);
+
         let orchestrator: Arc<dyn Orchestrator> = if config.use_mock_orchestrator {
             Arc::new(MockOrchestrator::new(store.clone()))
         } else {
-            Arc::new(ClaudeCodeOrchestrator::new(
-                store.clone(),
-                config.claude_options.clone(),
-            ))
+            Arc::new(
+                ClaudeCodeOrchestrator::new(store.clone(), config.claude_options.clone())
+                    .with_permission_handler(inbox_handler.clone()),
+            )
         };
 
         let audit: Arc<dyn AuditLog> = Arc::new(SqliteAuditLog::new(store.clone()));
@@ -235,6 +247,16 @@ impl AppCoreBoot for AppCore {
             helper_events,
         });
         core.spawn_projector_task();
+        // Replay safety (Phase 13.G): every `ApprovalRequested` event
+        // without a matching grant/deny resolves to a process-restart
+        // denial so the inbox doesn't surface phantom rows for sessions
+        // whose subprocess is gone. Failure is logged but non-fatal —
+        // boot must still succeed.
+        match core.sweep_orphan_approvals().await {
+            Ok(0) => {}
+            Ok(n) => info!(orphans = n, "swept orphan approvals on boot"),
+            Err(err) => warn!(error = %err, "orphan-approval sweep failed"),
+        }
         info!("app core booted");
         Ok(core)
     }

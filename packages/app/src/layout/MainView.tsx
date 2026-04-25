@@ -10,6 +10,7 @@ import type { WorkspaceSummary } from "../ipc/types";
 import { Tooltip } from "../components/Tooltip";
 import { IconButton } from "../components/IconButton";
 import { IconX, IconPlus } from "../components/icons";
+import { CostChip } from "../components/CostChip";
 
 export function MainView() {
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
@@ -114,6 +115,7 @@ export function MainView() {
             <IconPlus />
           </IconButton>
         </div>
+        <CostChip workspaceId={workspace.id} />
       </div>
 
       <div className="main-surface">

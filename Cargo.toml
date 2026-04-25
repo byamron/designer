@@ -78,6 +78,12 @@ dark-light = "1"
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-build = { version = "2", features = [] }
 
+# macOS Keychain bindings. MIT/Apache-2.0 dual-licensed (compatible with our
+# workspace license posture). Phase 13.G uses *only* `passwords::get_generic_password`
+# to surface "Claude OAuth credential present?" — never writes (Decision 26).
+# default-features=false trims the dependency surface to what we touch.
+security-framework = { version = "2", default-features = false }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

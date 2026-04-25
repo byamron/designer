@@ -1725,6 +1725,131 @@ body,
   .new-tab__menu { animation: none; }
 }
 
+/* --- cost chip (Phase 13.G) ---------------------------------------------
+ * Off by default per spec Decision 34. When enabled, the chip sits at the
+ * trailing edge of the tabs-bar (margin-left:auto pushes it past the
+ * new-tab affordance) so it stays visible regardless of how many tabs
+ * are open.
+ *
+ * Color band tracks the cost ratio (50% / 80% thresholds): green / amber
+ * / red, dimmed when no cap is configured. We avoid red for "no cap" so
+ * the chip doesn't shout when there's nothing to alarm about. */
+
+.cost-chip-wrap {
+  position: relative;
+  margin-left: auto;
+  align-self: center;
+}
+
+.cost-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-content-surface);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-button);
+  color: var(--color-foreground);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.cost-chip:hover,
+.cost-chip:focus-visible {
+  border-color: var(--color-border);
+  outline: none;
+}
+
+.cost-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.cost-chip[data-band="ok"] .cost-chip__dot {
+  background: var(--color-success, var(--accent-9, #2f9e44));
+}
+.cost-chip[data-band="warn"] .cost-chip__dot {
+  background: var(--color-warning, #d97706);
+}
+.cost-chip[data-band="danger"] .cost-chip__dot {
+  background: var(--color-danger, #c92a2a);
+}
+.cost-chip[data-band="muted"] .cost-chip__dot {
+  background: var(--color-muted);
+}
+
+.cost-chip__sep,
+.cost-chip__cap {
+  color: var(--color-muted);
+}
+
+.cost-chip__popover {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  min-width: calc(var(--space-8) * 5);
+  background: var(--color-background);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-overlay);
+  padding: var(--space-3);
+  z-index: var(--layer-overlay);
+  animation: mini-overlay-in var(--motion-enter);
+}
+
+.cost-chip__popover-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cost-chip__breakdown {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: var(--space-1);
+  font-size: var(--type-body-size);
+}
+
+.cost-chip__breakdown div {
+  display: contents;
+}
+
+.cost-chip__breakdown dt {
+  color: var(--color-foreground);
+}
+
+.cost-chip__breakdown dd {
+  margin: 0;
+  font-family: var(--type-family-mono);
+  color: var(--color-foreground);
+  text-align: right;
+}
+
+.cost-chip__deferred {
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.cost-chip__footnote {
+  margin: var(--space-2) 0 0;
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cost-chip__popover { animation: none; }
+}
+
 /* --- chat / streaming ---- */
 /* Canonical asymmetry: the user's messages are bubbles (right-aligned,
  * contained, differentiates "I said this"); agent messages are printed
@@ -2804,6 +2929,33 @@ kbd {
   font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
   color: var(--color-muted);
+}
+
+/* Keychain status readout — small color-coded dot + plain copy. */
+.settings-page__keychain {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-page__keychain-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.settings-page__keychain-dot--connected {
+  background: var(--color-success, var(--accent-9, #2f9e44));
+}
+
+.settings-page__keychain-dot--disconnected {
+  background: var(--color-warning, #d97706);
+}
+
+.settings-page__keychain-dot--unsupported_os {
+  background: var(--color-muted);
 }
 
 /* --- surface dev panel (dev-only floating tuner) ---------------------- */

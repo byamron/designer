@@ -36,6 +36,12 @@ parking_lot.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 dark-light.workspace = true
+once_cell.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Keychain read for surfacing Claude OAuth presence in Settings → Account.
+# Read-only per Decision 26 — Designer never writes Claude's tokens.
+security-framework = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true
