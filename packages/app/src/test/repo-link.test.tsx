@@ -107,6 +107,58 @@ describe("RepoLinkModal", () => {
     const submit = screen.getByText("Link repository") as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
   });
+
+  it("traps Tab focus inside the dialog", async () => {
+    const { workspace } = makeClient();
+    const onClose = vi.fn();
+    render(
+      <RepoLinkModal
+        workspaceId={workspace.workspace.id}
+        open={true}
+        onClose={onClose}
+      />,
+    );
+    const dialog = screen.getByRole("dialog");
+    // Collect the focusable elements in DOM order: Close icon, input,
+    // Cancel button. (The "Link repository" submit is disabled while the
+    // input is empty, so it's not in the focus ring.)
+    const focusables = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        "a[href], button:not([disabled]), input:not([disabled])",
+      ),
+    );
+    expect(focusables.length).toBeGreaterThanOrEqual(2);
+    const last = focusables[focusables.length - 1];
+    last.focus();
+    expect(document.activeElement).toBe(last);
+    // Tab from last → first.
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(focusables[0]);
+    // Shift-Tab from first → last.
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
+
+  it("scrim dismiss uses click, not mousedown — a drag that ends on the scrim does not dismiss", () => {
+    const { workspace } = makeClient();
+    const onClose = vi.fn();
+    const { container } = render(
+      <RepoLinkModal
+        workspaceId={workspace.workspace.id}
+        open={true}
+        onClose={onClose}
+      />,
+    );
+    const scrim = container.querySelector(
+      ".app-dialog-scrim",
+    ) as HTMLElement;
+    // mousedown alone (the old behavior) must not trigger dismiss.
+    fireEvent.mouseDown(scrim);
+    expect(onClose).not.toHaveBeenCalled();
+    // click (mousedown + mouseup on the same target) does dismiss.
+    fireEvent.click(scrim);
+    expect(onClose).toHaveBeenCalled();
+  });
 });
 
 import { vi } from "vitest";

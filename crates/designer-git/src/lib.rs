@@ -240,10 +240,12 @@ impl GitOps for RealGitOps {
         body: &str,
         base: &str,
     ) -> GitResult<PullRequest> {
-        // `gh pr create` doesn't print JSON directly; it prints the PR URL.
-        // Capture the URL on stdout, then `gh pr view` for the structured
-        // fields. That keeps a single create call (so `gh` does the push +
-        // open dance once) without parsing free-form output.
+        // `gh pr create` prints a mix of progress lines (push status,
+        // remote tracking) followed by the PR URL on its own line. We
+        // pluck the last `https://…/pull/N` line and hand that to
+        // `gh pr view --json`. Treating the whole stdout as the URL —
+        // an earlier version of this code — broke whenever gh emitted
+        // any progress output at all.
         let create = run(
             repo,
             "gh",
@@ -252,7 +254,12 @@ impl GitOps for RealGitOps {
             ],
         )
         .await?;
-        let url = String::from_utf8_lossy(&create.stdout).trim().to_string();
+        let stdout_create = String::from_utf8_lossy(&create.stdout).to_string();
+        let url = extract_pr_url(&stdout_create).ok_or_else(|| GitError::GhFailed {
+            command: "pr create".into(),
+            status: 0,
+            stderr: format!("no PR URL found in stdout: {stdout_create}"),
+        })?;
         let view = run(
             repo,
             "gh",
@@ -403,4 +410,47 @@ pub async fn recent_overlap(
         }
     }
     Ok(overlaps)
+}
+
+/// Pluck the PR URL from `gh pr create` stdout. `gh` interleaves push /
+/// remote-tracking progress output with the URL line, so we scan for the
+/// last token that looks like a GitHub PR URL.
+pub fn extract_pr_url(stdout: &str) -> Option<String> {
+    stdout
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| {
+            (line.starts_with("https://") || line.starts_with("http://")) && line.contains("/pull/")
+        })
+        .map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::extract_pr_url;
+
+    #[test]
+    fn extracts_url_from_progress_decorated_stdout() {
+        let stdout = "remote: \nremote: Create a pull request for 'foo'\n\
+            https://github.com/owner/repo/pull/42\n";
+        assert_eq!(
+            extract_pr_url(stdout).as_deref(),
+            Some("https://github.com/owner/repo/pull/42")
+        );
+    }
+
+    #[test]
+    fn extracts_url_from_bare_url_stdout() {
+        assert_eq!(
+            extract_pr_url("https://github.com/x/y/pull/9\n").as_deref(),
+            Some("https://github.com/x/y/pull/9")
+        );
+    }
+
+    #[test]
+    fn returns_none_when_no_url_present() {
+        assert!(extract_pr_url("ok\nfine\n").is_none());
+        assert!(extract_pr_url("").is_none());
+    }
 }

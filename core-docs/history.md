@@ -37,10 +37,39 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
-### Phase 13.E — Track primitive + git wire
+### Phase 13.E — Track primitive + git wire (review-pass hardening)
 **Date:** 2026-04-25
 **Branch:** track-primitive-git-wire
 **Commit:** TBD
+
+**Hardening pass over the initial 13.E build, applied in the same PR:**
+
+- *Branch-name argument injection blocked.* `validate_branch` rejects names that start with `-` (would be parsed as a `git`/`gh` flag) or contain whitespace, control chars, or any of `~^:?*[\\\0`. Fail-closed at IPC, before the worktree directory is even created.
+- *gh subprocess timeout.* `request_merge` runs `gh pr create` under a 30-second timeout (test-overridable). On timeout the track stays `Active` so the user can retry; no ghost in-flight state.
+- *Idempotent `request_merge`.* In-memory inflight set keyed by `TrackId`. A double-click finds the second call, short-circuits, and returns a friendly invariant error instead of running `gh pr create` twice and getting "PR already exists" the second time.
+- *Robust gh URL parsing.* `gh pr create` interleaves push progress with the PR URL; `extract_pr_url` (in `designer-git`) plucks the last `https://…/pull/N` line. The earlier "trim whole stdout, hand to `gh pr view`" path was fragile.
+- *Per-repo serialization of `start_track`.* Per-repo async mutex means concurrent `start_track` calls on the same repo serialize cleanly — one succeeds with its worktree, the other gets a clean "branch already exists" error from git.
+- *Partial-init rollback.* If `seed_core_docs` or `commit_seed_docs` fails after `init_worktree` succeeded, the worktree is removed before the error propagates. Same for an event-store write failure on `TrackStarted`. The user can retry without a leaked checkout.
+- *Edit-batch signature now per-file.* The earlier coarse signature (file count + total +/-) collided when two distinct diffs touched the same paths with the same totals — the second batch was silently dropped. The new signature includes per-file `+a:-r` so redistributed edits across the same files survive.
+- *Bounded `batch_signatures` map.* Cleared opportunistically inside `check_track_status` when the track is `Merged` or `Archived`; `forget_track` exposed for explicit cleanup hooks.
+- *Symlink-resolved `repo_path`.* `link_repo` runs `fs::canonicalize` before validation and persistence, so two distinct user-facing paths that point at the same repo dedupe to one stored value.
+- *Domain comment corrected.* `TrackState::RequestingMerge` is now documented as reserved (not produced by replay today). Idempotence is enforced in-process via the inflight set rather than a state-machine transition; this matches the frozen event vocabulary.
+- *RepoLinkModal a11y.* Tab/Shift-Tab focus trap so keyboard users can't escape the modal into the AppShell behind the scrim. Scrim dismiss flipped from `onMouseDown` to `onClick` so a drag that starts inside the dialog and ends on the scrim no longer surprise-dismisses.
+
+**Tests added in this pass:**
+- `start_track_rejects_branches_with_leading_dash` — argument-injection guard.
+- `start_track_rejects_branch_with_whitespace` — secondary metachar guard.
+- `concurrent_start_track_same_branch_one_succeeds_one_fails_clean` — racing concurrent calls; exactly one track gets projected.
+- `start_track_rolls_back_worktree_when_seed_commit_fails` — verifies cleanup path called once and no `TrackStarted` was projected.
+- `request_merge_dedupes_concurrent_calls` — in-flight set rejects the second call.
+- `request_merge_times_out_on_stalled_gh` — timeout fires; track stays Active.
+- `request_merge_surfaces_gh_already_exists` and `_gh_auth_failure` — gh stderr makes it back to the IPC error.
+- `edit_batch_signature_distinguishes_same_total_different_distribution` — regression test for the silent-drop bug; would fail under the old coarse signature.
+- `link_repo_canonicalizes_symlinked_path` — symlink → canonical path stored.
+- `extracts_url_from_progress_decorated_stdout` / `_bare_url_stdout` / `returns_none_when_no_url_present` — `designer-git::extract_pr_url`.
+- `traps Tab focus inside the dialog` and `scrim dismiss uses click, not mousedown` — vitest, RepoLinkModal a11y.
+
+**Initial 13.E build (kept below):**
 
 **What was done:**
 

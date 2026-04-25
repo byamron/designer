@@ -225,15 +225,20 @@ pub struct Track {
     pub archived_at: Option<Timestamp>,
 }
 
-/// Track lifecycle. The state machine is intentionally narrow: a track moves
-/// forward through `Active → RequestingMerge → PrOpen → Merged → Archived`.
-/// `RequestingMerge` is the brief window between the user clicking
-/// "Request merge" and `gh pr create` returning. Any failure during that
-/// window flips the track back to `Active` so the user can retry.
+/// Track lifecycle. The projected (replayable) state machine is
+/// `Active → PrOpen → Merged → Archived`. `RequestingMerge` is reserved
+/// for a future event-sourced flag (it's not produced by replay today)
+/// and currently exists only as a transient frontend hint while the user
+/// is mid-`gh pr create`. Designer enforces idempotence of merge requests
+/// in-process via an in-memory in-flight set in `core_git.rs`, so two
+/// concurrent calls cannot both reach `gh`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackState {
     Active,
+    /// Reserved — not emitted by replay today. See `core_git.rs` for the
+    /// in-memory idempotence machinery used during the live `gh pr create`
+    /// window.
     RequestingMerge,
     PrOpen,
     Merged,

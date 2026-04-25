@@ -37,6 +37,7 @@ export function RepoLinkModal({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +45,28 @@ export function RepoLinkModal({
     setError(null);
     setBusy(false);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !busy) {
+        onClose();
+        return;
+      }
+      // Focus trap. Tab / Shift-Tab cycle within the dialog so keyboard
+      // users can't accidentally land on the AppShell behind the scrim.
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusables = collectFocusable(dialogRef.current);
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (e.shiftKey) {
+          if (active === first || !dialogRef.current.contains(active)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else if (active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -79,11 +101,16 @@ export function RepoLinkModal({
     <div
       className="app-dialog-scrim"
       role="presentation"
-      onMouseDown={(e) => {
+      onClick={(e) => {
+        // onClick (not onMouseDown) so a drag that starts inside the
+        // dialog and finishes on the scrim doesn't surprise-dismiss the
+        // user — `click` only fires when mousedown and mouseup land on
+        // the same element.
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
       <div
+        ref={dialogRef}
         className="app-dialog"
         role="dialog"
         aria-modal="true"
@@ -187,6 +214,26 @@ export function RepoLinkModal({
       </div>
     </div>
   );
+}
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function collectFocusable(container: HTMLElement): HTMLElement[] {
+  // We don't filter by offsetParent here because jsdom always reports
+  // offsetParent === null, which would empty the focus ring under tests.
+  // The real-DOM cases we'd want to filter (display:none, hidden) are
+  // either disabled (already excluded) or aria-hidden (rare for buttons
+  // inside an open modal); leaving them in is safe.
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+  ).filter((el) => !el.hasAttribute("inert") && !el.hasAttribute("aria-hidden"));
 }
 
 function messageFromError(err: unknown): string {
