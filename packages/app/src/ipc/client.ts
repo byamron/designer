@@ -9,6 +9,8 @@ import type {
   CreateProjectRequest,
   CreateWorkspaceRequest,
   OpenTabRequest,
+  PostMessageRequest,
+  PostMessageResponse,
   ProjectId,
   ProjectSummary,
   SpineRow,
@@ -41,6 +43,8 @@ export interface IpcClient {
   listPinnedArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
   getArtifact(id: ArtifactId): Promise<ArtifactDetail>;
   togglePinArtifact(id: ArtifactId): Promise<boolean>;
+  // Agent wire (Phase 13.D)
+  postMessage(req: PostMessageRequest): Promise<PostMessageResponse>;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -87,6 +91,9 @@ class TauriIpcClient implements IpcClient {
   }
   togglePinArtifact(id: ArtifactId) {
     return invoke<boolean>("toggle_pin_artifact", { req: { artifact_id: id } });
+  }
+  postMessage(req: PostMessageRequest) {
+    return invoke<PostMessageResponse>("post_message", { req });
   }
 }
 
@@ -135,6 +142,9 @@ class MockIpcClient implements IpcClient {
   }
   togglePinArtifact(id: ArtifactId) {
     return Promise.resolve(this.core.togglePinArtifact(id));
+  }
+  postMessage(req: PostMessageRequest) {
+    return Promise.resolve(this.core.postMessage(req));
   }
 }
 

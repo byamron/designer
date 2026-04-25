@@ -3,7 +3,7 @@
 //! those through the provided `EventStore`.
 
 use async_trait::async_trait;
-use designer_core::{AgentId, TaskId, WorkspaceId};
+use designer_core::{AgentId, ArtifactKind, TaskId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -80,6 +80,23 @@ pub enum OrchestratorEvent {
         workspace_id: WorkspaceId,
         author_role: String,
         body: String,
+    },
+    /// Agent-produced typed artifact (Phase 13.D). MockOrchestrator emits
+    /// these from its keyword-driven simulator so the round-trip tests can
+    /// assert that an `ArtifactCreated { kind: diagram | report }` lands in
+    /// the projection. The real `ClaudeCodeOrchestrator` will emit these
+    /// from the stream translator once tool-use shapes are mapped (per-
+    /// tool, lands as 13.E/F/G actually surface tool calls). The
+    /// orchestrator does **not** persist this — the AppCore coalescer is
+    /// the single writer for `EventPayload::ArtifactCreated` so we don't
+    /// double-write or race the projector.
+    ArtifactProduced {
+        workspace_id: WorkspaceId,
+        artifact_kind: ArtifactKind,
+        title: String,
+        summary: String,
+        body: String,
+        author_role: Option<String>,
     },
 }
 

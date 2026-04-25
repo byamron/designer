@@ -19,6 +19,7 @@ pub mod core_safety;
 pub mod crash;
 pub mod events;
 pub mod ipc;
+pub mod ipc_agents;
 pub mod menu;
 pub mod settings;
 pub mod updater;

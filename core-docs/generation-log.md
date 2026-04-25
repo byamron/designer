@@ -429,3 +429,18 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: 13/13 frontend pass; 6/6 backend pass
 - deviations: dev panel mounts in dev mode only — production build retains the user-chosen defaults baked into `:root` and `.dark-theme`
 - feedback: FB-0026 (dev-panel-driven design exploration is the canonical mechanism)
+
+
+## 2026-04-25T02:00:00Z — manual (phase 13.D agent wire)
+- prompt: "Phase 13.D — Agent wire. Wire WorkspaceThread.onSend end-to-end against the artifact foundation: cmd_post_message IPC, AppCore::post_message + 120ms message coalescer, agent-emitted diagram/report artifacts, frontend wiring with optimistic state and error recovery."
+- trigger: manual (skill not invoked; backend-heavy track that touches one frontend surface — the existing WorkspaceThread)
+- archetype-reused: none (no new layout — extends ComposeDock's onSend contract and the WorkspaceThread send/notice region)
+- components-reused: WorkspaceThread, ComposeDock (used `setDraft` + `focus` imperative handle for failure-restore), `workspace-thread__notice` slot
+- components-new: none
+- primitives: none (frontend change is one render path inside WorkspaceThread; no new layout primitives needed)
+- tokens: existing — `workspace-thread__notice` styling unchanged from 13.1
+- invariants: not run (no new UI surfaces; existing surfaces unchanged)
+- typecheck: clean (`npx tsc --noEmit`)
+- tests: vitest 15/15 (added `workspace-thread.test.tsx` with 2 cases — postMessage call shape + empty-draft guard); cargo `--workspace` clean (added round-trip + empty-text tests under `ipc_agents::tests`)
+- deviations: none
+- feedback: pending

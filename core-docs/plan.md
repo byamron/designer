@@ -76,7 +76,7 @@ Infrastructure landed on 2026-04-21 (branch `phase-12b-plan`); real-binary valid
 
 Each track now emits `ArtifactCreated` events into the block registry instead of painting bespoke UI. Per-track `TODO(13.X)` markers in the code mark the handoff points.
 
-- [ ] **13.D Agent wire** (needs 12.A + 12.C + 13.1): replace `WorkspaceThread::onSend` with `Orchestrator::post_message`; stream replies via `designer://event-stream` as `MessagePosted` thread events, agent-produced artifacts (diagrams, reports) as `ArtifactCreated`. Partial-message coalescer (deferred from 12.A) lands here.
+- [x] **13.D Agent wire** (needs 12.A + 12.C + 13.1): replace `WorkspaceThread::onSend` with `Orchestrator::post_message`; stream replies via `designer://event-stream` as `MessagePosted` thread events, agent-produced artifacts (diagrams, reports) as `ArtifactCreated`. Partial-message coalescer (deferred from 12.A) lands here. *(landed 2026-04-25)*
 - [ ] **13.E Track primitive + git wire** (needs 12.C + 13.1): introduces the `Track` primitive per spec Decisions 29–30 (workspace owns a list of tracks; v1 creates length-1). Repo-linking UI + `TrackStarted` events + `GitOps::init_worktree` per track + `core-docs/*.md` seeding + "Request merge" → `gh pr create` → `TrackCompleted`. **Emits `ArtifactCreated { kind: "code-change" }` per semantic edit batch and `{ kind: "pr" }` when a PR opens.** Reserves `WorkspaceForked` / `WorkspacesReconciled` / `TrackArchived` event types for Phase 19.
 - [ ] **13.F Local-model surfaces** (needs 12.B + 12.C + 13.1): spine summaries via `LocalOps::summarize_row` (per-track debounce); Home recap via `LocalOps::recap`; audit verdicts via `LocalOps::audit_claim`. **Recaps emit `ArtifactCreated { kind: "report" }`; audit verdicts attach as `comment` artifacts anchored to claim artifacts.** Wires the `PrototypePreview` component into `PrototypeBlock`.
 - [ ] **13.G Safety surfaces + Keychain** (needs 12.C + 13.1): approval inbox, cost chip in topbar, scope-denied in inbox, `security-framework` keychain integration. **Approval requests emit `ArtifactCreated { kind: "approval" }` with the interactive action surface already rendering; scope denials attach as `comment` artifacts on the offending code-change artifact.**
@@ -156,6 +156,10 @@ Delivers the user-visible affordances of the workspace/track model (spec §"Work
 ---
 
 ## Recently Completed
+
+### Phase 13.D — Agent wire — 2026-04-25
+
+`WorkspaceThread.onSend` now `await`s a real `cmd_post_message` IPC. AppCore appends the user's message synchronously as both `MessagePosted` + `ArtifactCreated { kind: "message" }` so drafts survive subprocess failure, then dispatches to `Orchestrator::post_message` (lazy-spawning a team on first message in demo mode). A boot-spawned message coalescer subscribes to the orchestrator's broadcast, drops user echoes, accumulates per-(workspace, author_role) bursts, and flushes one `ArtifactCreated` after 120 ms of idle. New `OrchestratorEvent::ArtifactProduced` variant carries agent-emitted typed artifacts (diagram / report only — other kinds belong to E/F/G); MockOrchestrator emits these from a keyword detector so the round-trip exercises the full path offline. On send failure the draft is restored into ComposeDock and an alert banner explains the error. New `PostMessageRequest` / `PostMessageResponse` DTOs in `designer-ipc`; mirror types in `packages/app/src/ipc/types.ts`. `commands_agents::post_message` registered alphabetically in main.rs's `generate_handler!`. `cargo test --workspace` green, clippy `-D warnings` clean, fmt clean, vitest 15/15, tsc clean. See `history.md` for full decisions/tradeoffs/lessons.
 
 ### Phase 13.1 — Unified workspace thread + artifact foundation — 2026-04-24/25
 

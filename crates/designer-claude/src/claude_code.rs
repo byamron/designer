@@ -578,6 +578,10 @@ fn event_to_payload(
                 author,
             ))
         }
+        // ArtifactProduced is broadcast-only — AppCore's coalescer is the
+        // single writer for ArtifactCreated, so we deliberately don't
+        // persist a duplicate `EventPayload::ArtifactCreated` here.
+        OrchestratorEvent::ArtifactProduced { .. } => None,
     }
 }
 

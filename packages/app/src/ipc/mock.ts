@@ -11,6 +11,8 @@ import type {
   CreateWorkspaceRequest,
   OpenTabRequest,
   PayloadRef,
+  PostMessageRequest,
+  PostMessageResponse,
   Project,
   ProjectId,
   ProjectSummary,
@@ -50,6 +52,10 @@ export interface MockCore {
   listPinnedArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
   getArtifact(id: ArtifactId): ArtifactDetail;
   togglePinArtifact(id: ArtifactId): boolean;
+  // Phase 13.D
+  postMessage(req: PostMessageRequest): PostMessageResponse;
+  /** Test surface: every postMessage call captured for assertion. */
+  postedMessages(): PostMessageRequest[];
 }
 
 interface MockArtifact extends ArtifactSummary {
@@ -69,6 +75,7 @@ export function createMockCore(): MockCore {
   const workspaces: Workspace[] = [];
   const listeners = new Set<Listener>();
   const approvals: Approval[] = [];
+  const postedMessages: PostMessageRequest[] = [];
   let sequence = 0;
   const emit = (event: Omit<StreamEvent, "sequence">) => {
     const payload: StreamEvent = { ...event, sequence: ++sequence };
@@ -402,7 +409,93 @@ export function createMockCore(): MockCore {
       });
       return a.pinned;
     },
+    postMessage(req) {
+      postedMessages.push(req);
+      // Mirror the Rust path: the user message lands as a Message
+      // artifact synchronously, then the mock simulates an agent reply
+      // (and an optional diagram/report when the prompt mentions one)
+      // so the thread visibly progresses without a real subprocess.
+      const userArtifact: MockArtifact = {
+        id: uuid(),
+        workspace_id: req.workspace_id,
+        kind: "message",
+        title: firstLineTruncate(req.text, 60),
+        summary: firstLineTruncate(req.text, 140),
+        author_role: "user",
+        version: 1,
+        created_at: now(),
+        updated_at: now(),
+        pinned: false,
+        payload: { kind: "inline", body: req.text },
+      };
+      artifacts.push(userArtifact);
+      emit({
+        kind: "artifact_created",
+        stream_id: req.workspace_id,
+        timestamp: now(),
+        summary: userArtifact.title,
+      });
+
+      const reply = `Acknowledged: ${req.text}`;
+      const replyArtifact: MockArtifact = {
+        id: uuid(),
+        workspace_id: req.workspace_id,
+        kind: "message",
+        title: firstLineTruncate(reply, 60),
+        summary: firstLineTruncate(reply, 140),
+        author_role: "team-lead",
+        version: 1,
+        created_at: now(),
+        updated_at: now(),
+        pinned: false,
+        payload: { kind: "inline", body: reply },
+      };
+      artifacts.push(replyArtifact);
+      emit({
+        kind: "artifact_created",
+        stream_id: req.workspace_id,
+        timestamp: now(),
+        summary: replyArtifact.title,
+      });
+
+      const lower = req.text.toLowerCase();
+      if (lower.includes("diagram") || lower.includes("report")) {
+        const isDiagram = lower.includes("diagram");
+        const extra: MockArtifact = {
+          id: uuid(),
+          workspace_id: req.workspace_id,
+          kind: isDiagram ? "diagram" : "report",
+          title: isDiagram ? "Sequence diagram" : "Activity report",
+          summary: isDiagram
+            ? "Mock diagram produced from the prompt."
+            : "Mock report produced from the prompt.",
+          author_role: "team-lead",
+          version: 1,
+          created_at: now(),
+          updated_at: now(),
+          pinned: false,
+          payload: { kind: "inline", body: reply },
+        };
+        artifacts.push(extra);
+        emit({
+          kind: "artifact_created",
+          stream_id: req.workspace_id,
+          timestamp: now(),
+          summary: extra.title,
+        });
+      }
+      return { artifact_id: userArtifact.id };
+    },
+    postedMessages() {
+      return [...postedMessages];
+    },
   };
+}
+
+function firstLineTruncate(s: string, max: number): string {
+  const first = s.split("\n").find((l) => l.trim().length > 0)?.trim() ?? s.trim();
+  if (first.length <= max) return first;
+  return first.slice(0, max) + "…";
 }
 
 /** Expose some fields tests use to preseed or inspect state. */

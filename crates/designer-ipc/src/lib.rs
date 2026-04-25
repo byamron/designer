@@ -126,6 +126,34 @@ pub struct TogglePinRequest {
     pub artifact_id: ArtifactId,
 }
 
+// ---- Agent wire (Phase 13.D) --------------------------------------------
+
+/// Request body for `cmd_post_message`. Drops the user's draft into the
+/// active workspace's thread and dispatches it to the orchestrator. The
+/// `attachments` field carries opaque metadata the frontend assembled —
+/// today the backend just records the names; richer plumbing (paste
+/// upload, etc.) lands in 13.E/F as those tracks materialize their data
+/// stores.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostMessageRequest {
+    pub workspace_id: WorkspaceId,
+    pub text: String,
+    #[serde(default)]
+    pub attachments: Vec<PostMessageAttachment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostMessageAttachment {
+    pub id: String,
+    pub name: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostMessageResponse {
+    pub artifact_id: ArtifactId,
+}
+
 // ---- Settings ------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -36,6 +36,27 @@ Each track owns one Rust sibling pair (`core_X.rs` + `commands_X.rs`) and the ar
 | **13.G — Safety surfaces + Keychain** | `core_safety.rs` + `commands_safety.rs` | `ApprovalRequested / Granted / Denied`, `ArtifactCreated { kind: "approval" }` (renderer already has Grant/Deny action surface), `ArtifactCreated { kind: "comment" }` on scope-deny. `security-framework` keychain. Cost chip in topbar. | 12.C + 13.1 |
 | **13.H — Safety enforcement** | (no new track files; modifies safety crate) | GA gate per `security.md` | 13.G |
 
+### Compatibility notes (additions made by downstream tracks)
+
+- **13.D — `OrchestratorEvent::ArtifactProduced`** (added 2026-04-25 in
+  `crates/designer-claude/src/orchestrator.rs`). New variant on the
+  internal orchestrator-event enum, **not** on the frozen
+  `EventPayload` in `designer-core`. The variant carries
+  `(workspace_id, artifact_kind, title, summary, body, author_role)`
+  and is broadcast-only — `event_to_payload` returns `None` for it,
+  and the AppCore message-coalescer is the single writer that turns
+  it into the frozen `EventPayload::ArtifactCreated`. Adding the
+  variant is non-breaking: the `Orchestrator` trait is unchanged, the
+  domain event vocabulary is unchanged, and the projection only
+  observes `EventPayload::ArtifactCreated` regardless of producer.
+- **13.D — `PostMessageRequest` / `PostMessageResponse` DTOs** (added
+  2026-04-25 in `crates/designer-ipc/src/lib.rs`). New non-artifact
+  IPC DTOs paired with `cmd_post_message`. The frozen DTO list in §
+  "Frozen surface" is the artifact DTOs (`ArtifactSummary`,
+  `ArtifactDetail`, `TogglePinRequest`); adding non-artifact request
+  / response shapes is the intended growth path for new IPC
+  commands.
+
 ### Out-of-scope hooks
 
 - **`prototype` renderer body**: 13.F wires `packages/app/src/lab/PrototypePreview.tsx` into `PrototypeBlock`. Until then, `PrototypeBlock` shows title + summary + a "wires through in 13.F" placeholder. The integration is one prop pass.

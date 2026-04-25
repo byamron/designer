@@ -135,18 +135,57 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
     [refresh],
   );
 
-  const [sendNotice, setSendNotice] = useState<string | null>(null);
-  const onSend = useCallback((payload: ComposeSendPayload) => {
-    // Wire the real message append in Phase 13.D (Orchestrator.post_message).
-    // Until then surface an explicit "not yet wired" notice instead of
-    // silently eating the draft — the user otherwise wonders why nothing
-    // happens and whether their text was lost.
-    if (payload.text || payload.attachments.length > 0) {
+  // Surfaced when post_message rejects (subprocess down, validation, etc.).
+  // Cleared on the next successful send. Suggestion mode never reappears
+  // mid-session — once `hasStarted` is true the thread stays visible so
+  // the user sees both their failed draft (still in the dock) and the
+  // history of successful sends.
+  const [sendError, setSendError] = useState<string | null>(null);
+  // Track in-flight sends so the UI can disable the dock and avoid
+  // double-dispatching the same draft. The compose dock clears its draft
+  // on the synchronous return of `onSend`, so the user-facing optimistic
+  // state lives here, gated by this flag.
+  const [sending, setSending] = useState(false);
+  const onSend = useCallback(
+    async (payload: ComposeSendPayload) => {
+      if (!payload.text.trim() && payload.attachments.length === 0) return;
       setHasStarted(true);
-      setSendNotice("Agent wiring lands in Phase 13.D. Draft cleared.");
-      window.setTimeout(() => setSendNotice(null), 3000);
-    }
-  }, []);
+      setSending(true);
+      setSendError(null);
+      try {
+        await ipcClient().postMessage({
+          workspace_id: workspace.id,
+          text: payload.text,
+          attachments: payload.attachments.map((a) => ({
+            id: a.id,
+            name: a.name,
+            size: a.size,
+          })),
+        });
+        // The backend coalescer streams the agent reply into the
+        // workspace event log; the artifact-event listener above
+        // refreshes the thread when those events arrive. We don't
+        // append to local state here — the projector is the source
+        // of truth and `refresh()` is idempotent.
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Send failed. Try again.";
+        setSendError(message);
+        // ComposeDock clears its own draft synchronously after onSend
+        // returns. On failure we restore it so the user doesn't have to
+        // retype — the failed text re-appears in the textarea and we
+        // refocus so they can edit and resend.
+        composeRef.current?.setDraft(payload.text);
+        composeRef.current?.focus();
+      } finally {
+        setSending(false);
+        // Always re-fetch — even on failure, the user-side artifact
+        // may have landed before the orchestrator handoff threw.
+        void refresh();
+      }
+    },
+    [workspace.id, refresh],
+  );
 
   const pickSuggestion = useCallback((text: string) => {
     composeRef.current?.setDraft(text);
@@ -203,12 +242,16 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
         </div>
       )}
       <div className="workspace-thread__compose">
-        {sendNotice && (
-          <div className="workspace-thread__notice" role="status">
-            {sendNotice}
+        {sendError && (
+          <div className="workspace-thread__notice" role="alert">
+            {sendError}
           </div>
         )}
-        <ComposeDock ref={composeRef} onSend={onSend} />
+        <ComposeDock
+          ref={composeRef}
+          onSend={onSend}
+          placeholder={sending ? "Sending…" : undefined}
+        />
       </div>
     </div>
   );
