@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Sliders } from "lucide-react";
 import { Tooltip } from "./Tooltip";
-import { persisted, intDecoder } from "../util/persisted";
+import { SegmentedToggle } from "./SegmentedToggle";
+import { persisted, intDecoder, stringDecoder } from "../util/persisted";
 
 /**
  * SurfaceDevPanel — floating bottom-right panel exposing six knobs that
@@ -62,6 +63,40 @@ const shadowIntensityStore = persisted<number>(
   intDecoder((n) => Math.max(0, Math.min(100, n))),
 );
 
+/** Tab corner-radius variants — quick A/B test for harmony between the
+ *  tabs and the main tab container without editing CSS. Each preset
+ *  drives both the symmetric slider value and (for Folder) a separate
+ *  bottom radius. "Custom" is what the user lands on when they drag
+ *  the slider away from a preset. */
+const TAB_RADIUS_VARIANTS = ["soft", "concentric", "folder", "match", "custom"] as const;
+type TabRadiusVariant = (typeof TAB_RADIUS_VARIANTS)[number];
+
+interface VariantConfig {
+  /** Symmetric value (drives both top + bottom unless `bottom` is set). */
+  value: number;
+  /** When set, decouples the bottom corner from `value` — Folder style. */
+  bottom?: number;
+}
+
+const VARIANT_CONFIG: Record<Exclude<TabRadiusVariant, "custom">, VariantConfig> = {
+  soft: { value: 12 },
+  concentric: { value: 18 }, // --radius-surface (24) − --surface-tab-gap (6)
+  folder: { value: 14, bottom: 6 },
+  match: { value: 24 }, // = --radius-surface
+};
+
+const tabRadiusVariantStore = persisted<TabRadiusVariant>(
+  "designer.dev.tabRadiusVariant",
+  "soft",
+  stringDecoder(TAB_RADIUS_VARIANTS),
+);
+
+const tabRadiusValueStore = persisted<number>(
+  "designer.dev.tabRadiusValue",
+  12,
+  intDecoder((n) => Math.max(0, Math.min(32, n))),
+);
+
 interface SurfaceVars {
   composeMix: number;
   mainTabSand: number;
@@ -69,6 +104,8 @@ interface SurfaceVars {
   tabOpacity: number;
   borderStrength: number;
   shadowIntensity: number;
+  tabRadiusVariant: TabRadiusVariant;
+  tabRadiusValue: number;
 }
 
 function applyCssVars(v: SurfaceVars): void {
@@ -79,6 +116,15 @@ function applyCssVars(v: SurfaceVars): void {
   root.style.setProperty("--dev-tab-opacity", `${v.tabOpacity}%`);
   root.style.setProperty("--dev-border-strength", `${v.borderStrength}%`);
   root.style.setProperty("--dev-shadow-intensity", `${v.shadowIntensity}%`);
+  // Tab radius: Folder is the only asymmetric variant; everything else
+  // mirrors top to bottom from the slider value.
+  const top = v.tabRadiusValue;
+  const bottom =
+    v.tabRadiusVariant === "folder"
+      ? VARIANT_CONFIG.folder.bottom ?? top
+      : top;
+  root.style.setProperty("--dev-tab-radius-top", `${top}px`);
+  root.style.setProperty("--dev-tab-radius-bottom", `${bottom}px`);
 }
 
 export function SurfaceDevPanel() {
@@ -93,6 +139,12 @@ export function SurfaceDevPanel() {
   const [shadowIntensity, setShadowIntensity] = useState<number>(() =>
     shadowIntensityStore.read(),
   );
+  const [tabRadiusVariant, setTabRadiusVariant] = useState<TabRadiusVariant>(
+    () => tabRadiusVariantStore.read(),
+  );
+  const [tabRadiusValue, setTabRadiusValue] = useState<number>(() =>
+    tabRadiusValueStore.read(),
+  );
 
   useEffect(() => {
     applyCssVars({
@@ -102,8 +154,19 @@ export function SurfaceDevPanel() {
       tabOpacity,
       borderStrength,
       shadowIntensity,
+      tabRadiusVariant,
+      tabRadiusValue,
     });
-  }, [composeMix, mainTabSand, surfaceSand, tabOpacity, borderStrength, shadowIntensity]);
+  }, [
+    composeMix,
+    mainTabSand,
+    surfaceSand,
+    tabOpacity,
+    borderStrength,
+    shadowIntensity,
+    tabRadiusVariant,
+    tabRadiusValue,
+  ]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -141,6 +204,29 @@ export function SurfaceDevPanel() {
     shadowIntensityStore.write(v);
   };
 
+  const onTabRadiusVariant = (variant: TabRadiusVariant) => {
+    setTabRadiusVariant(variant);
+    tabRadiusVariantStore.write(variant);
+    if (variant !== "custom") {
+      const next = VARIANT_CONFIG[variant].value;
+      setTabRadiusValue(next);
+      tabRadiusValueStore.write(next);
+    }
+  };
+
+  const onTabRadiusValue = (v: number) => {
+    setTabRadiusValue(v);
+    tabRadiusValueStore.write(v);
+    // Dragging the slider deselects the named preset — the user is
+    // dialing in their own value. Folder stays Folder so the asymmetric
+    // bottom-corner stays in effect; the symmetric value is what
+    // they're tweaking.
+    if (tabRadiusVariant !== "custom" && tabRadiusVariant !== "folder") {
+      setTabRadiusVariant("custom");
+      tabRadiusVariantStore.write("custom");
+    }
+  };
+
   const onReset = () => {
     onComposeMix(20);
     onMainTabSand(5);
@@ -148,6 +234,7 @@ export function SurfaceDevPanel() {
     onTabOpacity(70);
     onBorderStrength(10);
     onShadowIntensity(50);
+    onTabRadiusVariant("soft");
   };
 
   return (
@@ -265,6 +352,42 @@ export function SurfaceDevPanel() {
               aria-valuetext={`${shadowIntensity} percent — drop shadow on the main tab + selected tab. Unselected tabs are flat.`}
             />
             <span className="surface-dev-panel__hint">flat ← softer → full</span>
+          </div>
+          <div className="surface-dev-panel__row">
+            <label className="surface-dev-panel__label" htmlFor="surface-dev-tab-radius">
+              Tab corners
+              <span className="surface-dev-panel__value">
+                {tabRadiusVariant === "folder"
+                  ? `${tabRadiusValue} / ${VARIANT_CONFIG.folder.bottom}px`
+                  : `${tabRadiusValue}px`}
+              </span>
+            </label>
+            <SegmentedToggle<TabRadiusVariant>
+              ariaLabel="Tab corner radius variant"
+              value={tabRadiusVariant}
+              onChange={onTabRadiusVariant}
+              options={[
+                { value: "soft", label: "Soft", tooltip: "12px — small soft card" },
+                { value: "concentric", label: "Concentric", tooltip: "18px — surface − tab gap" },
+                { value: "folder", label: "Folder", tooltip: "14 / 6 asymmetric" },
+                { value: "match", label: "Match", tooltip: "24px — same as main tab" },
+                { value: "custom", label: "Custom", tooltip: "Drag the slider" },
+              ]}
+            />
+            <input
+              id="surface-dev-tab-radius"
+              type="range"
+              min={0}
+              max={32}
+              value={tabRadiusValue}
+              onChange={(e) => onTabRadiusValue(Number(e.target.value))}
+              aria-valuetext={`${tabRadiusValue} pixels — symmetric tab corner radius${tabRadiusVariant === "folder" ? "; bottom corner stays at 6px" : ""}`}
+            />
+            <span className="surface-dev-panel__hint">
+              {tabRadiusVariant === "folder"
+                ? "top rounded, bottom flat"
+                : "0 ← square → 32 pill"}
+            </span>
           </div>
           <button
             type="button"

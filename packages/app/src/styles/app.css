@@ -36,6 +36,11 @@
   --dev-tab-opacity: 70%;
   --dev-border-strength: 10%;
   --dev-shadow-intensity: 50%;
+  /* Tab corner radii — top and bottom can decouple for the "folder"
+   * variant (top rounder than bottom). Symmetric variants keep them
+   * equal. Default "soft" register: 12px both. */
+  --dev-tab-radius-top: 12px;
+  --dev-tab-radius-bottom: 12px;
 
   /* Border colors derived from the strength + tab-opacity sliders. The
    * main surface and the active tab share `--surface-border-color` so
@@ -720,7 +725,10 @@ body,
     transparent
   );
   border: var(--border-thin) solid var(--tab-inactive-border-color);
-  border-radius: var(--radius-button);
+  /* Top-corner-then-bottom-corner ordering. Asymmetric Folder variant
+   * gives top > bottom; symmetric variants keep them equal. */
+  border-radius: var(--dev-tab-radius-top) var(--dev-tab-radius-top)
+    var(--dev-tab-radius-bottom) var(--dev-tab-radius-bottom);
   color: var(--color-muted);
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-leading);
@@ -2806,6 +2814,21 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* Tab-radius variant toggle has 5 options inside the narrow dev panel —
+ * wrap onto two rows and let buttons share width. The base segmented-
+ * toggle is inline-flex with no wrap, which would overflow here. */
+.surface-dev-panel__row > .segmented-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  border-radius: var(--radius-button);
+}
+
+.surface-dev-panel__row > .segmented-toggle .segmented-toggle__btn {
+  flex: 1 0 auto;
+  justify-content: center;
+  padding: var(--space-1) var(--space-2);
 }
 
 .surface-dev-panel__label {
