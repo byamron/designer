@@ -15,8 +15,30 @@ import { VariantExplorer } from "./VariantExplorer";
  *
  * This is the Phase 10 deliverable: agent-produced prototypes never run in the
  * trust context. The CSP + sandbox combination enforces that.
+ *
+ * Phase 13.F adds the `inlineHtml` form: the workspace-thread `PrototypeBlock`
+ * passes the artifact's inline payload directly. The component skips the
+ * variant explorer in that mode and renders just the sandboxed iframe.
  */
-export function PrototypePreview({ workspace }: { workspace: Workspace }) {
+type PrototypePreviewProps =
+  | { workspace: Workspace; inlineHtml?: undefined }
+  | { workspace?: undefined; inlineHtml: string; title?: string };
+
+export function PrototypePreview(props: PrototypePreviewProps) {
+  if (props.inlineHtml !== undefined) {
+    return (
+      <iframe
+        title={props.title ?? "Prototype"}
+        className="prototype-frame"
+        sandbox="allow-forms allow-pointer-lock"
+        srcDoc={props.inlineHtml}
+      />
+    );
+  }
+  return <PrototypePreviewLab workspace={props.workspace!} />;
+}
+
+function PrototypePreviewLab({ workspace }: { workspace: Workspace }) {
   const [variant, setVariant] = useState<"A" | "B" | "C">("A");
   const [showAnnotations, setShowAnnotations] = useState(true);
 

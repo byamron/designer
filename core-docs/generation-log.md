@@ -429,3 +429,17 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: 13/13 frontend pass; 6/6 backend pass
 - deviations: dev panel mounts in dev mode only — production build retains the user-chosen defaults baked into `:root` and `.dark-theme`
 - feedback: FB-0026 (dev-panel-driven design exploration is the canonical mechanism)
+
+## 2026-04-25T02:00:00Z — manual (Phase 13.F — Local-model surfaces)
+- prompt: "Phase 13.F — Local-model surfaces. Wire the on-device Foundation Models helper into write-time semantic summaries, Home recap, audit verdicts, and the prototype renderer."
+- trigger: manual (back-end track; the only frontend touch is the PrototypeBlock renderer)
+- archetype-reused: existing iframe-sandbox pattern from `packages/app/src/lab/PrototypePreview.tsx`
+- components-reused: PrototypeBlock (kept under 30 LOC of changes), PrototypePreview (extended with optional `inlineHtml` prop; existing `{ workspace }` callers unchanged)
+- components-new: none
+- primitives: (none — backend-led track)
+- tokens: no new tokens. The block iframe reuses `.prototype-frame` from the lab.
+- invariants: 16/16 frontend tests pass; tsc clean.
+- backend: cargo test --workspace green (10 new core_local tests + existing 100+); cargo clippy --workspace --all-targets -- -D warnings clean; cargo fmt --check clean.
+- deviations: PrototypePreview gained a discriminated-union prop signature so the existing lab demo path stays a workspace-driven variant explorer while the new artifact path is a pure inline-HTML iframe. The component is exclusively the sandbox primitive in 13.F mode — no annotation layer, no variant explorer.
+- feedback: pending
+

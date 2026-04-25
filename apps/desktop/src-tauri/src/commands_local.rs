@@ -1,16 +1,76 @@
-//! Tauri `#[tauri::command]` handlers reserved for Phase 13.F (local-model
-//! surfaces).
+//! Tauri `#[tauri::command]` handlers for Phase 13.F (local-model surfaces).
 //!
-//! Add new handlers here; register them in `lib.rs`'s
-//! `tauri::generate_handler![…]` list. Don't touch `commands.rs` or other
-//! `commands_*.rs` siblings.
+//! Three new commands:
+//! - `cmd_recap_workspace` — produces a `report` artifact summarizing the
+//!   workspace's recent activity via `LocalOps::recap`.
+//! - `cmd_audit_artifact` — runs `LocalOps::audit_claim` against an artifact's
+//!   summary and emits a `comment` artifact anchored to it (author_role
+//!   `"auditor"`).
+//! - `cmd_helper_status` — re-exports the existing read on `AppCore::helper_health`
+//!   that 12.B introduced. (Lives in `commands.rs` as well, but tracks
+//!   register their own surface here for grep-ability.)
 //!
-//! The existing `cmd_helper_status` from Phase 12.B stays in the main
-//! `commands.rs` (it's session-bootstrap information, not a 13.F-owned
-//! surface). Phase 13.F only adds the recap / summarize / audit handlers.
+//! The existing `cmd_helper_status` in `commands.rs` is unchanged — this file
+//! adds new commands; it does not duplicate that one.
 
-// Phase 13.F will add:
-//   #[tauri::command]
-//   pub async fn cmd_recap(core: State<'_, …>, req: RecapRequest) -> Result<RecapResponse, IpcError>
-//   pub async fn cmd_summarize_row(core: State<'_, …>, req: SummarizeRowRequest) -> Result<String, IpcError>
-//   pub async fn cmd_audit_claim(core: State<'_, …>, req: AuditClaimRequest) -> Result<AuditVerdict, IpcError>
+use crate::core::AppCore;
+use designer_core::{ArtifactId, WorkspaceId};
+use designer_ipc::{ArtifactSummary, IpcError};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tauri::State;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecapWorkspaceRequest {
+    pub workspace_id: WorkspaceId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditArtifactRequest {
+    pub artifact_id: ArtifactId,
+    pub claim: String,
+}
+
+#[tauri::command]
+pub async fn cmd_recap_workspace(
+    core: State<'_, Arc<AppCore>>,
+    req: RecapWorkspaceRequest,
+) -> Result<ArtifactSummary, IpcError> {
+    let env = core
+        .recap_workspace(req.workspace_id)
+        .await
+        .map_err(IpcError::from)?;
+    artifact_from_env(&core, &env).await
+}
+
+#[tauri::command]
+pub async fn cmd_audit_artifact(
+    core: State<'_, Arc<AppCore>>,
+    req: AuditArtifactRequest,
+) -> Result<ArtifactSummary, IpcError> {
+    if req.claim.trim().is_empty() {
+        return Err(IpcError::InvalidRequest("claim must not be empty".into()));
+    }
+    let env = core
+        .audit_artifact(req.artifact_id, req.claim)
+        .await
+        .map_err(IpcError::from)?;
+    artifact_from_env(&core, &env).await
+}
+
+async fn artifact_from_env(
+    core: &Arc<AppCore>,
+    env: &designer_core::EventEnvelope,
+) -> Result<ArtifactSummary, IpcError> {
+    if let designer_core::EventPayload::ArtifactCreated { artifact_id, .. } = &env.payload {
+        let a = core
+            .get_artifact(*artifact_id)
+            .await
+            .ok_or_else(|| IpcError::NotFound(artifact_id.to_string()))?;
+        Ok(ArtifactSummary::from(a))
+    } else {
+        Err(IpcError::Unknown(
+            "expected ArtifactCreated envelope".into(),
+        ))
+    }
+}
