@@ -445,3 +445,95 @@ The supervisor publishes state transitions on a `tokio::sync::broadcast` channel
 - `HelperEvent::Recovered` — emitted when a failure streak clears. Distinct from `Ready` so the UI can differentiate "first boot" from "recovered from N failures."
 
 Slow subscribers see `RecvError::Lagged` and should resync by calling `AppCore::helper_health()`.
+
+---
+
+## §13.D — Agent wire (cmd_post_message + coalescer)
+
+**Status:** landed 2026-04-25.
+
+### IPC contract
+
+`cmd_post_message(workspace_id, text, attachments?)` — registered in `apps/desktop/src-tauri/src/main.rs`'s `tauri::generate_handler![...]`. Async handler in `apps/desktop/src-tauri/src/ipc_agents.rs::cmd_post_message`. Tauri shim in `commands_agents::post_message`.
+
+DTOs in `crates/designer-ipc/src/lib.rs`:
+
+- `PostMessageRequest { workspace_id: WorkspaceId, text: String, attachments: Vec<PostMessageAttachment> }`
+- `PostMessageAttachment { id: String, name: String, size: u64 }`
+- `PostMessageResponse { artifact_id: ArtifactId }`
+
+Validation (in `cmd_post_message` itself before AppCore is called):
+- Empty / whitespace-only text → `IpcError::InvalidRequest { message: "message text must not be empty" }`.
+- `text.len() > 64 * 1024` → `IpcError::InvalidRequest { message: "message text exceeds 65536-byte limit" }`.
+- Non-empty `attachments` → accepted, logged at WARN ("attachments accepted but not yet delivered to the orchestrator (13.D-followup)"). Storage path is a follow-up; the metadata reaches the backend so the contract is stable.
+
+### AppCore::post_message ordering
+
+```text
+1. validate body
+2. orchestrator.post_message(ws, "user", body)        // dispatch FIRST
+   ├─ TeamNotFound? lazy spawn { team_name = "workspace-<uuid>", lead_role = "team-lead", teammates = [] } and retry
+   └─ other err? return CoreError::Invariant
+3. store.append(MessagePosted { author: User, body })  // only on dispatch success
+4. store.append(ArtifactCreated { kind: Message, author_role: Some("user") })
+5. return ArtifactId
+```
+
+The dispatch-first ordering rules out the duplicate-on-retry pattern: if step 2 fails, no events are persisted; the frontend's draft restoration (see "Frontend wiring" below) lets the user retry without retyping. Steps 3 + 4 each call `projector.apply` synchronously after `store.append` so the caller's subsequent `list_artifacts` read sees the writes regardless of broadcast-subscriber scheduling.
+
+### Message coalescer
+
+`spawn_message_coalescer(core: Arc<AppCore>, window: Duration)` — free function in `apps/desktop/src-tauri/src/core_agents.rs`. Spawned at boot from `main.rs::setup` (and in tests from `boot_test_core` in `ipc_agents.rs::tests`).
+
+Two tokio tasks, both holding `Weak<AppCore>` (so test boots don't leak tasks):
+
+1. **Recv task** subscribes to `core.orchestrator.subscribe()`. For `MessagePosted`:
+   - `author_role == "user"` → drop (user echo; the user-side artifact lands via `AppCore::post_message`).
+   - else → accumulate body into `pending: HashMap<(WorkspaceId, String), PendingMessage>` keyed by `(workspace_id, author_role)`, reset `last_update`.
+   For `ArtifactProduced`: persist inline (no `tokio::spawn`) via `core.emit_agent_artifact` — bypasses the coalescer because each tool call is one logical artifact. Inline write avoids racing AppCore's writer; tool-call burst rate is low and the broadcast channel buffers 256 events.
+2. **Tick task** runs every 30 ms, walks `pending`, flushes entries idle for ≥ `window` as `EventPayload::ArtifactCreated { kind: Message, author_role: Some(role) }`.
+
+Window: 120 ms in production (`DEFAULT_COALESCE_WINDOW`). Tests override via `DESIGNER_MESSAGE_COALESCE_MS=5` env so round-trip assertions complete in < 100 ms. Read by `coalesce_window_from_env()`.
+
+### `OrchestratorEvent::ArtifactProduced` variant
+
+New variant on `crates/designer-claude/src/orchestrator.rs::OrchestratorEvent` (not on the frozen `EventPayload`). Field is **`artifact_kind`**, not `kind` — the `#[serde(tag = "kind", …)]` derive collides with a literal `kind` field. Mirrors the same convention `EventPayload::ArtifactCreated` uses.
+
+`event_to_payload` returns `None` for this variant — broadcast-only. AppCore is the single writer for `EventPayload::ArtifactCreated`, so persisting here would race the projector and double-write. ADR 0003 §"Compatibility notes" documents the addition; the test `event_to_payload_artifact_produced_is_broadcast_only` locks the contract.
+
+13.D scope caps `ArtifactKind` to `Diagram | Report` — `AppCore::emit_agent_artifact` rejects others with `CoreError::Invariant`. `MockOrchestrator::post_message` keyword-detects "diagram" / "report" and emits a stub artifact so the offline round-trip exercises the path.
+
+### `IpcError` wire shape (struct variants, not newtype tuples)
+
+`#[serde(tag = "kind", rename_all = "snake_case")]` on a tuple-variant enum **fails at runtime** with `cannot serialize tagged newtype variant containing a string`. Latent bug since 13.0; surfaced as soon as 13.D actually returned typed errors over the wire. Every variant converted to struct form with a named payload field:
+
+| Variant | Payload field |
+|---|---|
+| `Unknown` | `message: String` |
+| `NotFound` | `id: String` |
+| `InvalidRequest` | `message: String` |
+| `ApprovalRequired` | `message: String` |
+| `CostCapExceeded` | `message: String` |
+| `ScopeDenied` | `path: String` |
+
+Constructors (`IpcError::unknown(...)`, `::invalid_request(...)`, etc.) are the recommended call site so drift is one place to police. The test `ipc_error_serialization_shape_has_kind_tag` round-trips each variant.
+
+Frontend translator at `packages/app/src/ipc/error.ts::describeIpcError(err)` matches on `kind` and reads the per-variant payload field. Pattern-match by intent so adding a new IpcError variant is a one-line TS update.
+
+### Frontend wiring
+
+`packages/app/src/tabs/WorkspaceThread.tsx::onSend`:
+
+- **Re-entry guard** — synchronous `useRef<boolean>` check before `await`. React state batching alone lets two clicks in the same microtask both dispatch; a ref set synchronously catches the second.
+- **Optimistic** — set `hasStarted = true`, clear `sendError`, set `sending = true`.
+- **Dispatch** — `await ipcClient().postMessage({ workspace_id, text, attachments })`.
+- **On error** — `setSendError(describeIpcError(err))`; restore the draft via `composeRef.current?.setDraft(payload.text)` (ComposeDock clears its own draft synchronously after `onSend` returns; the parent's only seam to put it back is the imperative handle). Refocus.
+- **Always finally** — clear `sendingRef`, set `sending = false`, `void refresh()`.
+
+Stream-event refresh listener: Rust's `StreamId::Workspace(uuid)` Display impl produces `"workspace:<uuid>"`. The listener matches that prefix exactly **and** the bare-uuid mock format (back-compat). Sub-streams (`workspace:<uuid>:<suffix>`) are future-proofed with a startsWith check. Test `refreshes when a production-shape stream_id arrives` locks the contract.
+
+### Why `SqliteEventStore::append` uses IMMEDIATE transactions
+
+The default `conn.transaction()` in rusqlite is DEFERRED: acquires a read lock on the first SELECT, tries to upgrade to write at the first INSERT. Two concurrent DEFERRED transactions both hold read locks; both try to upgrade; one wins and the other gets `SQLITE_LOCKED` — and `SQLITE_LOCKED` is **not** retryable by `busy_timeout` (only `SQLITE_BUSY` is). Pre-13.D no path had two concurrent writers, so the bug was latent. 13.D's coalescer + `AppCore::post_message` are the first concurrent-writer pair.
+
+Switched the append path in `crates/designer-core/src/store.rs` to `transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)` — acquires the write lock at BEGIN, so the second writer gets `SQLITE_BUSY` and `busy_timeout=5000` retries cleanly. Also added `PRAGMA busy_timeout=5000` to per-connection init in both `open()` and `open_in_memory()`. The verifier `SqliteEventStore::busy_timeout_ms()` is `#[doc(hidden)]` and exists only so the regression test (`tests/store.rs::busy_timeout_is_5_seconds_on_pool_connections`) can confirm the pool's `with_init` closure is being honored.

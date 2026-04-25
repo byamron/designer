@@ -444,3 +444,18 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: vitest 15/15 (added `workspace-thread.test.tsx` with 2 cases — postMessage call shape + empty-draft guard); cargo `--workspace` clean (added round-trip + empty-text tests under `ipc_agents::tests`)
 - deviations: none
 - feedback: pending
+
+
+## 2026-04-25T10:15:00Z — manual (phase 13.D review-fix pass)
+- prompt: "Address review feedback: stream_id bug, failed-send duplicate artifacts, ComposeDock concurrent-send race, typed IpcError translator, length cap on text, cancellable coalescer, attachments-dropped warning, tool_use translator gap. Add the 7 valuable tests called out in the review."
+- trigger: manual (review-driven follow-up on the same 13.D PR)
+- archetype-reused: none
+- components-reused: WorkspaceThread (added `useRef` re-entry guard, draft-restore on failure, typed-error translation), ComposeDock (used existing `setDraft`/`focus` imperative handle for failure recovery — no internal change)
+- components-new: `packages/app/src/ipc/error.ts::describeIpcError` — typed IpcError → user-copy translator
+- primitives: none
+- tokens: existing — `workspace-thread__notice` reused for `role="alert"` error banner
+- invariants: not run (UI surface unchanged from prior 13.D entry)
+- typecheck: clean (`npx tsc --noEmit`)
+- tests: vitest 18/18 (added `restores_draft_on_failure`, `ignores_concurrent_sends`, `refreshes_on_production_stream_id`); cargo workspace clean — new tests: `coalescer_drops_user_echoes`, `coalescer_separates_keys`, `post_message_no_artifact_on_dispatch_failure`, `event_to_payload_artifact_produced_is_broadcast_only`, `ipc_error_serialization_shape_has_kind_tag`, `rejects_oversized_text`, `busy_timeout_is_5_seconds_on_pool_connections`. Foundation fix: `SqliteEventStore::append` now uses `transaction_with_behavior(Immediate)` + `PRAGMA busy_timeout=5000` (DEFERRED transactions deadlock under concurrent writers in WAL mode with `SQLITE_LOCKED`, which `busy_timeout` can't retry).
+- deviations: none
+- feedback: pending — pattern-log gained four entries (IpcError struct variants, draft-restore via imperative handle, sync useRef re-entry guard, IMMEDIATE transactions on SQLite append, `kind` field collision with serde tag)
