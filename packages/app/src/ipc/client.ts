@@ -8,12 +8,17 @@ import type {
   ArtifactSummary,
   CreateProjectRequest,
   CreateWorkspaceRequest,
+  LinkRepoRequest,
   OpenTabRequest,
   ProjectId,
   ProjectSummary,
+  RequestMergeRequest,
   SpineRow,
+  StartTrackRequest,
   Tab,
   TabId,
+  TrackId,
+  TrackSummary,
   WorkspaceId,
   WorkspaceSummary,
   StreamEvent,
@@ -41,6 +46,12 @@ export interface IpcClient {
   listPinnedArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
   getArtifact(id: ArtifactId): Promise<ArtifactDetail>;
   togglePinArtifact(id: ArtifactId): Promise<boolean>;
+  // Track + git wire (Phase 13.E)
+  linkRepo(req: LinkRepoRequest): Promise<void>;
+  startTrack(req: StartTrackRequest): Promise<TrackId>;
+  requestMerge(req: RequestMergeRequest): Promise<number>;
+  listTracks(workspaceId: WorkspaceId): Promise<TrackSummary[]>;
+  getTrack(id: TrackId): Promise<TrackSummary>;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -87,6 +98,21 @@ class TauriIpcClient implements IpcClient {
   }
   togglePinArtifact(id: ArtifactId) {
     return invoke<boolean>("toggle_pin_artifact", { req: { artifact_id: id } });
+  }
+  linkRepo(req: LinkRepoRequest) {
+    return invoke<void>("cmd_link_repo", { req });
+  }
+  startTrack(req: StartTrackRequest) {
+    return invoke<TrackId>("cmd_start_track", { req });
+  }
+  requestMerge(req: RequestMergeRequest) {
+    return invoke<number>("cmd_request_merge", { req });
+  }
+  listTracks(workspaceId: WorkspaceId) {
+    return invoke<TrackSummary[]>("cmd_list_tracks", { workspaceId });
+  }
+  getTrack(id: TrackId) {
+    return invoke<TrackSummary>("cmd_get_track", { trackId: id });
   }
 }
 
@@ -135,6 +161,21 @@ class MockIpcClient implements IpcClient {
   }
   togglePinArtifact(id: ArtifactId) {
     return Promise.resolve(this.core.togglePinArtifact(id));
+  }
+  linkRepo(req: LinkRepoRequest) {
+    return Promise.resolve(this.core.linkRepo(req));
+  }
+  startTrack(req: StartTrackRequest) {
+    return Promise.resolve(this.core.startTrack(req));
+  }
+  requestMerge(req: RequestMergeRequest) {
+    return Promise.resolve(this.core.requestMerge(req));
+  }
+  listTracks(workspaceId: WorkspaceId) {
+    return Promise.resolve(this.core.listTracks(workspaceId));
+  }
+  getTrack(id: TrackId) {
+    return Promise.resolve(this.core.getTrack(id));
   }
 }
 

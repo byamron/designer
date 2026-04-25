@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { House } from "lucide-react";
 import {
   PANE_DEFAULT_WIDTH,
@@ -12,13 +12,13 @@ import {
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
 import { invoke, isTauri } from "../ipc/tauri";
-import type { Workspace, WorkspaceSummary } from "../ipc/types";
+import type { TrackSummary, Workspace, WorkspaceSummary } from "../ipc/types";
 import { emptyArray } from "../util/empty";
 import { IconButton } from "../components/IconButton";
 import { Tooltip } from "../components/Tooltip";
 import { PaneResizer } from "../components/PaneResizer";
 import { WorkspaceStatusIcon } from "../components/WorkspaceStatusIcon";
-import { IconPlus, IconCollapseLeft } from "../components/icons";
+import { IconPlus, IconCollapseLeft, IconPullRequest } from "../components/icons";
 
 export function WorkspaceSidebar() {
   const activeProjectId = useAppState((s) => s.activeProject);
@@ -68,6 +68,7 @@ export function WorkspaceSidebar() {
           <strong className="sidebar-title">
             {activeProject?.project.name ?? "Pick a project"}
           </strong>
+          {activeWorkspaceId && <RequestMergeButton workspaceId={activeWorkspaceId} />}
           <IconButton
             label="Hide workspaces"
             shortcut="⌘["
@@ -155,6 +156,55 @@ async function revealInFinder(path: string): Promise<void> {
       // clipboard blocked (insecure context or user gesture gated) — no-op
     }
   }
+}
+
+/**
+ * Lightest-touch placement for the Request Merge action: an icon button in
+ * the sidebar header next to the workspace name. Surfaces only when the
+ * active workspace has at least one mergeable track. Click runs
+ * `cmd_request_merge` on the most recent track that's still merge-eligible.
+ */
+function RequestMergeButton({ workspaceId }: { workspaceId: string }) {
+  const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    void ipcClient()
+      .listTracks(workspaceId)
+      .then((rows) => mounted && setTracks(rows))
+      .catch(() => mounted && setTracks([]));
+    return () => {
+      mounted = false;
+    };
+  }, [workspaceId]);
+  const target = useMemo(() => {
+    return [...tracks]
+      .reverse()
+      .find((t) => t.state === "active" || t.state === "requesting_merge");
+  }, [tracks]);
+  if (!target) return null;
+  const onClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await ipcClient().requestMerge({ track_id: target.id });
+      const refreshed = await ipcClient().listTracks(workspaceId);
+      setTracks(refreshed);
+    } catch (err) {
+      console.warn("request merge failed", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <IconButton
+      label={busy ? "Requesting merge…" : `Request merge — ${target.branch}`}
+      onClick={onClick}
+      disabled={busy}
+    >
+      <IconPullRequest />
+    </IconButton>
+  );
 }
 
 function WorkspaceRow({

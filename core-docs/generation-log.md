@@ -429,3 +429,17 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: 13/13 frontend pass; 6/6 backend pass
 - deviations: dev panel mounts in dev mode only — production build retains the user-chosen defaults baked into `:root` and `.dark-theme`
 - feedback: FB-0026 (dev-panel-driven design exploration is the canonical mechanism)
+
+## 2026-04-25T01:55:00Z — manual (Phase 13.E — track + git wire)
+- prompt: "Build Phase 13.E — Track primitive + git wire."
+- trigger: manual (Mini procedure followed; no UI generation skill fired since changes are minimal action affordances over existing components)
+- archetype-reused: app-dialog (existing dialog scrim + frame from 13.1)
+- components-reused: IconButton, AppDialog conventions, app-dialog__head/body/section, btn / btn[data-variant=primary], quick-switcher__input, state-dot
+- components-new: RepoLinkModal (action-attached form modal — accepts a repo path, validates via cmd_link_repo, confirms or surfaces error)
+- primitives: (none new — inline composition continues per pattern-log "Mini primitives deferred")
+- tokens: --space-1..5, --color-foreground, --color-muted, --color-danger, --type-caption-size, --type-caption-leading, --type-body-size (no new tokens introduced)
+- invariants: 6/6 expected (vitest + tsc clean)
+- typecheck: clean (npx tsc --noEmit)
+- tests: 16/16 frontend pass (3 new RepoLinkModal cases); cargo test --workspace green; cargo clippy + fmt clean
+- deviations: none — all touched surfaces already used token-driven CSS; new component reuses the existing app-dialog__* classes
+- feedback: pending

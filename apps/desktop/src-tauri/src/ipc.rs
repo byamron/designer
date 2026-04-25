@@ -6,7 +6,7 @@
 //! safety check (scope / cost / approval). Frontend callers cannot bypass.
 
 use crate::core::{AppCore, FallbackReason, HelperStatus, HelperStatusKind, RecoveryKind};
-use designer_core::{ArtifactId, ProjectId, Tab, WorkspaceId};
+use designer_core::{ArtifactId, ProjectId, Tab, TrackId, WorkspaceId};
 use designer_ipc::*;
 use designer_local_models::HelperHealth;
 use std::sync::Arc;
@@ -174,6 +174,72 @@ pub async fn cmd_toggle_pin_artifact(
     core.toggle_pin_artifact(req.artifact_id)
         .await
         .map_err(IpcError::from)
+}
+
+// ---- Track + git wire (Phase 13.E) ---------------------------------------
+
+pub async fn cmd_link_repo(core: &Arc<AppCore>, req: LinkRepoRequest) -> Result<(), IpcError> {
+    if req.repo_path.as_os_str().is_empty() {
+        return Err(IpcError::InvalidRequest(
+            "repo_path must not be empty".into(),
+        ));
+    }
+    core.link_repo(req.workspace_id, req.repo_path)
+        .await
+        .map_err(|e| match e {
+            designer_core::CoreError::Invariant(msg) => IpcError::InvalidRequest(msg),
+            designer_core::CoreError::NotFound(msg) => IpcError::NotFound(msg),
+            other => IpcError::from(other),
+        })
+}
+
+pub async fn cmd_start_track(
+    core: &Arc<AppCore>,
+    req: StartTrackRequest,
+) -> Result<TrackId, IpcError> {
+    if req.branch.trim().is_empty() {
+        return Err(IpcError::InvalidRequest("branch must not be empty".into()));
+    }
+    core.start_track(req.workspace_id, req.branch, req.base)
+        .await
+        .map_err(|e| match e {
+            designer_core::CoreError::Invariant(msg) => IpcError::InvalidRequest(msg),
+            designer_core::CoreError::NotFound(msg) => IpcError::NotFound(msg),
+            other => IpcError::from(other),
+        })
+}
+
+pub async fn cmd_request_merge(
+    core: &Arc<AppCore>,
+    req: RequestMergeRequest,
+) -> Result<u64, IpcError> {
+    core.request_merge(req.track_id).await.map_err(|e| match e {
+        designer_core::CoreError::Invariant(msg) => IpcError::InvalidRequest(msg),
+        designer_core::CoreError::NotFound(msg) => IpcError::NotFound(msg),
+        other => IpcError::from(other),
+    })
+}
+
+pub async fn cmd_list_tracks(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<TrackSummary>, IpcError> {
+    Ok(core
+        .list_tracks(workspace_id)
+        .await
+        .into_iter()
+        .map(TrackSummary::from)
+        .collect())
+}
+
+pub async fn cmd_get_track(
+    core: &Arc<AppCore>,
+    track_id: TrackId,
+) -> Result<TrackSummary, IpcError> {
+    core.get_track(track_id)
+        .await
+        .map(TrackSummary::from)
+        .ok_or_else(|| IpcError::NotFound(track_id.to_string()))
 }
 
 fn helper_status_to_response(status: HelperStatus, health: HelperHealth) -> HelperStatusResponse {

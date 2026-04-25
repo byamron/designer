@@ -3,10 +3,11 @@
 //! snapshot so startup doesn't need to scan the full log.
 
 use crate::domain::{
-    Artifact, Autonomy, PayloadRef, Project, Tab, TabTemplate, Workspace, WorkspaceState,
+    Artifact, Autonomy, PayloadRef, Project, Tab, TabTemplate, Track, TrackState, Workspace,
+    WorkspaceState,
 };
 use crate::event::{EventEnvelope, EventPayload};
-use crate::ids::{ArtifactId, ProjectId, WorkspaceId};
+use crate::ids::{ArtifactId, ProjectId, TrackId, WorkspaceId};
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -46,6 +47,10 @@ struct ProjectorState {
     artifacts: BTreeMap<ArtifactId, Artifact>,
     /// Pinned artifact ids in insertion order per workspace.
     pinned_artifacts: BTreeMap<WorkspaceId, Vec<ArtifactId>>,
+    /// All tracks, keyed by id. Phase 13.E.
+    tracks: BTreeMap<TrackId, Track>,
+    /// Track ids in insertion order per workspace.
+    tracks_by_workspace: BTreeMap<WorkspaceId, Vec<TrackId>>,
 }
 
 impl Projector {
@@ -104,6 +109,26 @@ impl Projector {
 
     pub fn artifact(&self, id: ArtifactId) -> Option<Artifact> {
         self.inner.read().artifacts.get(&id).cloned()
+    }
+
+    /// All tracks for a workspace, oldest first. Archived tracks are
+    /// included — callers filter when they want the live set.
+    pub fn tracks_in(&self, workspace_id: WorkspaceId) -> Vec<Track> {
+        let state = self.inner.read();
+        state
+            .tracks_by_workspace
+            .get(&workspace_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| state.tracks.get(id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn track(&self, id: TrackId) -> Option<Track> {
+        self.inner.read().tracks.get(&id).cloned()
     }
 }
 
@@ -276,6 +301,54 @@ impl Projection for Projector {
                     if let Some(list) = state.pinned_artifacts.get_mut(&ws) {
                         list.retain(|id| id != artifact_id);
                     }
+                }
+            }
+            // Track lifecycle (Phase 13.E).
+            EventPayload::TrackStarted {
+                track_id,
+                workspace_id,
+                worktree_path,
+                branch,
+            } => {
+                state.tracks.insert(
+                    *track_id,
+                    Track {
+                        id: *track_id,
+                        workspace_id: *workspace_id,
+                        branch: branch.clone(),
+                        worktree_path: worktree_path.clone(),
+                        state: TrackState::Active,
+                        pr_number: None,
+                        pr_url: None,
+                        created_at: event.timestamp,
+                        completed_at: None,
+                        archived_at: None,
+                    },
+                );
+                let list = state.tracks_by_workspace.entry(*workspace_id).or_default();
+                if !list.contains(track_id) {
+                    list.push(*track_id);
+                }
+            }
+            EventPayload::PullRequestOpened {
+                track_id,
+                pr_number,
+            } => {
+                if let Some(t) = state.tracks.get_mut(track_id) {
+                    t.pr_number = Some(*pr_number);
+                    t.state = TrackState::PrOpen;
+                }
+            }
+            EventPayload::TrackCompleted { track_id } => {
+                if let Some(t) = state.tracks.get_mut(track_id) {
+                    t.state = TrackState::Merged;
+                    t.completed_at = Some(event.timestamp);
+                }
+            }
+            EventPayload::TrackArchived { track_id } => {
+                if let Some(t) = state.tracks.get_mut(track_id) {
+                    t.state = TrackState::Archived;
+                    t.archived_at = Some(event.timestamp);
                 }
             }
             // Events not relevant to the core projection are ignored — per-subsystem

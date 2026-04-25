@@ -19,6 +19,7 @@ tauri-build.workspace = true
 [dependencies]
 designer-core.workspace = true
 designer-claude.workspace = true
+designer-git.workspace = true
 designer-safety.workspace = true
 designer-audit.workspace = true
 designer-local-models.workspace = true

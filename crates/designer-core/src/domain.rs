@@ -1,6 +1,6 @@
 //! Domain aggregates. Projections derive these by replaying events.
 
-use crate::ids::{ArtifactId, ProjectId, TabId, WorkspaceId};
+use crate::ids::{ArtifactId, ProjectId, TabId, TrackId, WorkspaceId};
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -202,4 +202,40 @@ impl PayloadRef {
     pub fn is_inline(&self) -> bool {
         matches!(self, PayloadRef::Inline { .. })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Track primitive (Phase 13.E — spec Decisions 29–30)
+// ---------------------------------------------------------------------------
+
+/// A track inside a workspace: one worktree + one branch + one agent team +
+/// one PR series. Derived from the `TrackStarted / TrackCompleted /
+/// PullRequestOpened / TrackArchived` events the projector replays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Track {
+    pub id: TrackId,
+    pub workspace_id: WorkspaceId,
+    pub branch: String,
+    pub worktree_path: PathBuf,
+    pub state: TrackState,
+    pub pr_number: Option<u64>,
+    pub pr_url: Option<String>,
+    pub created_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
+    pub archived_at: Option<Timestamp>,
+}
+
+/// Track lifecycle. The state machine is intentionally narrow: a track moves
+/// forward through `Active → RequestingMerge → PrOpen → Merged → Archived`.
+/// `RequestingMerge` is the brief window between the user clicking
+/// "Request merge" and `gh pr create` returning. Any failure during that
+/// window flips the track back to `Active` so the user can retry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackState {
+    Active,
+    RequestingMerge,
+    PrOpen,
+    Merged,
+    Archived,
 }

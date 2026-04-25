@@ -10,6 +10,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use designer_desktop::commands;
+use designer_desktop::commands_git;
 use designer_desktop::core::AppCoreBoot;
 use designer_desktop::events::spawn_event_bridge;
 use designer_desktop::menu::{build_menu, MENU_ID_FEEDBACK, MENU_ID_NEW_PROJECT};
@@ -67,21 +68,26 @@ fn main() {
     tauri::Builder::default()
         .manage(core_for_state)
         .invoke_handler(tauri::generate_handler![
-            commands::list_projects,
             commands::create_project,
-            commands::list_workspaces,
             commands::create_workspace,
-            commands::open_tab,
-            commands::spine,
-            commands::request_approval,
-            commands::resolve_approval,
-            commands::get_theme,
             commands::get_artifact,
+            commands::get_theme,
             commands::list_artifacts,
             commands::list_pinned_artifacts,
+            commands::list_projects,
+            commands::list_workspaces,
+            commands::open_tab,
+            commands::request_approval,
+            commands::resolve_approval,
             commands::reveal_in_finder,
             commands::set_theme,
+            commands::spine,
             commands::toggle_pin_artifact,
+            commands_git::cmd_get_track,
+            commands_git::cmd_link_repo,
+            commands_git::cmd_list_tracks,
+            commands_git::cmd_request_merge,
+            commands_git::cmd_start_track,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
