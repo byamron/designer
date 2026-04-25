@@ -86,52 +86,107 @@
     {
       "name": "HomeTabB",
       "path": "packages/app/src/home/HomeTabB.tsx",
-      "purpose": "[Deprecated on home — kept for the palette primitive used by BlankTab]. Project home committed to Variant A (Panels) on 2026-04-22; the variant toggle has been removed from MainView. The palette layout lives on for blank workspace tabs where the 'show me affordances in the current scope' intent still fits.",
+      "purpose": "Retired 2026-04-23. The palette variant of project home was consolidated into Variant A (Panels). File deleted; entry retained for history.",
+      "status": "retired",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": [],
+      "last_updated": "2026-04-23"
+    },
+    {
+      "name": "WorkspaceThread",
+      "path": "packages/app/src/tabs/WorkspaceThread.tsx",
+      "purpose": "The single tab body for every workspace tab post-Phase 13.1 (spec Decision 36). One continuous scrollable thread of typed artifact blocks (resolved via the block registry) plus a docked ComposeDock. Per-tab `hasStarted` state — fresh tabs render context-aware suggestions sourced from the workspace's recent artifacts; first send flips to thread mode. Subscribes to artifact_* stream events for live refresh.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "space-7", "space-8", "type-lead-size", "type-body-size", "type-caption-size", "color-foreground", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "radius-modal", "radius-button", "radius-badge", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
-      "last_updated": "2026-04-22"
+      "tokens_referenced": ["space-1", "space-3", "space-4", "type-body-size", "type-body-leading", "type-caption-size", "type-family-sans", "color-foreground", "color-muted", "color-surface-hover", "radius-button", "border-thin", "color-border", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "css_prefix": "workspace-thread__ thread__ suggestion-row__",
+      "last_updated": "2026-04-24"
     },
     {
       "name": "PlanTab",
       "path": "packages/app/src/tabs/PlanTab.tsx",
-      "purpose": "Plan template: streaming chat with the team lead. Chat uses the canonical asymmetry (user bubble right-aligned; agent on surface). Bottom-docked compose: attach/mic/send as a matched 32×32 trio in the footer (send filled, attach/mic transparent), no footer divider, selects with focus-ring on the wrapper (entire chip is the focus target). Tab header renders only when the thread is empty. ⌘↵ sends.",
-      "status": "managed",
+      "purpose": "Retired 2026-04-24 (spec Decision 36). Plan/Design/Build/Blank tab types collapsed into a single WorkspaceThread surface. File deleted.",
+      "status": "retired",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-6", "space-7", "space-8", "target-sm", "target-md", "radius-card", "radius-button", "radius-badge", "radius-pill", "color-foreground", "color-background", "color-muted", "color-border", "color-surface-flat", "color-surface-raised", "color-surface-overlay", "type-body-size", "type-caption-size", "type-body-leading", "weight-medium", "border-thin", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
-      "last_updated": "2026-04-22"
+      "tokens_referenced": [],
+      "last_updated": "2026-04-24"
     },
     {
       "name": "DesignTab",
       "path": "packages/app/src/tabs/DesignTab.tsx",
-      "purpose": "Design template: prototype browser + component catalog.",
-      "status": "managed",
+      "purpose": "Retired 2026-04-24 (spec Decision 36). File deleted.",
+      "status": "retired",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-3", "type-h3-size"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": [],
+      "last_updated": "2026-04-24"
     },
     {
       "name": "BuildTab",
       "path": "packages/app/src/tabs/BuildTab.tsx",
-      "purpose": "Build template: terminal/chat surface where the builder streams code work. No task-board chrome — the user types instructions or slash commands (/plan, /diff, /test, /merge). The merge gate is still enforced in the Rust core (spec §5); /merge is the UI affordance that asks for approval.",
-      "status": "managed",
+      "purpose": "Retired 2026-04-24 (spec Decision 36). Chat + slash-commands behavior absorbed into WorkspaceThread + ComposeDock. File deleted.",
+      "status": "retired",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "space-4", "radius-button", "type-body-size", "type-caption-size", "type-family-mono", "color-foreground", "color-muted", "color-border-soft"],
-      "last_updated": "2026-04-23"
+      "tokens_referenced": [],
+      "last_updated": "2026-04-24"
     },
     {
       "name": "BlankTab",
       "path": "packages/app/src/tabs/BlankTab.tsx",
-      "purpose": "Blank template: workspace-scoped Palette. Same primitive as HomeTabB but suggestions speak in terms of the current workspace (summarize events, propose directions, draft status report, review spec).",
+      "purpose": "Retired 2026-04-24 (spec Decision 36). Empty-state behavior is now the suggestions view inside WorkspaceThread. File deleted.",
+      "status": "retired",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": [],
+      "last_updated": "2026-04-24"
+    },
+    {
+      "name": "BlockRenderers",
+      "path": "packages/app/src/blocks/blocks.tsx",
+      "purpose": "Twelve typed-artifact renderers registered against the block registry (`packages/app/src/blocks/registry.ts`) on import of `packages/app/src/blocks/index.ts`. Real-data renderers: Message, Spec, CodeChange, Pr, Approval, Comment, TaskList. Stub renderers (title + summary) for Phase 13.D/E/F/G to fill in: Report, Prototype, Diagram, Variant, TrackRollup. GenericBlock is the fallback for unknown kinds. Every block is an <article> with BlockHeader (kind badge, title, author, expand/pin actions). All visual decisions route through tokens — no inline styles.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3"],
-      "last_updated": "2026-04-21"
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "type-body-size", "type-body-leading", "type-caption-size", "weight-medium", "color-foreground", "color-muted", "color-surface-raised", "color-surface-sunken", "color-surface-hover", "color-border", "color-accent", "border-thin", "radius-card", "radius-button", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color", "line-height-body"],
+      "css_prefix": "block__ block--",
+      "last_updated": "2026-04-24"
+    },
+    {
+      "name": "ComposeDock",
+      "path": "packages/app/src/components/ComposeDock.tsx",
+      "purpose": "Shared compose surface for WorkspaceThread (and any future tab variants). Owns its own draft, attachments, model/effort/plan-mode controls, and drag-and-drop target. Imperative handle (`setDraft`, `focus`) lets the parent seed prompts (used by suggestion rows in WorkspaceThread). Phase 13.D will wire `onSend` to `Orchestrator::post_message`; until then the dock surfaces an explicit 'wiring lands in 13.D' notice instead of silently discarding drafts.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "radius-pill", "border-thin", "color-foreground", "color-muted", "color-border", "color-border-soft", "color-content-surface", "color-background", "color-surface-flat", "color-surface-raised", "type-body-size", "type-caption-size", "weight-medium", "motion-interactive", "focus-outline-width", "focus-outline-color", "surface-inner-pad", "radius-surface", "dev-compose-mix", "dev-compose-radius"],
+      "css_prefix": "compose__",
+      "last_updated": "2026-04-24"
+    },
+    {
+      "name": "SettingsPage",
+      "path": "packages/app/src/layout/SettingsPage.tsx",
+      "purpose": "Full-page Settings surface (replaces the modal that previously lived in AppDialog). Left rail of section anchors (Appearance, Account, Models, Preferences); content pane with section headers and rows. Mounted from App.tsx when `dialog === 'settings'` and takes over the whole shell viewport. Esc closes; AppDialog now renders Help only.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "space-6", "space-7", "type-body-size", "type-h3-size", "type-caption-size", "weight-medium", "color-foreground", "color-muted", "color-background", "color-surface-flat", "color-surface-raised", "color-border", "color-border-soft", "border-thin", "radius-button", "radius-card", "motion-interactive", "focus-outline-width", "focus-outline-color", "focus-outline-offset"],
+      "css_prefix": "settings-page__",
+      "last_updated": "2026-04-23"
+    },
+    {
+      "name": "SurfaceDevPanel",
+      "path": "packages/app/src/components/SurfaceDevPanel.tsx",
+      "purpose": "Dev-only floating panel (⌘.) that exposes seven knobs over the surface register: Compose fill, Main tab fill, Surface sand, Tab opacity, Border intensity, Shadow intensity, plus a Tab-corners variant toggle (Soft/Concentric/Folder/Match/Custom) backed by a 0-32px slider, and Main tab + Compose radius sliders. Persists to localStorage. Only mounted when `import.meta.env.MODE === 'development'`; the production build never ships it.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "type-caption-size", "type-body-size", "weight-medium", "color-foreground", "color-muted", "color-surface-overlay", "color-border", "color-border-soft", "border-thin", "radius-button", "radius-modal", "radius-pill", "elevation-overlay", "motion-interactive", "focus-outline-width", "focus-outline-color", "focus-outline-offset"],
+      "css_prefix": "surface-dev-panel__",
+      "last_updated": "2026-04-24"
     },
     {
       "name": "StreamingText",
@@ -186,12 +241,7 @@
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["icon-sm", "color-muted", "color-foreground", "info-11", "warning-11", "danger-11", "success-11"],
-      "last_updated": "2026-04-23"
-      "status": "managed",
-      "native_wrapped": false,
-      "primitives_used": [],
-      "tokens_referenced": [],
-      "last_updated": "2026-04-22"
+      "last_updated": "2026-04-24"
     },
     {
       "name": "Palette",

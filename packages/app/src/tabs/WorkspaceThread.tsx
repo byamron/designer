@@ -74,36 +74,57 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
 
   // Re-fetch whenever the backend emits an artifact lifecycle event on this
   // workspace's stream. 13.D/E/F/G drive this — users don't need to reload
-  // the tab to see a new artifact land.
+  // the tab to see a new artifact land. Bursts are coalesced on
+  // requestAnimationFrame so a flurry of artifact_appended events from a
+  // single track produces one refresh, not N.
   useEffect(() => {
+    let pending = 0;
     const unsub = ipcClient().stream((event) => {
       if (!event.kind.startsWith("artifact_")) return;
       const wsScope =
         event.stream_id === workspace.id ||
         event.stream_id.startsWith(`${workspace.id}:`);
       if (!wsScope) return;
-      void refresh();
+      if (pending) return;
+      pending = window.requestAnimationFrame(() => {
+        pending = 0;
+        void refresh();
+      });
     });
-    return unsub;
+    return () => {
+      if (pending) window.cancelAnimationFrame(pending);
+      unsub();
+    };
   }, [workspace.id, refresh]);
 
+  // Payload fetch uses functional setState so we don't depend on the
+  // payloads map — keeps the callback identity stable across loads,
+  // which in turn keeps onToggleExpanded stable, which keeps inline
+  // block-renderer props stable across renders.
   const fetchPayload = useCallback(async (id: ArtifactId) => {
-    if (payloads[id]) return;
+    let alreadyHave = false;
+    setPayloads((prev) => {
+      alreadyHave = id in prev;
+      return prev;
+    });
+    if (alreadyHave) return;
     try {
       const detail: ArtifactDetail = await ipcClient().getArtifact(id);
       setPayloads((p) => ({ ...p, [id]: detail.payload }));
     } catch {
       // Speculative kinds whose emitters aren't wired may 404 — non-fatal.
     }
-  }, [payloads]);
+  }, []);
 
   const onToggleExpanded = useCallback(
     (id: ArtifactId) => {
-      const willExpand = !expanded[id];
-      setExpanded((e) => ({ ...e, [id]: willExpand }));
-      if (willExpand) void fetchPayload(id);
+      setExpanded((prev) => {
+        const willExpand = !prev[id];
+        if (willExpand) void fetchPayload(id);
+        return { ...prev, [id]: willExpand };
+      });
     },
-    [expanded, fetchPayload],
+    [fetchPayload],
   );
 
   const onTogglePin = useCallback(

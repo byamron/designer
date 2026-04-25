@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { BlockProps } from "./registry";
 import { humanizeKind } from "../util/humanize";
 
@@ -21,6 +21,7 @@ function BlockHeader({
   onTogglePin,
   onToggleExpanded,
   expanded,
+  panelId,
   pinnable = true,
 }: {
   title: string;
@@ -30,6 +31,10 @@ function BlockHeader({
   onTogglePin: () => void;
   onToggleExpanded?: () => void;
   expanded?: boolean;
+  /** Id of the expandable panel this header controls. Required when
+   *  `onToggleExpanded` is provided so screen readers can map the
+   *  control to its target region. */
+  panelId?: string;
   pinnable?: boolean;
 }) {
   return (
@@ -48,18 +53,23 @@ function BlockHeader({
             className="block__action"
             onClick={onToggleExpanded}
             aria-expanded={expanded}
+            aria-controls={panelId}
           >
             {expanded ? "Collapse" : "Expand"}
           </button>
         )}
         {pinnable && (
+          // Stable verb keeps SR from double-announcing on toggle. The
+          // pressed state carries the on/off semantics; the label
+          // describes the action target ("Pin to rail").
           <button
             type="button"
             className="block__action"
             onClick={onTogglePin}
             aria-pressed={isPinned}
+            aria-label="Pin to rail"
           >
-            {isPinned ? "Unpin" : "Pin"}
+            {isPinned ? "Pinned" : "Pin"}
           </button>
         )}
       </div>
@@ -87,6 +97,7 @@ export function MessageBlock({ artifact }: BlockProps) {
 export function SpecBlock(props: BlockProps) {
   const { artifact, payload, expanded, onToggleExpanded, isPinned, onTogglePin } = props;
   const body = payload?.kind === "inline" ? payload.body : artifact.summary;
+  const panelId = useId();
   return (
     <article className="block block--spec">
       <BlockHeader
@@ -97,9 +108,10 @@ export function SpecBlock(props: BlockProps) {
         onTogglePin={onTogglePin}
         onToggleExpanded={onToggleExpanded}
         expanded={expanded}
+        panelId={panelId}
       />
       {expanded ? (
-        <pre className="block__prose">{body}</pre>
+        <pre id={panelId} className="block__prose">{body}</pre>
       ) : (
         <p className="block__summary">{artifact.summary}</p>
       )}
@@ -117,6 +129,7 @@ export function CodeChangeBlock(props: BlockProps) {
     payload?.kind === "inline"
       ? payload.body.split("\n").filter((s) => s.trim().length > 0)
       : [];
+  const panelId = useId();
   return (
     <article className="block block--code-change">
       <BlockHeader
@@ -127,10 +140,11 @@ export function CodeChangeBlock(props: BlockProps) {
         onTogglePin={onTogglePin}
         onToggleExpanded={onToggleExpanded}
         expanded={expanded}
+        panelId={panelId}
       />
       <p className="block__summary">{artifact.summary}</p>
       {expanded && files.length > 0 && (
-        <ul className="block__file-list" aria-label="Files in this change">
+        <ul id={panelId} className="block__file-list" aria-label="Files in this change">
           {files.map((f) => (
             <li key={f} className="block__file">
               {f}
@@ -208,7 +222,9 @@ export function ApprovalBlock({ artifact, isPinned, onTogglePin }: BlockProps) {
           </button>
         </div>
       ) : (
-        <div className="block__approval-resolved">{resolution}</div>
+        <div className="block__approval-resolved" role="status">
+          {resolution}
+        </div>
       )}
     </article>
   );
@@ -239,6 +255,7 @@ export function TaskListBlock(props: BlockProps) {
     payload?.kind === "inline"
       ? payload.body.split("\n").filter((s) => s.trim().length > 0)
       : [];
+  const panelId = useId();
   return (
     <article className="block block--task-list">
       <BlockHeader
@@ -249,10 +266,11 @@ export function TaskListBlock(props: BlockProps) {
         onTogglePin={onTogglePin}
         onToggleExpanded={onToggleExpanded}
         expanded={expanded}
+        panelId={panelId}
       />
       <p className="block__summary">{artifact.summary}</p>
       {expanded && (
-        <ul className="block__task-items">
+        <ul id={panelId} className="block__task-items">
           {lines.map((l, i) => (
             <li key={i} className="block__task-item">
               <input type="checkbox" className="block__task-check" readOnly />
