@@ -17,7 +17,7 @@ import type { IpcClient } from "../ipc/client";
  *     "off-by-default + opt-in" UX) and stays hidden when toggled off.
  */
 
-function makeApprovalArtifact(approvalId = "test-approval-id"): ArtifactSummary {
+function makeApprovalArtifact(): ArtifactSummary {
   return {
     id: "art_1",
     workspace_id: "ws_1",
