@@ -33,6 +33,16 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0026: Live dev-panel knobs are how Designer's surface register gets tuned
+**Date:** 2026-04-24
+**Source:** user direction (design loop)
+
+**What was said:** Across multiple iterations on the floating-surface tokens (compose fill, main-tab fill, surface sand, tab opacity, border intensity, shadow intensity, tab corner variant, main tab radius, compose radius), the user repeatedly preferred *adding a slider* over *picking a value*. Quote: *"can we add a segmented toggle to the dev panel where we try all of these options"* — the tab-corner variant toggle. And: *"add main tab container border radius and compose box border radius to the dev panel."*
+
+**Synthesized rule:** Whenever a surface-register decision has more than two plausible answers, the right move is a `SurfaceDevPanel` slider/toggle backed by a `--dev-*` CSS variable, rather than picking one and shipping. The slider is the design tool — production defaults are baked in only after the user has dialled the value live. This is FB-0022 ("bake dev-panel explorations into the design language when they land") generalized: the dev panel is the canonical mechanism for design exploration, not just an occasional escape hatch. Confirmed by the working pattern across this PR (six knobs + a tab-corner variant toggle, then production defaults baked in to match the user's chosen config).
+
+**Applies to:** ux, design-system, workflow
+
 ### FB-0025: Three-tier artifact presence — inline, pinned, on-demand
 **Date:** 2026-04-24
 **Source:** user direction

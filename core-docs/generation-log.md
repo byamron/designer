@@ -383,3 +383,49 @@ Consolidates the tab-model-rethink (branch `tab-model-rethink`, workspace `lisbo
 - tests: 13/13 frontend + 6/6 backend pass
 - deviations: `PayloadRef::Hash` path is schema-only (TODO(13.1-storage)); partial-message coalescer still deferred to 13.D
 - feedback: FB-0024 (tabs as views, not modes), FB-0025 (three-tier artifact presence)
+
+---
+
+## 2026-04-25T01:00:00Z — Phase 13.1 staff-design-engineer review pass + finalization
+
+Polish pass after the consolidation landed; covers everything that happened between the initial Phase 13.1 generation-log entry (2026-04-24T01:00) and the PR.
+
+**Surface architecture iterations (live design loop, behind SurfaceDevPanel):**
+- Dev panel grew from 3 → 6 sliders + a tab-corner variant toggle + 2 radius sliders. Every slider is bound to a distinct `--dev-*` CSS variable.
+- Tab radius default flipped Soft (12) → Match (24) — tabs and main tab container now share corner shape.
+- Shadow swapped from `--elevation-raised` (single bottom-heavy 1px / 5%) to a two-layer diffuse stack (`0 1px 3px / 2%` + `0 6px 16px -2px / 6%`).
+- `--radius-surface` 16 → 24px; compose corner derives to 8px.
+- Selected tab now matches the main tab container exactly (fill + border + shadow); only `--surface-tab-gap` (6px) separates them.
+
+**Sidebar restructure (#4 + #6 page feedback):**
+- `.app-sidebar` horizontal padding moved onto inner blocks so workspace-row hover spans full rail width without negative-margin tricks getting clipped by sidebar-group's `overflow-y: auto`.
+- Project title / root-path / Home / Workspaces label / workspace status icons all share the same 16px X column.
+
+**Activity spine restructure (#1 page feedback round 2):**
+- Same edge-to-edge hover treatment as the left sidebar applied to `.spine-artifact`. Pinned/files items use `--color-surface-raised` background, no border-radius, full rail width.
+- Section labels and the spine header carry their own horizontal padding to keep the content column aligned.
+
+**Page feedback fixes:**
+- Tabs left-aligned with main tab container (tabs-bar left padding → 0).
+- Tab close X bumped 10 → 16 in a 24px hit target.
+- ArtifactRow secondary text removed (lives in tooltip only) so titles get the full row width.
+- Compose has no top divider, fills container with 16px padding all sides.
+- Sidebar Designer title + path now share 16px indent with the rest of the sidebar content.
+- New-tab suggestions render as borderless rows with text + right-arrow, sourced from workspace's recent activity (latest spec / open PR / pending approval / latest code-change).
+
+**Dark palette rebuild:**
+- Bug: previous override used `var(--sand-dark-N)` which doesn't exist — Radix Colors v3 ships `--sand-N` only and rebinds under `.dark-theme`. Fixed by replacing every reference.
+- Slider math reanchored: parent `sand-1↔sand-4`, main tab `sand-5↔sand-9` so the same default values (80% / 5%) produce real luminance hierarchy in dark mode.
+
+**Staff design-engineer review fixes:**
+- `core-docs/component-manifest.json` was invalid JSON (duplicated trailing fields after `WorkspaceStatusIcon`). Repaired; added 5 new entries (`WorkspaceThread`, `BlockRenderers`, `ComposeDock`, `SettingsPage`, `SurfaceDevPanel`); marked 5 deleted tabs as `retired`.
+- `WorkspaceThread` re-render hot spots tightened: `fetchPayload` no longer depends on `payloads`; stream-event refresh coalesces bursts via `requestAnimationFrame`; functional `setExpanded` reads keep callback identity stable.
+- Block a11y pass: expand buttons now carry `aria-controls` pointing at `useId`-generated panel ids on `Spec` / `CodeChange` / `TaskList`; pin button uses stable `aria-label` ("Pin to rail") with `aria-pressed` state; approval resolved state is `role="status"`.
+
+**Phase 13.D/E/F/G/H readiness verified:** the four tracks now emit `ArtifactCreated` events into the registry instead of painting bespoke UI. Per-track emitter responsibilities annotated in `plan.md` and `roadmap.md`.
+
+- invariants: pending node run
+- typecheck: clean
+- tests: 13/13 frontend pass; 6/6 backend pass
+- deviations: dev panel mounts in dev mode only — production build retains the user-chosen defaults baked into `:root` and `.dark-theme`
+- feedback: FB-0026 (dev-panel-driven design exploration is the canonical mechanism)

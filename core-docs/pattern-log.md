@@ -16,6 +16,58 @@ Each entry is a dated heading plus 3–6 sentences. Focus on the *why*. Referenc
 
 ## Entries
 
+## 2026-04-24/25 — Phase 13.1 surface architecture: dev panel re-introduced as design tool
+
+The 2026-04-23 entry below recorded the dev panel's *retirement*. This entry undoes that decision — the panel is now the canonical design-exploration mechanism (axiom #20; FB-0026). Reasoning:
+
+The 2026-04-23 lockdown captured one snapshot of the surface register (gutter 12, tab-gap 6, shadow 5%, tab-style A). That snapshot was correct for the time but treated the panel as scaffolding to be torn down. In 13.1's iteration cycles, the user repeatedly preferred *adding a slider* over *picking a value*: compose fill, main-tab fill, tab opacity, border intensity, shadow intensity, tab-corner variants, main-tab radius, compose radius — every one of these started as "let me dial it" rather than "make it 14px". Treating the panel as the design tool (not the scaffolding) shortens the loop from "I want X to feel different" to "X is now bound to a slider — try values". Production defaults are baked in only after the user dials the chosen value live.
+
+Concrete deltas vs. the 2026-04-23 lockdown:
+
+- **Six independent surface knobs** (was one tab-style + two color-mix percentages):
+  - `--dev-compose-mix` 20% — compose fill blend between main-tab and parent.
+  - `--dev-main-tab-sand` 5% — main tab warmth (white ↔ sandier).
+  - `--dev-surface-sand` 80% — parent surface warmth (brighter ↔ sandier).
+  - `--dev-tab-opacity` 70% — unselected-tab fill + border alpha.
+  - `--dev-border-strength` 10% — border alpha on main + selected tab. Unselected tab border = strength × tab-opacity (so border weight tracks fill weight).
+  - `--dev-shadow-intensity` 50% — drop shadow on main + selected tab. Unselected tabs are flat.
+- **Tab corner variant toggle** with five named presets:
+  - Soft 12 (small soft card register).
+  - Concentric 18 (= `--radius-surface` − `--surface-tab-gap`).
+  - Folder 14 / 6 (asymmetric — folder-tab register).
+  - Match 24 (= `--radius-surface` — production default).
+  - Custom (drag the slider). Folder is the only asymmetric variant; the rest mirror top to bottom.
+- **Independent main-tab and compose radius sliders** (`--dev-main-tab-radius` 24, `--dev-compose-radius` 8). Either can move without breaking the other.
+- **`--radius-surface` 16 → 24 px.** With `--surface-inner-pad` at 16 the compose corner derives to 8 — within the user's 6-8 target range and 16 px ≥ 12 px gap floor.
+- **Two-layer diffuse shadow.** Was `--elevation-raised` (single 0 1px 2px / 5%). Now stacks `0 1px 3px / 2%` (sharp definition) + `0 6px 16px −2px / 6%` (soft ambient, pulled inward). Both layers scale via the slider; shape is constant, opacity tracks.
+- **Selected tab matches main tab container exactly** — same fill, same border, same shadow. Only `--surface-tab-gap` (6px) separates them. Border on the active tab was previously absent (fill + shadow alone); now there's a token-driven border that keeps the active tab and the main tab reading as one material.
+
+The user-chosen production config (compose 20 / main 5 / surface 80 / tab 70 / border 10 / shadow 50, radii 24/24/8) is the new factory default. Reset-to-defaults restores all of it.
+
+## 2026-04-24/25 — Dark-mode token-resolution bug + reanchored slider math
+
+Dark mode looked completely flat in the first 13.1 pass — text was invisible, surfaces collapsed near pure black. Two bugs:
+
+1. **Token names that don't exist.** The dark override used `var(--sand-dark-1)` through `var(--sand-dark-12)` (and `var(--sand-dark-aN)`). Radix Colors v3 only ships `--sand-1`…`--sand-12` and rebinds those *same names* under `.dark, .dark-theme`. There is no separate `--sand-dark-N` token — every reference resolved to the empty token list, the `var()` substitution failed, and CSS cascade fell back to invalid → text inherited browser defaults. Fix: replace every `--sand-dark-N` with `--sand-N`.
+2. **Slider math collapsed under the wrong anchors.** Even with correct token names, the original anchors mixed `sand-dark-1` and `sand-dark-3` (≈ identical near-blacks). At default 80% / 5% the parent and main-tab both ended up at sand-dark-1.4 — no figure/ground. Reanchored: parent surface spans `sand-1↔sand-4` (defaults to ~sand-3.4 at 80%), main tab spans `sand-5↔sand-9` (defaults to ~sand-5.2 at 5%). About 1.8 luminance steps of separation — visible without being garish.
+
+Project-level lesson logged in `history.md`: token-reference validity should be a project invariant. Adding a `node tools/invariants/check.mjs` pass that resolves every `var(--*)` against the defined token set would have caught this in seconds.
+
+## 2026-04-24/25 — Sidebar / spine padding restructured for edge-to-edge hover
+
+Worked around an overflow-clipping interaction. Previous pattern: `.app-sidebar` had `padding: var(--space-4)` (16px all around); `.workspace-row` used `margin: 0 calc(var(--space-4) * -1)` to break out and span the full sidebar width on hover. That worked for the sidebar root but broke inside `.sidebar-group` (which has `overflow-y: auto`) — `overflow-y: auto` clips horizontally too, so the negative margin hover got cut off at the group edge.
+
+New pattern: horizontal padding moved off `.app-sidebar` (vertical-only now). Inner blocks each get their own horizontal padding to maintain the same X column for content:
+- `.sidebar-header { padding: 0 var(--space-4); }`
+- `.sidebar-home { padding: var(--space-2) var(--space-4); }`
+- `.sidebar-group__head { padding: 0 var(--space-4); }`
+- `.sidebar-empty { padding: 0 var(--space-4); }`
+- `.workspace-row { padding: var(--space-2) var(--space-4); width: 100%; }`
+
+Result: workspace-row hover/active fills genuinely span the full sidebar width, all content (Home icon, "Workspaces" label, status icons, project title, root-path) shares the 16px X column, and `overflow-y: auto` on `.sidebar-group` works without clipping.
+
+Same restructure applied to `.app-spine` and its inner blocks (`.spine-header`, `.spine-section > .sidebar-label / .sidebar-empty`, `.spine-list`, `.spine-artifact`). Spine pinned/files items now use the same edge-to-edge hover pattern as the left sidebar (`--color-surface-raised`, no border-radius).
+
 ## 2026-04-23 — Surface config locked, dev panel retired
 
 After ~24 hours of live tuning behind the SurfaceDevPanel, the numbers settled:

@@ -72,19 +72,6 @@ Infrastructure landed on 2026-04-21 (branch `phase-12b-plan`); real-binary valid
 - [x] `bootData` parallelized: three waves via `Promise.all` instead of three nested sequential awaits.
 - [ ] Interactive smoke (`cargo tauri dev`) on user's machine — deferred; requires GUI session.
 
-### Phase 13.1 — Artifact foundation + unified workspace thread ✅ *(landed 2026-04-24)*
-
-Consolidated the tab-model-rethink + find-agentation-server branches. What shipped:
-
-- Typed artifact events (`ArtifactCreated / Updated / Pinned / Unpinned / Archived`), `PayloadRef` (inline / hash — hash path is schema-only until a content-addressed store lands, see `TODO(13.1-storage)`), `ArtifactId`, `ArtifactKind` (12 kinds).
-- Rail projection: `ProjectorState.artifacts` map + `pinned_artifacts` per workspace, incremental update.
-- IPC: `cmd_list_pinned_artifacts`, `cmd_list_artifacts`, `cmd_get_artifact`, `cmd_toggle_pin_artifact`; `reveal_in_finder` shim (macOS).
-- Frontend block registry (`packages/app/src/blocks/`): 12 renderers, 7 rendering real data (`message`, `spec`, `code-change`, `pr`, `approval`, `comment`, `task-list`), 5 registered stubs rendering title + summary until their data source lands (`report`, `prototype`, `diagram`, `variant`, `track-rollup`). Generic fallback for unknown kinds.
-- Unified `WorkspaceThread` tab surface; Plan / Design / Build / Blank tab components deleted. TemplateMenu retired. ComposeDock adopted as the shared compose input. Starter-suggestion chips on empty state.
-- ActivitySpine rewired to read from the real artifact projection; "Pinned" section above the rest of "Artifacts"; hover-revealed pin toggle with `aria-pressed` state.
-- memphis-v2's 17-item polish pass folded in (full-page Settings, SurfaceDevPanel, haptic snap on PaneResizer, 12→16 icon audit, reveal-in-Finder on workspace path, `--radius-surface: 1rem`, Palette search icon).
-- Round-trip tests for the artifact lifecycle + PayloadRef serialization.
-
 ### Phase 13 — Wire the real runtime *(all four tracks parallel after 13.1)*
 
 Each track now emits `ArtifactCreated` events into the block registry instead of painting bespoke UI. Per-track `TODO(13.X)` markers in the code mark the handoff points.
@@ -169,6 +156,10 @@ Delivers the user-visible affordances of the workspace/track model (spec §"Work
 ---
 
 ## Recently Completed
+
+### Phase 13.1 — Unified workspace thread + artifact foundation — 2026-04-24/25
+
+Consolidates `tab-model-rethink` + `find-agentation-server`. Tabs are views, not modes (spec Decision 36): every tab renders a single `WorkspaceThread` component with typed artifact blocks inline. Twelve block renderers shipped (7 real, 5 stubs registered for 13.D/E/F/G to fill). Backend artifact events + `PayloadRef` + rail projection + 4 new IPC commands + `reveal_in_finder` shim. Six surface-architecture sliders + tab-corner variant toggle in the dev panel. Sand-toned dark palette rebuilt on real `--sand-*` references (the previous `--sand-dark-N` references were broken — that token doesn't exist in Radix Colors v3). Decisions 36–39 added; Decision 11 amended; Decision 12 superseded. FB-0024 / FB-0025 codified. See `history.md` for the full sourcing map (memphis-v2 polish pass + tab-model-rethink direction) and rationale.
 
 ### UI overhaul — floating-surface register, dark mode, Lucide icons — 2026-04-23
 Multi-session frontend rewrite. Introduced a two-tier page + floating-surface register (sidebars flat on sand, main content a raised white-in-light / off-black-in-dark rectangle with soft hairline border). Fixed dark mode — Radix Colors v3 activates scales via `.dark-theme` class, not `prefers-color-scheme`; theme bootstrap rewritten to apply both class + `[data-theme]` + `colorScheme` on documentElement, with a live `MediaQueryList` listener in System mode. Wired a System / Light / Dark `SegmentedToggle` into Settings → Appearance. Adopted `lucide-react`; all ~30 inline `<svg>` tags across 7 files removed. BuildTab rebuilt as a chat/terminal surface with slash commands (`/plan · /diff · /test · /merge`) replacing the task-board + approval-card layout. HomeTabA restructured: kicker removed, Needs-your-attention sorts to top and hides when empty, workspace rows compress to status + name + one-line summary, Autonomy becomes an interactive SegmentedToggle with optimistic local override. Palette default density flipped to `open` (bare input on surface). New tokens: `--radius-surface` (24 px), `--color-content-surface`, `--color-border-soft`, `--surface-{gutter,tab-gap,text-pad,inner-pad,shadow}`. Compose corner radius is concentric with the floating surface via `calc()`. SurfaceDevPanel and TypeDevPanel retired after their tuning landed in tokens.css / app.css; the `dev/` directory no longer exists. Design-language axiom #8 amended, new patterns documented, change-log entry + FB-0016..FB-0020 added. 13/13 frontend tests pass, 6/6 invariants clean on 33 files, typecheck clean. See `history.md` for the full decision + tradeoff narrative.
