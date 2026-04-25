@@ -306,6 +306,54 @@ Eight-annotation follow-up round. Changes:
 - **Spine events sort by timestamp, not push order.** Replaced `.slice(-6).reverse()` with an explicit `sort((a,b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)).slice(0,6)` so out-of-order event backfills can't reorder the feed.
 - **Compose actions spacing.** Bumped the icon-group gap from `--space-1` to `--space-3`, with an extra `--space-2` left-margin on the primary Send button. The buttons read as a group but no longer touch.
 
+## 2026-04-25 — Phase 13.G: `cmd_request_approval` is an error stub on purpose
+
+The `request_approval` Tauri command is intentionally an error stub (`IpcError::Unknown("cmd_request_approval is internal; agents request approvals via the orchestrator's InboxPermissionHandler. The frontend cannot forge approvals.")`). The earlier draft of 13.G wired it to call `store.append(ApprovalRequested)` so a frontend caller could produce an approval — convenient for mock-orchestrator dev flows. The post-merge security review caught it: any future webview compromise (XSS via dependency update, JSON-injection through a malicious artifact body) could have planted a fake "Grant write access?" entry in the inbox, waited for the user to click Grant, and used the granted state to bypass an unrelated subsequent check. The legitimate producer of approval requests is the orchestrator's `InboxPermissionHandler` and only that. Rather than add a permissions check on the IPC, we kept the wire name (frontend code already references it) but made it inert. Mock UI flows now have to construct a dummy approval via the in-memory mock client (`packages/app/src/ipc/mock.ts::requestApproval`), which never reaches the real store.
+
+Lesson, codified into a project rule: an IPC that writes a domain event is callable from any compromised frontend. Either the event is one the frontend has a legitimate reason to write (theme, pin, send-message), or the IPC stays an error stub. There is no in-between.
+
+## 2026-04-25 — Phase 13.G: `GateStatusSink` trait + desktop-side adapter avoids cross-crate cycles
+
+`InboxPermissionHandler` (in `designer-claude`) needs to keep the in-memory `InMemoryApprovalGate` (in `designer-safety`) truthful after each resolve, so legacy callers of `gate.status(id)` see the real terminal state. Three options were considered: (a) reverse the layering and have `designer-safety` depend on `designer-claude` so `InMemoryApprovalGate` could implement a trait from there — rejected because the natural layering is `claude → safety` (claude consumes safety primitives), and reversing it muddles which crate owns what. (b) Define a single shared trait in `designer-core` — possible but bloats the core crate with an integration concern. (c) Define the trait in `designer-claude` (`pub trait GateStatusSink: Send + Sync`) and write the adapter on the desktop side (`apps/desktop/src-tauri/src/core_safety.rs::GateSinkAdapter` holds an `Arc<InMemoryApprovalGate<…>>` and implements `GateStatusSink`). Picked (c).
+
+Why this works: the integration only needs to exist where both crates are in scope (the desktop binary). The handler accepts an `Option<Arc<dyn GateStatusSink>>` builder-style so test setups don't have to wire it. Testing the gate-sink path uses a tiny in-test struct that implements the trait and counts calls. Crate boundaries stay clean.
+
+This is now the project pattern for any future "crate A wants to notify crate B without depending on it": define the trait in A, write the adapter in the binary that wires both. Don't reverse layering for a notification.
+
+## 2026-04-25 — Phase 13.G: single-writer per approval id via atomic-remove-then-write
+
+`InboxPermissionHandler::resolve` removes the entry from the pending `DashMap` *before* it appends the resolution event, not after. If the entry is missing — already resolved, never existed, or the user double-clicked Grant→Deny in 50ms — the function returns `Ok(false)` and writes nothing. This is not a defensive optimization; it's the correctness guarantee. The earlier draft persisted the event first and then removed from pending, which let two clicks land two contradictory terminal events for the same approval id (`ApprovalGranted` AND `ApprovalDenied`). Audit queries reading the log would see "the user both granted and denied this prompt" and have no canonical answer. With the new ordering, the `DashMap::remove` is the lock — whoever wins the race writes the event; everyone else no-ops.
+
+Same pattern in the timeout branch of `decide`: the timeout fires, attempts `pending.remove(&approval_id)`, and only writes the timeout denial if it actually claimed the entry. If a real `resolve` raced ahead and claimed it first, the timeout writes nothing. End result: exactly one terminal event per approval id, ever.
+
+Locked down by `two_click_race_writes_only_one_terminal_event` in `crates/designer-claude/src/inbox_permission.rs::tests`.
+
+## 2026-04-25 — Phase 13.G: orphan sweep guarded by global mutex + per-iteration recheck
+
+`AppCore::sweep_orphan_approvals` reads the event log, finds `ApprovalRequested` events without a matching grant/deny, and writes a `ApprovalDenied{reason:"process_restart"}` for each. Naive implementation reads once and writes the diff; that's racy in two ways. (1) Two callers — boot and a hypothetical future repair tool — would read the same orphan set and each write a denial per orphan, doubling them up. (2) Even a single caller racing a real grant from the user (sweep started → user clicks Grant → sweep gets to the write) would emit a `process_restart` denial on top of the user's grant, contradicting it.
+
+Fix is two layers. First, a process-global `tokio::Mutex` (in `core_safety::sweep_lock()`) serializes sweeps end-to-end. Second, the sweep doesn't write the entire diff in one batch — it loops, re-reading the event log per iteration via `find_first_orphan` and writing one denial at a time. If anything appended a terminal event for an id between iterations, the next read sees it in the resolved set and skips it. The cost is `O(n²)` log reads in the pathological case (n orphans), which is fine because (a) sweep runs once per boot, (b) typical n is 0–2 in practice.
+
+This is the canonical defense-in-depth pattern for any future "scan + write" batch operation in this repo: hold a serialization lock AND re-verify each item right before writing. The lock alone protects against multiple callers; the recheck protects against the lock not covering everything (e.g. a write from outside the lock's scope, like a real user click). Test: `sweep_does_not_double_resolve_after_grant_lands` in `core_safety::tests`.
+
+## 2026-04-25 — Phase 13.G: replay-from-store as the standard restart pattern for in-memory state
+
+Two crates ship in-memory state that must reflect historical events after a process restart: `CostTracker` (per-workspace usage) and `InMemoryApprovalGate` (pending-status map). Both got a `replay_from_store(&self) -> SafetyResult<()>` method; `AppCore::boot` calls them right after construction. Failures are logged at `warn!` but non-fatal — boot must always succeed.
+
+Why methods on the existing types instead of constructor parameters that take a snapshot: snapshot construction would force callers to know what to read, which couples them to the event vocabulary. Replay methods own their own queries and walk the log in one pass each. The pattern scales: a future `RateLimitTracker` that needs to remember per-day caps across boots gets the same shape — `pub async fn replay_from_store(&self) -> SafetyResult<()>`, called from `AppCore::boot`. Anything that holds runtime state derived from the event log gets this.
+
+The replay is *idempotent*: it `clear()`s the in-memory map first and then walks. A second call is a no-op (modulo wall-clock cost). Locks: the cost replay holds the `DashMap` entry mutex per write; the gate replay holds its `parking_lot::Mutex` for the entire replay (which is fine — replay is one-shot).
+
+Tests: `cost_tracker_replay_reflects_historical_spend` and `gate_replay_reflects_historical_resolutions` in `crates/designer-safety/tests/gates.rs`; `cost_status_reflects_historical_spend_after_restart` in `core_safety::tests` exercises the full `AppCore::boot` path including the replay call.
+
+## 2026-04-25 — Phase 13.G: cost-chip color band uses Radix scale tokens directly, no role tokens added
+
+The cost chip's three color bands (50% green / 80% amber / >80% red) need a stable token mapping. The first pass shipped `var(--color-success, var(--accent-9, #2f9e44))` chains because Designer's design language doesn't yet define `--color-success/warning/danger` role tokens. The post-review pass dropped the chains in favor of `var(--success-9 / --warning-9 / --danger-9)` — those exist in `packages/ui/styles/tokens.css` (lines 253–272), aliased from Radix `--green-N / --amber-N / --red-N` scales.
+
+Why not introduce role tokens now: Mini's `elicit-design-language` plan (axiom amendment mode) wants role-token introductions to be explicit decisions made when the project has at least 3 unrelated surfaces using the role. We have one (the chip plus the Keychain dot, which arguably are the same role). When a third surface lands — likely Phase 13.H surfaces a per-track scope-deny banner that needs the same warn band, or Phase 17.T's MDM policy violations need a danger band — we promote `--success-9 / --warning-9 / --danger-9` to project-level role tokens (`--color-success`, etc.) in one PR. Until then, scale-token references are honest about what the value actually is.
+
+Same logic for the Keychain-status dot (`.settings-page__keychain-dot--connected/--disconnected/--unsupported_os`). Same scale tokens, no fallback chain.
+
 ## 2026-04-22 — Low-value suggestions and the workspace-brief drawer were cut
 
 The "Switch workspace (N in this project)" suggestion in HomeTabB was flagged as low-value — the user doesn't actually need a suggestion to open the quick switcher, and the row took up a slot better used for an attention item or a continue-on-active prompt. Removed. Similarly, the workspace brief drawer (vision / focus / attention / autonomy rows) was flagged as unclear — it duplicated what Panels mode already shows and the Show/Hide button introduced a second click target without a clear payoff. Removed entirely; Panels mode remains the canonical drill-in for that information, one toggle away.

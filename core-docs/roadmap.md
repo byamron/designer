@@ -328,11 +328,11 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
 | G4 | PlanTab chat hardcodes `ackFor()` | No `Orchestrator::post_message` path from UI to agent | 13.D |
 | G5 | `create_workspace` doesn't create a track (worktree + branch) | `GitOps` wired but never called from UI; no track on disk. Resolution introduces the Track primitive per spec Decisions 29–30. | 13.E |
 | G6 | Local-model jobs (`recap`, `audit_claim`, `summarize_row`) have no caller | Activity spine summaries, morning recap, audit verdicts all stubbed | 13.F |
-| G7 | Approval resolution surface is a `setTimeout` in BuildTab | Real approvals need a real inbox; currently non-interactive | 13.G |
+| G7 | ~~Approval resolution surface is a `setTimeout` in BuildTab~~ ✅ closed 2026-04-25 (PR #19) | `InboxPermissionHandler` parks each prompt on a `oneshot`; `ApprovalBlock` resolves via `cmd_resolve_approval` with optimistic UI + projector truth | 13.G |
 | G8 | No repo-linking UI or file picker | User can't point Designer at a codebase | 13.E |
 | G9 | No user-repo file persistence (`core-docs/*.md`) | Spec calls for docs-in-repo; only `events.db` is written today | 13.E |
 | G10 | No sync transport (WebRTC / relay / pairing QR) | Protocol types exist, no wire | 14 |
-| G11 | Keychain integration missing | Spec invariant; no secret store today | 13.G |
+| G11 | ~~Keychain integration missing~~ ✅ closed 2026-04-25 (PR #19) | `security-framework` read-only check for Claude Code's OAuth credential; Settings → Account renders presence + last-verified time. Decision 26 — Designer never reads contents and never writes | 13.G |
 | G12 | Mini primitives (Box/Stack/Cluster) not used | Cohesion drift; every layout is inline CSS | 15 |
 | G13 | `correlation_id` / `causation_id` never set | Traces can't be reconstructed | 15 |
 | G14 | Manual-entropy pairing RNG fallback | Non-crypto for non-unix; worth `OsRng` | 15 |
@@ -404,7 +404,7 @@ Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–H; 16.R / 
 
 **Deferred into Phase 13** (not blocking 13.D start):
 - `designer-hook` binary as secondary feed (hooks are visible in stream-json; file-based backup is a 13.G concern when approval-gate file triggers arrive).
-- `PreToolUse` approval-gate spike (moves to 13.G scope; the stdio permission-prompt path is already wired and will carry this).
+- ~~`PreToolUse` approval-gate spike~~ ✅ landed in 13.G via `InboxPermissionHandler` — stdio permission prompts now route through the user inbox with a 5-min timeout.
 - Partial-message coalescer at 120ms (moves to 13.D scope; only matters when the UI renders live chat).
 
 ### Track 12.B — Swift Foundation Models helper build (gap G2)
@@ -511,24 +511,26 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Done when:** spine summaries + recap + audit verdicts are real local-model output, not placeholders.
 
-### Track 13.G — Safety surfaces + Keychain (gaps G7, G11)
+### Track 13.G — Safety surfaces + Keychain (gaps G7, G11) ✅ *landed 2026-04-25*
 
 **Needs:** 12.C.
 
-**Steps:**
-- Build an approval inbox (either a drawer inside `ActivitySpine` or a dedicated `/inbox` route). Lists pending `ApprovalRequested` events with grant/deny actions bound to `cmd_resolve_approval`.
-- Replace `BuildTab`'s `setTimeout(900)` with a real pending state that resolves only when the inbox grants.
-- Add a usage chip to the topbar (`CostTracker.usage` + rate-limit signals parsed from Claude Code stream-json / stderr). Color ramps as spend approaches `CostCap.max_dollars_cents` *or* as Anthropic's own capacity warnings surface. Toggleable in settings, off by default (Decision 34). Ambient notice in the activity spine when a known 5-hour or weekly threshold is approached; hard-stop messages surface the specific limit + reset time.
-- Surface `ScopeDenied` events in the inbox with the denied path and the rule that matched.
-- Integrate `security-framework` (macOS Keychain) via a `SecretStore` trait; store any future agent credentials there (initial use: GitHub token discovery hint for `gh`).
+**Shipped (PR #19):**
+- `InboxPermissionHandler` (in `crates/designer-claude/src/inbox_permission.rs`) replaces `AutoAcceptSafeTools` as the production permission handler via `ClaudeCodeOrchestrator::with_permission_handler()`. Every Claude permission prompt parks the agent on a per-request `tokio::sync::oneshot` channel with a 5-minute deadline. Resolutions resolve via `cmd_resolve_approval`; timeouts emit `ApprovalDenied{reason:"timeout"}` and tell the agent to deny. Boot-time `sweep_orphan_approvals` auto-denies any `ApprovalRequested` without a matching grant/deny (reason `"process_restart"`) so the inbox doesn't surface phantom rows after restart.
+- `ApprovalBlock` (already-rendered Phase 13.1 surface) wired to `cmd_resolve_approval` with optimistic flip + projector-truth via `approval_granted/denied` stream subscription. Buttons disabled when payload lacks a parsable `approval_id`. The earlier `BuildTab` `setTimeout` stub was retired with the tab refactor — there is no dedicated build tab in the post-13.1 unified workspace thread.
+- `CostChip` (`packages/app/src/components/CostChip.tsx`) in the workspace topbar shows `$<spent> / $<cap>` with a colored band (50% green / 80% amber / >80% red). Off by default per Decision 34; toggle in Settings → Preferences. `CostTracker::replay_from_store` runs at boot so `cost_status` reflects historical spend across restarts.
+- Scope denials: `record_scope_denial` emits both `ScopeDenied` (audit) and a `comment` artifact anchored to the offending change (UX). The artifact appears inline in the workspace thread, non-blocking.
+- macOS Keychain integration (`security-framework = { … default-features = false }`, `[target.'cfg(target_os = "macos")']`). **Read-only per Decision 26** — `get_generic_password` only confirms the credential is present. Never reads secret contents, never writes. The handler does **not** introduce a `SecretStore` trait — Designer doesn't store agent secrets; the only credentials in the Keychain are Claude Code's own OAuth, which Anthropic owns end-to-end. Settings → Account renders the credential's presence + last-verified time. Service name overridable via `DESIGNER_CLAUDE_KEYCHAIN_SERVICE` for non-default Claude installs.
 
-**Done when:** merge / publish / deploy gates block real agent writes until the inbox approves; cost chip visibly warns before cap; Keychain is the only place secrets live.
+Five new Tauri commands: `cmd_list_pending_approvals`, `cmd_get_cost_status`, `cmd_get_keychain_status`, `cmd_get_cost_chip_preference`, `cmd_set_cost_chip_preference`. `cmd_request_approval` is an explicit error stub — the IPC was forgeable from the webview, and the only legitimate producer of approval requests is the orchestrator's `InboxPermissionHandler`. Single-writer guarantee in `resolve` (atomic-remove-then-write) prevents contradictory terminal events for one approval id; resolutions write to the workspace stream so subscribers see them on the same stream as the request. `gate.status` stays truthful via `GateStatusSink` — the inbox handler notifies the in-memory `InMemoryApprovalGate` after each resolve via a desktop-side `GateSinkAdapter`. Boot-time `gate.replay_from_store` keeps the legacy gate-trait surface honest across restarts.
+
+See `history.md` 2026-04-25 entry for the full design rationale, the post-merge security review fixes (cmd_request_approval injection, sweep race, single-writer ordering, stream consistency, missing-workspace audit row, gate-status drift, cost-replay), and the test coverage that locked them down.
 
 ### Track 13.H — Safety enforcement *(GA gate; detail in `security.md`)*
 
-**Needs:** 13.G (approval inbox surface + Keychain trait must exist to build on).
+**Needs:** 13.G (approval inbox + scope-deny path + Keychain status surface must exist to build on).
 
-**Why a separate track:** 13.G builds the UX surfaces for safety (inbox, cost chip, Keychain trait). 13.H hardens the *enforcement* — pre-write gates, binary verification, tamper-evidence, scope canonicalization. Shipping 13.G without 13.H would leave the user with a safety UI whose enforcement is advisory. GA cannot ship without 13.H.
+**Why a separate track:** 13.G builds the UX surfaces for safety (inbox, cost chip, scope-denied comment artifact, Keychain status row) and the production permission handler that routes every Claude prompt through the user. 13.H hardens the *enforcement* — pre-write gates, binary verification, tamper-evidence, scope canonicalization, and a Designer-owned Keychain item for the HMAC chain key (separate from Claude's OAuth credential, which 13.G only reads metadata from). Shipping 13.G without 13.H would leave the user with a safety UI whose enforcement is advisory. GA cannot ship without 13.H.
 
 **Steps:**
 
@@ -538,7 +540,7 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 - `claude` binary pinning: `SecStaticCodeCheckValidity` against Anthropic's Developer ID requirement before spawn. Refuse to start the orchestrator if the signature does not match; surface a distinctive error in the UI.
 - Context manifest at turn boundaries: when net-new context enters an agent turn (new file in scope, changed `CLAUDE.md`, freshly merged doc), render a diffable manifest in the activity spine before the agent acts. Untrusted-lane content (unmerged PR, fork, non-user-authored commit) is tagged and requires an additional capability grant.
 - Event schema adds `(track_id, role, claude_session_id, tool_name)` to every event; tool-call events become a first-class queryable kind.
-- HMAC chain over events keyed from a session-sealed Keychain item (the Keychain trait from 13.G). Chain is domain-separated per-workspace so a compromised workspace cannot forge another's history. Periodic external anchor to a user-owned git notes ref; chain breaks surface as attention-level alerts.
+- HMAC chain over events keyed from a session-sealed Keychain item — a *new* Designer-owned generic-password entry (e.g. `com.designer.event-chain`), distinct from Claude Code's `Claude Code-credentials` entry that 13.G only reads metadata from. Chain is domain-separated per-workspace so a compromised workspace cannot forge another's history. Periodic external anchor to a user-owned git notes ref; chain breaks surface as attention-level alerts.
 - Secrets scanner on pre-write: curated `gitleaks`-equivalent ruleset for strong patterns (AWS keys, PEM blocks, GitHub tokens, Anthropic keys) blocks writes; high-entropy matches warn only, to avoid training users to click through noise.
 - Secret-input mode in chat: dedicated composer affordance for pasted secrets; content is session-only, redacted from the event store, evicted from Claude's context after the agent's immediate reply.
 - CSP adds `frame-ancestors 'self'`; helper IPC gets a max-frame cap + fuzz-test harness; webview lockdown audit documented.
