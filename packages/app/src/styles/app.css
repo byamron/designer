@@ -38,9 +38,16 @@
   --dev-shadow-intensity: 50%;
   /* Tab corner radii — top and bottom can decouple for the "folder"
    * variant (top rounder than bottom). Symmetric variants keep them
-   * equal. Default "soft" register: 12px both. */
-  --dev-tab-radius-top: 12px;
-  --dev-tab-radius-bottom: 12px;
+   * equal. Default register: 24px both, matching --radius-surface so
+   * tabs and the main tab container share corner shape. */
+  --dev-tab-radius-top: 24px;
+  --dev-tab-radius-bottom: 24px;
+  /* Main tab container + compose corner radii — independent sliders.
+   * Defaults preserve the previous concentric math (24 outer / 8 inner
+   * with --surface-inner-pad = 16px). Either can be tuned in
+   * isolation now. */
+  --dev-main-tab-radius: 24px;
+  --dev-compose-radius: 8px;
 
   /* Border colors derived from the strength + tab-opacity sliders. The
    * main surface and the active tab share `--surface-border-color` so
@@ -877,7 +884,7 @@ body,
   flex-direction: column;
   background: var(--color-content-surface);
   border: var(--border-thin) solid var(--surface-border-color);
-  border-radius: var(--radius-surface);
+  border-radius: var(--dev-main-tab-radius, var(--radius-surface));
   box-shadow: var(--surface-shadow);
   overflow: hidden;
 }
@@ -973,7 +980,7 @@ body,
    * hasn't written anything yet. */
   background: color-mix(in oklab, var(--color-background) var(--dev-compose-mix, 0%), var(--color-content-surface));
   border: var(--border-thin) solid var(--color-border-soft);
-  border-radius: calc(var(--radius-surface) - var(--surface-inner-pad));
+  border-radius: var(--dev-compose-radius, calc(var(--radius-surface) - var(--surface-inner-pad)));
   transition: border-color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive);
 }
 

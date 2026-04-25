@@ -87,13 +87,25 @@ const VARIANT_CONFIG: Record<Exclude<TabRadiusVariant, "custom">, VariantConfig>
 
 const tabRadiusVariantStore = persisted<TabRadiusVariant>(
   "designer.dev.tabRadiusVariant",
-  "soft",
+  "match",
   stringDecoder(TAB_RADIUS_VARIANTS),
 );
 
 const tabRadiusValueStore = persisted<number>(
   "designer.dev.tabRadiusValue",
-  12,
+  24,
+  intDecoder((n) => Math.max(0, Math.min(32, n))),
+);
+
+const mainTabRadiusStore = persisted<number>(
+  "designer.dev.mainTabRadius",
+  24,
+  intDecoder((n) => Math.max(0, Math.min(40, n))),
+);
+
+const composeRadiusStore = persisted<number>(
+  "designer.dev.composeRadius",
+  8,
   intDecoder((n) => Math.max(0, Math.min(32, n))),
 );
 
@@ -106,6 +118,8 @@ interface SurfaceVars {
   shadowIntensity: number;
   tabRadiusVariant: TabRadiusVariant;
   tabRadiusValue: number;
+  mainTabRadius: number;
+  composeRadius: number;
 }
 
 function applyCssVars(v: SurfaceVars): void {
@@ -125,6 +139,8 @@ function applyCssVars(v: SurfaceVars): void {
       : top;
   root.style.setProperty("--dev-tab-radius-top", `${top}px`);
   root.style.setProperty("--dev-tab-radius-bottom", `${bottom}px`);
+  root.style.setProperty("--dev-main-tab-radius", `${v.mainTabRadius}px`);
+  root.style.setProperty("--dev-compose-radius", `${v.composeRadius}px`);
 }
 
 export function SurfaceDevPanel() {
@@ -145,6 +161,12 @@ export function SurfaceDevPanel() {
   const [tabRadiusValue, setTabRadiusValue] = useState<number>(() =>
     tabRadiusValueStore.read(),
   );
+  const [mainTabRadius, setMainTabRadius] = useState<number>(() =>
+    mainTabRadiusStore.read(),
+  );
+  const [composeRadius, setComposeRadius] = useState<number>(() =>
+    composeRadiusStore.read(),
+  );
 
   useEffect(() => {
     applyCssVars({
@@ -156,6 +178,8 @@ export function SurfaceDevPanel() {
       shadowIntensity,
       tabRadiusVariant,
       tabRadiusValue,
+      mainTabRadius,
+      composeRadius,
     });
   }, [
     composeMix,
@@ -166,6 +190,8 @@ export function SurfaceDevPanel() {
     shadowIntensity,
     tabRadiusVariant,
     tabRadiusValue,
+    mainTabRadius,
+    composeRadius,
   ]);
 
   useEffect(() => {
@@ -227,6 +253,16 @@ export function SurfaceDevPanel() {
     }
   };
 
+  const onMainTabRadius = (v: number) => {
+    setMainTabRadius(v);
+    mainTabRadiusStore.write(v);
+  };
+
+  const onComposeRadius = (v: number) => {
+    setComposeRadius(v);
+    composeRadiusStore.write(v);
+  };
+
   const onReset = () => {
     onComposeMix(20);
     onMainTabSand(5);
@@ -234,7 +270,9 @@ export function SurfaceDevPanel() {
     onTabOpacity(70);
     onBorderStrength(10);
     onShadowIntensity(50);
-    onTabRadiusVariant("soft");
+    onTabRadiusVariant("match");
+    onMainTabRadius(24);
+    onComposeRadius(8);
   };
 
   return (
@@ -388,6 +426,38 @@ export function SurfaceDevPanel() {
                 ? "top rounded, bottom flat"
                 : "0 ← square → 32 pill"}
             </span>
+          </div>
+          <div className="surface-dev-panel__row">
+            <label className="surface-dev-panel__label" htmlFor="surface-dev-main-tab-radius">
+              Main tab radius
+              <span className="surface-dev-panel__value">{mainTabRadius}px</span>
+            </label>
+            <input
+              id="surface-dev-main-tab-radius"
+              type="range"
+              min={0}
+              max={40}
+              value={mainTabRadius}
+              onChange={(e) => onMainTabRadius(Number(e.target.value))}
+              aria-valuetext={`${mainTabRadius} pixels — main tab container corner radius`}
+            />
+            <span className="surface-dev-panel__hint">square ← default → softer</span>
+          </div>
+          <div className="surface-dev-panel__row">
+            <label className="surface-dev-panel__label" htmlFor="surface-dev-compose-radius">
+              Compose radius
+              <span className="surface-dev-panel__value">{composeRadius}px</span>
+            </label>
+            <input
+              id="surface-dev-compose-radius"
+              type="range"
+              min={0}
+              max={32}
+              value={composeRadius}
+              onChange={(e) => onComposeRadius(Number(e.target.value))}
+              aria-valuetext={`${composeRadius} pixels — compose dock corner radius`}
+            />
+            <span className="surface-dev-panel__hint">square ← default → softer</span>
           </div>
           <button
             type="button"
