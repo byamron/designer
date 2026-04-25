@@ -30,7 +30,7 @@ Phase 13 — Wire the real runtime            (2 prereqs + 5 tracks, gated indiv
   ├─ 13.0  Pre-track scaffolding         (← 12.A + 12.C; blocks all 13.X)
   ├─ 13.1  Artifact foundation           (← 13.0; unifies tab model; blocks D/E/F/G emitters) ✅
   ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts]
-  ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr]
+  ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr] ✅
   ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype]
   ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment]
   └─ 13.H  Safety enforcement            (← 13.G)                [GA gate; see security.md]
@@ -89,7 +89,7 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 - **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
 - **Phase 13.0** — Pre-track scaffolding. Partitions hot-spot files so the four 13.X agents don't collide; freezes event / IPC / permission-handler contracts. Completed by the scaffolding PR; blocks 13.1 + 13.D/E/F/G.
 - **Phase 13.1** — Artifact foundation + unified workspace thread. Consolidates tab-model-rethink + find-agentation-server into one PR. Retires Plan/Design/Build tab types; every tab renders `WorkspaceThread` with typed artifact blocks inline. Ships the `ArtifactCreated/Updated/Pinned/Unpinned/Archived` event vocabulary, `PayloadRef` (inline/hash), rail projection, IPC commands, and a 12-renderer block registry. D/E/F/G now emit into the registry instead of painting bespoke UI — **they run in parallel after 13.1 with zero UI contention.**
-- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus five tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and can run in parallel after 13.1; H gates on G and blocks GA. See `security.md` for 13.H detail.
+- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus five tracks (D: agent wire, E: git + repo linking ✅, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and can run in parallel after 13.1; H gates on G and blocks GA. **13.E shipped 2026-04-25:** Track aggregate + projection, repo-linking modal, `gh pr create` automation, edit-batch coalescer with per-file +/- signature, partial-init rollback, branch-name argument-injection guard, `gh` subprocess timeout, idempotent `request_merge`, RepoLinkModal focus trap. See `security.md` for 13.H detail.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
 - **Phase 16** — Shippable desktop build. Splits into 16.R (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA) and 16.S (supply-chain posture — blocking audit CI, SBOM, SLSA, dual-key updater, pentest, SECURITY.md). Gates on 13 + 15; Phase 14 optional for MVP. Signed DMG blocked until 16.S lands. Detail in `security.md`.
@@ -326,11 +326,11 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
 | G2 | Swift Foundation Models helper not built | `LanguageModelSession.respond(to:)` call unverified; helper binary missing | 12.B |
 | G3 | Tauri shell binary absent | React app + Rust core can't talk in one process; no window chrome | 12.C |
 | G4 | PlanTab chat hardcodes `ackFor()` | No `Orchestrator::post_message` path from UI to agent | 13.D |
-| G5 | `create_workspace` doesn't create a track (worktree + branch) | `GitOps` wired but never called from UI; no track on disk. Resolution introduces the Track primitive per spec Decisions 29–30. | 13.E |
+| G5 | `create_workspace` doesn't create a track (worktree + branch) | `GitOps` wired but never called from UI; no track on disk. Resolution introduces the Track primitive per spec Decisions 29–30. **Resolved 2026-04-25 (13.E):** `Track` aggregate + projection, `cmd_start_track` calls `init_worktree`, `gh pr create` automation, edit-batch coalescer. | 13.E ✅ |
 | G6 | Local-model jobs (`recap`, `audit_claim`, `summarize_row`) have no caller | Activity spine summaries, morning recap, audit verdicts all stubbed | 13.F |
 | G7 | Approval resolution surface is a `setTimeout` in BuildTab | Real approvals need a real inbox; currently non-interactive | 13.G |
-| G8 | No repo-linking UI or file picker | User can't point Designer at a codebase | 13.E |
-| G9 | No user-repo file persistence (`core-docs/*.md`) | Spec calls for docs-in-repo; only `events.db` is written today | 13.E |
+| G8 | No repo-linking UI or file picker | User can't point Designer at a codebase. **Resolved 2026-04-25 (13.E):** `RepoLinkModal` in onboarding final slide + Settings → Account; `cmd_link_repo` canonicalizes + validates path. | 13.E ✅ |
+| G9 | No user-repo file persistence (`core-docs/*.md`) | Spec calls for docs-in-repo; only `events.db` is written today. **Resolved 2026-04-25 (13.E):** `start_track` seeds `core-docs/{plan,spec,feedback,history}.md` and commits them on the new branch. | 13.E ✅ |
 | G10 | No sync transport (WebRTC / relay / pairing QR) | Protocol types exist, no wire | 14 |
 | G11 | Keychain integration missing | Spec invariant; no secret store today | 13.G |
 | G12 | Mini primitives (Box/Stack/Cluster) not used | Cohesion drift; every layout is inline CSS | 15 |

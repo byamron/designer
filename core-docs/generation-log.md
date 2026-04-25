@@ -443,3 +443,17 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: 16/16 frontend pass (3 new RepoLinkModal cases); cargo test --workspace green; cargo clippy + fmt clean
 - deviations: none — all touched surfaces already used token-driven CSS; new component reuses the existing app-dialog__* classes
 - feedback: pending
+
+## 2026-04-25T10:05:00Z — manual (Phase 13.E review-pass hardening)
+- prompt: "Address review issues: state machine, branch injection, subprocess timeout, idempotence, gh URL parse, concurrent start_track race, signature collisions, partial-init rollback, batch_signatures unbounded, no symlink resolution, modal focus trap, scrim onClick."
+- trigger: manual (security + a11y review pass; no UI generation skill fired — fixes were targeted at existing components)
+- archetype-reused: app-dialog (unchanged shell)
+- components-reused: RepoLinkModal (focus trap + scrim semantics tightened in place; no visual changes)
+- components-new: []
+- primitives: none
+- tokens: no new tokens; same set as the initial 13.E build
+- invariants: 6/6 expected (frontend tsc + vitest clean)
+- typecheck: clean
+- tests: 18/18 vitest pass (2 new RepoLinkModal cases — focus trap, scrim onClick); 32 desktop + 7 core + 3 git url tests pass; cargo clippy + fmt clean
+- deviations: none
+- feedback: FB-0027 (bound subprocesses, validate inputs, dedupe action commands), FB-0028 (modals trap Tab focus), FB-0029 (scrim dismiss on click, not mousedown)
