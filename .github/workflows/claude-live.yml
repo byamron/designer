@@ -27,6 +27,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve claude install path
+        # The self-hosted runner spawns non-login, non-interactive shells, so
+        # PATH augmentations from `~/.zshrc` (npm-global, Homebrew) are not
+        # inherited. Resolve the npm-global prefix explicitly and append to
+        # GITHUB_PATH so subsequent steps can call `claude` by name.
+        run: |
+          set -euo pipefail
+          # Try npm; fall back to the well-known macOS install locations.
+          if command -v npm >/dev/null 2>&1; then
+            NPM_PREFIX="$(npm config get prefix)"
+            echo "$NPM_PREFIX/bin" >> "$GITHUB_PATH"
+          fi
+          # Belt + suspenders: include the typical Mac install dirs in case
+          # `npm` itself isn't on the runner's stripped PATH.
+          for dir in \
+            "$HOME/.npm-global/bin" \
+            "/opt/homebrew/bin" \
+            "/usr/local/bin"; do
+            if [ -d "$dir" ]; then
+              echo "$dir" >> "$GITHUB_PATH"
+            fi
+          done
+
       - name: Verify claude is on PATH and authenticated
         run: |
           set -euo pipefail
