@@ -96,13 +96,13 @@
     {
       "name": "WorkspaceThread",
       "path": "packages/app/src/tabs/WorkspaceThread.tsx",
-      "purpose": "The single tab body for every workspace tab post-Phase 13.1 (spec Decision 36). One continuous scrollable thread of typed artifact blocks (resolved via the block registry) plus a docked ComposeDock. Per-tab `hasStarted` state — fresh tabs render context-aware suggestions sourced from the workspace's recent artifacts; first send flips to thread mode. Subscribes to artifact_* stream events for live refresh.",
+      "purpose": "The single tab body for every workspace tab post-Phase 13.1 (spec Decision 36). One continuous scrollable thread of typed artifact blocks (resolved via the block registry) plus a docked ComposeDock. Per-tab `hasStarted` state — fresh tabs render context-aware suggestions sourced from the workspace's recent artifacts; first send flips to thread mode. Subscribes to `artifact_*` stream events filtered to the production wire format `workspace:<uuid>` (also tolerates the bare-uuid mock format) for live refresh. Phase 13.D wired `onSend` to `ipcClient().postMessage` with synchronous `useRef` re-entry guard against double-dispatch, draft restoration via the ComposeDock imperative handle on failure, and typed `IpcError` translation via `ipc/error.ts` (cost-cap-exceeded / scope-denied / etc. each get their own copy).",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-3", "space-4", "type-body-size", "type-body-leading", "type-caption-size", "type-family-sans", "color-foreground", "color-muted", "color-surface-hover", "radius-button", "border-thin", "color-border", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
       "css_prefix": "workspace-thread__ thread__ suggestion-row__",
-      "last_updated": "2026-04-24"
+      "last_updated": "2026-04-25"
     },
     {
       "name": "PlanTab",
@@ -158,13 +158,13 @@
     {
       "name": "ComposeDock",
       "path": "packages/app/src/components/ComposeDock.tsx",
-      "purpose": "Shared compose surface for WorkspaceThread (and any future tab variants). Owns its own draft, attachments, model/effort/plan-mode controls, and drag-and-drop target. Imperative handle (`setDraft`, `focus`) lets the parent seed prompts (used by suggestion rows in WorkspaceThread). Phase 13.D will wire `onSend` to `Orchestrator::post_message`; until then the dock surfaces an explicit 'wiring lands in 13.D' notice instead of silently discarding drafts.",
+      "purpose": "Shared compose surface for WorkspaceThread (and any future tab variants). Owns its own draft, attachments, model/effort/plan-mode controls, and drag-and-drop target. Imperative handle (`setDraft`, `focus`) lets the parent seed prompts and restore drafts on send failure (used by WorkspaceThread.onSend's catch handler — the dock clears its draft synchronously after `onSend` returns, so failure recovery has to re-seed via the handle). 13.D wired `onSend` through to `Orchestrator::post_message` via `cmd_post_message`; the parent is responsible for in-flight gating and error display.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "radius-pill", "border-thin", "color-foreground", "color-muted", "color-border", "color-border-soft", "color-content-surface", "color-background", "color-surface-flat", "color-surface-raised", "type-body-size", "type-caption-size", "weight-medium", "motion-interactive", "focus-outline-width", "focus-outline-color", "surface-inner-pad", "radius-surface", "dev-compose-mix", "dev-compose-radius"],
       "css_prefix": "compose__",
-      "last_updated": "2026-04-24"
+      "last_updated": "2026-04-25"
     },
     {
       "name": "SettingsPage",

@@ -37,6 +37,65 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 13.D — agent wire
+**Date:** 2026-04-25
+**Branch:** 13d-agent-wire
+**Commit:** pending
+
+**What was done:**
+
+End-to-end user-prompt → agent-reply loop, against the ADR 0003 artifact foundation. New IPC command `cmd_post_message(workspace_id, text, attachments)` lands the user's draft as both a `MessagePosted` event and an `ArtifactCreated { kind: "message" }` artifact synchronously, then dispatches the body to `Orchestrator::post_message`. A new `OrchestratorEvent::ArtifactProduced` variant carries agent-emitted typed artifacts (today only `diagram` and `report` per the 13.D scope cap) without rerouting them through the persisted `MessagePosted` channel — the AppCore stays the single writer of `EventPayload::ArtifactCreated`.
+
+A boot-spawned message coalescer task subscribes to the orchestrator's broadcast channel, filters out user echoes, accumulates per-(workspace, author_role) bursts, and flushes one `ArtifactCreated { kind: "message" }` after 120 ms of idle (the partial-message coalescer deferred from 12.A; window overridable via `DESIGNER_MESSAGE_COALESCE_MS` for tests). `MockOrchestrator::post_message` no longer double-persists the user's text; instead it simulates a deterministic `Acknowledged: …` reply and emits `ArtifactProduced` when the prompt mentions "diagram" or "report", which is enough to exercise the full round-trip in the offline demo.
+
+`WorkspaceThread.onSend` now `await`s `ipcClient().postMessage`. The placeholder "wiring lands in Phase 13.D" notice is gone. On error the draft is restored into the compose dock and an alert banner surfaces the message so the user can edit and resend without retyping. The mock IPC client mirrors the Rust path closely enough that `vitest` can render the thread, click send, and assert the request shape.
+
+`PostMessageRequest`, `PostMessageAttachment`, and `PostMessageResponse` DTOs added to `designer-ipc`; matching TypeScript types in `packages/app/src/ipc/types.ts`. `ipc_agents.rs` holds the runtime-agnostic async handler; `commands_agents::post_message` is the thin Tauri shim, registered alphabetically in `main.rs`'s `generate_handler!`.
+
+**Why:**
+
+13.1 unified the workspace surface around `WorkspaceThread` but left the compose dock wired to a "draft cleared" notice. 12.A delivered the Claude Code subprocess primitive but the partial-message coalescer was deferred. 13.D closes both: the user can now type a message and watch an agent reply land inline. Without this, the unified thread is a read-only artifact viewer.
+
+**Design decisions:**
+
+- **User text persists synchronously.** `AppCore::post_message` appends both the `MessagePosted` event and the `ArtifactCreated` artifact before calling the orchestrator. If the subprocess is down, the user's text is durable — they see it in the thread, they can re-dispatch, they don't lose drafts to a flaky child.
+- **Lazy team spawn on first message.** Demo / fresh workspaces start without a team. The first user message lazy-spawns one (lead_role `team-lead`, no teammates). Future tracks can override the spawn payload by spawning a team explicitly before the first message.
+- **Coalescer drops user echoes.** `MockOrchestrator::post_message` re-broadcasts the user prompt as `OrchestratorEvent::MessagePosted` for parity with the real Claude flow (which re-emits assistant text via the stream translator). The coalescer matches `author_role == "user"` and drops the echo so the user doesn't see their text twice.
+- **Failed sends restore the draft.** ComposeDock clears its draft after `onSend` returns regardless of outcome. WorkspaceThread catches the failure, calls `composeRef.current?.setDraft(payload.text)` and refocuses, so the user can edit and resend without retyping.
+
+**Technical decisions:**
+
+- **Coalescer is two tasks, not one.** Recv task accumulates bodies under a `parking_lot::Mutex<HashMap>`; tick task polls every 30 ms and drains entries that have been idle for ≥ window. Single-task `tokio::select!` with a dynamic timer was rejected — bookkeeping for the next deadline doubled the code with no measurable latency win.
+- **`OrchestratorEvent::ArtifactProduced` is broadcast-only.** The real `ClaudeCodeOrchestrator`'s reader task persists `EventPayload::MessagePosted` via `event_to_payload`, but for `ArtifactProduced` we explicitly return `None` — AppCore's coalescer is the single writer for `EventPayload::ArtifactCreated`. Two writers would race the projector and produce duplicate artifacts.
+- **`spawn_message_coalescer` is a free function, not a method.** Per `CLAUDE.md` §"Parallel track conventions", new methods on `AppCore` go in `core_agents.rs`'s sibling `impl AppCore { … }` block, but the boot wiring lives in `main.rs::setup`. Free function accepts `Arc<AppCore>` so it composes naturally with both the production boot path and the test setup.
+- **Test override via env.** `DESIGNER_MESSAGE_COALESCE_MS` shrinks the 120 ms production window to 5 ms in tests. The round-trip test polls every 20 ms for the diagram artifact + the agent's coalesced reply with a 25-attempt cap (~500 ms ceiling).
+
+**Tradeoffs discussed:**
+
+- **Modify `MockOrchestrator::post_message` vs. introduce a new test surface.** Modified the mock — the existing semantics ("write the user's text as if the team echoed it") were a stand-in that doesn't match the real Claude flow. Switching the mock to broadcast-only (no persist) for the user message + simulate an agent reply is closer to the real path and lets the AppCore stay the single user-side persister. One existing test (`mock_assign_task_produces_create_and_complete`) still passes against the new behavior.
+- **Add `OrchestratorEvent::ArtifactProduced` vs. keyword-detect inside the coalescer.** Added the variant. Keyword detection in `core_agents.rs` would tightly couple the AppCore to the mock's keyword convention and force the same logic to be re-derived when real Claude tool-use shapes are observed. The variant gives the translator (or any future orchestrator) a clean emission target.
+- **Disable the send button while in-flight vs. let the empty-draft guard prevent double-dispatch.** Did the latter. ComposeDock clears its draft after `onSend` returns; the next send sees an empty draft and the dock's empty guard short-circuits. Disabling the button would require wiring a `disabled` prop through ComposeDock's controlled-component contract; not worth the surface change.
+
+**Lessons learned:**
+
+- **`#[serde(tag = "kind", …)]` collides with a field literally named `kind`.** Initially named the new `OrchestratorEvent::ArtifactProduced` field `kind`. The derive emitted "variant field name `kind` conflicts with internal tag" and refused to compile. Renamed to `artifact_kind` to mirror `EventPayload::ArtifactCreated`'s convention, which already worked around the same collision.
+- **Same serde rule blew up `IpcError`.** Newtype-tuple variants (`Unknown(String)`, `NotFound(String)`, …) on an internally-tagged enum (`#[serde(tag = "kind")]`) compile but fail at runtime with "cannot serialize tagged newtype variant containing a string". Latent bug — the existing crate had it since 13.0 — surfaced as soon as 13.D actually returned typed errors over the wire. Converted every variant to a struct form (named field) and added a `tests::ipc_error_serialization_shape_has_kind_tag` round-trip lock; the TS translator in `packages/app/src/ipc/error.ts` matches against the locked shape.
+- **DEFERRED transactions deadlock under concurrent writers in WAL mode, even with `busy_timeout`.** The 13.D coalescer is the first path with two concurrent SQLite writers (AppCore writes the user artifact while the coalescer's `emit_agent_artifact` writes a tool-call artifact). `conn.transaction()` defaults to DEFERRED, which acquires a read lock on the first SELECT and tries to upgrade to write at the first INSERT — and SQLite returns `SQLITE_LOCKED` (not `SQLITE_BUSY`) for that upgrade conflict, which `busy_timeout` does **not** retry. Switched the append path to `transaction_with_behavior(Immediate)` so the write lock is acquired at BEGIN and `busy_timeout=5000` handles the contention cleanly. Also added `PRAGMA busy_timeout=5000` to per-connection init so future write paths benefit.
+- **`stream_id` wire format was checked incorrectly.** `StreamId::Workspace(uuid)` serializes as `"workspace:<uuid>"` (Rust `Display` impl), but the WorkspaceThread refresh listener checked `event.stream_id === workspace.id` — it would only have matched the bare-uuid mock format. Production events would have flowed through the channel without ever triggering a refresh. Tightened the listener to match the production prefix and updated the mock to emit production-shaped stream_ids; added a vitest that dispatches a `workspace:<uuid>` artifact event and asserts a refresh fires.
+- **Frontend draft preservation is non-trivial.** ComposeDock clears its draft synchronously after `onSend` returns. To preserve on failure, the parent has to re-seed the draft via the imperative `setDraft` handle. Otherwise the user retypes a long prompt every time the orchestrator burps. Pair that with a synchronous `useRef` re-entry guard on `onSend` so two clicks within one microtask don't both dispatch (React state alone batches and would let both through).
+- **Cargo workspace tests can flake when one test sets `std::env::set_var` from inside a `#[tokio::test]`.** The first run of `cargo test --workspace` produced one transient failure on the unrelated `core::tests::open_tab_appends_and_projects`. Eight follow-up runs were clean. The likely cause is the projector's broadcast subscriber double-applying the `TabOpened` event under load — a pre-existing race documented in `core.rs` (synchronous `apply` + broadcast subscriber both fire). Out of scope for 13.D.
+
+**Followup fixes (in this same PR after the first review pass):**
+
+- **Order flipped to dispatch-first, persist-second.** Original implementation persisted the user artifact before dispatching to the orchestrator on the principle "drafts survive subprocess failure". That created a duplicate-on-retry pattern: dispatch fails → user artifact persisted → user retries → second user artifact for the same text. Flipped the order so the artifact lands only on successful dispatch; the frontend's draft restoration covers the "didn't lose my text" UX.
+- **`OrchestratorEvent::ArtifactProduced` is processed inline.** Originally `tokio::spawn`'d to keep the recv loop draining; that put a concurrent SQLite writer in flight against `AppCore::post_message`. Moved to inline `await` — tool-call burst rate is low enough that briefly blocking the recv loop is fine, and the broadcast channel buffers 256 events behind it.
+- **Coalescer holds `Weak<AppCore>`.** Tasks no longer keep the core alive past the caller's last `Arc`; tests can call `boot_test_core` repeatedly without leaking spawned tasks across runs.
+- **Length cap.** `cmd_post_message` rejects bodies > 64 KB with `IpcError::InvalidRequest` — caps a runaway paste before it hits the orchestrator or the projector.
+- **Attachments warn-and-drop.** Attachments accepted by the IPC are logged at WARN level so we notice if a flow starts depending on attachment delivery before the storage path exists. Tracked as `TODO(13.D-followup)`.
+- **`tool_use` / `tool_result` translator gap.** Marked `TODO(13.D-followup)` in `crates/designer-claude/src/stream.rs::translate_assistant`. Per "summarize by default, drill on demand," agent tool calls should at minimum emit `ArtifactProduced` summaries; the wiring lands per-tool as we observe Claude's tool-use shapes.
+
+---
+
 ### Phase 13.1 — unified workspace thread + artifact foundation
 **Date:** 2026-04-24/25
 **Branch:** consolidate-tab-server

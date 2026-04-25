@@ -11,6 +11,8 @@ import type {
   CreateWorkspaceRequest,
   OpenTabRequest,
   PayloadRef,
+  PostMessageRequest,
+  PostMessageResponse,
   Project,
   ProjectId,
   ProjectSummary,
@@ -50,6 +52,10 @@ export interface MockCore {
   listPinnedArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
   getArtifact(id: ArtifactId): ArtifactDetail;
   togglePinArtifact(id: ArtifactId): boolean;
+  // Phase 13.D
+  postMessage(req: PostMessageRequest): PostMessageResponse;
+  /** Test surface: every postMessage call captured for assertion. */
+  postedMessages(): PostMessageRequest[];
 }
 
 interface MockArtifact extends ArtifactSummary {
@@ -69,6 +75,7 @@ export function createMockCore(): MockCore {
   const workspaces: Workspace[] = [];
   const listeners = new Set<Listener>();
   const approvals: Approval[] = [];
+  const postedMessages: PostMessageRequest[] = [];
   let sequence = 0;
   const emit = (event: Omit<StreamEvent, "sequence">) => {
     const payload: StreamEvent = { ...event, sequence: ++sequence };
@@ -281,7 +288,7 @@ export function createMockCore(): MockCore {
       projects.push(project);
       emit({
         kind: "project_created",
-        stream_id: project.id,
+        stream_id: `project:${project.id}`,
         timestamp: now(),
         summary: `Project '${project.name}' created`,
       });
@@ -301,7 +308,7 @@ export function createMockCore(): MockCore {
       workspaces.push(workspace);
       emit({
         kind: "workspace_created",
-        stream_id: workspace.id,
+        stream_id: `workspace:${workspace.id}`,
         timestamp: now(),
         summary: `Workspace '${workspace.name}' created`,
       });
@@ -319,7 +326,7 @@ export function createMockCore(): MockCore {
       if (w) w.tabs.push(tab);
       emit({
         kind: "tab_opened",
-        stream_id: req.workspace_id,
+        stream_id: `workspace:${req.workspace_id}`,
         timestamp: now(),
         summary: `Tab '${tab.title}' (${tab.template}) opened`,
       });
@@ -333,7 +340,7 @@ export function createMockCore(): MockCore {
       t.closed_at = now();
       emit({
         kind: "tab_closed",
-        stream_id: workspaceId,
+        stream_id: `workspace:${workspaceId}`,
         timestamp: now(),
         summary: `Tab '${t.title}' closed`,
       });
@@ -354,7 +361,7 @@ export function createMockCore(): MockCore {
       approvals.push(approval);
       emit({
         kind: "approval_requested",
-        stream_id: workspaceId,
+        stream_id: `workspace:${workspaceId}`,
         timestamp: now(),
         summary: `Approval requested: ${gate}`,
       });
@@ -366,7 +373,7 @@ export function createMockCore(): MockCore {
       a.status = granted ? "granted" : "denied";
       emit({
         kind: granted ? "approval_granted" : "approval_denied",
-        stream_id: a.workspaceId,
+        stream_id: `workspace:${a.workspaceId}`,
         timestamp: now(),
         summary: reason ?? (granted ? "Granted" : "Denied"),
       });
@@ -396,13 +403,99 @@ export function createMockCore(): MockCore {
       a.pinned = !a.pinned;
       emit({
         kind: a.pinned ? "artifact_pinned" : "artifact_unpinned",
-        stream_id: a.workspace_id,
+        stream_id: `workspace:${a.workspace_id}`,
         timestamp: now(),
         summary: `${a.pinned ? "Pinned" : "Unpinned"} ${a.title}`,
       });
       return a.pinned;
     },
+    postMessage(req) {
+      postedMessages.push(req);
+      // Mirror the Rust path: the user message lands as a Message
+      // artifact synchronously, then the mock simulates an agent reply
+      // (and an optional diagram/report when the prompt mentions one)
+      // so the thread visibly progresses without a real subprocess.
+      const userArtifact: MockArtifact = {
+        id: uuid(),
+        workspace_id: req.workspace_id,
+        kind: "message",
+        title: firstLineTruncate(req.text, 60),
+        summary: firstLineTruncate(req.text, 140),
+        author_role: "user",
+        version: 1,
+        created_at: now(),
+        updated_at: now(),
+        pinned: false,
+        payload: { kind: "inline", body: req.text },
+      };
+      artifacts.push(userArtifact);
+      emit({
+        kind: "artifact_created",
+        stream_id: `workspace:${req.workspace_id}`,
+        timestamp: now(),
+        summary: userArtifact.title,
+      });
+
+      const reply = `Acknowledged: ${req.text}`;
+      const replyArtifact: MockArtifact = {
+        id: uuid(),
+        workspace_id: req.workspace_id,
+        kind: "message",
+        title: firstLineTruncate(reply, 60),
+        summary: firstLineTruncate(reply, 140),
+        author_role: "team-lead",
+        version: 1,
+        created_at: now(),
+        updated_at: now(),
+        pinned: false,
+        payload: { kind: "inline", body: reply },
+      };
+      artifacts.push(replyArtifact);
+      emit({
+        kind: "artifact_created",
+        stream_id: `workspace:${req.workspace_id}`,
+        timestamp: now(),
+        summary: replyArtifact.title,
+      });
+
+      const lower = req.text.toLowerCase();
+      if (lower.includes("diagram") || lower.includes("report")) {
+        const isDiagram = lower.includes("diagram");
+        const extra: MockArtifact = {
+          id: uuid(),
+          workspace_id: req.workspace_id,
+          kind: isDiagram ? "diagram" : "report",
+          title: isDiagram ? "Sequence diagram" : "Activity report",
+          summary: isDiagram
+            ? "Mock diagram produced from the prompt."
+            : "Mock report produced from the prompt.",
+          author_role: "team-lead",
+          version: 1,
+          created_at: now(),
+          updated_at: now(),
+          pinned: false,
+          payload: { kind: "inline", body: reply },
+        };
+        artifacts.push(extra);
+        emit({
+          kind: "artifact_created",
+          stream_id: `workspace:${req.workspace_id}`,
+          timestamp: now(),
+          summary: extra.title,
+        });
+      }
+      return { artifact_id: userArtifact.id };
+    },
+    postedMessages() {
+      return [...postedMessages];
+    },
   };
+}
+
+function firstLineTruncate(s: string, max: number): string {
+  const first = s.split("\n").find((l) => l.trim().length > 0)?.trim() ?? s.trim();
+  if (first.length <= max) return first;
+  return first.slice(0, max) + "…";
 }
 
 /** Expose some fields tests use to preseed or inspect state. */

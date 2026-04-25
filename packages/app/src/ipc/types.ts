@@ -139,6 +139,23 @@ export interface OpenTabRequest {
   template: TabTemplate;
 }
 
+// ---- Agent wire (Phase 13.D) ----
+export interface PostMessageAttachment {
+  id: string;
+  name: string;
+  size: number;
+}
+
+export interface PostMessageRequest {
+  workspace_id: WorkspaceId;
+  text: string;
+  attachments: PostMessageAttachment[];
+}
+
+export interface PostMessageResponse {
+  artifact_id: ArtifactId;
+}
+
 export interface StreamEvent {
   kind: string;
   stream_id: string;

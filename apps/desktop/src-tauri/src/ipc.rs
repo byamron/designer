@@ -17,7 +17,7 @@ pub async fn cmd_create_project(
     req: CreateProjectRequest,
 ) -> Result<ProjectSummary, IpcError> {
     if req.name.trim().is_empty() {
-        return Err(IpcError::InvalidRequest("name must not be empty".into()));
+        return Err(IpcError::invalid_request("name must not be empty"));
     }
     let project = core
         .create_project(req.name, req.root_path)
@@ -47,7 +47,7 @@ pub async fn cmd_create_workspace(
     req: CreateWorkspaceRequest,
 ) -> Result<WorkspaceSummary, IpcError> {
     if req.name.trim().is_empty() {
-        return Err(IpcError::InvalidRequest("name must not be empty".into()));
+        return Err(IpcError::invalid_request("name must not be empty"));
     }
     let workspace = core
         .create_workspace(req.project_id, req.name, req.base_branch)
@@ -81,7 +81,7 @@ pub async fn cmd_list_workspaces(
 
 pub async fn cmd_open_tab(core: &Arc<AppCore>, req: OpenTabRequest) -> Result<Tab, IpcError> {
     if req.title.trim().is_empty() {
-        return Err(IpcError::InvalidRequest("title must not be empty".into()));
+        return Err(IpcError::invalid_request("title must not be empty"));
     }
     core.open_tab(req.workspace_id, req.title, req.template)
         .await
@@ -111,9 +111,7 @@ pub async fn cmd_request_approval(
     _gate: String,
     _summary: String,
 ) -> Result<String, IpcError> {
-    Err(IpcError::Unknown(
-        "approvals are a Phase 13.G surface".into(),
-    ))
+    Err(IpcError::unknown("approvals are a Phase 13.G surface"))
 }
 
 pub async fn cmd_resolve_approval(
@@ -122,9 +120,7 @@ pub async fn cmd_resolve_approval(
     _granted: bool,
     _reason: Option<String>,
 ) -> Result<(), IpcError> {
-    Err(IpcError::Unknown(
-        "approvals are a Phase 13.G surface".into(),
-    ))
+    Err(IpcError::unknown("approvals are a Phase 13.G surface"))
 }
 
 // ---- Artifacts (Phase 13.1) ----------------------------------------------
@@ -160,7 +156,7 @@ pub async fn cmd_get_artifact(
     let artifact = core
         .get_artifact(artifact_id)
         .await
-        .ok_or_else(|| IpcError::NotFound(artifact_id.to_string()))?;
+        .ok_or_else(|| IpcError::not_found(artifact_id.to_string()))?;
     Ok(ArtifactDetail {
         payload: artifact.payload.clone(),
         summary: ArtifactSummary::from(artifact),

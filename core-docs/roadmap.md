@@ -29,7 +29,7 @@ Phase 12 — Real-integration validation     (3 parallel tracks)
 Phase 13 — Wire the real runtime            (2 prereqs + 5 tracks, gated individually)
   ├─ 13.0  Pre-track scaffolding         (← 12.A + 12.C; blocks all 13.X)
   ├─ 13.1  Artifact foundation           (← 13.0; unifies tab model; blocks D/E/F/G emitters) ✅
-  ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts]
+  ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts] ✅
   ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr]
   ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype]
   ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment]
@@ -89,7 +89,7 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 - **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
 - **Phase 13.0** — Pre-track scaffolding. Partitions hot-spot files so the four 13.X agents don't collide; freezes event / IPC / permission-handler contracts. Completed by the scaffolding PR; blocks 13.1 + 13.D/E/F/G.
 - **Phase 13.1** — Artifact foundation + unified workspace thread. Consolidates tab-model-rethink + find-agentation-server into one PR. Retires Plan/Design/Build tab types; every tab renders `WorkspaceThread` with typed artifact blocks inline. Ships the `ArtifactCreated/Updated/Pinned/Unpinned/Archived` event vocabulary, `PayloadRef` (inline/hash), rail projection, IPC commands, and a 12-renderer block registry. D/E/F/G now emit into the registry instead of painting bespoke UI — **they run in parallel after 13.1 with zero UI contention.**
-- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus five tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and can run in parallel after 13.1; H gates on G and blocks GA. See `security.md` for 13.H detail.
+- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus five tracks (D: agent wire ✅ landed 2026-04-25, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and can run in parallel after 13.1; H gates on G and blocks GA. See `security.md` for 13.H detail.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
 - **Phase 16** — Shippable desktop build. Splits into 16.R (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA) and 16.S (supply-chain posture — blocking audit CI, SBOM, SLSA, dual-key updater, pentest, SECURITY.md). Gates on 13 + 15; Phase 14 optional for MVP. Signed DMG blocked until 16.S lands. Detail in `security.md`.
@@ -469,18 +469,25 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Goal:** turn the "scaffold that demos the UX" into "a product that actually does the thing." Each track replaces a stubbed frontend path with a real backend call. After 13.0 lands, all four tracks can be built in parallel by separate agents with zero file contention.
 
-### Track 13.D — Agent wire (gaps G4)
+### Track 13.D — Agent wire (gaps G4) — landed 2026-04-25
 
-**Needs:** 12.A + 12.C.
+**Needs:** 12.A + 12.C + 13.1.
 
-**Steps:**
-- Replace `PlanTab`'s `ackFor()` with `ipcClient().postMessage(workspace.id, "you", draft)`; add a corresponding `#[tauri::command]` backed by `Orchestrator::post_message`.
-- Stream agent replies back via the `designer://event-stream` channel (`MessagePosted` events with `author.role != "you"`).
-- Render incoming `MessagePosted` events into the chat as streaming-text bubbles; honor reduced-motion.
-- Add a "who's replying" indicator driven by `AgentSpawned` / `TeammateIdle` state.
-- Test against a real Claude team: ask "What's the plan for X?" and see a real reply land.
+**Shipped:**
+- New `cmd_post_message(workspace_id, text, attachments)` IPC. Wrapper in `commands_agents.rs`; async fn in `ipc_agents.rs`; registered in `main.rs`'s `tauri::generate_handler!` (alphabetical). DTOs (`PostMessageRequest` / `PostMessageAttachment` / `PostMessageResponse`) in `crates/designer-ipc/src/lib.rs`.
+- `AppCore::post_message` dispatches to `Orchestrator::post_message` first; on success, persists `MessagePosted { author: User }` + `ArtifactCreated { kind: Message, author_role: "user" }` synchronously. Lazy-spawns a `team-lead` team on `TeamNotFound` for the demo / first-message flow. The dispatch-first ordering rules out duplicate user artifacts on retry after orchestrator failure.
+- Boot-spawned message coalescer in `core_agents.rs::spawn_message_coalescer` (called from `main.rs::setup`): subscribes to `orchestrator.subscribe()`, drops user echoes, accumulates per-(workspace, author_role) bursts, flushes one `ArtifactCreated { kind: Message }` per burst at 120 ms idle (`DEFAULT_COALESCE_WINDOW`; tests override via `DESIGNER_MESSAGE_COALESCE_MS`). Tasks hold `Weak<AppCore>` so they don't leak across test boots.
+- New `OrchestratorEvent::ArtifactProduced { workspace_id, artifact_kind, title, summary, body, author_role }` variant — broadcast-only; `event_to_payload` returns `None`. AppCore is the single writer of `EventPayload::ArtifactCreated`. MockOrchestrator emits this for keyword-matched ("diagram" / "report") prompts; real Claude tool-use translation lands per-tool (TODO(13.D-followup) marker in `crates/designer-claude/src/stream.rs::translate_assistant`).
+- `WorkspaceThread.onSend` awaits `ipcClient().postMessage`. Synchronous `useRef` re-entry guard prevents concurrent dispatch on rapid double-clicks. On error: typed `IpcError` translated by `packages/app/src/ipc/error.ts::describeIpcError` (cost-cap / scope-deny / etc. each get distinct copy); draft restored via `composeRef.current?.setDraft(payload.text)` + refocus; alert banner surfaces the message.
+- Foundation fix needed by the above: `SqliteEventStore::append` now uses `transaction_with_behavior(Immediate)` (DEFERRED transactions deadlock under concurrent writers in WAL mode with `SQLITE_LOCKED`, which `busy_timeout` can't retry); `PRAGMA busy_timeout=5000` added to per-connection init. `IpcError` enum variants converted to struct form so the tagged-union representation actually serializes (newtype-tuple variants fail at runtime).
+- Tests: 6 cargo (round-trip, coalescer-drops-echoes, coalescer-separates-keys, no-artifact-on-failure, oversized-text, ArtifactProduced-broadcast-only) + 5 vitest (postMessage shape, empty-draft guard, restores-draft-on-failure, ignores-concurrent-sends, refreshes-on-production-stream-id).
 
-**Done when:** a user message travels UI → Rust → Claude → events → UI with no hardcoded text anywhere; the activity spine shows the lead going active during the reply.
+**Deferred to 13.D-followup or downstream tracks:**
+- `tool_use` / `tool_result` content blocks in `ClaudeStreamTranslator` — currently dropped with a `TODO(13.D-followup)` marker. Per "summarize by default, drill on demand," these should at minimum emit `ArtifactProduced` summaries; wiring lands per-tool as Claude tool-use shapes are observed.
+- Attachment byte storage. The IPC accepts `attachments: Vec<PostMessageAttachment>` and logs at WARN; no storage path yet.
+- "Agent is typing…" liveness indicator. ADR 0001 deferred this; revisit once real subprocess timing is observed in 13.E/F/G integration.
+
+**Original spec for reference:** the pre-13.D plan was to replace `PlanTab`'s `ackFor()` with `ipcClient().postMessage(...)`. PlanTab was retired in 13.1 (spec Decision 36); the unified `WorkspaceThread` is the surface that now owns the send path.
 
 ### Track 13.E — Track primitive + git wire + repo linking + core-docs persistence (gaps G5, G8, G9)
 

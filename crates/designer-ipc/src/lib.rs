@@ -12,26 +12,68 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
 
+/// Wire-level error returned across the Tauri IPC boundary. Variants use
+/// **struct** form (named field) instead of newtype-tuple form so serde's
+/// internally-tagged representation can serialize them. (`#[serde(tag =
+/// "kind")]` cannot serialize newtype variants whose inner type is a
+/// scalar — it fails at runtime with "cannot serialize tagged newtype
+/// variant containing a string".) The TypeScript translator in
+/// `packages/app/src/ipc/error.ts` matches on `kind` and reads the
+/// per-variant payload field.
 #[derive(Debug, Error, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum IpcError {
-    #[error("{0}")]
-    Unknown(String),
-    #[error("not found: {0}")]
-    NotFound(String),
-    #[error("invalid request: {0}")]
-    InvalidRequest(String),
-    #[error("approval required: {0}")]
-    ApprovalRequired(String),
-    #[error("cost cap exceeded: {0}")]
-    CostCapExceeded(String),
-    #[error("scope denied: {0}")]
-    ScopeDenied(String),
+    #[error("{message}")]
+    Unknown { message: String },
+    #[error("not found: {id}")]
+    NotFound { id: String },
+    #[error("invalid request: {message}")]
+    InvalidRequest { message: String },
+    #[error("approval required: {message}")]
+    ApprovalRequired { message: String },
+    #[error("cost cap exceeded: {message}")]
+    CostCapExceeded { message: String },
+    #[error("scope denied: {path}")]
+    ScopeDenied { path: String },
+}
+
+impl IpcError {
+    /// Convenience for the common ad-hoc string error site. Use the
+    /// specific constructors (`not_found`, `invalid_request`, etc.) when
+    /// the variant is known.
+    pub fn unknown(message: impl Into<String>) -> Self {
+        IpcError::Unknown {
+            message: message.into(),
+        }
+    }
+    pub fn not_found(id: impl Into<String>) -> Self {
+        IpcError::NotFound { id: id.into() }
+    }
+    pub fn invalid_request(message: impl Into<String>) -> Self {
+        IpcError::InvalidRequest {
+            message: message.into(),
+        }
+    }
+    pub fn approval_required(message: impl Into<String>) -> Self {
+        IpcError::ApprovalRequired {
+            message: message.into(),
+        }
+    }
+    pub fn cost_cap_exceeded(message: impl Into<String>) -> Self {
+        IpcError::CostCapExceeded {
+            message: message.into(),
+        }
+    }
+    pub fn scope_denied(path: impl Into<String>) -> Self {
+        IpcError::ScopeDenied { path: path.into() }
+    }
 }
 
 impl From<designer_core::CoreError> for IpcError {
     fn from(value: designer_core::CoreError) -> Self {
-        IpcError::Unknown(value.to_string())
+        IpcError::Unknown {
+            message: value.to_string(),
+        }
     }
 }
 
@@ -123,6 +165,34 @@ pub struct ArtifactDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TogglePinRequest {
+    pub artifact_id: ArtifactId,
+}
+
+// ---- Agent wire (Phase 13.D) --------------------------------------------
+
+/// Request body for `cmd_post_message`. Drops the user's draft into the
+/// active workspace's thread and dispatches it to the orchestrator. The
+/// `attachments` field carries opaque metadata the frontend assembled —
+/// today the backend just records the names; richer plumbing (paste
+/// upload, etc.) lands in 13.E/F as those tracks materialize their data
+/// stores.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostMessageRequest {
+    pub workspace_id: WorkspaceId,
+    pub text: String,
+    #[serde(default)]
+    pub attachments: Vec<PostMessageAttachment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostMessageAttachment {
+    pub id: String,
+    pub name: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostMessageResponse {
     pub artifact_id: ArtifactId,
 }
 
@@ -255,6 +325,44 @@ mod tests {
             payload.get("name").and_then(|v| v.as_str()),
             Some("Designer")
         );
+    }
+
+    #[test]
+    fn ipc_error_serialization_shape_has_kind_tag() {
+        // Verify the tagged-enum shape so the TypeScript translator can
+        // pattern-match on `kind`. If serde's representation ever shifts
+        // (e.g. a serde upgrade flips tuple-variant handling) the
+        // frontend translator must be updated in lockstep.
+        let err = IpcError::cost_cap_exceeded("10$ cap reached");
+        let json = serde_json::to_value(&err).unwrap();
+        assert_eq!(
+            json.get("kind").and_then(|v| v.as_str()),
+            Some("cost_cap_exceeded")
+        );
+        assert_eq!(
+            json.get("message").and_then(|v| v.as_str()),
+            Some("10$ cap reached")
+        );
+        let err = IpcError::scope_denied("/etc/passwd");
+        let json = serde_json::to_value(&err).unwrap();
+        assert_eq!(
+            json.get("kind").and_then(|v| v.as_str()),
+            Some("scope_denied")
+        );
+        assert_eq!(
+            json.get("path").and_then(|v| v.as_str()),
+            Some("/etc/passwd")
+        );
+        let err = IpcError::unknown("orchestrator died");
+        let json = serde_json::to_value(&err).unwrap();
+        assert_eq!(json.get("kind").and_then(|v| v.as_str()), Some("unknown"));
+        assert_eq!(
+            json.get("message").and_then(|v| v.as_str()),
+            Some("orchestrator died")
+        );
+        // Round-trip through deserialize so the contract is bidirectional.
+        let back: IpcError = serde_json::from_value(json).unwrap();
+        assert!(matches!(back, IpcError::Unknown { .. }));
     }
 
     #[test]

@@ -8,7 +8,9 @@ use crate::orchestrator::{
     TeamSpec,
 };
 use async_trait::async_trait;
-use designer_core::{Actor, AgentId, EventPayload, EventStore, StreamId, TaskId, WorkspaceId};
+use designer_core::{
+    Actor, AgentId, ArtifactKind, EventPayload, EventStore, StreamId, TaskId, WorkspaceId,
+};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -195,23 +197,85 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
             .get(&workspace_id)
             .cloned()
             .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?;
-        self.store
-            .append(
-                StreamId::Workspace(workspace_id),
-                None,
-                Actor::agent(&team.team_name, &author_role),
-                EventPayload::MessagePosted {
-                    workspace_id,
-                    author: Actor::agent(&team.team_name, &author_role),
-                    body: body.clone(),
-                },
-            )
-            .await?;
+        // Mirror the real orchestrator: don't persist; just broadcast.
+        // AppCore is the single persister for `MessagePosted` (user side)
+        // and `ArtifactCreated` (coalesced agent side). Persisting here
+        // would double-write the user's text.
         self.emit(OrchestratorEvent::MessagePosted {
             workspace_id,
-            author_role,
-            body,
+            author_role: author_role.clone(),
+            body: body.clone(),
         });
+
+        // Simulate an agent reply so the round-trip path is exercised.
+        // The reply is persisted as `EventPayload::MessagePosted` (parity
+        // with the real Claude orchestrator's reader task) AND broadcast
+        // as `OrchestratorEvent::MessagePosted` so AppCore's coalescer can
+        // flush it into an `ArtifactCreated { kind: Message }`. Keyword
+        // detection drives optional structured artifact emission for the
+        // diagram/report renderers (13.D scope is intentionally limited
+        // to those two kinds).
+        if author_role == "user" {
+            self.pace().await;
+            let reply = format!("Acknowledged: {body}");
+            self.store
+                .append(
+                    StreamId::Workspace(workspace_id),
+                    None,
+                    Actor::agent(&team.team_name, &team.lead_role),
+                    EventPayload::MessagePosted {
+                        workspace_id,
+                        author: Actor::agent(&team.team_name, &team.lead_role),
+                        body: reply.clone(),
+                    },
+                )
+                .await?;
+            self.emit(OrchestratorEvent::MessagePosted {
+                workspace_id,
+                author_role: team.lead_role.clone(),
+                body: reply,
+            });
+
+            let lower = body.to_lowercase();
+            let maybe_kind = if lower.contains("diagram") {
+                Some(ArtifactKind::Diagram)
+            } else if lower.contains("report") {
+                Some(ArtifactKind::Report)
+            } else {
+                None
+            };
+            if let Some(kind) = maybe_kind {
+                let title = match kind {
+                    ArtifactKind::Diagram => "Sequence diagram".to_string(),
+                    ArtifactKind::Report => "Activity report".to_string(),
+                    _ => "Artifact".to_string(),
+                };
+                let summary = match kind {
+                    ArtifactKind::Diagram => "Mock diagram produced from the prompt.".into(),
+                    ArtifactKind::Report => "Mock report produced from the prompt.".into(),
+                    _ => "Mock artifact.".into(),
+                };
+                let payload_body = match kind {
+                    ArtifactKind::Diagram => {
+                        "sequenceDiagram\n  user->>team-lead: prompt\n  team-lead->>user: ack"
+                            .to_string()
+                    }
+                    ArtifactKind::Report => {
+                        format!("# Report\n\nMock summary derived from: {body}")
+                    }
+                    _ => body.clone(),
+                };
+                self.emit(OrchestratorEvent::ArtifactProduced {
+                    workspace_id,
+                    artifact_kind: kind,
+                    title,
+                    summary,
+                    body: payload_body,
+                    author_role: Some(team.lead_role.clone()),
+                });
+            }
+        }
+
         Ok(())
     }
 
