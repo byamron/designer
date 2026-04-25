@@ -299,7 +299,11 @@ body,
 .app-spine {
   grid-area: spine;
   background: transparent;
-  padding: var(--space-4);
+  /* Vertical padding only — horizontal padding is delegated to inner
+   * blocks (header, section labels, empty states) so .spine-artifact
+   * rows can fill the full rail width on hover, mirroring the
+   * left-sidebar .workspace-row treatment. */
+  padding: var(--space-4) 0;
   /* Overflow visible so the left-edge PaneResizer is not clipped. The
    * .spine-list and .spine-section children own any vertical scroll. */
   overflow: visible;
@@ -1841,6 +1845,8 @@ body,
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  /* Header sits at the same X column as the rail row content. */
+  padding: 0 var(--space-4);
 }
 
 .spine-header__row {
@@ -1874,7 +1880,10 @@ body,
 .spine-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  /* Horizontal padding restores the X column for agent rows now that
+   * .app-spine no longer pads horizontally. Matches the section
+   * labels above. */
+  padding: 0 var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -2004,6 +2013,14 @@ body,
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/* Section text children (label + empty state) live at the same X as the
+ * row content. Real items (.spine-artifact / .spine-row) render
+ * edge-to-edge and re-introduce the horizontal padding internally. */
+.spine-section > .sidebar-label,
+.spine-section > .sidebar-empty {
+  padding: 0 var(--space-4);
 }
 
 .spine-events {
@@ -3229,13 +3246,18 @@ kbd {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-button);
+  /* Mirrors .workspace-row in the left sidebar: vertical padding + 16px
+   * horizontal so the icon column lines up with the section label
+   * above; hover fills the full rail width edge-to-edge. */
+  padding: var(--space-2) var(--space-4);
+  border-radius: 0;
+  width: 100%;
+  box-sizing: border-box;
   transition: background var(--motion-interactive);
 }
 
 .spine-artifact:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-surface-raised);
 }
 
 .spine-artifact__body {
