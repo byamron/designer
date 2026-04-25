@@ -707,7 +707,10 @@ body,
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  padding-right: calc(var(--space-6));
+  /* Right padding clears the absolutely-positioned close button:
+   * close hit target (--space-5 = 24px) + right inset (--space-2 = 4px)
+   * + breathing room (--space-2 = 4px) ≈ 32px = --space-6. */
+  padding-right: calc(var(--space-6) + var(--space-2));
   /* Unselected tab fill: main-tab color faded by --dev-tab-opacity.
    * Border picks up the same fade so the border weight tracks the
    * fill weight. */
@@ -787,15 +790,18 @@ body,
   top: 50%;
   right: var(--space-2);
   transform: translateY(-50%);
-  width: var(--space-4);
-  height: var(--space-4);
+  /* 24px hit target hosts the 16px icon at standard size with a
+   * 4px ring of padding — same register as IconButton chrome
+   * elsewhere. */
+  width: var(--space-5);
+  height: var(--space-5);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   appearance: none;
   background: transparent;
   border: none;
-  border-radius: var(--radius-badge);
+  border-radius: var(--radius-button);
   color: var(--color-muted);
   cursor: pointer;
   opacity: 0;

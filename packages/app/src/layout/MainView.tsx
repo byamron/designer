@@ -227,7 +227,7 @@ function TabButton({
             onClose();
           }}
         >
-          <IconX size={14} />
+          <IconX size={16} />
         </button>
       )}
     </div>
