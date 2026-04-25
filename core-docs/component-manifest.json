@@ -147,13 +147,13 @@
     {
       "name": "BlockRenderers",
       "path": "packages/app/src/blocks/blocks.tsx",
-      "purpose": "Twelve typed-artifact renderers registered against the block registry (`packages/app/src/blocks/registry.ts`) on import of `packages/app/src/blocks/index.ts`. Real-data renderers: Message, Spec, CodeChange, Pr, Approval, Comment, TaskList. Stub renderers (title + summary) for Phase 13.D/E/F/G to fill in: Report, Prototype, Diagram, Variant, TrackRollup. GenericBlock is the fallback for unknown kinds. Every block is an <article> with BlockHeader (kind badge, title, author, expand/pin actions). All visual decisions route through tokens — no inline styles.",
+      "purpose": "Twelve typed-artifact renderers registered against the block registry (`packages/app/src/blocks/registry.ts`) on import of `packages/app/src/blocks/index.ts`. Real-data renderers: Message, Spec, CodeChange, Pr, Approval, Comment, TaskList, Prototype (Phase 13.F: renders inline-HTML payloads via `PrototypePreview` with `sandbox=\"\"` + injected CSP). Stub renderers (title + summary) still pending: Report, Diagram, Variant, TrackRollup. GenericBlock is the fallback for unknown kinds. Every block is an <article> with BlockHeader (kind badge, title, author, expand/pin actions). All visual decisions route through tokens — no inline styles.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "type-body-size", "type-body-leading", "type-caption-size", "weight-medium", "color-foreground", "color-muted", "color-surface-raised", "color-surface-sunken", "color-surface-hover", "color-border", "color-accent", "border-thin", "radius-card", "radius-button", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color", "line-height-body"],
       "css_prefix": "block__ block--",
-      "last_updated": "2026-04-24"
+      "last_updated": "2026-04-25"
     },
     {
       "name": "ComposeDock",
@@ -297,13 +297,13 @@
     {
       "name": "PrototypePreview",
       "path": "packages/app/src/lab/PrototypePreview.tsx",
-      "purpose": "Sandboxed iframe rendering agent-produced prototype HTML under strict meta-CSP.",
+      "purpose": "Sandboxed iframe rendering agent-produced prototype HTML. Two prop forms: { workspace } drives the lab demo (variant explorer + annotation layer); { inlineHtml, title? } is the artifact-thread form used by PrototypeBlock — bare iframe with sandbox=\"\" and CSP <meta> injected for defense-in-depth.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-3", "radius-card", "border-thin", "color-border"],
       "variants": ["A", "B", "C"],
-      "last_updated": "2026-04-21"
+      "last_updated": "2026-04-25"
     },
     {
       "name": "AnnotationLayer",

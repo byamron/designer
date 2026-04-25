@@ -31,7 +31,7 @@ Phase 13 — Wire the real runtime            (2 prereqs + 5 tracks, gated indiv
   ├─ 13.1  Artifact foundation           (← 13.0; unifies tab model; blocks D/E/F/G emitters) ✅
   ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts]
   ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr]
-  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype]
+  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype] ✅
   ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment]
   └─ 13.H  Safety enforcement            (← 13.G)                [GA gate; see security.md]
 
@@ -499,17 +499,25 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Done when:** creating a workspace in the UI creates a real worktree + branch on disk (as a length-1 track list); merging creates a real PR in the linked GitHub repo and emits `TrackCompleted`; archiving the workspace cleans up all tracks. User-facing UI reads "workspace" without exposing "track" as a word.
 
-### Track 13.F — Local-model surfaces (gap G6)
+### Track 13.F — Local-model surfaces (gap G6) ✅ *(landed 2026-04-25 + same-day review pass)*
 
-**Needs:** 12.B + 12.C.
+**Needs:** 12.B + 12.C + 13.1.
 
-**Steps:**
-- Replace `ActivitySpine`'s hardcoded summaries with `LocalOps::summarize_row` responses; cache for the row's lifetime.
-- Populate the Home tab's "Recent reports" card from `LocalOps::recap` over the last 24 h of events.
-- In the `needs-you` card, run `LocalOps::audit_claim` on completion claims and surface `contradicted` / `inconclusive` as attention items.
-- Add a project-wide "morning recap" command that generates a digest on first launch of the day (stored as a `Recap` event).
+**Shipped (post-13.1 typed-artifact pivot — emits into the registry, not bespoke UI):**
+- `AppCore::append_artifact_with_summary_hook(draft)` — write-time seam for `ArtifactCreated { kind: "code-change" }`. Calls `LocalOps::summarize_row` with a 500ms hard deadline; success replaces the supplied summary before the event lands. Timeout/error/helper-down → deterministic 140-char ellipsis truncation. Late return → `ArtifactUpdated` from a detached `Weak<AppCore>` task.
+- Per-track debounce: 2s window keyed by `(workspace_id, author_role)`. Concurrent callers share the same in-flight `watch` (one helper call per burst, not N). Bounded at 1024 entries with opportunistic prune of expired `Resolved` slots; `Inflight` slots never evicted.
+- `AppCore::recap_workspace` + `cmd_recap_workspace` — emits `ArtifactCreated { kind: "report", title: "<Weekday> recap", author_role: Some("recap") }` from `LocalOps::recap` over the workspace's non-archived artifacts. Local-tz weekday with UTC fallback.
+- `AppCore::audit_artifact` + `cmd_audit_artifact` — emits `ArtifactCreated { kind: "comment", author_role: Some("auditor") }` from `LocalOps::audit_claim`. Requires `expected_workspace_id` (cross-workspace boundary check); rejects archived targets with `NotFound`.
+- `PrototypeBlock` renders inline-HTML payloads via `PrototypePreview` (extended with optional `inlineHtml` prop). Restrictive iframe `sandbox=""` + CSP `<meta>` injection (`form-action 'none'`, `script-src 'none'`, etc.) for defense-in-depth.
+- `designer_core::author_roles` registry — `RECAP`, `AUDITOR`, `AGENT`, `TRACK`, `SAFETY`, `WORKSPACE_LEAD` constants for downstream tracks.
 
-**Done when:** spine summaries + recap + audit verdicts are real local-model output, not placeholders.
+**Out of scope (deferred):**
+- Frontend wiring of `cmd_recap_workspace` into the Home tab (emitter ships; consumer is Home-tab work in a later PR).
+- Spine-row summaries via `LocalOps::summarize_row` — superseded by the artifact-foundation pivot (Decision 39); the spine reads stored artifact summaries instead of regenerating on read.
+- `summary_provenance` field on `Artifact` (recommended pre-launch ADR; the artifact event vocabulary is frozen by ADR 0003, so adding it warrants a separate decision record).
+- Real-helper validation on Apple-Intelligence hardware (12.B's outstanding item — needs one run on a capable Mac).
+
+**Done when:** ✅ `code-change` summaries route through the seam; recap + audit + prototype-block wired; quality gates green (32 desktop-lib tests, 17 vitest, clippy clean, fmt check, tsc clean).
 
 ### Track 13.G — Safety surfaces + Keychain (gaps G7, G11)
 

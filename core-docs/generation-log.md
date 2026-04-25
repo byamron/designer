@@ -443,3 +443,16 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - deviations: PrototypePreview gained a discriminated-union prop signature so the existing lab demo path stays a workspace-driven variant explorer while the new artifact path is a pure inline-HTML iframe. The component is exclusively the sandbox primitive in 13.F mode — no annotation layer, no variant explorer.
 - feedback: pending
 
+
+## 2026-04-25T10:15:00Z — manual (Phase 13.F — review pass)
+- prompt: Reviewer flagged: PrototypeBlock CSP regression, debounce-burst race (concurrent calls each spawn their own helper), cross-workspace audit boundary missing, archived-target audit/recap silently succeeds, author-role registry missing, UTC tz, no eviction, late-return holds Arc<Self>, and a wiring TODO for tracks emitting code-change directly. Plus add 6 specific tests.
+- trigger: manual (review feedback addressed in same branch as PR #18)
+- archetype-reused: existing iframe-sandbox pattern + the established `watch::channel` pattern from 12.B's helper supervisor
+- components-reused: PrototypeBlock (CSP injection is a 1-prop add to PrototypePreview's existing `inlineHtml` form; 0 LOC delta in PrototypeBlock itself)
+- components-new: none
+- primitives: (none — same backend-track scope)
+- tokens: no new tokens. Sandbox+CSP injection lives entirely in `wrapInlineHtmlWithCsp` next to the existing `INLINE_HTML_CSP` constant in PrototypePreview.tsx (parity with the lab demo's CSP shape).
+- backend: cargo test --workspace green (5 new tests, 32 lib tests in designer-desktop, was 27); cargo clippy --workspace --all-targets -- -D warnings clean; cargo fmt --check clean.
+- frontend: tsc clean; vitest 17 passed (was 16). New `hardens against form-action XSS` case asserts `sandbox=""` and CSP `form-action 'none'` are both present.
+- deviations: `summary_provenance` recommended deferred to a pre-launch ADR rather than fixing in-band. The artifact event vocabulary is frozen by ADR 0003; adding the field non-breakingly requires a new variant `ArtifactSummaryProvenanceSet` which warrants its own decision record. Documented in plan.md, ADR 0003, and an explicit deferral note. Tracked: open the ADR before any user-visible build.
+- feedback: FB-0027 (cross-workspace boundaries belong on the IPC, not in-memory), FB-0028 (cache in-flight separately from resolved — concurrent callers must share one round-trip)

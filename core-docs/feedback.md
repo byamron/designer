@@ -33,6 +33,26 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0028: Cache "in-flight" separately from "resolved" — concurrent callers must share one round-trip
+**Date:** 2026-04-25
+**Source:** review feedback (Phase 13.F PR #18)
+
+**What was said:** First-pass `SummaryDebounce` stored only resolved values. Two callers 100ms apart over an 800ms helper each saw cache-miss and dispatched their own helper request. Reviewer flagged it as a blocking debounce-burst race.
+
+**Synthesized rule:** Any "expensive call coalesces under a key" cache must distinguish *resolved* from *in flight*. Subsequent callers within the window subscribe to the in-flight future (e.g., a `tokio::sync::watch::Sender<Option<T>>`) instead of starting their own. Eviction policy: never drop an in-flight slot — its receivers would error. Tested with a deliberate concurrent-burst case; default `helper.call_count() == N` is the regression signal.
+
+**Applies to:** rust-core, performance, local-models
+
+### FB-0027: Cross-workspace boundaries belong on the IPC, not in-memory
+**Date:** 2026-04-25
+**Source:** review feedback (Phase 13.F PR #18)
+
+**What was said:** First-pass `cmd_audit_artifact` took only `artifact_id`; a misbehaving caller could land an audit comment in any workspace by passing a foreign artifact id. Reviewer flagged the missing boundary check as blocking.
+
+**Synthesized rule:** When an IPC writes to a workspace stream derived from request data (artifact id → artifact's workspace_id), the request must carry the caller's `expected_workspace_id` and the implementation must reject mismatches. Don't rely on the frontend "knowing" — the boundary is a server-side invariant. Future-proofs the seam for per-workspace authorization (13.G).
+
+**Applies to:** rust-core, ipc, safety
+
 ### FB-0026: Live dev-panel knobs are how Designer's surface register gets tuned
 **Date:** 2026-04-24
 **Source:** user direction (design loop)

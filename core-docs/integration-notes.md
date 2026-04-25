@@ -425,6 +425,8 @@ Discrimination is structural, not substring-based: `HelperError::Timeout(Duratio
 
 `NullHelper::generate` returns `"[unavailable <job>] <prompt prefix>"`. This is a deliberate diagnostic placeholder — **not** user-facing copy. Phase 13.F surfaces that consume `LocalOps::*` results must branch on `HelperStatusResponse.kind == "fallback"` and render a skeleton / empty state instead of the returned string. The word "unavailable" is chosen to match the IPC vocabulary; avoid "offline" because Designer is still online, just without on-device model capacity.
 
+13.F implements this contract by **short-circuiting before dispatch**: when `AppCore::helper_status.kind == HelperStatusKind::Fallback`, the write-time summary hook never calls `LocalOps::summarize_row` at all — it goes directly to the deterministic 140-char ellipsis truncation. Same pattern in `recap_workspace` (emits a "Recap unavailable on-device" placeholder) and `audit_artifact` (returns `AuditVerdict::Inconclusive`). This means the `[unavailable …]` marker string never reaches an artifact, and no UI branching on `fallback` status is required at the per-artifact level — the system-level helper-status indicator from 12.B carries the global signal.
+
 `NullHelper::ping()` similarly returns the plain string `"unavailable"` — intended as a machine-readable signal, not a user-visible status line.
 
 ### `fallback_detail` is diagnostic-only
@@ -445,3 +447,18 @@ The supervisor publishes state transitions on a `tokio::sync::broadcast` channel
 - `HelperEvent::Recovered` — emitted when a failure streak clears. Distinct from `Ready` so the UI can differentiate "first boot" from "recovered from N failures."
 
 Slow subscribers see `RecvError::Lagged` and should resync by calling `AppCore::helper_health()`.
+
+### 13.F surfaces wired (2026-04-25)
+
+The four 13.F deliverables landed in PR #18 + same-day review pass:
+
+- **Write-time summary hook** at `AppCore::append_artifact_with_summary_hook(draft)`. 500ms deadline, deterministic 140-char ellipsis truncation on timeout/error/fallback, late-return `ArtifactUpdated` from a `Weak<AppCore>`-owned task. Per-track 2s debounce keyed by `(workspace_id, author_role)`; concurrent callers within the window join the in-flight `watch::Sender` (one helper round-trip per burst, not N). Bounded at `SUMMARY_DEBOUNCE_MAX_ENTRIES = 1024` with eviction of oldest `Resolved` slots; `Inflight` slots never evicted.
+- **Recap** at `AppCore::recap_workspace(workspace_id)` and IPC `cmd_recap_workspace`. Emits `ArtifactCreated { kind: "report", title: "<Weekday> recap", author_role: Some("recap") }`. Local-tz weekday with UTC fallback. Rejects archived/errored workspaces with `CoreError::Invariant`.
+- **Audit** at `AppCore::audit_artifact(artifact_id, expected_workspace_id, claim)` and IPC `cmd_audit_artifact`. Cross-workspace boundary: `expected_workspace_id` mismatch returns `IpcError::InvalidRequest`. Archived target returns `NotFound`. Emits `ArtifactCreated { kind: "comment", author_role: Some("auditor") }` in the target's workspace.
+- **PrototypeBlock** wires `PrototypePreview` (extended with `inlineHtml` prop). Restrictive `sandbox=""` (drops `allow-forms`, blocks form-submission XSS) plus injected CSP `<meta>` (`form-action 'none'`, `script-src 'none'`, …) for defense-in-depth.
+
+Author-role registry at `designer_core::author_roles` — `RECAP`, `AUDITOR`, `AGENT`, `TRACK`, `SAFETY`, `WORKSPACE_LEAD`. Tracks D / E / G should reuse these constants instead of inlining strings.
+
+**Wiring contract:** tracks emitting `ArtifactCreated { kind: "code-change" }` **must** route through `AppCore::append_artifact_with_summary_hook(draft)`. Direct `store.append` bypasses the on-device summary and breaks Decision 39's "summaries written once at write time" guarantee. Search for `TODO(13.F-wiring)` during integration merges. ADR 0003 has the full contract.
+
+**Deferred:** `summary_provenance` field on `Artifact` (recommended pre-launch ADR — the artifact event vocabulary is frozen, so adding it warrants a new variant `ArtifactSummaryProvenanceSet` and its own decision record). Real-helper validation on Apple-Intelligence hardware still pending (12.B's outstanding item).
