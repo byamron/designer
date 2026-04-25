@@ -28,7 +28,7 @@ import { persisted, intDecoder } from "../util/persisted";
 
 const composeMixStore = persisted<number>(
   "designer.dev.composeMix",
-  24,
+  20,
   intDecoder((n) => Math.max(0, Math.min(100, n))),
 );
 
@@ -58,7 +58,7 @@ const borderStrengthStore = persisted<number>(
 
 const shadowIntensityStore = persisted<number>(
   "designer.dev.shadowIntensity",
-  100,
+  50,
   intDecoder((n) => Math.max(0, Math.min(100, n))),
 );
 
@@ -142,12 +142,12 @@ export function SurfaceDevPanel() {
   };
 
   const onReset = () => {
-    onComposeMix(24);
+    onComposeMix(20);
     onMainTabSand(5);
     onSurfaceSand(80);
     onTabOpacity(70);
     onBorderStrength(10);
-    onShadowIntensity(100);
+    onShadowIntensity(50);
   };
 
   return (

@@ -184,12 +184,12 @@
   --motion-blink:    700ms;    /* streaming cursor blink */
 
   /* Floating content surface — the raised Tier-2 rectangle that holds
-     tab bodies (axiom #8). 16px so the register reads as a crafted tool
-     panel rather than a consumer-app hero card, while still leaving room
-     for concentric inner elements: inner-element radius =
-     --radius-surface − --surface-inner-pad. At the default pad of 8px
-     that yields an 8px compose corner, a --radius-button neighbor. */
-  --radius-surface:    1rem;     /* 16px */
+     tab bodies (axiom #8). 24px reads as a contemporary card register
+     while keeping the concentric-inner-element math clean: inner radius
+     = --radius-surface − --surface-inner-pad. At the default 16px
+     compose pad that yields an 8px compose corner, matching the
+     standard --radius-button neighbor. */
+  --radius-surface:    1.5rem;   /* 24px */
 
   /* Icon sizing (axiom #13). All Designer SVGs use currentColor; pick one
      of these three sizes. stroke-width 1.25 at sm/md, 1.5 at lg. */

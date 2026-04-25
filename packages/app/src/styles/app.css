@@ -32,10 +32,10 @@
    *     tab-opacity), so when tabs fade the borders fade with them. */
   --dev-surface-sand: 80%;
   --dev-main-tab-sand: 5%;
-  --dev-compose-mix: 24%;
+  --dev-compose-mix: 20%;
   --dev-tab-opacity: 70%;
   --dev-border-strength: 10%;
-  --dev-shadow-intensity: 100%;
+  --dev-shadow-intensity: 50%;
 
   /* Border colors derived from the strength + tab-opacity sliders. The
    * main surface and the active tab share `--surface-border-color` so
@@ -252,7 +252,12 @@ body,
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: var(--space-4);
+  /* Vertical padding only — horizontal padding is delegated to the
+   * inner blocks (sidebar-home, sidebar-group__head, workspace-row,
+   * sidebar-empty) so workspace-row hover/active fills the full
+   * sidebar width without negative-margin tricks that get clipped by
+   * sidebar-group's overflow-y: auto. */
+  padding: var(--space-4) 0;
   /* Overflow is visible so the PaneResizer can bleed past the right edge
    * to sit over the gutter between sidebar and main surface. The inner
    * sidebar-group owns scrolling when the workspace list gets long. */
@@ -453,6 +458,9 @@ body,
   color: var(--color-muted);
   font-size: var(--type-body-size);
   margin: 0;
+  /* Match the horizontal padding of workspace-row content so the
+   * "no workspaces yet" message lines up under the section label. */
+  padding: 0 var(--space-4);
 }
 
 .sidebar-group__head {
@@ -460,6 +468,9 @@ body,
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  /* Inset matches workspace-row content X so the "Workspaces" label and
+   * the row icons share a column. */
+  padding: 0 var(--space-4);
 }
 
 .sidebar-home {
@@ -468,9 +479,13 @@ body,
   grid-template-columns: var(--icon-lg) 1fr;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  /* Match workspace-row's horizontal padding so the Home icon + label
+   * share an X column with the workspace status icons + names. Edge-
+   * to-edge hover spans the full sidebar (radius 0 + no negative
+   * margin needed now that .app-sidebar has 0 horizontal padding). */
+  padding: var(--space-2) var(--space-4);
   border: none;
-  border-radius: var(--radius-button);
+  border-radius: 0;
   background: transparent;
   color: var(--color-foreground);
   font-family: var(--type-family-sans);
@@ -545,11 +560,11 @@ body,
   grid-template-columns: var(--icon-lg) 1fr;
   align-items: center;
   gap: var(--space-3);
-  /* Negative margin + matching padding breaks the row out of the
-   * sidebar's 16px padding so the hover/active fill spans edge-to-edge.
-   * The inner padding puts the icon back at the same X as the section
-   * label — status icons align with "Workspaces" above them. */
-  margin: 0 calc(var(--space-4) * -1);
+  /* Horizontal padding sits on the row, not on .app-sidebar — so
+   * hover/active fills the full sidebar width without negative
+   * margins (which previously got clipped by .sidebar-group's
+   * overflow-y: auto). The same 16px X-padding aligns the status
+   * icon with the "Workspaces" section label and the Home button. */
   padding: var(--space-2) var(--space-4);
   border-radius: 0;
   cursor: pointer;
@@ -558,7 +573,7 @@ body,
   border: none;
   color: var(--color-foreground);
   transition: background var(--motion-interactive);
-  width: auto;
+  width: 100%;
   box-sizing: border-box;
 }
 
@@ -665,7 +680,11 @@ body,
 .tabs-bar {
   display: flex;
   gap: var(--surface-tab-gap);
-  padding: var(--space-2) var(--space-3) var(--surface-tab-gap) var(--space-3);
+  /* Left padding is 0 so the first tab's left edge is flush with the
+   * main-surface left edge below. Top padding still gives the row some
+   * breathing room from the project strip; bottom padding is the
+   * tab-to-surface gap. */
+  padding: var(--space-2) var(--space-3) var(--surface-tab-gap) 0;
   background: transparent;
   align-items: flex-end;
   position: relative;

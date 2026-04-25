@@ -314,14 +314,18 @@ function ArtifactRow({
   onTogglePin: () => void;
 }) {
   const label = artifact.title;
-  const secondary = artifact.summary;
+  // The summary is preserved in the tooltip — there's only room for one
+  // line of text in the rail, and the title carries more identity than
+  // the right-aligned summary did.
+  const tooltip = artifact.summary
+    ? `${label} · ${artifact.summary}`
+    : label;
   return (
     <li className="spine-artifact">
-      <Tooltip label={secondary ? `${label} · ${secondary}` : label}>
+      <Tooltip label={tooltip}>
         <div className="spine-artifact__body">
           <FileText size={14} strokeWidth={1.5} aria-hidden="true" />
           <span className="spine-item__label">{label}</span>
-          {secondary && <span className="spine-item__meta">{secondary}</span>}
         </div>
       </Tooltip>
       <button
