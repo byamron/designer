@@ -26,13 +26,14 @@ Phase 12 — Real-integration validation     (3 parallel tracks)
   ├─ 12.B  Foundation Models helper build   ─┼── gate → Phase 13
   └─ 12.C  Tauri shell binary                ─┘
 
-Phase 13 — Wire the real runtime            (1 prereq + 5 tracks, gated individually)
+Phase 13 — Wire the real runtime            (2 prereqs + 5 tracks, gated individually)
   ├─ 13.0  Pre-track scaffolding         (← 12.A + 12.C; blocks all 13.X)
-  ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.0)
-  ├─ 13.E  Track primitive + git wire    (← 12.C + 13.0)   [introduces Track]
-  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.0)
-  ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.0)
-  └─ 13.H  Safety enforcement            (← 13.G)   [GA gate; see security.md]
+  ├─ 13.1  Artifact foundation           (← 13.0; unifies tab model; blocks D/E/F/G emitters) ✅
+  ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts]
+  ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr]
+  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype]
+  ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment]
+  └─ 13.H  Safety enforcement            (← 13.G)                [GA gate; see security.md]
 
 Phase 14 — Sync transport        (parallel with 13, 15)
 Phase 15 — Hardening + polish    (parallel with 13, 14)
@@ -86,8 +87,9 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 ### Still-open phases
 
 - **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
-- **Phase 13.0** — Pre-track scaffolding. Partitions hot-spot files so the four 13.X agents don't collide; freezes event / IPC / permission-handler contracts. Completed by the scaffolding PR; blocks 13.D/E/F/G.
-- **Phase 13** — Wire the real runtime. One prerequisite sub-phase (13.0) plus five tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on 13.0 plus their Phase-12 inputs and can run in parallel after 13.0; H gates on G and blocks GA. See `security.md` for 13.H detail.
+- **Phase 13.0** — Pre-track scaffolding. Partitions hot-spot files so the four 13.X agents don't collide; freezes event / IPC / permission-handler contracts. Completed by the scaffolding PR; blocks 13.1 + 13.D/E/F/G.
+- **Phase 13.1** — Artifact foundation + unified workspace thread. Consolidates tab-model-rethink + find-agentation-server into one PR. Retires Plan/Design/Build tab types; every tab renders `WorkspaceThread` with typed artifact blocks inline. Ships the `ArtifactCreated/Updated/Pinned/Unpinned/Archived` event vocabulary, `PayloadRef` (inline/hash), rail projection, IPC commands, and a 12-renderer block registry. D/E/F/G now emit into the registry instead of painting bespoke UI — **they run in parallel after 13.1 with zero UI contention.**
+- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus five tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and can run in parallel after 13.1; H gates on G and blocks GA. See `security.md` for 13.H detail.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
 - **Phase 16** — Shippable desktop build. Splits into 16.R (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA) and 16.S (supply-chain posture — blocking audit CI, SBOM, SLSA, dual-key updater, pentest, SECURITY.md). Gates on 13 + 15; Phase 14 optional for MVP. Signed DMG blocked until 16.S lands. Detail in `security.md`.

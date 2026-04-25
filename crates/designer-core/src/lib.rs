@@ -13,10 +13,15 @@ pub mod projection;
 pub mod store;
 pub mod time;
 
-pub use domain::{Actor, Autonomy, Project, Tab, TabTemplate, Workspace, WorkspaceState};
+pub use domain::{
+    Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project, Tab, TabTemplate, Workspace,
+    WorkspaceState,
+};
 pub use error::{CoreError, Result};
 pub use event::{Event, EventEnvelope, EventKind, EventPayload};
-pub use ids::{AgentId, ApprovalId, EventId, ProjectId, StreamId, TabId, TaskId, WorkspaceId};
+pub use ids::{
+    AgentId, ApprovalId, ArtifactId, EventId, ProjectId, StreamId, TabId, TaskId, WorkspaceId,
+};
 pub use projection::{Projection, ProjectionError, Projector};
 pub use store::{EventStore, SqliteEventStore, StreamOptions};
 pub use time::{monotonic_now, rfc3339, Timestamp};

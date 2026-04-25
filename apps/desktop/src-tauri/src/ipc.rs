@@ -6,7 +6,7 @@
 //! safety check (scope / cost / approval). Frontend callers cannot bypass.
 
 use crate::core::{AppCore, FallbackReason, HelperStatus, HelperStatusKind, RecoveryKind};
-use designer_core::{ProjectId, Tab, WorkspaceId};
+use designer_core::{ArtifactId, ProjectId, Tab, WorkspaceId};
 use designer_ipc::*;
 use designer_local_models::HelperHealth;
 use std::sync::Arc;
@@ -125,6 +125,55 @@ pub async fn cmd_resolve_approval(
     Err(IpcError::Unknown(
         "approvals are a Phase 13.G surface".into(),
     ))
+}
+
+// ---- Artifacts (Phase 13.1) ----------------------------------------------
+
+pub async fn cmd_list_pinned_artifacts(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<ArtifactSummary>, IpcError> {
+    Ok(core
+        .list_pinned_artifacts(workspace_id)
+        .await
+        .into_iter()
+        .map(ArtifactSummary::from)
+        .collect())
+}
+
+pub async fn cmd_list_artifacts(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<ArtifactSummary>, IpcError> {
+    Ok(core
+        .list_artifacts(workspace_id)
+        .await
+        .into_iter()
+        .map(ArtifactSummary::from)
+        .collect())
+}
+
+pub async fn cmd_get_artifact(
+    core: &Arc<AppCore>,
+    artifact_id: ArtifactId,
+) -> Result<ArtifactDetail, IpcError> {
+    let artifact = core
+        .get_artifact(artifact_id)
+        .await
+        .ok_or_else(|| IpcError::NotFound(artifact_id.to_string()))?;
+    Ok(ArtifactDetail {
+        payload: artifact.payload.clone(),
+        summary: ArtifactSummary::from(artifact),
+    })
+}
+
+pub async fn cmd_toggle_pin_artifact(
+    core: &Arc<AppCore>,
+    req: TogglePinRequest,
+) -> Result<bool, IpcError> {
+    core.toggle_pin_artifact(req.artifact_id)
+        .await
+        .map_err(IpcError::from)
 }
 
 fn helper_status_to_response(status: HelperStatus, health: HelperHealth) -> HelperStatusResponse {

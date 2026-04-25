@@ -37,6 +37,72 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 13.1 — unified workspace thread + artifact foundation
+**Date:** 2026-04-24/25
+**Branch:** consolidate-tab-server
+**Commit:** dc356f1..HEAD (consolidates tab-model-rethink + find-agentation-server + 13.1 build-out)
+
+**What was done:**
+
+*Architectural cutover (the big rock).* Plan / Design / Build / Blank tab types are retired. Every tab in a workspace renders one component — `WorkspaceThread` — which displays a continuous scrollable thread of typed artifact blocks with a docked compose surface. The four legacy tab files (`PlanTab.tsx`, `DesignTab.tsx`, `BuildTab.tsx`, `BlankTab.tsx`) and `HomeTabB.tsx` were deleted. `TemplateMenu` and the template picker are gone — `+` opens a fresh thread.
+
+*Backend artifact foundation.* `crates/designer-core` gained `Artifact`, `ArtifactKind` (12 kinds — message / spec / code-change / pr / approval / report / prototype / comment / task-list / diagram / variant / track-rollup), `PayloadRef` (Inline body / Hash + size schema-only until 13.1-storage), and five new events: `ArtifactCreated / Updated / Pinned / Unpinned / Archived`. `ProjectorState` gained `artifacts: BTreeMap<ArtifactId, Artifact>` and `pinned_artifacts: BTreeMap<WorkspaceId, Vec<ArtifactId>>` with incremental update on every artifact event. Round-trip test covers the full lifecycle; PayloadRef serialization round-trip locks the schema.
+
+*IPC.* Four new commands: `cmd_list_artifacts`, `cmd_list_pinned_artifacts`, `cmd_get_artifact`, `cmd_toggle_pin_artifact`. Plus a macOS `reveal_in_finder` shim so the workspace-sidebar root-path button actually opens Finder. `OpenTabRequest.template` defaults to `Thread` (legacy variants still parse for replay).
+
+*Frontend block registry.* `packages/app/src/blocks/registry.ts` exposes `registerBlockRenderer(kind, Component) / getBlockRenderer(kind)`. Twelve renderers in `blocks.tsx` — seven render real data today (Message, Spec, CodeChange, Pr, Approval, Comment, TaskList), five are registered stubs (Report, Prototype, Diagram, Variant, TrackRollup) so 13.D/E/F/G can wire emitters without touching UI code. `GenericBlock` is the unknown-kind fallback. All visual decisions route through tokens (no inline styles).
+
+*Surface architecture.* Six dev-only sliders in `SurfaceDevPanel` (⌘.) plus a tab-radius variant toggle decompose the surface register into independent knobs:
+- Compose fill (compose ↔ parent), Main tab fill (white ↔ sandy), Surface sand (parent brightness)
+- Tab opacity, Border intensity, Shadow intensity (two-layer diffuse, modern, not bottom-heavy)
+- Tab corner variants: Soft 12 / Concentric 18 / Folder 14-6 / Match 24 / Custom
+- Main tab radius slider (0-40px), Compose radius slider (0-32px) — independent of each other and the tab radius
+
+*UX polish (memphis-v2 17-item Agentation feedback pass).* SettingsPage replaces the modal (Help stays modal). Palette gets a leading search icon. PaneResizer haptic snap (`navigator.vibrate(8)`). Reveal-in-Finder on the workspace path. Icon size audit (12→16). Activity spine rewritten: workspace-scoped, sections for Pinned / Artifacts / Code files / Agents / Recent events; pinned/files items use the same edge-to-edge hover treatment as the left sidebar.
+
+*Sidebar restructure.* Horizontal padding moved off `.app-sidebar` and `.app-spine` onto inner blocks (header, group head, rows, sections, lists) so workspace-row and spine-artifact hovers fill the full rail edge-to-edge. Status icons line up with the "Workspaces" section label and Home above. Same pattern in the activity spine.
+
+*Concentric corners.* `--radius-surface` 16 → 24px. Compose corner derives to 8px. Tab corners default to 24 (Match) so the active tab and main surface read as the same material.
+
+*Dark palette rebuild.* Previous dark mode collapsed all surfaces near `sand-dark-1` because `var(--sand-dark-N)` doesn't exist — Radix Colors v3 only ships `--sand-N` and rebinds it under `.dark-theme`. Dark override now references `--sand-N` correctly, with reanchored slider math so the same default values produce real luminance separation: parent `≈sand-3.4` (warm dark page), main tab `≈sand-5.2` (~1.8 steps lifted figure). Foreground `--sand-12` (near-white), border-soft promoted to `--sand-a7`.
+
+*Documentation.* Spec Decisions 36–39 (workspace thread, three-tier artifact presence, block-renderer registry as track contract, write-time semantic summaries). Decision 11 amended to "tabs as views, not modes"; Decision 12 superseded. FB-0024 (tabs as views), FB-0025 (three-tier artifact presence). Phase 13.1 inserted between 13.0 and 13.D-G in the roadmap.
+
+**Why:**
+
+The previous tab model forced users to pick a mode (Plan / Design / Build) before they could work — a cognitive tax with no payoff. The original spec already imagined "templates, not types" (Decision 12) but the implementation kept the mode distinction in the rendering layer. Two parallel branches (tab-model-rethink, find-agentation-server) had each started addressing the gap from different angles. Consolidating them avoided duplicated effort and merge conflict pain, and forced the design to converge before 13.D/E/F/G fan out.
+
+The artifact foundation is the contract that lets those four tracks ship in parallel: each emits typed `ArtifactCreated` events into a registry that already knows how to render them. No track touches UI code. No track touches another track's events. Same scope, no contention.
+
+**Design decisions:**
+
+- **Tabs are views, not modes (Decision 36).** A tab is a lens onto the workspace's shared artifact pool. Multiple tabs = multiple lenses (side thread, agent lens, split). New tabs default to the suggestion view sourced from current activity; first send flips to thread.
+- **Three-tier artifact presence (Decision 37).** Inline (where produced) → Pinned (rail) → On-demand (search/timeline). Maps directly to the four-tier attention model. The rail surfaces pinned items above agent activity so pins are the working-context shelf.
+- **Block-renderer registry is the contract tracks emit against (Decision 38).** Tracks never paint UI; they emit `ArtifactCreated { kind, payload }`. Adding a new kind is one PR with the renderer + the emitter side-by-side.
+- **Semantic summaries written once at write time (Decision 39).** No re-summarization on read. Per-track debounce coalesces edit bursts. Ships empty until 13.F wires the local-model helper.
+
+**Technical decisions:**
+
+- **Promote sketch ideas, delete the sketch.** `tab-model-rethink` shipped a 1,931-line URL-hash-gated demo (`packages/app/src/sketch/WorkspaceThreadSketch.tsx`). Block renderers and the unified thread surface were lifted into production modules and rewritten to use Mini tokens. The sketch file was not committed.
+- **Preserve replay compatibility.** `TabTemplate` enum keeps `Plan / Design / Build / Blank` variants alongside `Thread` so old `TabOpened` events replay. Frontend renders all of them as `WorkspaceThread`; legacy titles normalize to "Tab N" on display.
+- **Dev panel slider math is mode-aware.** Same slider semantics in light and dark, but the dark anchors span `sand-dark-1↔4` (parent) and `sand-dark-5↔9` (main tab) so the same default percentages produce hierarchy in both modes.
+- **PayloadRef::Hash schema-only.** The `Hash` variant exists in the enum and serializes correctly, but the content-addressed store under `~/.designer/artifacts/<hash>` is not implemented. Producers should only emit `Inline` until 13.1-storage lands. Consumers tolerate `Hash` (the renderer fetches via `cmd_get_artifact` regardless).
+- **Coalesce stream-event refresh.** `WorkspaceThread` and `ActivitySpine` both subscribe to `artifact_*` events but coalesce bursts onto a single `requestAnimationFrame` so a flurry from one track produces one refresh, not N.
+
+**Tradeoffs discussed:**
+
+- **Single PR vs. four-PR split.** Single PR was the right call — D/E/F/G can't run in parallel until 13.1 is in place, and splitting 13.1 into "events" + "registry" + "tab unification" + "spine" wouldn't have helped because each piece is unusable without the others.
+- **Drop legacy tab files vs. keep as adapters.** Dropped. Pre-launch dev, no production replay liability. Each retired entry is preserved in the component manifest with `status: "retired"`.
+- **Sketch as code vs. sketch as docs.** Considered shipping the sketch behind `#sketch` for review. Rejected — once the production thread is in, the sketch is just a worse copy. Reference the git blob in the plan if anyone wants to look back.
+
+**Lessons learned:**
+
+- **Radix Colors v3 only exports the base scale name; `.dark` rebinds those names.** There is no `--sand-dark-N`. The first dark-mode pass referenced `--sand-dark-1` etc. and silently failed (text fell through to browser defaults). The fix was a one-line search-and-replace, but the audit for invalid token references should be a project-level invariant.
+- **Per-component re-render hotspots emerge fast under live event streams.** `WorkspaceThread.fetchPayload` originally depended on the `payloads` map; every payload load re-created the callback identity, cascaded through `onToggleExpanded`, and re-rendered every block. Functional `setState` reads make these effects safe; treat any `useCallback([state, ...])` over fast-changing state as a smell.
+- **Component manifests are load-bearing.** The manifest had been invalid JSON for at least one prior commit (duplicate fields collided in a copy-paste). Nothing flagged it because nothing read the file. Adding `node -e "JSON.parse(...)"` to the invariants would have caught it instantly.
+
+---
+
 ### UI overhaul — floating-surface register, dark mode, Lucide icons
 **Date:** 2026-04-23
 **Branch:** review-frontend-mini

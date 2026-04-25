@@ -279,3 +279,153 @@ Each entry is one firing of a Mini skill that produced or modified UI code. Entr
 - tests: 13/13 pass.
 - deviations: none.
 - feedback: pending
+
+## 2026-04-23T17:55:00Z — manual (17-item Agentation feedback pass, ottawa-v1 recovery)
+- prompt: 17 Agentation comments recovered from Dia's leveldb for origin `http://localhost:5184` (kingston/ottawa/prague-era session). User asked to address them all.
+- trigger: manual (feedback attachment at `.context/attachments/pasted_text_2026-04-23_17-46-09.txt`)
+- archetype-reused: Sidebar (SettingsPage left rail), Overlay (full-screen page layer)
+- components-reused: IconButton, Tooltip, SegmentedToggle, PaneResizer (extended)
+- components-new: `SurfaceDevPanel.tsx` (re-introduced with two knobs: compose fill, surface sand), `SettingsPage.tsx` (full-screen replacement for the settings modal)
+- components-modified:
+  - `icons.tsx`: default size for IconPlus, IconChevronLeft/Right, IconCollapseLeft/Right bumped 12 → 16 so chrome affordances match the ProjectStrip Plus (the user's reference)
+  - `WorkspaceStatusIcon.tsx`: glyph size 12 → 16, container class sized from `--icon-sm` → `--icon-lg`
+  - `WorkspaceSidebar.tsx`: Home icon 14 → 16 stroke 1.5; sidebar-path upgraded to a `<button>` that calls `reveal_in_finder` in Tauri (TODO: 13.E Rust shim) with a clipboard fallback in the web build
+  - `PlanTab.tsx`: compose action icons (Paperclip, Mic, ArrowUp) bumped 14 → 16
+  - `ActivitySpine.tsx`: rewritten — strictly workspace-scoped (no project fallback); new section stack is Artifacts → Code files → Agents → Recent events; artifacts open as tabs via `openTab({ template: "blank" })` until a real artifact TabTemplate lands
+  - `AppDialog.tsx`: now only renders Help; settings body + theme picker extracted into SettingsPage
+  - `PaneResizer.tsx`: adds snap-to-default-width with a 12px snap radius and 20px release threshold; fires `navigator.vibrate(8)` haptic on snap entry
+  - `App.tsx`: mounts SurfaceDevPanel (dev-only) and swaps SettingsPage in for AppShell when `dialog === "settings"`
+  - `Palette.tsx`: adds a leading Search icon in the prompt (aligned to the suggestion-icon column); removes the `.palette__suggestion-meta` role-label column
+- css-modified:
+  - `--surface-tab-gap`: `calc(var(--space-2) * 1.5)` → `0` (tabs flush against main surface per item #1)
+  - `--surface-inner-pad`: `var(--space-4)` → `var(--space-3)` (preserve concentric math after the surface-radius reduction)
+  - `--radius-surface`: `1.5rem` → `1rem` (reduced per item #15; compose radius is now a clean `--radius-button` neighbor)
+  - `.strip-icon` radius: `--radius-card` → `--radius-button` (item #6, match tabs)
+  - `.tab-button`: inactive fill = `color-mix(…content-surface 80%, transparent)`; font size `body` → `caption`; bottom radius squared so active tab merges visually into surface
+  - `.compose__input` padding equalized to `var(--space-3)` (item #17); `.compose__select` + `.compose__toggle` radii bumped to `--radius-button`
+  - `.sidebar-path` restyled as a clickable button with hover/focus states
+  - `.app-sidebar` / `.app-spine`: `overflow` switched from `auto` → `visible` so PaneResizer isn't clipped; scroll ownership moved to `.sidebar-group` / `.spine-list`
+  - `.pane-resizer` width `--space-2` → `--space-3` (wider grab target, still no visible bar)
+  - `.workspace-row` + `.workspace-status` icon columns/containers sized at `--icon-lg`
+  - dark-mode `--color-content-surface` flipped to `color-mix(in oklab, var(--sand-dark-1) var(--dev-surface-sand), var(--sand-dark-3))` so the new dev slider spans both modes
+  - new `.surface-dev-panel__*`, `.settings-page__*`, `.spine-items`, `.spine-item` blocks
+- tokens: `--radius-surface` reduced to 1rem (16px) in `packages/ui/styles/tokens.css` — only Designer project-level token, not a Mini primitive
+- feedback-mapping (1 → 17):
+  - 1 (tabs flush with main) — `--surface-tab-gap` = 0, bottom-corners of active tab squared
+  - 2 (icons too small across the site) — WorkspaceStatusIcon + icons.tsx defaults → 16; see 8, 9
+  - 3 (Palette search icon) — added leading Search icon in `palette__prompt`
+  - 4 (remove role labels) — dropped `.palette__suggestion-meta` and the third grid column
+  - 5 (unselected tab fill) — semi-transparent color-mix on `.tab-button`
+  - 6 (strip-icon corner radius) — switched to `--radius-button`
+  - 7 (sidebar-path clickable) — `<button>` + `reveal_in_finder` IPC (TODO) + clipboard fallback
+  - 8 (Home icon size) — `<House size={16} strokeWidth={1.5} />`
+  - 9 (reference icon size) — baseline for the icon-size sweep
+  - 10 (compose color dev panel) — SurfaceDevPanel "Compose fill" slider → `--dev-compose-mix`
+  - 11 (surface sand dev panel) — SurfaceDevPanel "Surface sand" slider → `--dev-surface-sand`; default 50% so there's symmetric travel in both directions
+  - 12 (resizable + sticky default) — fixed overflow-clipping on pane containers; added snap + `navigator.vibrate(8)` on snap entry
+  - 13 (ActivitySpine restructure) — workspace-only scope + four-section stack (Artifacts / Code files / Agents / Recent events)
+  - 14 (Settings dialog → page) — new SettingsPage full-viewport surface with left rail, section content, "Back to app" button
+  - 15 (main surface radius too large) — `--radius-surface` 24px → 16px; compose radius now 8px (concentric)
+  - 16 (smaller tab font) — `.tab-button` font-size stepped down to `--type-caption-size`
+  - 17 (compose model button concentric + equal padding) — compose__input padding unified at `var(--space-3)`; model button + plan-mode toggle radii → `--radius-button`
+- invariants: pending node run
+- typecheck: clean
+- tests: 13/13 pass
+- deviations: `reveal_in_finder` Rust shim not yet wired (TODO(13.E)); artifacts still open as Blank tabs until a first-class `artifact` TabTemplate lands (TODO(13.D))
+- feedback: pending
+
+---
+
+## 2026-04-24T01:00:00Z — Phase 13.1 consolidation: unified workspace thread + artifact foundation
+
+Consolidates the tab-model-rethink (branch `tab-model-rethink`, workspace `lisbon`) and find-agentation-server (branch `find-agentation-server`, workspace `memphis-v2`) branches into a single PR.
+
+**From memphis-v2** (17-item Agentation feedback pass, all shipped):
+- Full-page Settings (`SettingsPage.tsx`); `AppDialog.tsx` narrowed to Help-only.
+- Re-introduced `SurfaceDevPanel.tsx` (⌘.) for sand / compose-mix tuning.
+- ActivitySpine rewrite — workspace-scoped, four sections became three (Pinned / Artifacts / Agents / Recent events) after 13.1 collapsed the artifact-source.
+- `Palette.tsx` leading search icon, meta column dropped.
+- `PaneResizer.tsx` haptic snap (12/20 + `navigator.vibrate(8)`).
+- 12→16 icon size audit.
+- `WorkspaceSidebar.tsx` path → reveal-in-Finder button. **Backed by a real Rust shim in this PR** (macOS-only `open -R`).
+- `--radius-surface: 1.5rem → 1rem`.
+- Dead code removal: `HomeTabB.tsx`.
+
+**From tab-model-rethink** (ideas promoted into production; sketch file deleted):
+- Tabs are views, not modes: Plan / Design / Build / Blank tab components retired, every tab renders `WorkspaceThread`.
+- Block renderer registry (`packages/app/src/blocks/`) with 12 kinds.
+- `ComposeDock.tsx` adopted as the shared compose input (no longer orphaned).
+- Empty-state starter suggestions on new threads.
+- Pin / unpin UX surfaced in the workspace rail.
+- Spec Decisions 36–39 + Decision 11 amended; Phase 13.1 in plan / roadmap; FB-0024 / FB-0025.
+
+**Dropped:**
+- Sketch file (`packages/app/src/sketch/WorkspaceThreadSketch.tsx`) — ideas absorbed, file deleted.
+- lisbon's floating-surface CSS diff — PR #11 already shipped it on main with `--radius-surface` / `--color-content-surface` / `--surface-inner-pad` / concentric compose corner.
+- lisbon's hand-drawn gear icon — main is Lucide.
+- lisbon's embedded-in-AppDialog Settings branch — memphis's separate `SettingsPage.tsx` is cleaner.
+
+**New Rust/IPC surface:** `Artifact`, `ArtifactKind` (12 kinds), `PayloadRef` (Inline/Hash), `ArtifactId`, five new events, `ProjectorState.pinned_artifacts`, `AppCore::toggle_pin_artifact`, four new Tauri commands (`list_artifacts`, `list_pinned_artifacts`, `get_artifact`, `toggle_pin_artifact`) + `reveal_in_finder`. Artifact round-trip test + PayloadRef serialization test.
+
+**Handoff:**
+- D/E/F/G/H can now run in parallel with zero UI contention. Each track emits `ArtifactCreated` events into the registry — no tab component work.
+- `PayloadRef::Hash` path is schema-only; content-addressed store (`~/.designer/artifacts/<hash>`) is a 13.1-storage follow-up, not blocking.
+- `LocalOps::summarize_row` write-time hook: reserved in 13.F scope (not blocked on UI).
+- Speculative block kinds (`report`, `prototype`, `diagram`, `variant`, `track-rollup`) ship as registered stub renderers that show title + summary; their emitters land in 13.D/E/F/G.
+
+**Design-language compliance:**
+- No inline styles; no hex / px / ms values.
+- New CSS selectors: `.thread`, `.thread__empty*`, `.block`, `.block__*`, `.block--*`, `.workspace-thread`, `.spine-artifact*`. All token-driven.
+- A11y: every block is an `<article>` with header + author + kind badge; pin toggle has `aria-pressed`; approval-block action surface is keyboard-reachable.
+
+- invariants: pending node run
+- typecheck: clean
+- tests: 13/13 frontend + 6/6 backend pass
+- deviations: `PayloadRef::Hash` path is schema-only (TODO(13.1-storage)); partial-message coalescer still deferred to 13.D
+- feedback: FB-0024 (tabs as views, not modes), FB-0025 (three-tier artifact presence)
+
+---
+
+## 2026-04-25T01:00:00Z — Phase 13.1 staff-design-engineer review pass + finalization
+
+Polish pass after the consolidation landed; covers everything that happened between the initial Phase 13.1 generation-log entry (2026-04-24T01:00) and the PR.
+
+**Surface architecture iterations (live design loop, behind SurfaceDevPanel):**
+- Dev panel grew from 3 → 6 sliders + a tab-corner variant toggle + 2 radius sliders. Every slider is bound to a distinct `--dev-*` CSS variable.
+- Tab radius default flipped Soft (12) → Match (24) — tabs and main tab container now share corner shape.
+- Shadow swapped from `--elevation-raised` (single bottom-heavy 1px / 5%) to a two-layer diffuse stack (`0 1px 3px / 2%` + `0 6px 16px -2px / 6%`).
+- `--radius-surface` 16 → 24px; compose corner derives to 8px.
+- Selected tab now matches the main tab container exactly (fill + border + shadow); only `--surface-tab-gap` (6px) separates them.
+
+**Sidebar restructure (#4 + #6 page feedback):**
+- `.app-sidebar` horizontal padding moved onto inner blocks so workspace-row hover spans full rail width without negative-margin tricks getting clipped by sidebar-group's `overflow-y: auto`.
+- Project title / root-path / Home / Workspaces label / workspace status icons all share the same 16px X column.
+
+**Activity spine restructure (#1 page feedback round 2):**
+- Same edge-to-edge hover treatment as the left sidebar applied to `.spine-artifact`. Pinned/files items use `--color-surface-raised` background, no border-radius, full rail width.
+- Section labels and the spine header carry their own horizontal padding to keep the content column aligned.
+
+**Page feedback fixes:**
+- Tabs left-aligned with main tab container (tabs-bar left padding → 0).
+- Tab close X bumped 10 → 16 in a 24px hit target.
+- ArtifactRow secondary text removed (lives in tooltip only) so titles get the full row width.
+- Compose has no top divider, fills container with 16px padding all sides.
+- Sidebar Designer title + path now share 16px indent with the rest of the sidebar content.
+- New-tab suggestions render as borderless rows with text + right-arrow, sourced from workspace's recent activity (latest spec / open PR / pending approval / latest code-change).
+
+**Dark palette rebuild:**
+- Bug: previous override used `var(--sand-dark-N)` which doesn't exist — Radix Colors v3 ships `--sand-N` only and rebinds under `.dark-theme`. Fixed by replacing every reference.
+- Slider math reanchored: parent `sand-1↔sand-4`, main tab `sand-5↔sand-9` so the same default values (80% / 5%) produce real luminance hierarchy in dark mode.
+
+**Staff design-engineer review fixes:**
+- `core-docs/component-manifest.json` was invalid JSON (duplicated trailing fields after `WorkspaceStatusIcon`). Repaired; added 5 new entries (`WorkspaceThread`, `BlockRenderers`, `ComposeDock`, `SettingsPage`, `SurfaceDevPanel`); marked 5 deleted tabs as `retired`.
+- `WorkspaceThread` re-render hot spots tightened: `fetchPayload` no longer depends on `payloads`; stream-event refresh coalesces bursts via `requestAnimationFrame`; functional `setExpanded` reads keep callback identity stable.
+- Block a11y pass: expand buttons now carry `aria-controls` pointing at `useId`-generated panel ids on `Spec` / `CodeChange` / `TaskList`; pin button uses stable `aria-label` ("Pin to rail") with `aria-pressed` state; approval resolved state is `role="status"`.
+
+**Phase 13.D/E/F/G/H readiness verified:** the four tracks now emit `ArtifactCreated` events into the registry instead of painting bespoke UI. Per-track emitter responsibilities annotated in `plan.md` and `roadmap.md`.
+
+- invariants: pending node run
+- typecheck: clean
+- tests: 13/13 frontend pass; 6/6 backend pass
+- deviations: dev panel mounts in dev mode only — production build retains the user-chosen defaults baked into `:root` and `.dark-theme`
+- feedback: FB-0026 (dev-panel-driven design exploration is the canonical mechanism)

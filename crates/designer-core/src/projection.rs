@@ -2,9 +2,11 @@
 //! rebuild itself from a replay, incorporate new events live, and persist a
 //! snapshot so startup doesn't need to scan the full log.
 
-use crate::domain::{Autonomy, Project, Tab, TabTemplate, Workspace, WorkspaceState};
+use crate::domain::{
+    Artifact, Autonomy, PayloadRef, Project, Tab, TabTemplate, Workspace, WorkspaceState,
+};
 use crate::event::{EventEnvelope, EventPayload};
-use crate::ids::{ProjectId, WorkspaceId};
+use crate::ids::{ArtifactId, ProjectId, WorkspaceId};
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -40,6 +42,10 @@ pub struct Projector {
 struct ProjectorState {
     projects: BTreeMap<ProjectId, Project>,
     workspaces: BTreeMap<WorkspaceId, Workspace>,
+    /// All artifacts, keyed by id. Latest version is held in `version`.
+    artifacts: BTreeMap<ArtifactId, Artifact>,
+    /// Pinned artifact ids in insertion order per workspace.
+    pinned_artifacts: BTreeMap<WorkspaceId, Vec<ArtifactId>>,
 }
 
 impl Projector {
@@ -67,6 +73,37 @@ impl Projector {
 
     pub fn project(&self, id: ProjectId) -> Option<Project> {
         self.inner.read().projects.get(&id).cloned()
+    }
+
+    /// All artifacts for a workspace, oldest first.
+    pub fn artifacts_in(&self, workspace_id: WorkspaceId) -> Vec<Artifact> {
+        self.inner
+            .read()
+            .artifacts
+            .values()
+            .filter(|a| a.workspace_id == workspace_id && a.archived_at.is_none())
+            .cloned()
+            .collect()
+    }
+
+    /// Pinned artifacts for a workspace, in insertion order.
+    pub fn pinned_artifacts(&self, workspace_id: WorkspaceId) -> Vec<Artifact> {
+        let state = self.inner.read();
+        state
+            .pinned_artifacts
+            .get(&workspace_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| state.artifacts.get(id))
+                    .filter(|a| a.archived_at.is_none())
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn artifact(&self, id: ArtifactId) -> Option<Artifact> {
+        self.inner.read().artifacts.get(&id).cloned()
     }
 }
 
@@ -172,13 +209,83 @@ impl Projection for Projector {
                     }
                 }
             }
+            // Artifact foundation (Phase 13.1).
+            EventPayload::ArtifactCreated {
+                artifact_id,
+                workspace_id,
+                artifact_kind,
+                title,
+                summary,
+                payload,
+                author_role,
+            } => {
+                state.artifacts.insert(
+                    *artifact_id,
+                    Artifact {
+                        id: *artifact_id,
+                        workspace_id: *workspace_id,
+                        kind: *artifact_kind,
+                        title: title.clone(),
+                        summary: summary.clone(),
+                        payload: payload.clone(),
+                        author_role: author_role.clone(),
+                        version: 1,
+                        created_at: event.timestamp,
+                        updated_at: event.timestamp,
+                        pinned_at: None,
+                        archived_at: None,
+                    },
+                );
+            }
+            EventPayload::ArtifactUpdated {
+                artifact_id,
+                summary,
+                payload,
+                parent_version,
+            } => {
+                if let Some(a) = state.artifacts.get_mut(artifact_id) {
+                    a.summary = summary.clone();
+                    a.payload = payload.clone();
+                    a.version = parent_version + 1;
+                    a.updated_at = event.timestamp;
+                }
+            }
+            EventPayload::ArtifactPinned { artifact_id } => {
+                if let Some(a) = state.artifacts.get_mut(artifact_id) {
+                    a.pinned_at = Some(event.timestamp);
+                    let ws = a.workspace_id;
+                    let list = state.pinned_artifacts.entry(ws).or_default();
+                    if !list.contains(artifact_id) {
+                        list.push(*artifact_id);
+                    }
+                }
+            }
+            EventPayload::ArtifactUnpinned { artifact_id } => {
+                if let Some(a) = state.artifacts.get_mut(artifact_id) {
+                    a.pinned_at = None;
+                    let ws = a.workspace_id;
+                    if let Some(list) = state.pinned_artifacts.get_mut(&ws) {
+                        list.retain(|id| id != artifact_id);
+                    }
+                }
+            }
+            EventPayload::ArtifactArchived { artifact_id } => {
+                if let Some(a) = state.artifacts.get_mut(artifact_id) {
+                    a.archived_at = Some(event.timestamp);
+                    let ws = a.workspace_id;
+                    if let Some(list) = state.pinned_artifacts.get_mut(&ws) {
+                        list.retain(|id| id != artifact_id);
+                    }
+                }
+            }
             // Events not relevant to the core projection are ignored — per-subsystem
             // projections handle them in safety/audit/orchestrator crates.
             _ => {}
         }
 
         // Unused variants for the match (silence warnings via a no-op bind).
-        let _ = TabTemplate::Plan;
+        let _ = TabTemplate::Thread;
+        let _ = PayloadRef::INLINE_THRESHOLD_BYTES;
     }
 
     fn name(&self) -> &'static str {

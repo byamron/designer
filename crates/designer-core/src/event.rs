@@ -2,9 +2,10 @@
 //! as JSON for storage. `version` on the envelope lets us evolve a payload
 //! schema without breaking old events; projections match on `(kind, version)`.
 
-use crate::domain::{Actor, Autonomy, TabTemplate, WorkspaceState};
+use crate::domain::{Actor, ArtifactKind, Autonomy, PayloadRef, TabTemplate, WorkspaceState};
 use crate::ids::{
-    AgentId, ApprovalId, EventId, ProjectId, StreamId, TabId, TaskId, TrackId, WorkspaceId,
+    AgentId, ApprovalId, ArtifactId, EventId, ProjectId, StreamId, TabId, TaskId, TrackId,
+    WorkspaceId,
 };
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -204,6 +205,36 @@ pub enum EventPayload {
         target_workspace_id: WorkspaceId,
         absorbed_workspace_id: WorkspaceId,
     },
+
+    // Artifact foundation (Phase 13.1) — typed blocks rendered inline in the
+    // unified workspace thread. Emitters land in 13.D (messages + agent
+    // outputs), 13.E (code-change + pr), 13.F (report + comment), 13.G
+    // (approval + comment). This crate just defines the envelope shape +
+    // projection so those tracks can ship in parallel.
+    ArtifactCreated {
+        artifact_id: ArtifactId,
+        workspace_id: WorkspaceId,
+        artifact_kind: ArtifactKind,
+        title: String,
+        summary: String,
+        payload: PayloadRef,
+        author_role: Option<String>,
+    },
+    ArtifactUpdated {
+        artifact_id: ArtifactId,
+        summary: String,
+        payload: PayloadRef,
+        parent_version: u32,
+    },
+    ArtifactPinned {
+        artifact_id: ArtifactId,
+    },
+    ArtifactUnpinned {
+        artifact_id: ArtifactId,
+    },
+    ArtifactArchived {
+        artifact_id: ArtifactId,
+    },
 }
 
 /// Cheap discriminant for pattern matching in indices + projections.
@@ -240,6 +271,11 @@ pub enum EventKind {
     TrackArchived,
     WorkspaceForked,
     WorkspacesReconciled,
+    ArtifactCreated,
+    ArtifactUpdated,
+    ArtifactPinned,
+    ArtifactUnpinned,
+    ArtifactArchived,
 }
 
 impl EventPayload {
@@ -275,6 +311,11 @@ impl EventPayload {
             EventPayload::TrackArchived { .. } => EventKind::TrackArchived,
             EventPayload::WorkspaceForked { .. } => EventKind::WorkspaceForked,
             EventPayload::WorkspacesReconciled { .. } => EventKind::WorkspacesReconciled,
+            EventPayload::ArtifactCreated { .. } => EventKind::ArtifactCreated,
+            EventPayload::ArtifactUpdated { .. } => EventKind::ArtifactUpdated,
+            EventPayload::ArtifactPinned { .. } => EventKind::ArtifactPinned,
+            EventPayload::ArtifactUnpinned { .. } => EventKind::ArtifactUnpinned,
+            EventPayload::ArtifactArchived { .. } => EventKind::ArtifactArchived,
         }
     }
 }

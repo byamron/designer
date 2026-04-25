@@ -20,7 +20,49 @@ export type WorkspaceStatus =
   | "pr_ready"
   | "pr_merged";
 
-export type TabTemplate = "plan" | "design" | "build" | "blank";
+// Post-13.1 every tab renders the unified WorkspaceThread. Legacy values
+// (`plan`, `design`, `build`, `blank`) are preserved for replay — they also
+// render as threads. New tabs use `thread`.
+export type TabTemplate = "thread" | "plan" | "design" | "build" | "blank";
+
+// ---- Artifacts (Phase 13.1) ----
+export type ArtifactId = string;
+
+export type ArtifactKind =
+  | "message"
+  | "spec"
+  | "code-change"
+  | "pr"
+  | "approval"
+  | "report"
+  | "prototype"
+  | "comment"
+  | "task-list"
+  | "diagram"
+  | "variant"
+  | "track-rollup";
+
+export type PayloadRef =
+  | { kind: "inline"; body: string }
+  | { kind: "hash"; hash: string; size: number };
+
+export interface ArtifactSummary {
+  id: ArtifactId;
+  workspace_id: WorkspaceId;
+  kind: ArtifactKind;
+  title: string;
+  summary: string;
+  author_role: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  pinned: boolean;
+}
+
+export interface ArtifactDetail {
+  summary: ArtifactSummary;
+  payload: PayloadRef;
+}
 
 export type SpineState =
   | "active"

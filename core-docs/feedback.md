@@ -33,6 +33,36 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0026: Live dev-panel knobs are how Designer's surface register gets tuned
+**Date:** 2026-04-24
+**Source:** user direction (design loop)
+
+**What was said:** Across multiple iterations on the floating-surface tokens (compose fill, main-tab fill, surface sand, tab opacity, border intensity, shadow intensity, tab corner variant, main tab radius, compose radius), the user repeatedly preferred *adding a slider* over *picking a value*. Quote: *"can we add a segmented toggle to the dev panel where we try all of these options"* — the tab-corner variant toggle. And: *"add main tab container border radius and compose box border radius to the dev panel."*
+
+**Synthesized rule:** Whenever a surface-register decision has more than two plausible answers, the right move is a `SurfaceDevPanel` slider/toggle backed by a `--dev-*` CSS variable, rather than picking one and shipping. The slider is the design tool — production defaults are baked in only after the user has dialled the value live. This is FB-0022 ("bake dev-panel explorations into the design language when they land") generalized: the dev panel is the canonical mechanism for design exploration, not just an occasional escape hatch. Confirmed by the working pattern across this PR (six knobs + a tab-corner variant toggle, then production defaults baked in to match the user's chosen config).
+
+**Applies to:** ux, design-system, workflow
+
+### FB-0025: Three-tier artifact presence — inline, pinned, on-demand
+**Date:** 2026-04-24
+**Source:** user direction
+
+**What was said:** *"artifacts that might get created: specs, wireframes, reports, diagrams, then all code file changes and diffs… there is value in Conductor's file tree for people who want to dig in, but I also don't think we should show this by default since we are moving up in abstraction. Things like this should be available, but we shouldn't push them on the user."* And: *"pinned artifacts at the top, but maybe above that one line with the team-lead active / agent status."*
+
+**Synthesized rule:** Artifacts have three visibility tiers. Inline — where they're produced (in the thread at write time). Pinned — user-promoted, lives in the workspace rail alongside agent status. On-demand — reachable via search, project-level timeline, and the engineering drawer; never pushed in chrome. This maps directly to the four-tier attention model (FB-... / Decision 14): the thread body is "focused," the rail is "ambient," and the engineering drawer is "notify + digest." Codified in spec Decision 37. The rail renders pinned artifacts above the agent tree so pins act as the user's working context shelf, not an afterthought below activity.
+
+**Applies to:** ux, product, architecture
+
+### FB-0024: Tabs are views, not modes — one workspace surface, typed artifact blocks inline
+**Date:** 2026-04-24
+**Source:** user direction
+
+**What was said:** *"The original idea was just that there were three types of tabs to add to any workspace. I agree with the idea of folding everything into one surface type. But is there still value in being able to have multiple tabs in a workspace? … Could that be a new tab, or would we want to surface those as artifacts somewhere else?"* And later: *"tabs are no longer 'plan' / 'design' and the artifacts can be used throughout new tabs (tabs are views, not modes)."*
+
+**Synthesized rule:** Designer does not ship separate Plan / Design / Build tab types. Every tab in a workspace renders the same `WorkspaceThread` surface: a continuous scroll of typed artifact blocks (spec, code-change, PR, approval, report, prototype, comment, task-list, diagram, variant, track-rollup, message) produced by agents and the user. Additional tabs still open, but they are lenses — side threads scoped to a different thread id, artifact lenses, or split panes — not different modes. A new tab = blank thread with compose input + starter suggestions. The user never picks a mode before they can work. Codified in spec Decision 11 (amended) and 36.
+
+**Applies to:** ux, product, architecture
+
 ### FB-0023: Enterprise-grade security is a launch requirement, not a follow-on
 **Date:** 2026-04-23
 **Source:** user direction

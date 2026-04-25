@@ -46,9 +46,9 @@ function wrap(Icon: LucideIcon, defaultSize: IconSize) {
 }
 
 export const IconX = wrap(X, 10);
-export const IconPlus = wrap(Plus, 12);
+export const IconPlus = wrap(Plus, 16);
 export const IconBranch = wrap(GitBranch, 12);
-export const IconChevronLeft = wrap(ChevronLeft, 12);
-export const IconChevronRight = wrap(ChevronRight, 12);
-export const IconCollapseLeft = wrap(PanelLeftClose, 12);
-export const IconCollapseRight = wrap(PanelRightClose, 12);
+export const IconChevronLeft = wrap(ChevronLeft, 16);
+export const IconChevronRight = wrap(ChevronRight, 16);
+export const IconCollapseLeft = wrap(PanelLeftClose, 16);
+export const IconCollapseRight = wrap(PanelRightClose, 16);

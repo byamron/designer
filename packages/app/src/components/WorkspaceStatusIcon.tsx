@@ -40,7 +40,7 @@ export function WorkspaceStatusIcon({ status }: { status: WorkspaceStatus }) {
 }
 
 function renderGlyph(status: WorkspaceStatus) {
-  const common = { size: 12, strokeWidth: 1.5, "aria-hidden": true as const };
+  const common = { size: 16, strokeWidth: 1.5, "aria-hidden": true as const };
   switch (status) {
     case "idle":
       return <Circle {...common} />;

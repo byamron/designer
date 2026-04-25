@@ -2,8 +2,10 @@ import { useEffect } from "react";
 import { Agentation } from "agentation";
 import { AppShell } from "./layout/AppShell";
 import { QuickSwitcher } from "./layout/QuickSwitcher";
+import { SettingsPage } from "./layout/SettingsPage";
 import { Onboarding } from "./components/Onboarding";
 import { AppDialog } from "./components/AppDialog";
+import { SurfaceDevPanel } from "./components/SurfaceDevPanel";
 import {
   bootData,
   dataStore,
@@ -19,11 +21,13 @@ import {
   toggleQuickSwitcher,
   toggleSidebar,
   toggleSpine,
+  useAppState,
 } from "./store/app";
 import { isTauri, listen } from "./ipc/tauri";
 
 export function App() {
   const loaded = useDataState((s) => s.loaded);
+  const dialog = useAppState((s) => s.dialog);
 
   useEffect(() => {
     void (async () => {
@@ -91,12 +95,18 @@ export function App() {
     );
   }
 
+  // Settings takes over the entire viewport — it's a full page, not a
+  // modal. The AppDialog component continues to handle "help" (which
+  // remains modal — short, informational, doesn't warrant a page).
+  const settingsOpen = dialog === "settings";
+
   return (
     <>
-      <AppShell />
+      {settingsOpen ? <SettingsPage /> : <AppShell />}
       <QuickSwitcher />
       <AppDialog />
       <Onboarding />
+      {import.meta.env.MODE === "development" && <SurfaceDevPanel />}
       {import.meta.env.MODE === "development" && <Agentation />}
     </>
   );

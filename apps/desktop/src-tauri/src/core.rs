@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use designer_audit::{AuditLog, SqliteAuditLog};
 use designer_claude::{ClaudeCodeOptions, ClaudeCodeOrchestrator, MockOrchestrator, Orchestrator};
 use designer_core::{
-    Actor, EventPayload, EventStore, ProjectId, Projection, Projector, SqliteEventStore, StreamId,
-    StreamOptions, Tab, TabId, TabTemplate, Workspace, WorkspaceId,
+    Actor, Artifact, ArtifactId, EventPayload, EventStore, ProjectId, Projection, Projector,
+    SqliteEventStore, StreamId, StreamOptions, Tab, TabId, TabTemplate, Workspace, WorkspaceId,
 };
 use designer_ipc::{SpineAltitude, SpineRow, SpineState};
 use designer_local_models::{
@@ -562,6 +562,46 @@ impl AppCore {
         let all = self.store.read_all(StreamOptions::default()).await?;
         self.projector.replay(&all);
         Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // Artifact foundation (Phase 13.1). Emitters land in 13.D / 13.E /
+    // 13.F / 13.G — this crate just exposes the projected reads + the
+    // pin/unpin write path so the UI can ship.
+    // ------------------------------------------------------------------
+
+    pub async fn list_pinned_artifacts(&self, workspace_id: WorkspaceId) -> Vec<Artifact> {
+        self.projector.pinned_artifacts(workspace_id)
+    }
+
+    pub async fn list_artifacts(&self, workspace_id: WorkspaceId) -> Vec<Artifact> {
+        self.projector.artifacts_in(workspace_id)
+    }
+
+    pub async fn get_artifact(&self, id: ArtifactId) -> Option<Artifact> {
+        self.projector.artifact(id)
+    }
+
+    pub async fn toggle_pin_artifact(
+        &self,
+        artifact_id: ArtifactId,
+    ) -> designer_core::Result<bool> {
+        let Some(a) = self.projector.artifact(artifact_id) else {
+            return Err(designer_core::CoreError::NotFound(artifact_id.to_string()));
+        };
+        let stream = StreamId::Workspace(a.workspace_id);
+        let payload = if a.pinned_at.is_some() {
+            EventPayload::ArtifactUnpinned { artifact_id }
+        } else {
+            EventPayload::ArtifactPinned { artifact_id }
+        };
+        let env = self
+            .store
+            .append(stream, None, Actor::user(), payload)
+            .await?;
+        self.projector.apply(&env);
+        // New pin state = !old.
+        Ok(a.pinned_at.is_none())
     }
 }
 
