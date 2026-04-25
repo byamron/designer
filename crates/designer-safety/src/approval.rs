@@ -4,7 +4,8 @@
 
 use async_trait::async_trait;
 use designer_core::{
-    Actor, ApprovalId, EventEnvelope, EventPayload, EventStore, Result, StreamId, WorkspaceId,
+    Actor, ApprovalId, EventEnvelope, EventPayload, EventStore, Result, StreamId, StreamOptions,
+    WorkspaceId,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -58,6 +59,44 @@ impl<S: EventStore> InMemoryApprovalGate<S> {
             store,
             pending: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Record an externally-resolved approval's terminal state without
+    /// writing an event. Used by the `InboxPermissionHandler` so that
+    /// `gate.status(id)` stays truthful after a resolve that bypassed
+    /// `gate.grant`/`gate.deny` (the inbox handler is the production
+    /// source of truth; the gate keeps the trait surface other crates
+    /// hold an `Arc<dyn ApprovalGate>` against). Idempotent — overwriting
+    /// `Granted` with `Denied` would only happen if an external writer
+    /// already produced a contradictory event, which the handler's
+    /// single-writer guarantee in `resolve` prevents.
+    pub fn record_status(&self, id: ApprovalId, status: ApprovalStatus) {
+        self.pending.lock().insert(id, status);
+    }
+
+    /// Replay every approval event in the store into the in-memory map.
+    /// Without this, `gate.status` returns `Pending` after a process
+    /// restart for approvals that were granted/denied in an earlier
+    /// session. Called from `AppCore::boot`.
+    pub async fn replay_from_store(&self) -> Result<()> {
+        let events = self.store.read_all(StreamOptions::default()).await?;
+        let mut pending = self.pending.lock();
+        pending.clear();
+        for env in &events {
+            match &env.payload {
+                EventPayload::ApprovalRequested { approval_id, .. } => {
+                    pending.insert(*approval_id, ApprovalStatus::Pending);
+                }
+                EventPayload::ApprovalGranted { approval_id } => {
+                    pending.insert(*approval_id, ApprovalStatus::Granted);
+                }
+                EventPayload::ApprovalDenied { approval_id, .. } => {
+                    pending.insert(*approval_id, ApprovalStatus::Denied);
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 

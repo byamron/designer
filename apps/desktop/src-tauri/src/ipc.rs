@@ -6,7 +6,7 @@
 //! safety check (scope / cost / approval). Frontend callers cannot bypass.
 
 use crate::core::{AppCore, FallbackReason, HelperStatus, HelperStatusKind, RecoveryKind};
-use designer_core::{ArtifactId, EventStore, ProjectId, Tab, WorkspaceId};
+use designer_core::{ArtifactId, ProjectId, Tab, WorkspaceId};
 use designer_ipc::*;
 use designer_local_models::HelperHealth;
 use std::sync::Arc;
@@ -104,38 +104,30 @@ pub async fn cmd_helper_status(core: &Arc<AppCore>) -> HelperStatusResponse {
 
 /// Approval flow (Phase 13.G).
 ///
-/// In production, agents request approval via the `InboxPermissionHandler`
-/// installed on `ClaudeCodeOrchestrator` — `cmd_request_approval` is not on
-/// the agent path. The handler is kept for parity with the legacy IPC name
-/// (mock-orchestrator UI flows / tests can manually request an approval to
-/// exercise the inbox renderer); it appends the same `ApprovalRequested`
-/// event the production handler does.
+/// **Why `cmd_request_approval` errors out instead of forwarding to the
+/// store.** The IPC surface is callable from the webview, including from
+/// any future XSS-escaped script. If we let the frontend forge
+/// `ApprovalRequested` events, an attacker could plant a fake "Grant
+/// write access?" entry in the inbox, wait for the user to click Grant,
+/// and have the *next* real agent prompt inherit that granted state via
+/// a coincidental id collision (or simply pollute the audit log). The
+/// only legitimate producer of approval requests is the
+/// `InboxPermissionHandler` invoked by the orchestrator on a real Claude
+/// permission prompt. So this IPC stays an error stub — the legacy wire
+/// name is preserved only because the `IpcClient` interface still
+/// declares `requestApproval` for mock-orchestrator dev flows that
+/// haven't been refactored.
 pub async fn cmd_request_approval(
-    core: &Arc<AppCore>,
-    workspace_id: WorkspaceId,
-    gate: String,
-    summary: String,
+    _core: &Arc<AppCore>,
+    _workspace_id: WorkspaceId,
+    _gate: String,
+    _summary: String,
 ) -> Result<String, IpcError> {
-    use designer_core::{Actor, ApprovalId};
-    if gate.trim().is_empty() {
-        return Err(IpcError::InvalidRequest("gate must not be empty".into()));
-    }
-    let approval_id = ApprovalId::new();
-    core.store
-        .append(
-            designer_core::StreamId::Workspace(workspace_id),
-            None,
-            Actor::user(),
-            designer_core::EventPayload::ApprovalRequested {
-                approval_id,
-                workspace_id,
-                gate,
-                summary,
-            },
-        )
-        .await
-        .map_err(IpcError::from)?;
-    Ok(approval_id.to_string())
+    Err(IpcError::Unknown(
+        "cmd_request_approval is internal; agents request approvals via the orchestrator's \
+         InboxPermissionHandler. The frontend cannot forge approvals."
+            .into(),
+    ))
 }
 
 pub async fn cmd_resolve_approval(

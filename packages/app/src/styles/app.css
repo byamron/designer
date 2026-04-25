@@ -1764,21 +1764,21 @@ body,
 }
 
 .cost-chip__dot {
-  width: 8px;
-  height: 8px;
+  width: var(--space-3);
+  height: var(--space-3);
   border-radius: 50%;
   background: var(--color-muted);
   flex-shrink: 0;
 }
 
 .cost-chip[data-band="ok"] .cost-chip__dot {
-  background: var(--color-success, var(--accent-9, #2f9e44));
+  background: var(--success-9);
 }
 .cost-chip[data-band="warn"] .cost-chip__dot {
-  background: var(--color-warning, #d97706);
+  background: var(--warning-9);
 }
 .cost-chip[data-band="danger"] .cost-chip__dot {
-  background: var(--color-danger, #c92a2a);
+  background: var(--danger-9);
 }
 .cost-chip[data-band="muted"] .cost-chip__dot {
   background: var(--color-muted);
@@ -2939,19 +2939,19 @@ kbd {
 }
 
 .settings-page__keychain-dot {
-  width: 8px;
-  height: 8px;
+  width: var(--space-3);
+  height: var(--space-3);
   border-radius: 50%;
   background: var(--color-muted);
   flex-shrink: 0;
 }
 
 .settings-page__keychain-dot--connected {
-  background: var(--color-success, var(--accent-9, #2f9e44));
+  background: var(--success-9);
 }
 
 .settings-page__keychain-dot--disconnected {
-  background: var(--color-warning, #d97706);
+  background: var(--warning-9);
 }
 
 .settings-page__keychain-dot--unsupported_os {

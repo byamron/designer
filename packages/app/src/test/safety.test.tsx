@@ -117,6 +117,39 @@ describe("ApprovalBlock", () => {
     expect(screen.queryByRole("button", { name: /grant/i })).toBeNull();
   });
 
+  it("disables Grant/Deny when the artifact payload has no approval_id", async () => {
+    const resolveApproval = vi.fn(async () => undefined);
+    __setIpcClient(
+      makeStubClient({
+        resolveApproval,
+        stream: () => () => {},
+      }),
+    );
+
+    render(
+      <ApprovalBlock
+        artifact={makeApprovalArtifact()}
+        // Pre-13.G payloads were free-text — no parsable approval_id.
+        // The block must not let the user appear to act on a request it
+        // can't actually resolve.
+        payload={{ kind: "inline", body: "legacy free-text payload" }}
+        isPinned={false}
+        onTogglePin={() => {}}
+        expanded={false}
+        onToggleExpanded={() => {}}
+      />,
+    );
+
+    const grant = screen.getByRole("button", { name: /grant/i });
+    const deny = screen.getByRole("button", { name: /deny/i });
+    expect((grant as HTMLButtonElement).disabled).toBe(true);
+    expect((deny as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(grant);
+    fireEvent.click(deny);
+    expect(resolveApproval).not.toHaveBeenCalled();
+  });
+
   it("becomes truth from the projector when an approval_granted event arrives", async () => {
     let pushEvent: ((ev: StreamEvent) => void) | null = null;
     __setIpcClient(

@@ -22,7 +22,8 @@ mod watcher;
 
 pub use claude_code::{ClaudeCodeOptions, ClaudeCodeOrchestrator};
 pub use inbox_permission::{
-    InboxPermissionHandler, APPROVAL_TIMEOUT, PROCESS_RESTART_REASON, TIMEOUT_REASON,
+    GateStatusSink, InboxPermissionHandler, APPROVAL_TIMEOUT, MISSING_WORKSPACE_REASON,
+    PROCESS_RESTART_REASON, TIMEOUT_REASON,
 };
 pub use mock::MockOrchestrator;
 pub use orchestrator::{

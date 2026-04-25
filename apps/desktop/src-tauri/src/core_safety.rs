@@ -27,16 +27,15 @@
 //! enforcement points (Decision 22).
 
 use crate::core::AppCore;
-use designer_claude::{InboxPermissionHandler, PROCESS_RESTART_REASON};
+use designer_claude::{GateStatusSink, InboxPermissionHandler, PROCESS_RESTART_REASON};
 use designer_core::{
     Actor, ApprovalId, ArtifactId, ArtifactKind, EventPayload, EventStore, PayloadRef, Projection,
     SqliteEventStore, StreamId, StreamOptions, WorkspaceId,
 };
-use designer_safety::{ApprovalGate, CostUsage};
+use designer_safety::{ApprovalGate, ApprovalStatus, CostUsage, InMemoryApprovalGate};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::SystemTime;
 
 /// Global AppCore handle to the inbox permission handler. Lives in a
 /// process-global slot because `AppCore` is constructed before the
@@ -49,6 +48,45 @@ use std::time::SystemTime;
 /// `__reset_inbox_handler_for_tests`. Never cleared in production.
 static INBOX_HANDLER: once_cell::sync::OnceCell<Arc<InboxPermissionHandler<SqliteEventStore>>> =
     once_cell::sync::OnceCell::new();
+
+/// Adapter so the inbox handler can update the in-memory
+/// `InMemoryApprovalGate`'s pending map after each resolution. Without
+/// this, `gate.status(id)` reports `Pending` for every inbox-routed
+/// approval even after the user grants/denies — the staff-engineer review's
+/// "two writers" concern. The adapter lives on the desktop side so
+/// `designer-safety` doesn't need a dep on `designer-claude` (which would
+/// reverse the natural layering).
+pub struct GateSinkAdapter {
+    gate: Arc<InMemoryApprovalGate<SqliteEventStore>>,
+}
+
+impl GateSinkAdapter {
+    pub fn new(gate: Arc<InMemoryApprovalGate<SqliteEventStore>>) -> Self {
+        Self { gate }
+    }
+}
+
+impl GateStatusSink for GateSinkAdapter {
+    fn record_status(&self, id: ApprovalId, granted: bool) {
+        let status = if granted {
+            ApprovalStatus::Granted
+        } else {
+            ApprovalStatus::Denied
+        };
+        self.gate.record_status(id, status);
+    }
+}
+
+/// Process-global serialization lock for `sweep_orphan_approvals`. Held
+/// for the duration of the sweep so two concurrent callers (boot racing a
+/// manual rerun, or two test cores in the same process) don't both read
+/// the same orphan set and double-write `process_restart` denials. Lives
+/// here rather than on `AppCore` so the field surface stays unchanged.
+fn sweep_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: once_cell::sync::OnceCell<tokio::sync::Mutex<()>> =
+        once_cell::sync::OnceCell::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 pub fn install_inbox_handler(
     handler: Arc<InboxPermissionHandler<SqliteEventStore>>,
@@ -341,27 +379,28 @@ impl AppCore {
     /// each with reason `"process_restart"`. Without this, every cold
     /// boot would surface phantom approvals whose original requesting
     /// subprocess is gone (the staff-engineer review's replay concern).
+    ///
+    /// **Race safety.** Two concurrent callers of `sweep_orphan_approvals`
+    /// would otherwise read the same orphan set and both write a denial
+    /// for each; a sweep racing a real `resolve` call could write a
+    /// `process_restart` denial *after* the user's grant landed. Both are
+    /// closed by the `sweep_lock` (serializes sweeps) plus the
+    /// per-iteration recheck against the live event log (serializes
+    /// against any other writer). The recheck plus serialization plus
+    /// inbox-handler atomic-removal in `resolve` give us a single-writer
+    /// guarantee per approval id.
     pub async fn sweep_orphan_approvals(&self) -> designer_core::Result<u32> {
-        use std::collections::HashSet;
-
-        let events = self.store.read_all(StreamOptions::default()).await?;
-        let mut requested: HashSet<ApprovalId> = HashSet::new();
-        let mut resolved: HashSet<ApprovalId> = HashSet::new();
-        for env in &events {
-            match &env.payload {
-                EventPayload::ApprovalRequested { approval_id, .. } => {
-                    requested.insert(*approval_id);
-                }
-                EventPayload::ApprovalGranted { approval_id }
-                | EventPayload::ApprovalDenied { approval_id, .. } => {
-                    resolved.insert(*approval_id);
-                }
-                _ => {}
-            }
-        }
+        let _guard = sweep_lock().lock().await;
 
         let mut count = 0u32;
-        for id in requested.difference(&resolved).copied().collect::<Vec<_>>() {
+        loop {
+            let events = self.store.read_all(StreamOptions::default()).await?;
+            let next_orphan = find_first_orphan(&events);
+            let Some(id) = next_orphan else { break };
+            // Append, then loop. Re-reading after each append is cheap
+            // (the event log is local SQLite) and rebuilds the resolved
+            // set so any write that snuck in between iterations is
+            // honored — we never write a duplicate terminal event.
             self.store
                 .append(
                     StreamId::System,
@@ -377,6 +416,31 @@ impl AppCore {
         }
         Ok(count)
     }
+}
+
+/// Walk an event log slice once and return the first `ApprovalRequested`
+/// id that has no matching `ApprovalGranted`/`ApprovalDenied`. Returns
+/// `None` when every request has a terminal event.
+fn find_first_orphan(events: &[designer_core::EventEnvelope]) -> Option<ApprovalId> {
+    use std::collections::HashSet;
+    let mut resolved: HashSet<ApprovalId> = HashSet::new();
+    for env in events {
+        match &env.payload {
+            EventPayload::ApprovalGranted { approval_id }
+            | EventPayload::ApprovalDenied { approval_id, .. } => {
+                resolved.insert(*approval_id);
+            }
+            _ => {}
+        }
+    }
+    for env in events {
+        if let EventPayload::ApprovalRequested { approval_id, .. } = &env.payload {
+            if !resolved.contains(approval_id) {
+                return Some(*approval_id);
+            }
+        }
+    }
+    None
 }
 
 fn approval_id_from_payload(body: &str) -> Option<ApprovalId> {
@@ -454,20 +518,7 @@ mod keychain {
 }
 
 fn format_now() -> String {
-    // Use the same RFC3339 helper the rest of the desktop uses, sourced
-    // from `designer-core::time::rfc3339`. Construct a `Timestamp` via
-    // `SystemTime::now()`.
-    let dur = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs() as i64;
-    let nanos = dur.subsec_nanos();
-    let offset = time::OffsetDateTime::from_unix_timestamp(secs)
-        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
-        + time::Duration::nanoseconds(nanos as i64);
-    offset
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_default()
+    designer_core::rfc3339(time::OffsetDateTime::now_utc())
 }
 
 #[cfg(test)]
@@ -645,6 +696,139 @@ mod tests {
         // state must be one of the documented tokens.
         assert!(["connected", "disconnected", "unsupported_os"].contains(&s.state.as_str()));
         assert!(!s.message.is_empty());
+    }
+
+    /// Phase-13.G regression: sweep racing a parallel grant must not
+    /// emit a second terminal event for the same approval id. The mutex
+    /// + per-iteration recheck make this a no-op.
+    #[tokio::test]
+    async fn sweep_does_not_double_resolve_after_grant_lands() {
+        let core = boot_test_core().await;
+        let p = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(p.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+
+        // Inject ApprovalRequested + a manual ApprovalGranted (the race
+        // we're simulating: a real user grant that landed before sweep
+        // had a chance to write its process-restart denial).
+        let approval_id = ApprovalId::new();
+        core.store
+            .append(
+                StreamId::Workspace(ws.id),
+                None,
+                Actor::system(),
+                EventPayload::ApprovalRequested {
+                    approval_id,
+                    workspace_id: ws.id,
+                    gate: "tool:Write".into(),
+                    summary: "raced".into(),
+                },
+            )
+            .await
+            .unwrap();
+        core.store
+            .append(
+                StreamId::Workspace(ws.id),
+                None,
+                Actor::user(),
+                EventPayload::ApprovalGranted { approval_id },
+            )
+            .await
+            .unwrap();
+
+        let cleaned = core.sweep_orphan_approvals().await.unwrap();
+        assert_eq!(
+            cleaned, 0,
+            "sweep must skip approvals that already have a terminal event"
+        );
+
+        let events = core.store.read_all(StreamOptions::default()).await.unwrap();
+        let granted_count = events
+            .iter()
+            .filter(|e| matches!(&e.payload, EventPayload::ApprovalGranted { approval_id: id } if *id == approval_id))
+            .count();
+        let denied_count = events
+            .iter()
+            .filter(|e| matches!(&e.payload, EventPayload::ApprovalDenied { approval_id: id, .. } if *id == approval_id))
+            .count();
+        assert_eq!(
+            granted_count, 1,
+            "the user's grant stays the only terminal event"
+        );
+        assert_eq!(denied_count, 0, "no process_restart denial sneaks in");
+    }
+
+    /// Phase-13.G regression: AppCore::cost_status should reflect
+    /// historical CostRecorded events after a process restart. The boot
+    /// path calls `cost.replay_from_store` so this works end-to-end at
+    /// the IPC surface, not just on the bare tracker.
+    #[tokio::test]
+    async fn cost_status_reflects_historical_spend_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path().to_path_buf();
+        let p_id;
+        let ws_id;
+
+        // Boot 1: spend half the cap, then drop the AppCore.
+        {
+            let config = AppConfig {
+                data_dir: dir_path.clone(),
+                use_mock_orchestrator: true,
+                claude_options: Default::default(),
+                default_cost_cap: CostCap {
+                    max_dollars_cents: Some(1_000),
+                    max_tokens: None,
+                },
+                helper_binary_path: None,
+            };
+            let core = AppCore::boot(config).await.unwrap();
+            let p = core
+                .create_project("P".into(), "/tmp".into())
+                .await
+                .unwrap();
+            let ws = core
+                .create_workspace(p.id, "ws".into(), "main".into())
+                .await
+                .unwrap();
+            p_id = p.id;
+            ws_id = ws.id;
+            core.cost
+                .check_and_record(
+                    ws.id,
+                    CostUsage {
+                        dollars_cents: 500,
+                        ..Default::default()
+                    },
+                    Actor::user(),
+                )
+                .await
+                .unwrap();
+        }
+
+        // Boot 2: same data dir, fresh AppCore. Cost status must surface
+        // the prior spend.
+        let config = AppConfig {
+            data_dir: dir_path.clone(),
+            use_mock_orchestrator: true,
+            claude_options: Default::default(),
+            default_cost_cap: CostCap {
+                max_dollars_cents: Some(1_000),
+                max_tokens: None,
+            },
+            helper_binary_path: None,
+        };
+        let core = AppCore::boot(config).await.unwrap();
+        let _ = (p_id, ws_id); // silence unused-binding when ProjectId unused below
+        let s = core.cost_status(ws_id);
+        assert_eq!(
+            s.spent_dollars_cents, 500,
+            "cost_status must reflect spend recorded in a prior session"
+        );
     }
 
     #[cfg(target_os = "macos")]

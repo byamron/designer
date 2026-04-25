@@ -96,6 +96,23 @@ The replay-safety sweep is the staff-engineer review's biggest catch. Without it
 - `tokio::test` defaults to single-threaded. The racing-approvals test needed `flavor = "multi_thread"` plus sequencing the spawns around `wait_for_pending` so the first park's read happens before the second spawn races into the SQLite write lock.
 - `cargo fmt --check` only works from the workspace root, not from inside a crate dir — `cargo fmt --all -- --check` is the portable form.
 
+**Post-merge security review fixes (2026-04-25, same branch).**
+
+The launch-grade review caught seven issues across the 13.G surface; all fixed in the same branch before merge:
+
+- **Blocking — `cmd_request_approval` unauth injection.** The IPC was wired to call `store.append(ApprovalRequested)` from any frontend caller. Restored to an explicit error stub with a docstring explaining why: only the orchestrator's `InboxPermissionHandler` is a legitimate producer of approval requests; an XSS-escaped script could otherwise plant fake "Grant write access?" entries in the inbox.
+- **Blocking — orphan-sweep race.** `sweep_orphan_approvals` now holds a process-global `tokio::Mutex` for the whole sweep and re-reads the event log per write to catch any terminal event that landed between iterations. Two concurrent callers no longer double-write `process_restart` denials.
+- **High — cost replay.** `CostTracker::replay_from_store` walks every `CostRecorded` event into the in-memory map; `AppCore::boot` calls it after construction. Without this, the cap check silently allowed a workspace to double-spend across boots and the topbar chip read $0.00 until the next per-turn cost event. New regression test in `designer-safety::tests::cost_tracker_replay_reflects_historical_spend`.
+- **High — `gate.status` lies in production.** Inbox-routed resolutions wrote events directly to the store, bypassing `InMemoryApprovalGate.pending`. Added `gate.record_status` (in-memory only) + `gate.replay_from_store` (boot-time). The handler now takes an optional `Arc<dyn GateStatusSink>`; `AppCore::boot` wires a `GateSinkAdapter` so every resolve mirrors into the gate's map. The trait sink lives in `designer-claude`; the adapter lives in the desktop crate so `designer-safety` does not depend on `designer-claude` (preserves the natural layering).
+- **Medium — resolution events on the wrong stream.** `ApprovalGranted/Denied` were written to `StreamId::System` while `ApprovalRequested` went to `StreamId::Workspace(...)`. Workspace-scoped subscribers saw "still pending forever." `PendingEntry` now stores `workspace_id` alongside the `oneshot::Sender`; resolutions and timeouts write to the same workspace stream as the request. Test: `resolution_event_lands_on_workspace_stream`.
+- **Medium — workspace-id-missing path didn't audit.** Now emits `ApprovalDenied{reason:"missing_workspace"}` to System so a misconfigured Phase-13.D wiring surfaces in the audit feed instead of silently denying. Test: `missing_workspace_id_emits_audit_row`.
+- **Medium — `format_now` reimplemented `rfc3339`.** Replaced with `designer_core::rfc3339(OffsetDateTime::now_utc())` — the codebase's canonical helper. Drops 12 lines of duplicate logic.
+- **Medium — CSS hex literals + arbitrary `8px`.** The cost-chip and Keychain-status dot rules carried `#2f9e44 / #d97706 / #c92a2a` fallbacks and `8px` dimensions. Switched to `var(--success-9 / --warning-9 / --danger-9)` (already in `tokens.css` via Radix scales) and `var(--space-3)`. No invariant violations remain.
+- **Concurrency — pre-park resolve race.** `decide` now inserts into `pending` *before* emitting any event. If a resolve arrives before decide finishes parking, the entry is already there. Test asserts the observable invariant (entry visible in `pending_ids` before the request event lands in the store).
+- **Concurrency — two-click race.** Resolve atomically removes from `pending` *before* persisting the terminal event. A second resolve for the same id finds nothing in the map, returns `Ok(false)`, and writes no event. The audit log carries exactly one terminal event per approval. Test: `two_click_race_writes_only_one_terminal_event`.
+
+Six new tests cover the previously buggy paths (pre-park observation, two-click race, missing-ws audit, workspace-stream resolution, gate sink update, sweep + grant race), plus cost-replay-after-restart in both the bare tracker and through `AppCore::boot`. Frontend gained one test asserting Grant/Deny stay disabled when the artifact payload is missing the parsed `approval_id`. All quality gates clean.
+
 ---
 
 ### Phase 13.1 — unified workspace thread + artifact foundation
