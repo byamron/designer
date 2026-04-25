@@ -9,6 +9,7 @@ import { getBlockRenderer, GenericBlock } from "../blocks";
 import type { Workspace } from "../ipc/types";
 import type { ArtifactDetail, ArtifactId, ArtifactSummary, PayloadRef } from "../ipc/types";
 import { ipcClient } from "../ipc/client";
+import { describeIpcError } from "../ipc/error";
 import "../blocks";
 
 /**
@@ -79,11 +80,23 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
   // single track produces one refresh, not N.
   useEffect(() => {
     let pending = 0;
+    // The Rust core serializes `StreamId::Workspace(uuid)` as
+    // `"workspace:<uuid>"` (see `designer_core::ids::StreamId::Display`).
+    // The bare-uuid form is the historical mock shape — accept both so
+    // tests written against the mock and the real Tauri stream both
+    // trigger refresh. Sub-streams (`workspace:<uuid>:<suffix>`) are
+    // future-proofed: any prefix beginning with `workspace:<uuid>` and
+    // followed by `:` is in scope for this workspace.
+    const wsId = workspace.id;
+    const productionPrefix = `workspace:${wsId}`;
     const unsub = ipcClient().stream((event) => {
       if (!event.kind.startsWith("artifact_")) return;
+      const sid = event.stream_id;
       const wsScope =
-        event.stream_id === workspace.id ||
-        event.stream_id.startsWith(`${workspace.id}:`);
+        sid === productionPrefix ||
+        sid.startsWith(`${productionPrefix}:`) ||
+        sid === wsId ||
+        sid.startsWith(`${wsId}:`);
       if (!wsScope) return;
       if (pending) return;
       pending = window.requestAnimationFrame(() => {
@@ -146,9 +159,17 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
   // on the synchronous return of `onSend`, so the user-facing optimistic
   // state lives here, gated by this flag.
   const [sending, setSending] = useState(false);
+  // Synchronous re-entry guard. React `useState` updates are batched, so
+  // two clicks within the same microtask will both observe the prior
+  // `sending = false` if we gated on state alone. The ref is set
+  // synchronously so a second click during the in-flight send
+  // short-circuits before reaching `ipcClient().postMessage`.
+  const sendingRef = useRef(false);
   const onSend = useCallback(
     async (payload: ComposeSendPayload) => {
       if (!payload.text.trim() && payload.attachments.length === 0) return;
+      if (sendingRef.current) return;
+      sendingRef.current = true;
       setHasStarted(true);
       setSending(true);
       setSendError(null);
@@ -168,19 +189,21 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
         // append to local state here — the projector is the source
         // of truth and `refresh()` is idempotent.
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Send failed. Try again.";
-        setSendError(message);
+        setSendError(describeIpcError(err));
         // ComposeDock clears its own draft synchronously after onSend
         // returns. On failure we restore it so the user doesn't have to
         // retype — the failed text re-appears in the textarea and we
-        // refocus so they can edit and resend.
+        // refocus so they can edit and resend. Backend guarantees no
+        // user artifact lands when dispatch fails (see
+        // `core_agents.rs::post_message`), so retrying with the same
+        // text does not produce duplicates.
         composeRef.current?.setDraft(payload.text);
         composeRef.current?.focus();
       } finally {
+        sendingRef.current = false;
         setSending(false);
-        // Always re-fetch — even on failure, the user-side artifact
-        // may have landed before the orchestrator handoff threw.
+        // Always re-fetch — even on failure, an earlier successful
+        // send may have produced a coalesced reply since the last poll.
         void refresh();
       }
     },

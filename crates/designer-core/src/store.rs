@@ -64,6 +64,18 @@ pub struct SqliteEventStore {
 }
 
 impl SqliteEventStore {
+    /// Run a `PRAGMA busy_timeout` query against a freshly-checked-out
+    /// connection so tests can verify the pool's per-connection init
+    /// closure is being honored. `0` means no timeout (the default).
+    #[doc(hidden)]
+    pub fn busy_timeout_ms(&self) -> Result<i64> {
+        let conn = self.conn()?;
+        let v: i64 = conn
+            .query_row("PRAGMA busy_timeout;", [], |r| r.get(0))
+            .map_err(StoreError::Sqlite)?;
+        Ok(v)
+    }
+
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
@@ -86,8 +98,15 @@ impl SqliteEventStore {
                 .map_err(StoreError::Sqlite)?;
         }
 
+        // `busy_timeout` makes a writer wait (up to N ms) for an active
+        // writer to finish, instead of returning `SQLITE_BUSY` immediately.
+        // Without this, concurrent appends from the AppCore message-post
+        // path and the agent-event coalescer race and one gets a
+        // `database is locked` error mid-test. 5 s is long enough to
+        // cover any plausible single-write critical section, short
+        // enough that a genuinely deadlocked test still fails fast.
         let manager = SqliteConnectionManager::file(&path)
-            .with_init(|c| c.execute_batch("PRAGMA foreign_keys=ON;"));
+            .with_init(|c| c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"));
         let pool = Pool::builder()
             .max_size(8)
             .build(manager)
@@ -103,7 +122,7 @@ impl SqliteEventStore {
 
     pub fn open_in_memory() -> Result<Self> {
         let manager = SqliteConnectionManager::memory().with_init(|c| {
-            c.execute_batch("PRAGMA foreign_keys=ON;")?;
+            c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
             Ok(())
         });
         let pool = Pool::builder()
@@ -275,7 +294,17 @@ impl EventStore for SqliteEventStore {
 
         let result = task::spawn_blocking(move || -> Result<EventEnvelope> {
             let mut conn = pool.get().map_err(|e| StoreError::Pool(e.to_string()))?;
-            let tx = conn.transaction().map_err(StoreError::Sqlite)?;
+            // IMMEDIATE acquires the write lock at BEGIN, not at first
+            // INSERT, so two concurrent appends serialize cleanly under
+            // `busy_timeout` rather than racing as DEFERRED reads that
+            // each try to upgrade to a write and deadlock with
+            // SQLITE_LOCKED (which is *not* retryable by busy_timeout).
+            // 13.D's coalescer + `AppCore::post_message` are the first
+            // path with two concurrent writers; this surfaces the latent
+            // bug.
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(StoreError::Sqlite)?;
 
             let stream_kind = stream.discriminant();
             let stream_id_str = stream.raw();

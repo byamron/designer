@@ -288,7 +288,7 @@ export function createMockCore(): MockCore {
       projects.push(project);
       emit({
         kind: "project_created",
-        stream_id: project.id,
+        stream_id: `project:${project.id}`,
         timestamp: now(),
         summary: `Project '${project.name}' created`,
       });
@@ -308,7 +308,7 @@ export function createMockCore(): MockCore {
       workspaces.push(workspace);
       emit({
         kind: "workspace_created",
-        stream_id: workspace.id,
+        stream_id: `workspace:${workspace.id}`,
         timestamp: now(),
         summary: `Workspace '${workspace.name}' created`,
       });
@@ -326,7 +326,7 @@ export function createMockCore(): MockCore {
       if (w) w.tabs.push(tab);
       emit({
         kind: "tab_opened",
-        stream_id: req.workspace_id,
+        stream_id: `workspace:${req.workspace_id}`,
         timestamp: now(),
         summary: `Tab '${tab.title}' (${tab.template}) opened`,
       });
@@ -340,7 +340,7 @@ export function createMockCore(): MockCore {
       t.closed_at = now();
       emit({
         kind: "tab_closed",
-        stream_id: workspaceId,
+        stream_id: `workspace:${workspaceId}`,
         timestamp: now(),
         summary: `Tab '${t.title}' closed`,
       });
@@ -361,7 +361,7 @@ export function createMockCore(): MockCore {
       approvals.push(approval);
       emit({
         kind: "approval_requested",
-        stream_id: workspaceId,
+        stream_id: `workspace:${workspaceId}`,
         timestamp: now(),
         summary: `Approval requested: ${gate}`,
       });
@@ -373,7 +373,7 @@ export function createMockCore(): MockCore {
       a.status = granted ? "granted" : "denied";
       emit({
         kind: granted ? "approval_granted" : "approval_denied",
-        stream_id: a.workspaceId,
+        stream_id: `workspace:${a.workspaceId}`,
         timestamp: now(),
         summary: reason ?? (granted ? "Granted" : "Denied"),
       });
@@ -403,7 +403,7 @@ export function createMockCore(): MockCore {
       a.pinned = !a.pinned;
       emit({
         kind: a.pinned ? "artifact_pinned" : "artifact_unpinned",
-        stream_id: a.workspace_id,
+        stream_id: `workspace:${a.workspace_id}`,
         timestamp: now(),
         summary: `${a.pinned ? "Pinned" : "Unpinned"} ${a.title}`,
       });
@@ -431,7 +431,7 @@ export function createMockCore(): MockCore {
       artifacts.push(userArtifact);
       emit({
         kind: "artifact_created",
-        stream_id: req.workspace_id,
+        stream_id: `workspace:${req.workspace_id}`,
         timestamp: now(),
         summary: userArtifact.title,
       });
@@ -453,7 +453,7 @@ export function createMockCore(): MockCore {
       artifacts.push(replyArtifact);
       emit({
         kind: "artifact_created",
-        stream_id: req.workspace_id,
+        stream_id: `workspace:${req.workspace_id}`,
         timestamp: now(),
         summary: replyArtifact.title,
       });
@@ -479,7 +479,7 @@ export function createMockCore(): MockCore {
         artifacts.push(extra);
         emit({
           kind: "artifact_created",
-          stream_id: req.workspace_id,
+          stream_id: `workspace:${req.workspace_id}`,
           timestamp: now(),
           summary: extra.title,
         });

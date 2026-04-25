@@ -745,4 +745,20 @@ mod tests {
         };
         assert!(event_to_payload(&ev, "t", "team-lead").is_none());
     }
+
+    /// `ArtifactProduced` is broadcast-only — AppCore's coalescer is the
+    /// single writer for `EventPayload::ArtifactCreated`, so persisting
+    /// here would race the projector and double-write.
+    #[test]
+    fn event_to_payload_artifact_produced_is_broadcast_only() {
+        let ev = OrchestratorEvent::ArtifactProduced {
+            workspace_id: WorkspaceId::new(),
+            artifact_kind: designer_core::ArtifactKind::Diagram,
+            title: "Sequence diagram".into(),
+            summary: "summary".into(),
+            body: "body".into(),
+            author_role: Some("team-lead".into()),
+        };
+        assert!(event_to_payload(&ev, "t", "team-lead").is_none());
+    }
 }

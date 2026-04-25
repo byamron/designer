@@ -228,3 +228,9 @@ async fn payload_ref_inline_vs_hash_serialize_distinctly() {
     let round: PayloadRef = serde_json::from_str(&inline_json).unwrap();
     assert!(round.is_inline());
 }
+
+#[tokio::test]
+async fn busy_timeout_is_5_seconds_on_pool_connections() {
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    assert_eq!(store.busy_timeout_ms().unwrap(), 5000);
+}
