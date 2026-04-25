@@ -156,7 +156,7 @@ pub fn reveal_in_finder(path: String) -> Result<(), IpcError> {
             .args(["-R", &path])
             .spawn()
             .map_err(|e| IpcError::Unknown(format!("reveal_in_finder failed: {e}")))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "macos"))]
     {
