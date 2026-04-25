@@ -87,25 +87,25 @@ const VARIANT_CONFIG: Record<Exclude<TabRadiusVariant, "custom">, VariantConfig>
 
 const tabRadiusVariantStore = persisted<TabRadiusVariant>(
   "designer.dev.tabRadiusVariant",
-  "match",
+  "custom",
   stringDecoder(TAB_RADIUS_VARIANTS),
 );
 
 const tabRadiusValueStore = persisted<number>(
   "designer.dev.tabRadiusValue",
-  24,
+  6,
   intDecoder((n) => Math.max(0, Math.min(32, n))),
 );
 
 const mainTabRadiusStore = persisted<number>(
   "designer.dev.mainTabRadius",
-  24,
+  18,
   intDecoder((n) => Math.max(0, Math.min(40, n))),
 );
 
 const composeRadiusStore = persisted<number>(
   "designer.dev.composeRadius",
-  8,
+  6,
   intDecoder((n) => Math.max(0, Math.min(32, n))),
 );
 
@@ -270,9 +270,11 @@ export function SurfaceDevPanel() {
     onTabOpacity(70);
     onBorderStrength(10);
     onShadowIntensity(50);
-    onTabRadiusVariant("match");
-    onMainTabRadius(24);
-    onComposeRadius(8);
+    onTabRadiusVariant("custom");
+    setTabRadiusValue(6);
+    tabRadiusValueStore.write(6);
+    onMainTabRadius(18);
+    onComposeRadius(6);
   };
 
   return (

@@ -38,16 +38,16 @@
   --dev-shadow-intensity: 50%;
   /* Tab corner radii — top and bottom can decouple for the "folder"
    * variant (top rounder than bottom). Symmetric variants keep them
-   * equal. Default register: 24px both, matching --radius-surface so
-   * tabs and the main tab container share corner shape. */
-  --dev-tab-radius-top: 24px;
-  --dev-tab-radius-bottom: 24px;
+   * equal. Default register: 6px (tight tool register; tabs read as
+   * crisp chips against the softer 18px main tab container). */
+  --dev-tab-radius-top: 6px;
+  --dev-tab-radius-bottom: 6px;
   /* Main tab container + compose corner radii — independent sliders.
-   * Defaults preserve the previous concentric math (24 outer / 8 inner
-   * with --surface-inner-pad = 16px). Either can be tuned in
-   * isolation now. */
-  --dev-main-tab-radius: 24px;
-  --dev-compose-radius: 8px;
+   * Defaults: 18 outer / 6 inner with --surface-inner-pad = 12px,
+   * keeping the concentric math (18 − 12 = 6) intact at the new
+   * tighter register. */
+  --dev-main-tab-radius: 18px;
+  --dev-compose-radius: 6px;
 
   /* Border colors derived from the strength + tab-opacity sliders. The
    * main surface and the active tab share `--surface-border-color` so
@@ -134,15 +134,13 @@
         transparent
       );
   --surface-text-pad: var(--space-5);
-  /* 16 px inset around the compose, per the user's concentric-corners
-   * spec. With --radius-surface = 16 and this pad = 16, the concentric
-   * math resolves the compose corner radius to 0 (16 − 16) — the
-   * compose is a sharp rectangle nested in the rounded-corner pocket
-   * of the surface, with its corner arc collapsed to a point at the
-   * outer arc's center. That's geometrically perfectly concentric.
-   * If the compose ever needs a non-zero radius again, bump the
-   * surface radius by the same delta so the math keeps holding. */
-  --surface-inner-pad: var(--space-4);
+  /* 12 px gap between the compose box and the main tab container border.
+   * Sits at the same 1.5× space-3 step as --surface-gutter, so the
+   * compose's outer-padding rhythm matches the page's outer-padding
+   * rhythm. Drives the concentric corner math: with main tab radius
+   * = 18 and inner-pad = 12, compose corner = 18 − 12 = 6 px (the
+   * dev panel's default Compose radius). */
+  --surface-inner-pad: calc(var(--space-3) * 1.5);
 }
 
 /* Dark-mode override — matches Radix Colors v3's activation model
@@ -3355,10 +3353,12 @@ kbd {
 }
 
 .workspace-thread__compose {
-  /* 16px on all sides so the compose card scales with the main-tab
-   * width when the sidebars resize. No divider above — the main tab is
-   * one continuous container. */
-  padding: var(--space-4);
+  /* 12px on all sides — the gap between the compose card and the main
+   * tab container border. Matches --surface-inner-pad so the
+   * concentric corner math (main tab radius − inner pad = compose
+   * radius) holds without manual recalculation. Compose card scales
+   * with the main-tab width when the sidebars resize. */
+  padding: var(--surface-inner-pad);
   flex-shrink: 0;
 }
 
