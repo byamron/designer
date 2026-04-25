@@ -152,19 +152,49 @@
 .dark,
 .dark-theme,
 [data-theme="dark"] {
-  /* Dark-mode inverts the hierarchy: parent surface is sand-dark-2
-   * (page), main tab container is sand-dark-1 (one step darker, reads
-   * as "the figure"). The sliders have symmetric meaning to light
-   * mode: surface-sand 50% = sand-dark-2 midpoint; main-tab-sand 0% =
-   * maximum contrast (the deepest sand-dark-1 anchor). */
-  --color-background: color-mix(in oklab, var(--sand-dark-1) var(--dev-surface-sand), var(--sand-dark-3));
+  /* Dark mode mirrors the light hierarchy in the sand-dark scale:
+   * the parent surface is a warm dark "page" and the main tab
+   * container is a clearly lifted "figure" above it.
+   *
+   * Slider math is reanchored so the same default values (surface 80%,
+   * main-tab 5%) produce real luminance separation in dark mode —
+   * previously both anchors collapsed near sand-dark-1 and the surface
+   * read as one flat near-black.
+   *
+   * Surface sand:  sand-dark-1 (deepest) ↔ sand-dark-4 (warmest)
+   *   80% default → ~sand-dark-3.4: clearly sand-toned warm dark.
+   * Main tab fill: sand-dark-5 (lifted) ↔ sand-dark-9 (much brighter)
+   *   5% default → ~sand-dark-5.2: ~1.8 luminance steps above parent. */
+  --color-background: color-mix(
+    in oklab,
+    var(--sand-dark-4) var(--dev-surface-sand),
+    var(--sand-dark-1)
+  );
   --color-surface-flat: var(--color-background);
-  --color-content-surface: color-mix(in oklab, var(--sand-dark-3) var(--dev-main-tab-sand), var(--sand-dark-1));
+  --color-content-surface: color-mix(
+    in oklab,
+    var(--sand-dark-9) var(--dev-main-tab-sand),
+    var(--sand-dark-5)
+  );
+
+  /* Tier surfaces — pre-mixed steps for chips, hover, overlays. */
+  --color-surface-raised: var(--sand-dark-5);
+  --color-surface-overlay: var(--sand-dark-6);
+  --color-surface-sunken: var(--sand-dark-2);
+  --color-surface-hover: var(--sand-dark-5);
+
+  /* Text + border — Radix's sand-dark scale lands these at sensible
+   * contrast ratios against the surface tiers above. */
+  --color-foreground: var(--sand-dark-12);
+  --color-muted: var(--sand-dark-11);
+  --color-border: var(--sand-dark-6);
   /* In dark mode the alpha-5 border isn't strong enough to differentiate
-   * the active tab pill from the page (sand-dark-1 pill on sand-dark-2
-   * page differ by ~1 luminance step). Promote the "soft" border to the
-   * full --color-border only in dark; light mode keeps the hairline. */
-  --color-border-soft: var(--gray-a7);
+   * the main surface and tabs from the page; promote to alpha-7. */
+  --color-border-soft: var(--sand-dark-a7);
+
+  /* Accent gets a hair brighter so dialogs and pin states still read
+   * against the lifted main-tab container. */
+  --color-accent: var(--accent-10);
 }
 
 /* --- skip link ---------------------------------------------------------- */
@@ -406,6 +436,10 @@ body,
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  /* Same horizontal indent as .sidebar-home / .sidebar-group__head /
+   * .workspace-row so the project title and path line up with the
+   * Home button, "Workspaces" label, and workspace icons below. */
+  padding: 0 var(--space-4);
 }
 
 .sidebar-header__row {
