@@ -157,9 +157,25 @@ Delivers the user-visible affordances of the workspace/track model (spec §"Work
 
 ## Recently Completed
 
-### Phase 13.F — Local-model surfaces — 2026-04-25
+### Phase 13.F — Local-model surfaces — 2026-04-25 (review pass 2026-04-25 follow-up)
 
 Wires Apple Foundation Models (via the 12.B helper) into the four 13.1-prepared surfaces.
+
+**Review-driven follow-ups landed in the same branch:**
+
+- **Debounce-burst race fixed.** `SummaryDebounce` now distinguishes `Resolved` (cached) from `Inflight` (a watch::Sender backing a pending helper call). Concurrent callers within the 2s window join the in-flight watch instead of dispatching their own request — `helper.call_count() == 1` for a 100ms-apart burst over an 800ms helper.
+- **Eviction.** `SUMMARY_DEBOUNCE_MAX_ENTRIES = 1024`. Expired `Resolved` entries are pruned opportunistically on each `claim`; over the cap, the oldest `Resolved` is dropped (never an `Inflight` — that would error every awaiting caller). Test at 1000 unique keys verifies the bound holds.
+- **`Weak<AppCore>` for the late-return spawn.** The detached task that emits `ArtifactUpdated` after a >500ms helper return now downgrades `Arc<Self>` to `Weak`, so a shutting-down `AppCore` doesn't have its lifetime extended by an in-flight helper call.
+- **Archived target rejection.** `audit_artifact` now returns `NotFound` when the target is archived (the projector's per-id lookup doesn't filter archived; the policy lives at the audit boundary). `recap_workspace` rejects archived/errored workspaces with `Invariant`.
+- **Cross-workspace audit boundary.** `AuditArtifactRequest` requires `expected_workspace_id`; mismatch returns `IpcError::InvalidRequest`. Future-proofs the seam for per-workspace authorization in 13.G.
+- **Author-role registry** at `designer_core::author_roles` (`RECAP`, `AUDITOR`, `AGENT`, `TRACK`, `SAFETY`, `WORKSPACE_LEAD`). Replaces inline string literals in `core_local.rs`; downstream tracks should reuse.
+- **Local timezone for "Wednesday recap"** via `time::OffsetDateTime::now_local()` (added `local-offset` to the workspace `time` feature set), with UTC fallback when the host can't resolve a local offset.
+- **CSP injection in `PrototypeBlock`.** Inline-HTML mode now uses `sandbox=""` (no token at all — drops `allow-forms` to harden against `<form action>` exfiltration) AND wraps the agent HTML with a CSP `<meta>` setting `form-action 'none'` + the same default-src 'none' / script-src 'none' rules as the lab demo. Two new vitest cases assert sandbox is empty and CSP is present in the rendered srcdoc.
+- **Wiring TODO.** A grep-able `TODO(13.F-wiring)` comment block in `core_local.rs` documents that tracks D / E / G must route `code-change` artifacts through `append_artifact_with_summary_hook`. Tracks emitting via direct `store.append` will bypass the on-device summary.
+
+**Deferred (recommended before user-visible launch):**
+
+- **`summary_provenance` field on `Artifact`** — flagged as Medium. The artifact event vocabulary is frozen by ADR 0003; adding the field requires either (a) a new event variant `ArtifactSummaryProvenanceSet { artifact_id, provenance }` (additive, replay-safe) or (b) a schema bump on `ArtifactCreated/Updated`. Either path is its own ADR; the system-level helper-status indicator from 12.B already drives the global "On-device models unavailable" copy. Tracked: open a pre-launch ADR proposing option (a).
 
 - **Write-time summary hook.** `AppCore::append_artifact_with_summary_hook` is the new emitter seam for `code-change` artifacts. It calls `LocalOps::summarize_row` with a 500ms deadline; on success the helper output replaces the supplied summary before the event lands. On timeout, the artifact appends with a deterministic 140-char ellipsis-truncated summary and a detached task emits `ArtifactUpdated` when the helper eventually returns. Per-track debounce (Option B — each artifact in a 2s burst from the same `(workspace_id, author_role)` reuses the cached batch summary; no event suppression, just one helper call per burst). Helper-down (boot-time fallback) short-circuits to truncation immediately; never even dispatches the call. Documented in ADR 0003.
 - **`cmd_recap_workspace`.** New IPC command: collects the workspace's recent artifacts, calls `LocalOps::recap`, emits `ArtifactCreated { kind: "report", title: "<Weekday> recap", author_role: Some("recap") }` with the headline as the inline summary and full markdown as the inline payload.

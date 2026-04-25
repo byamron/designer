@@ -14,8 +14,8 @@ pub mod store;
 pub mod time;
 
 pub use domain::{
-    Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project, Tab, TabTemplate, Workspace,
-    WorkspaceState,
+    author_roles, Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project, Tab, TabTemplate,
+    Workspace, WorkspaceState,
 };
 pub use error::{CoreError, Result};
 pub use event::{Event, EventEnvelope, EventKind, EventPayload};

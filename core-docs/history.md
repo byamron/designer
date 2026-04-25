@@ -37,10 +37,26 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
-### Phase 13.F — local-model surfaces
+### Phase 13.F — local-model surfaces (initial + post-review pass)
 **Date:** 2026-04-25
 **Branch:** 13f-local-model-surfaces
 **Commit:** [pending — see PR]
+
+**Review pass (2026-04-25 same-day):**
+
+- **Debounce-burst race fix.** First-pass `SummaryDebounce` cached only resolved values; a second caller arriving while the first was in flight saw no entry and dispatched its own helper call (call_count == 2 for a burst that should be 1). Fixed by tracking inflight slots (`watch::Sender<Option<String>>`) alongside resolved entries; concurrent callers join the same in-flight watch. Test `concurrent_burst_shares_one_helper_call` asserts call_count == 1 after a 100ms-apart burst over an 800ms helper.
+- **Eviction.** Added `SUMMARY_DEBOUNCE_MAX_ENTRIES = 1024` cap with opportunistic prune of expired `Resolved` entries on each `claim`. Inflight slots are never evicted (would error every awaiter). Test `debounce_cache_is_bounded_under_churn` exercises 1000 unique keys.
+- **`Weak<AppCore>` on the late-return spawn.** Previous code held `Arc<AppCore>` in the detached task — a slow helper would extend AppCore's lifetime past shutdown by the helper-call duration. Now uses `Arc::downgrade(self)` and bails when `upgrade()` returns None.
+- **Archived target rejection.** `Projector::artifact()` returns artifacts regardless of `archived_at`; the projector preserves history. The audit/recap policy ("don't audit something that's been archived") lives at the boundary now: `audit_artifact` returns `NotFound` when `target.archived_at.is_some()`, `recap_workspace` returns `Invariant` for archived/errored workspaces, and `emit_artifact_updated` short-circuits if the target was archived between append and helper return.
+- **Cross-workspace audit boundary.** `AuditArtifactRequest` now requires `expected_workspace_id`; `AppCore::audit_artifact(id, expected, claim)` validates `target.workspace_id == expected` and returns `Invariant` (mapped to `IpcError::InvalidRequest`) on mismatch. Future-proofs the seam for per-workspace authorization in 13.G.
+- **Author-role registry.** New module `designer_core::author_roles` exports `RECAP`, `AUDITOR`, `AGENT`, `TRACK`, `SAFETY`, `WORKSPACE_LEAD` constants. Replaces inline `"auditor"` / `"recap"` literals; downstream tracks should reuse to avoid drift.
+- **Local timezone for "Wednesday recap".** Added `local-offset` to the workspace `time` feature set; `weekday_label()` now uses `OffsetDateTime::now_local()` with UTC fallback when the host can't resolve a local offset (sandboxed CI envs).
+- **PrototypeBlock CSP regression fixed.** First-pass inline-HTML mode used `sandbox="allow-forms allow-pointer-lock"` — same as the lab demo, but without the lab's CSP `<meta>` wrapping. A `<form action="https://attacker">` could exfiltrate. Two defenses now: (1) `sandbox=""` (no permissions — blocks form submission entirely) and (2) `wrapInlineHtmlWithCsp()` injects a CSP `meta` tag with `form-action 'none'`, `script-src 'none'`, etc. New vitest `hardens against form-action XSS` asserts both defenses.
+- **`summary_provenance` deferred** to a pre-launch ADR. Adding the field non-breakingly is a new variant on the artifact event vocabulary (`ArtifactSummaryProvenanceSet`), which warrants its own decision record. The 12.B system-level helper-status indicator covers the global case for now.
+- **Wiring TODO.** Module docs for `core_local.rs` and ADR 0003 explicitly note that tracks D/E/G must route `code-change` through `append_artifact_with_summary_hook`; direct `store.append` bypasses the hook and breaks Decision 39's at-write-time guarantee. Search for `TODO(13.F-wiring)` during track-integration merges.
+
+Test coverage: 15 Rust unit tests (5 new this pass — concurrent burst, archived target, cross-workspace boundary, helper-down + long summary, eviction under churn) + 4 vitest cases (1 new — XSS via form-action).
+
 
 **What was done:**
 

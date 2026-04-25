@@ -69,6 +69,31 @@ This is a backend-only contract; the frontend is unchanged. Tracks 13.E (and any
 
 Neither extends the registry contract; both produce ordinary kinds that already have renderers.
 
+#### Concurrency and lifetime invariants (added 2026-04-25 follow-up review)
+
+- **Concurrent burst → one helper round-trip.** `SummaryDebounce` distinguishes `Resolved` (cached value, recently seen) from `Inflight` (a `tokio::sync::watch::Sender` backing a pending helper call). A second caller within the window subscribes to the same watch instead of dispatching its own request. The owner publishes via `finish_inflight`; joiners read from `borrow()` and clone-out before any further `await` (the `watch::Ref` guard is not `Send`).
+- **Bounded cache.** `SUMMARY_DEBOUNCE_MAX_ENTRIES = 1024` with opportunistic prune of expired entries on each `claim`. Over-cap evicts the oldest `Resolved`, never an `Inflight` (dropping its `Sender` would error every awaiting receiver).
+- **Late-return uses `Weak<AppCore>`.** The detached task that emits `ArtifactUpdated` past the 500ms deadline holds a `Weak` reference, so an `AppCore` shutdown does not wait for in-flight helper calls.
+- **Joiners do not get late updates.** When a joining caller hits its 500ms deadline before the in-flight owner returns, it appends with the truncated fallback and that artifact stays at the fallback summary. Only the owner's `artifact_id` is updated by the late-return task. Broadcasting late updates per-artifact (so joiners' artifacts also catch up) is a future enhancement; the current behavior is the simplest semantic that preserves single-helper-call-per-burst.
+
+#### Cross-workspace audit boundary
+
+`AuditArtifactRequest` requires `expected_workspace_id`. The `AppCore::audit_artifact(id, expected_ws, claim)` method validates that `target.workspace_id == expected_ws` and returns `CoreError::Invariant` (surfaced as `IpcError::InvalidRequest`) on mismatch. Combined with archived-target rejection (`NotFound`), this makes the audit boundary structurally robust against a misbehaving caller landing comments in workspaces it didn't intend.
+
+#### Deferred — `summary_provenance` on `Artifact` (pre-launch ADR)
+
+Fallback-truncated summaries and on-device-generated summaries currently share the same `summary` field on `Artifact`; the user can't distinguish them per-artifact (the system-level `helper_status` IPC drives a global "On-device models unavailable" indicator, which is the only provenance signal today). Adding a per-artifact `summary_provenance` enum (`OnDevice` / `Fallback` / `Producer`) would be a non-breaking event addition via a new variant `ArtifactSummaryProvenanceSet { artifact_id, provenance }` projected onto `Artifact.summary_provenance: Option<…>`. This is **deferred to a pre-launch ADR** because:
+
+1. The artifact event vocabulary is frozen by this ADR; expanding it warrants its own decision record.
+2. The 12.B helper-status indicator covers the global case (most users either have on-device models or don't — they don't switch mid-session).
+3. The seam already records provenance internally (the `Resolved` slot in `SummaryDebounce` could carry a kind tag); only the projection out is missing.
+
+A new ADR (0004 or later) should land before any user-visible build that exposes summaries to non-engineers.
+
+#### Wiring TODO for 13.D / 13.E / 13.G
+
+Tracks emitting `ArtifactCreated { kind: "code-change" }` **must** route through `AppCore::append_artifact_with_summary_hook(draft)`; direct `store.append` bypasses the on-device summary and breaks the Decision 39 "summaries are written once at write time" guarantee. Search the workspace for `TODO(13.F-wiring)` to find the bypasses to fix during integration.
+
 ## Consequences
 
 ### Positive

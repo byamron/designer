@@ -28,6 +28,12 @@ pub struct RecapWorkspaceRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditArtifactRequest {
     pub artifact_id: ArtifactId,
+    /// Workspace the caller believes the target lives in. Validated against
+    /// the projector's record so a misbehaving caller cannot land an audit
+    /// comment in a workspace it didn't intend to write to. This is the
+    /// future seam for per-workspace authorization in 13.G — for now it's a
+    /// structural integrity check.
+    pub expected_workspace_id: WorkspaceId,
     pub claim: String,
 }
 
@@ -52,9 +58,16 @@ pub async fn cmd_audit_artifact(
         return Err(IpcError::InvalidRequest("claim must not be empty".into()));
     }
     let env = core
-        .audit_artifact(req.artifact_id, req.claim)
+        .audit_artifact(req.artifact_id, req.expected_workspace_id, req.claim)
         .await
-        .map_err(IpcError::from)?;
+        .map_err(|e| match e {
+            // Cross-workspace boundary violation surfaces as InvalidRequest
+            // (the data-shape error) so a frontend can distinguish it from a
+            // missing/archived artifact (NotFound).
+            designer_core::CoreError::Invariant(msg) => IpcError::InvalidRequest(msg),
+            designer_core::CoreError::NotFound(msg) => IpcError::NotFound(msg),
+            other => IpcError::from(other),
+        })?;
     artifact_from_env(&core, &env).await
 }
 

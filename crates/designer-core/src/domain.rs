@@ -116,6 +116,28 @@ impl TabTemplate {
 // Artifact foundation (Phase 13.1)
 // ---------------------------------------------------------------------------
 
+/// Canonical `author_role` strings. The field on `Artifact` is `String` (free-
+/// form) but every emitter inside Designer writes one of these — keeping the
+/// vocabulary discoverable in one place avoids 13.D / 13.E / 13.F / 13.G drift
+/// (FB-codified after the 13.F review).
+pub mod author_roles {
+    /// Helper-driven workspace recap card (`cmd_recap_workspace`).
+    pub const RECAP: &str = "recap";
+    /// On-device claim audit comment (`cmd_audit_artifact`).
+    pub const AUDITOR: &str = "auditor";
+    /// Generic agent-team output where the role isn't otherwise specified.
+    pub const AGENT: &str = "agent";
+    /// Track-aware emitter (13.E) — code-change / pr artifacts. Will gain
+    /// per-track suffixing when track ids land on the artifact event.
+    pub const TRACK: &str = "track";
+    /// Safety / approval surface (13.G) — approval requests + scope-deny
+    /// comments.
+    pub const SAFETY: &str = "safety";
+    /// Workspace-lead Claude session (13.D) — the persistent manager-level
+    /// chat producer.
+    pub const WORKSPACE_LEAD: &str = "workspace-lead";
+}
+
 /// A typed artifact — the data a block renderer knows how to display.
 ///
 /// Lifecycle (one stream per workspace):
