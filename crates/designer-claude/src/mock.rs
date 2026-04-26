@@ -3,6 +3,7 @@
 //! real Claude Code team would produce, in predictable order, with configurable
 //! delays.
 
+use crate::claude_code::ClaudeSignal;
 use crate::orchestrator::{
     Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult, TaskAssignment,
     TeamSpec,
@@ -23,6 +24,13 @@ type Tx = broadcast::Sender<OrchestratorEvent>;
 pub struct MockOrchestrator<S: EventStore> {
     store: Arc<S>,
     tx: Tx,
+    /// Side-channel signal sender so tests (and 13.H/F3's
+    /// `signal_subscriber_records_to_store` in particular) can inject
+    /// `ClaudeSignal::Cost` and assert the AppCore subscriber routes it into
+    /// `CostTracker` + `EventPayload::CostRecorded`. Real Claude routes
+    /// these via the stream-translator's cost arm; the mock stays silent
+    /// unless a test calls `signals().send(...)`.
+    signal_tx: broadcast::Sender<ClaudeSignal>,
     teams: Mutex<HashMap<WorkspaceId, TeamSpec>>,
     agents: Mutex<HashMap<WorkspaceId, Vec<AgentId>>>,
     /// Artificial delay used in integration tests. Zero by default.
@@ -32,13 +40,21 @@ pub struct MockOrchestrator<S: EventStore> {
 impl<S: EventStore> MockOrchestrator<S> {
     pub fn new(store: Arc<S>) -> Self {
         let (tx, _) = broadcast::channel(256);
+        let (signal_tx, _) = broadcast::channel(64);
         Self {
             store,
             tx,
+            signal_tx,
             teams: Mutex::new(HashMap::new()),
             agents: Mutex::new(HashMap::new()),
             tick: Duration::from_millis(0),
         }
+    }
+
+    /// Expose the signal sender so tests can inject side-channel signals
+    /// (cost, rate-limit) without spinning up the real Claude subprocess.
+    pub fn signals(&self) -> broadcast::Sender<ClaudeSignal> {
+        self.signal_tx.clone()
     }
 
     fn emit(&self, event: OrchestratorEvent) {
@@ -281,6 +297,10 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
 
     fn subscribe(&self) -> broadcast::Receiver<OrchestratorEvent> {
         self.tx.subscribe()
+    }
+
+    fn subscribe_signals(&self) -> broadcast::Receiver<ClaudeSignal> {
+        self.signal_tx.subscribe()
     }
 
     async fn shutdown(&self, workspace_id: WorkspaceId) -> OrchestratorResult<()> {

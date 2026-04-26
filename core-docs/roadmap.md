@@ -534,9 +534,11 @@ Five new Tauri commands: `cmd_list_pending_approvals`, `cmd_get_cost_status`, `c
 
 See `history.md` 2026-04-25 entry for the full design rationale, the post-merge security review fixes (cmd_request_approval injection, sweep race, single-writer ordering, stream consistency, missing-workspace audit row, gate-status drift, cost-replay), and the test coverage that locked them down.
 
-### Track 13.H — Phase 13 hardening pass *(P0 — gates real-Claude usability)*
+### Track 13.H — Phase 13 hardening pass ✅ *(landed 2026-04-26)*
 
 **Needs:** 13.D + 13.E + 13.F + 13.G integration meta-PR [#20](https://github.com/byamron/designer/pull/20) merged ✅ 2026-04-26.
+
+**Shipped:** all five items (F1 + F2 + F5 + F3 + F4) in one sequential PR. ~500 LOC across `crates/designer-claude` (`stream.rs`, `claude_code.rs`, `orchestrator.rs`, `mock.rs`), `crates/designer-safety/src/cost.rs` (new `record()` method), and `apps/desktop/src-tauri/src/{core.rs, core_git.rs}` (cost-subscriber task + `boot_with_orchestrator` test seam + summary-hook routing). Five new tests lock the wire format + invariants: stdio prompt routes to decide / spawn-not-await invariant / workspace_id populated / tool_use → ArtifactProduced / cost subscriber records to store / git status routes through hook. Quality gates green (fmt / clippy / test --workspace / tsc / vitest).
 
 **Why this track is the gating step before dogfooding:** the four parallel tracks shipped against the mock orchestrator. With real Claude Code, the moment the agent wants to use any tool (`Read` / `Edit` / `Write` / `Bash`) it sends a stdio permission prompt that nothing in `claude_code.rs::reader_task` answers — the agent hangs until Claude's internal timeout (~10 min). **Until F1+F2 land, real-Claude usage is "first text reply works, then everything stalls."** F3/F4 add cost tracking and on-device summarization but are not gating; F5 (tool-use surfacing in the thread) is a UX completeness fix the PR 17 review flagged.
 

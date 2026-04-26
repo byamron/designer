@@ -120,6 +120,40 @@ impl<S: EventStore> CostTracker<S> {
         Ok(())
     }
 
+    /// Record observed spend without a cap check. The Claude orchestrator
+    /// pushes `total_cost_usd` from every `result/success` line — that money
+    /// has already been spent on Anthropic's side, so refusing to log it
+    /// would only desynchronize the cap from reality. Use this for observed
+    /// telemetry; use [`CostTracker::check_and_record`] for forecasted spend
+    /// that should be gated by the cap.
+    pub async fn record(
+        &self,
+        workspace_id: WorkspaceId,
+        delta: CostUsage,
+        actor: Actor,
+    ) -> std::result::Result<EventEnvelope, SafetyError> {
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                actor,
+                EventPayload::CostRecorded {
+                    workspace_id,
+                    tokens_input: delta.tokens_input,
+                    tokens_output: delta.tokens_output,
+                    dollars_cents: delta.dollars_cents,
+                },
+            )
+            .await
+            .map_err(SafetyError::Core)?;
+        let mut entry = self.usage.entry(workspace_id).or_default();
+        entry.tokens_input = entry.tokens_input.saturating_add(delta.tokens_input);
+        entry.tokens_output = entry.tokens_output.saturating_add(delta.tokens_output);
+        entry.dollars_cents = entry.dollars_cents.saturating_add(delta.dollars_cents);
+        Ok(env)
+    }
+
     /// Read-before-write: project new total, check cap, then append + update.
     pub async fn check_and_record(
         &self,

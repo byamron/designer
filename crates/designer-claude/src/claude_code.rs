@@ -36,8 +36,8 @@ use crate::orchestrator::{
     Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult, TaskAssignment,
     TeamSpec,
 };
-use crate::permission::{AutoAcceptSafeTools, PermissionHandler};
-use crate::stream::{ClaudeStreamTranslator, TranslatorOutput};
+use crate::permission::{AutoAcceptSafeTools, PermissionHandler, PermissionRequest};
+use crate::stream::{encode_permission_response, ClaudeStreamTranslator, TranslatorOutput};
 use async_trait::async_trait;
 use designer_core::{Actor, EventPayload, EventStore, StreamId, WorkspaceId};
 use parking_lot::Mutex;
@@ -121,11 +121,8 @@ pub struct ClaudeCodeOrchestrator<S: EventStore> {
     /// accepted or denied. Default is [`AutoAcceptSafeTools`] (read-only
     /// tools + safe `Bash` prefixes); Phase 13.G replaces this with an
     /// inbox-routing handler via [`Self::with_permission_handler`].
-    /// Reserved by Phase 13.0 scaffolding so 13.D and 13.G don't fight over
-    /// the stdio permission code path. TODO(13.D): wire this into the
-    /// stdio permission-prompt reader once the subprocess protocol is
-    /// plumbed.
-    #[allow(dead_code)]
+    /// Wired into `reader_task` via the `control_request` arm of the stream
+    /// translator (Phase 13.H/F1).
     permission_handler: Arc<dyn PermissionHandler>,
 }
 
@@ -164,10 +161,6 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
     pub fn with_permission_handler(mut self, handler: Arc<dyn PermissionHandler>) -> Self {
         self.permission_handler = handler;
         self
-    }
-
-    pub fn subscribe_signals(&self) -> broadcast::Receiver<ClaudeSignal> {
-        self.signal_tx.subscribe()
     }
 
     fn binary(&self) -> PathBuf {
@@ -283,50 +276,24 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         let tx = self.tx.clone();
         let signal_tx = self.signal_tx.clone();
         let store_for_reader = self.store.clone();
+        let permission_handler = self.permission_handler.clone();
+        let stdin_tx_for_reader = stdin_tx.clone();
         let ws = spec.workspace_id;
         let team_name = spec.team_name.clone();
         let lead_role = spec.lead_role.clone();
         let reader_task = tokio::spawn(async move {
-            let mut translator = ClaudeStreamTranslator::new(ws, team_name.clone());
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
-            loop {
-                match lines.next_line().await {
-                    Ok(Some(line)) => {
-                        for out in translator.translate(&line) {
-                            match out {
-                                TranslatorOutput::Event(ev) => {
-                                    if let Some((payload, actor)) =
-                                        event_to_payload(&ev, &team_name, &lead_role)
-                                    {
-                                        if let Err(e) = store_for_reader
-                                            .append(StreamId::Workspace(ws), None, actor, payload)
-                                            .await
-                                        {
-                                            warn!(error = %e, "failed to persist orchestrator event");
-                                        }
-                                    }
-                                    let _ = tx.send(ev);
-                                }
-                                TranslatorOutput::RateLimit(info) => {
-                                    let _ = signal_tx.send(ClaudeSignal::RateLimit(info));
-                                }
-                                TranslatorOutput::Cost(c) => {
-                                    let _ = signal_tx.send(ClaudeSignal::Cost {
-                                        workspace_id: ws,
-                                        total_cost_usd: c,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    Ok(None) => break, // EOF
-                    Err(e) => {
-                        warn!(error = %e, "claude stdout read failed");
-                        break;
-                    }
-                }
-            }
+            run_reader_loop(
+                BufReader::new(stdout),
+                ws,
+                team_name,
+                lead_role,
+                store_for_reader,
+                tx,
+                signal_tx,
+                permission_handler,
+                stdin_tx_for_reader,
+            )
+            .await;
             debug!("claude stdout reader task exiting");
         });
 
@@ -416,6 +383,10 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
 
     fn subscribe(&self) -> broadcast::Receiver<OrchestratorEvent> {
         self.tx.subscribe()
+    }
+
+    fn subscribe_signals(&self) -> broadcast::Receiver<ClaudeSignal> {
+        self.signal_tx.subscribe()
     }
 
     async fn shutdown(&self, workspace_id: WorkspaceId) -> OrchestratorResult<()> {
@@ -582,6 +553,107 @@ fn event_to_payload(
         // single writer for ArtifactCreated, so we deliberately don't
         // persist a duplicate `EventPayload::ArtifactCreated` here.
         OrchestratorEvent::ArtifactProduced { .. } => None,
+    }
+}
+
+/// Drain a stream-json reader until EOF, persisting and broadcasting each
+/// translated event. Permission prompts route to the installed
+/// [`PermissionHandler`] in a *spawned* task — the reader must stay
+/// unblocked while the user (or the inbox) deliberates, otherwise every
+/// event from Claude during the approval window is stalled. Extracted from
+/// `spawn_team` so the unit tests can drive it with a synthetic stdout
+/// without spinning up a real subprocess.
+#[allow(clippy::too_many_arguments)]
+async fn run_reader_loop<R, S>(
+    mut reader: BufReader<R>,
+    workspace_id: WorkspaceId,
+    team_name: String,
+    lead_role: String,
+    store: Arc<S>,
+    tx: broadcast::Sender<OrchestratorEvent>,
+    signal_tx: broadcast::Sender<ClaudeSignal>,
+    permission_handler: Arc<dyn PermissionHandler>,
+    stdin_tx: mpsc::Sender<Vec<u8>>,
+) where
+    R: tokio::io::AsyncRead + Unpin,
+    S: EventStore + 'static,
+{
+    use tokio::io::AsyncBufReadExt;
+    let mut translator = ClaudeStreamTranslator::new(workspace_id, team_name.clone());
+    let mut buf = String::new();
+    loop {
+        buf.clear();
+        match reader.read_line(&mut buf).await {
+            Ok(0) => break, // EOF
+            Ok(_) => {
+                let line = buf.trim_end_matches(['\n', '\r']);
+                for out in translator.translate(line) {
+                    match out {
+                        TranslatorOutput::Event(ev) => {
+                            if let Some((payload, actor)) =
+                                event_to_payload(&ev, &team_name, &lead_role)
+                            {
+                                if let Err(e) = store
+                                    .append(StreamId::Workspace(workspace_id), None, actor, payload)
+                                    .await
+                                {
+                                    warn!(error = %e, "failed to persist orchestrator event");
+                                }
+                            }
+                            let _ = tx.send(ev);
+                        }
+                        TranslatorOutput::RateLimit(info) => {
+                            let _ = signal_tx.send(ClaudeSignal::RateLimit(info));
+                        }
+                        TranslatorOutput::Cost(c) => {
+                            let _ = signal_tx.send(ClaudeSignal::Cost {
+                                workspace_id,
+                                total_cost_usd: c,
+                            });
+                        }
+                        TranslatorOutput::PermissionPrompt {
+                            request_id,
+                            tool,
+                            input,
+                            summary,
+                            tool_use_id: _,
+                        } => {
+                            // Spawn so the reader stays unblocked — `decide()`
+                            // may park up to 5 minutes on user approval;
+                            // awaiting inline would stall every other event
+                            // from Claude during that window.
+                            let handler = permission_handler.clone();
+                            let stdin_tx = stdin_tx.clone();
+                            tokio::spawn(async move {
+                                let req = PermissionRequest {
+                                    tool,
+                                    input: input.clone(),
+                                    summary,
+                                    // F2: populate workspace_id so the inbox
+                                    // handler can anchor the approval
+                                    // artifact (otherwise it fail-closes
+                                    // with MISSING_WORKSPACE_REASON).
+                                    workspace_id: Some(workspace_id),
+                                };
+                                let decision = handler.decide(req).await;
+                                let reply =
+                                    encode_permission_response(&request_id, &decision, &input);
+                                if let Err(e) = stdin_tx.send(reply).await {
+                                    warn!(
+                                        error = %e,
+                                        "failed to write permission response to claude stdin"
+                                    );
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "claude stdout read failed");
+                break;
+            }
+        }
     }
 }
 
@@ -760,5 +832,205 @@ mod tests {
             author_role: Some("team-lead".into()),
         };
         assert!(event_to_payload(&ev, "t", "team-lead").is_none());
+    }
+
+    /// Counting test handler: records every `decide()` call so the F1+F2
+    /// tests can assert "called once with the expected fields."
+    #[derive(Default)]
+    struct CountingHandler {
+        seen: tokio::sync::Mutex<Vec<crate::permission::PermissionRequest>>,
+    }
+    #[async_trait::async_trait]
+    impl PermissionHandler for CountingHandler {
+        async fn decide(
+            &self,
+            req: crate::permission::PermissionRequest,
+        ) -> crate::permission::PermissionDecision {
+            self.seen.lock().await.push(req);
+            crate::permission::PermissionDecision::Accept
+        }
+    }
+
+    /// F1: a synthetic Claude stdout containing one permission prompt drives
+    /// `permission_handler.decide()` exactly once and the writer's stdin
+    /// receives the encoded `control_response`.
+    #[tokio::test]
+    async fn stdio_permission_prompt_routes_to_decide() {
+        let store = Arc::new(designer_core::SqliteEventStore::open_in_memory().unwrap());
+        let (tx, _rx) = broadcast::channel(16);
+        let (signal_tx, _srx) = broadcast::channel(16);
+        let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(16);
+        let handler: Arc<CountingHandler> = Arc::new(CountingHandler::default());
+        let ws = WorkspaceId::new();
+
+        // Synthetic Claude stdout: one permission prompt + EOF.
+        let payload = serde_json::json!({
+            "type": "control_request",
+            "request_id": "req-abc",
+            "request": {
+                "subtype": "can_use_tool",
+                "tool_name": "Write",
+                "display_name": "Write",
+                "input": {"file_path": "/tmp/x.txt", "content": "hi"},
+                "tool_use_id": "toolu_x"
+            }
+        });
+        let mut bytes = serde_json::to_vec(&payload).unwrap();
+        bytes.push(b'\n');
+        let cursor = std::io::Cursor::new(bytes);
+
+        let h: Arc<dyn PermissionHandler> = handler.clone();
+        run_reader_loop(
+            BufReader::new(cursor),
+            ws,
+            "team-h".into(),
+            "team-lead".into(),
+            store,
+            tx,
+            signal_tx,
+            h,
+            stdin_tx,
+        )
+        .await;
+
+        // The decide-spawn happens *inside* run_reader_loop. After EOF we
+        // wait briefly for that spawned task to settle.
+        let reply = tokio::time::timeout(Duration::from_secs(2), stdin_rx.recv())
+            .await
+            .expect("stdin reply should arrive")
+            .expect("channel still open");
+        let reply_str = std::str::from_utf8(&reply).unwrap();
+        assert!(reply_str.ends_with('\n'));
+        let parsed: serde_json::Value = serde_json::from_str(reply_str.trim()).unwrap();
+        assert_eq!(parsed["type"], "control_response");
+        assert_eq!(parsed["response"]["request_id"], "req-abc");
+        assert_eq!(parsed["response"]["response"]["behavior"], "allow");
+
+        let calls = handler.seen.lock().await;
+        assert_eq!(calls.len(), 1, "decide() called exactly once");
+        assert_eq!(calls[0].tool, "Write");
+        assert_eq!(
+            calls[0].input.get("file_path").and_then(|v| v.as_str()),
+            Some("/tmp/x.txt")
+        );
+        // F2 lock-in: the construction site populates workspace_id.
+        assert_eq!(calls[0].workspace_id, Some(ws));
+    }
+
+    /// F2 regression guard: round-trip a parsed prompt and assert
+    /// `workspace_id` is populated. Locks the F1 construction site against
+    /// future "we forgot to set this" regressions.
+    #[tokio::test]
+    async fn permission_prompt_carries_workspace_id() {
+        let store = Arc::new(designer_core::SqliteEventStore::open_in_memory().unwrap());
+        let (tx, _rx) = broadcast::channel(16);
+        let (signal_tx, _srx) = broadcast::channel(16);
+        let (stdin_tx, _stdin_rx) = mpsc::channel::<Vec<u8>>(16);
+        let handler: Arc<CountingHandler> = Arc::new(CountingHandler::default());
+        let ws = WorkspaceId::new();
+        let payload = serde_json::json!({
+            "type": "control_request",
+            "request_id": "req-ws",
+            "request": {
+                "subtype": "can_use_tool",
+                "tool_name": "Read",
+                "input": {"file_path": "/tmp/r.txt"},
+            }
+        });
+        let mut bytes = serde_json::to_vec(&payload).unwrap();
+        bytes.push(b'\n');
+        let h: Arc<dyn PermissionHandler> = handler.clone();
+        run_reader_loop(
+            BufReader::new(std::io::Cursor::new(bytes)),
+            ws,
+            "team-h".into(),
+            "team-lead".into(),
+            store,
+            tx,
+            signal_tx,
+            h,
+            stdin_tx,
+        )
+        .await;
+        // Yield once so the spawned decide-task can run.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let calls = handler.seen.lock().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].workspace_id, Some(ws));
+    }
+
+    /// F1 invariant: the reader keeps draining lines while a permission
+    /// decision is parked. If it didn't, awaiting `decide()` inline would
+    /// stall every other event from Claude during the (up-to-5-minute)
+    /// approval window.
+    #[tokio::test]
+    async fn reader_continues_while_permission_decision_pending() {
+        struct ParkingHandler {
+            release: tokio::sync::Notify,
+        }
+        #[async_trait::async_trait]
+        impl PermissionHandler for ParkingHandler {
+            async fn decide(
+                &self,
+                _req: crate::permission::PermissionRequest,
+            ) -> crate::permission::PermissionDecision {
+                self.release.notified().await;
+                crate::permission::PermissionDecision::Accept
+            }
+        }
+        let store = Arc::new(designer_core::SqliteEventStore::open_in_memory().unwrap());
+        let (tx, mut rx) = broadcast::channel(16);
+        let (signal_tx, mut srx) = broadcast::channel(16);
+        let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(16);
+        let handler: Arc<ParkingHandler> = Arc::new(ParkingHandler {
+            release: tokio::sync::Notify::new(),
+        });
+        let ws = WorkspaceId::new();
+        // Stream: 1) permission prompt (decide will park), 2) cost result.
+        // If decide were awaited inline, we'd never see (2).
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(br#"{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"/x"}}}"#);
+        bytes.push(b'\n');
+        bytes.extend_from_slice(br#"{"type":"result","subtype":"success","total_cost_usd":1.25}"#);
+        bytes.push(b'\n');
+        let h: Arc<dyn PermissionHandler> = handler.clone();
+        let store_clone = store.clone();
+        let team = "team-h".to_string();
+        let lead = "team-lead".to_string();
+        let task = tokio::spawn(async move {
+            run_reader_loop(
+                BufReader::new(std::io::Cursor::new(bytes)),
+                ws,
+                team,
+                lead,
+                store_clone,
+                tx,
+                signal_tx,
+                h,
+                stdin_tx,
+            )
+            .await;
+        });
+        // The cost signal must arrive before we release the parked decision.
+        let cost = tokio::time::timeout(Duration::from_secs(2), srx.recv())
+            .await
+            .expect("cost signal should arrive while decision parked")
+            .expect("signal channel open");
+        match cost {
+            ClaudeSignal::Cost { total_cost_usd, .. } => {
+                assert!((total_cost_usd - 1.25).abs() < 1e-6);
+            }
+            other => panic!("unexpected signal: {other:?}"),
+        }
+        // Now release the parked decision and confirm the reply lands.
+        handler.release.notify_one();
+        let reply = tokio::time::timeout(Duration::from_secs(2), stdin_rx.recv())
+            .await
+            .expect("reply should arrive after release")
+            .expect("stdin channel open");
+        assert!(!reply.is_empty());
+        // No event broadcasts expected from these two lines.
+        assert!(rx.try_recv().is_err());
+        task.await.unwrap();
     }
 }

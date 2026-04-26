@@ -480,7 +480,7 @@ impl AppCore {
     /// This is the explicit edit-batch coalescer (see module docstring
     /// for the rationale).
     pub async fn check_track_status(
-        &self,
+        self: &Arc<Self>,
         track_id: TrackId,
     ) -> Result<Option<ArtifactId>, CoreError> {
         let track = self
@@ -534,24 +534,21 @@ impl AppCore {
             .collect::<Vec<_>>()
             .join("\n");
         let artifact_id = ArtifactId::new();
-        let env = self
-            .store
-            .append(
-                StreamId::Workspace(track.workspace_id),
-                None,
-                Actor::user(),
-                EventPayload::ArtifactCreated {
-                    artifact_id,
-                    workspace_id: track.workspace_id,
-                    artifact_kind: ArtifactKind::CodeChange,
-                    title,
-                    summary,
-                    payload: PayloadRef::inline(body),
-                    author_role: Some(author_roles::TRACK.into()),
-                },
-            )
-            .await?;
-        self.projector.apply(&env);
+        // F4: route through the on-device summary hook so the rail's
+        // edit-batch summary reads as an LLM line ("Refactored Tauri command
+        // registration to alphabetize handlers.") instead of the raw
+        // `+12 −3 across 2 files` diff stat. The hook handles the 500ms
+        // deadline + late-return ArtifactUpdated + per-track debounce.
+        let draft = crate::core_local::ArtifactDraft {
+            workspace_id: track.workspace_id,
+            artifact_id,
+            kind: ArtifactKind::CodeChange,
+            title,
+            summary,
+            payload: PayloadRef::inline(body),
+            author_role: Some(author_roles::TRACK.into()),
+        };
+        self.append_artifact_with_summary_hook(draft).await?;
         Ok(Some(artifact_id))
     }
 
@@ -1261,5 +1258,154 @@ mod tests {
             Err(CoreError::Invariant(msg)) => assert!(msg.contains("auth login")),
             other => panic!("expected gh auth error, got {other:?}"),
         }
+    }
+
+    /// F4: counting `LocalOps` injected via the AppCore helper seam; one
+    /// `summarize_row` call per `CodeChange` emit when the helper is Live.
+    /// Locks `check_track_status` against future regressions where someone
+    /// might re-introduce a direct `store.append` and bypass the on-device
+    /// summary hook.
+    #[tokio::test]
+    async fn check_track_status_routes_through_summary_hook() {
+        use designer_audit::SqliteAuditLog;
+        use designer_claude::MockOrchestrator;
+        use designer_core::{Projector, SqliteEventStore, StreamOptions};
+        use designer_local_models::{
+            AuditClaim, AuditVerdict, ContextOptimizerInput, ContextOptimizerOutput, HelperResult,
+            LocalOps, RecapInput, RecapOutput, RowSummarizeInput, RowSummarizeOutput,
+        };
+        use designer_safety::InMemoryApprovalGate;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingOps {
+            summarize_calls: Arc<AtomicUsize>,
+        }
+        #[async_trait]
+        impl LocalOps for CountingOps {
+            async fn context_optimize(
+                &self,
+                _input: ContextOptimizerInput,
+            ) -> HelperResult<ContextOptimizerOutput> {
+                Ok(ContextOptimizerOutput {
+                    summary: String::new(),
+                    key_facts: vec![],
+                })
+            }
+            async fn recap(&self, _input: RecapInput) -> HelperResult<RecapOutput> {
+                Ok(RecapOutput {
+                    headline: String::new(),
+                    bullets: vec![],
+                })
+            }
+            async fn audit_claim(&self, _input: AuditClaim) -> HelperResult<AuditVerdict> {
+                Ok(AuditVerdict::Inconclusive)
+            }
+            async fn summarize_row(
+                &self,
+                _input: RowSummarizeInput,
+            ) -> HelperResult<RowSummarizeOutput> {
+                self.summarize_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(RowSummarizeOutput {
+                    line: "summary line".into(),
+                })
+            }
+        }
+
+        let _g = test_lock().lock().await;
+        let dir = tempdir().unwrap();
+        let config = AppConfig {
+            data_dir: dir.path().to_path_buf(),
+            use_mock_orchestrator: true,
+            claude_options: Default::default(),
+            default_cost_cap: CostCap {
+                max_dollars_cents: None,
+                max_tokens: None,
+            },
+            helper_binary_path: None,
+        };
+        std::mem::forget(dir);
+
+        let store = Arc::new(SqliteEventStore::open(config.data_dir.join("events.db")).unwrap());
+        let projector = Projector::new();
+        let history = store.read_all(StreamOptions::default()).await.unwrap();
+        projector.replay(&history);
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let local_ops: Arc<dyn LocalOps> = Arc::new(CountingOps {
+            summarize_calls: counter.clone(),
+        });
+        let orchestrator = Arc::new(MockOrchestrator::new(store.clone()));
+        let audit = Arc::new(SqliteAuditLog::new(store.clone()));
+        let gate = Arc::new(InMemoryApprovalGate::new(store.clone()));
+        let cost = designer_safety::CostTracker::new(store.clone(), config.default_cost_cap);
+        // Live status so `append_code_change_with_hook` actually invokes
+        // `summarize_row` instead of short-circuiting to the deterministic
+        // truncation path.
+        let helper_status = crate::core::HelperStatus {
+            kind: crate::core::HelperStatusKind::Live,
+            fallback_reason: None,
+            binary_path: None,
+            version: Some("test".into()),
+            model: Some("test-model".into()),
+        };
+        let null_helper: Arc<dyn designer_local_models::FoundationHelper> =
+            Arc::new(designer_local_models::NullHelper::default());
+        let core = Arc::new(AppCore {
+            config,
+            store,
+            projector,
+            orchestrator,
+            audit,
+            gate,
+            cost,
+            helper: null_helper,
+            local_ops,
+            helper_status,
+            helper_events: None,
+            summary_debounce: Arc::new(crate::core_local::SummaryDebounce::new()),
+        });
+
+        // One status snapshot → one CodeChange emit. The 2-second per-track
+        // debounce window short-circuits a quick second call into a cache
+        // hit, so we assert routing on the first emit; the cache behavior
+        // is covered by core_local's debounce tests.
+        let s1 = Status {
+            files: vec![DiffEntry {
+                path: PathBuf::from("a.rs"),
+                added: 3,
+                removed: 1,
+            }],
+            added_total: 3,
+            removed_total: 1,
+        };
+        let fake = FakeGitOps::new();
+        fake.status_responses.lock().unwrap().push(s1);
+        set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
+        let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
+        set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
+        let track_id = core
+            .start_track(ws, "feature/sum".into(), None)
+            .await
+            .unwrap();
+
+        assert!(core.check_track_status(track_id).await.unwrap().is_some());
+
+        // One summarize_row call for the one CodeChange emit. If the call
+        // ever drops back to a direct `store.append` that bypasses the
+        // hook seam, this counter stays at zero.
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "summary hook should fire once per check_track_status emit"
+        );
+
+        // The artifact's summary must be the LLM line, not the raw diff
+        // stat — proving the hook actually mutated the row before append.
+        let arts = core.list_artifacts(ws).await;
+        let code_change = arts
+            .iter()
+            .find(|a| matches!(a.kind, designer_core::ArtifactKind::CodeChange))
+            .expect("at least one code-change artifact");
+        assert_eq!(code_change.summary, "summary line");
     }
 }

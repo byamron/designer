@@ -2,6 +2,7 @@
 //! orchestrators) maps its native events onto `OrchestratorEvent` and writes
 //! those through the provided `EventStore`.
 
+use crate::claude_code::ClaudeSignal;
 use async_trait::async_trait;
 use designer_core::{AgentId, ArtifactKind, TaskId, WorkspaceId};
 use serde::{Deserialize, Serialize};
@@ -122,6 +123,18 @@ pub trait Orchestrator: Send + Sync {
 
     /// Subscribe to the event stream.
     fn subscribe(&self) -> tokio::sync::broadcast::Receiver<OrchestratorEvent>;
+
+    /// Subscribe to side-channel signals (cost, rate-limit). Default impl is
+    /// a never-firing receiver — orchestrators that don't surface platform
+    /// telemetry (e.g. `MockOrchestrator` outside its cost-driven tests) can
+    /// inherit this. The real `ClaudeCodeOrchestrator` overrides with the
+    /// receiver bound to its `signal_tx` so AppCore's cost subscriber sees
+    /// every `result/success` line as `ClaudeSignal::Cost`.
+    fn subscribe_signals(&self) -> tokio::sync::broadcast::Receiver<ClaudeSignal> {
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        drop(tx);
+        rx
+    }
 
     /// Tear the team down (cleanup subprocess, file watchers).
     async fn shutdown(&self, workspace_id: WorkspaceId) -> OrchestratorResult<()>;
