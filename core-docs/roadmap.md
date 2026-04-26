@@ -638,6 +638,10 @@ Acceptance: the rail's edit-batch summary reads as the on-device LLM line on AI-
 
 The app is genuinely runnable end-to-end against real Claude Code. Open issues become **user-driven** (real workflow friction, not infrastructure gaps). The natural next step pivots from infrastructure to either Phase 14 (sync transport) or Phase 15 polish — driven by what dogfooding surfaces.
 
+#### Post-13.H reality (2026-04-26)
+
+PR #23 (real-Claude default + workspace cwd + isolated claude_home + preflight) and PR #24 (`/Applications`-launch fixes: claude PATH resolution, body scroll lock, titlebar zone, `CreateProjectModal` replacing the broken `window.prompt`, path validation + tilde expansion) shipped on the same day, both surfaced bugs that no test harness caught. Lessons applied: every "phase done" claim should now be smoke-tested with a fresh `cargo tauri build && open /Applications/Designer.app` cold launch, not just `cargo tauri dev`. See `history.md` for the full retros.
+
 ### Track 13.I — Safety enforcement *(GA gate; detail in `security.md`)*
 
 **Needs:** 13.G (approval inbox + scope-deny path + Keychain status surface must exist to build on).
@@ -709,6 +713,7 @@ The app is genuinely runnable end-to-end against real Claude Code. Open issues b
 - **Event-log incrementalization.** `AppCore::sync_projector_from_log` is full-replay; once logs cross ~10k events it should incrementalize against the projector's last-seen sequence per stream.
 - **15.H — Inline commenting & element annotation (G21).** Let the user reply to a specific span of an agent message in Plan, and to a specific element in Design, without typing a new whole-thread reply. See detail below.
 - **15.J — Real-Claude UX polish.** UX-heavy follow-ups surfaced by the PR #22 review pass; first-real-Claude session smoothness. See detail below.
+- **15.K — Onboarding & first-run.** Welcome → claude auth check → github auth check → create-your-first-project chain. Surfaced by the PR #24 first-run testing — current welcome slabs dismiss into an empty strip with no guidance. See detail below.
 
 ### Phase 15.H — Inline commenting & element annotation *(detail)*
 
@@ -754,7 +759,32 @@ The app is genuinely runnable end-to-end against real Claude Code. Open issues b
 - **`ArtifactKind::Report` semantic disambiguation.** `Report` is now used for two different things: workspace recap output (`recap_workspace`) and tool-use evidence cards (F5). The renderer is currently a stub; when it gets a real recap-style design, the routing needs to disambiguate on `author_role` (`recap` vs `agent`) or title prefix. File a `pattern-log.md` entry locking the disambiguation rule before the recap renderer ships, so we don't re-litigate the artifact-kind boundary.
 - **Confirm `--disallowedTools AskUserQuestion` UX.** The orchestrator forces the agent to ask clarifying questions through the message channel rather than a separate AskUserQuestion surface. Capture this as a feedback entry in `feedback.md` so the choice is explicit; revisit if a real session shows the agent struggling without the AUQ tool.
 
+**Carry-overs from PR #24 (first-run polish) review:**
+
+- **Browse… button on `CreateProjectModal`** (and `RepoLinkModal`). Install `@tauri-apps/plugin-dialog`, register the capability in `tauri.conf.json` + `apps/desktop/src-tauri/capabilities/`, fall back gracefully in the web build (hide the button via `isTauri()` check). Today the user has to type/paste an absolute path; with backend `~` expansion this works but it's still rough first-15-seconds. Plugin install is real scope (~50 LOC, capability registration, Rust plugin init), which is why it didn't ship in PR #24.
+- **Inline path validation on type.** `cmd_validate_project_path` IPC already exists and the modal can call it on each keystroke (debounced) to show the canonical resolved path on success or an inline error on failure. Backend already validates on submit; this just moves feedback earlier in the cycle. ~20 LOC frontend.
+- **`<Modal>` primitive consolidation.** Three modals now share scrim + focus-trap + ESC handler + Tab cycle (Help/AppDialog, RepoLinkModal, CreateProjectModal). PR #24 extracted `lib/modal.ts` with `collectFocusable` + `messageFromError`; the next consolidation is a real composition primitive (header + body + button-row slot pattern). Worth a short ADR on whether the primitive owns the scrim or accepts one as a parent — the AppDialog scrim is currently siblings-of-content, while RepoLinkModal/CreateProjectModal scrims wrap content.
+
 **Done when:** a first-time user running the dogfood loop (read CLAUDE.md → tool prompt → grant → write → cost increment) sees coherent, principle-respecting visuals at every step — no card overload, every approval shows the *what*, the cost chip has a non-color band signal, late summaries cross-fade rather than flash. Acceptance is per-item; pair with the Phase 16 install QA checklist.
+
+### Phase 15.K — Onboarding & first-run *(detail)*
+
+**Why:** when the user wipes `~/.designer/` (intentionally — fresh start — or unintentionally — first install), the current welcome slab dismisses into a strip with no projects, no workspaces, and a small `+` icon as the only affordance. The user has to discover that `+` opens a modal that asks for a path. There's no claude-auth verification, no github-auth verification, no "your first project" hero. Filed during the PR #24 review as the largest UX gap once first-run actually works.
+
+**Items (sequenced; each independent but they compose into a coherent flow):**
+
+- **First-run detection.** When `events.db` is empty (zero `ProjectCreated` events) AND the onboarding-dismissed flag isn't set, treat it as first-run and route into the welcome flow rather than the regular AppShell. Boolean flag in `useAppState` driven by `dataStore`'s `loaded && projects.length === 0`.
+- **Welcome slabs → create-project chain.** `Onboarding.tsx`'s last slide currently dismisses; should end with a primary CTA "Create your first project" that calls `openCreateProject()`. The CreateProjectModal already accepts an `onCreated` callback so the welcome flow can chain into a follow-up step (e.g., "now link a repo").
+- **Claude-auth verification.** Boot already runs `claude --version`. Surface the result on the welcome flow: green check + version line if it works, actionable "Install or log in to Claude Code" panel if not (with copy-paste command + link to docs). Doesn't block onboarding completion — the user can dismiss and run the agent later — but warns clearly.
+- **GitHub-auth verification.** Equivalent for `gh auth status`. Designer's `cmd_request_merge` shells out to `gh pr create`; without auth that fails confusingly. A welcome-flow check + "log in" affordance prevents the first-merge surprise.
+- **Empty-state CTA.** Once `projects.length === 0` post-onboarding (e.g., user dismissed all slabs), the main pane should render a single "Create your first project" hero — not just an empty surface with the `+` icon as the only entry. Discoverability fix.
+- **Settings → Reset Designer.** Confirmation-gated wipe of `~/.designer/events.db` with a clear "this deletes all your workspaces" warning. Replaces today's `rm` workaround for stale mock-mode data and gives the user a sanctioned way to start fresh.
+
+**Out of scope for 15.K (file separately):**
+- Per-workspace claude home customization (would interact with team-spec wiring).
+- Multi-account claude / per-project model overrides.
+
+**Done when:** a fresh `~/.designer/` install walks the user from zero state through claude auth check, github auth check, "create your first project" with their repo, and into a working session — without forcing them to know about `events.db`, env vars, or PATH.
 
 ---
 

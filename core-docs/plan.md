@@ -17,7 +17,19 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 **Phase 13.H shipped 2026-04-26.** Five items in one PR (F1 + F2 + F5 + F3 + F4) — real-Claude usability gates closed. Permission prompts now route through `InboxPermissionHandler::decide` via a spawned decide-task (non-blocking; reader keeps draining during the 5-minute approval window); the inbox handler receives `workspace_id: Some(...)` so it doesn't fail-closed; `tool_use` blocks surface as inline "Used Read" / "Used Edit" `Report` artifacts; `result/success` cost lines flow into `CostTracker::record` and `EventPayload::CostRecorded`; git-emitted code-change artifacts go through the on-device summary hook. Original 13.H safety-enforcement work was renumbered to **13.I** (pre-write gates, symlink-safe scope, risk-tiered approvals, binary pinning, HMAC tamper-evidence) — see `security.md`; continues to gate GA.
 
-**Next: dogfood-driven.** With 13.H landed the app is genuinely runnable end-to-end with real Claude Code; the next phase priority pivots from infrastructure to whatever real workflow friction surfaces first — Phase 14 (sync transport) vs. Phase 15 (polish) decided by dogfooding signal.
+**Real-Claude default + dogfood readiness shipped 2026-04-26 (PR #23).** AppConfig flipped to `use_mock_orchestrator: false` by default; settings + `DESIGNER_USE_MOCK=1` env var override. `TeamSpec.cwd` plumbed through so agents operate in the workspace's repo, not the desktop process's cwd. `claude_home` defaults to `~/.designer/claude-home` to isolate from Conductor / interactive `claude` CLI state. Boot preflight + clear orchestrator-mode logging. Cost chip on by default. `spawn_message_coalescer` swapped from `tokio::spawn` → `tauri::async_runtime::spawn` (latent bug from 13.D that only surfaced on the first real GUI launch).
+
+**First-run polish shipped 2026-04-26 (PR #24).** Five day-1 blockers caught by the user's first launch from `/Applications`:
+
+1. macOS `.app` doesn't inherit shell PATH → `claude` not found. `resolve_claude_binary_path()` now probes common install paths (`~/.npm-global/bin`, `~/.bun/bin`, `~/.yarn/bin`, `~/.asdf/shims`, `/opt/homebrew/bin`, etc.) plus `$SHELL -lc 'command -v claude'` as a last-resort shell expansion. Honors `DESIGNER_CLAUDE_BINARY` override; warns on invalid override (was silent).
+2. Whole app scrolled like a web page → `position: fixed; inset: 0; overflow: hidden` on `html, body, #app`.
+3. Traffic-lights overlapped UI / window couldn't be moved → full-width `.app-titlebar` zone (`data-tauri-drag-region`, `position: fixed`, `z-index: var(--layer-titlebar)`) above the shell grid; shell `padding-top: var(--app-titlebar-height)` reserves the inset. Strip's redundant local drag spacer removed.
+4. "Add project" silently failed because `window.prompt` is unimplemented in Tauri's bundled webview. Replaced with `CreateProjectModal` — path-first field order, name autofills from `basename(path)`, scrim + focus trap + ESC dismiss, `onCreated` callback for onboarding reuse.
+5. `cmd_create_project` and a new `cmd_validate_project_path` IPC now expand `~` to `$HOME` and validate the path is a real directory before accepting. Without this, a user typing `~/code/foo` got the literal string stored as the project root and every git op subsequently exploded.
+
+Plus: `--app-titlebar-height` and `--layer-titlebar` defined as design tokens, `createProjectOpen` boolean migrated to extending `AppDialog` discriminant, shared `collectFocusable` + `messageFromError` helpers extracted to `lib/modal.ts` (used by both `RepoLinkModal` and `CreateProjectModal`).
+
+**Next: dogfood-driven.** Designer is now actually runnable in `/Applications` against real Claude. The next phase priority is whatever real workflow friction surfaces — Phase 14 (sync transport) vs. Phase 15 (polish) vs. Track 13.J (the 13.H/PR-24 follow-ups), driven by daily-driver signal.
 
 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
 
@@ -132,10 +144,13 @@ Independent items, picked by what dogfooding surfaces first:
 - [ ] Auto-grow chat textarea.
 - [ ] `AppCore::sync_projector_from_log` incrementalization (last-seen sequence per stream).
 - [ ] **15.J — Real-Claude UX polish.** Tool-use card visual demotion, ApprovalBlock drill-down + resolved-label fix + busy state, cost chip a11y glyph + cap-warn popover + first-enable tip, code-change rail cross-fade, `ArtifactKind::Report` disambiguation, AskUserQuestion choice as feedback entry. Detail in `roadmap.md` § 15.J.
+- [ ] **15.K — Onboarding & first-run.** Welcome → claude auth verification → github auth verification → "create your first project" chain. Currently Onboarding ends in a dismiss; an empty `~/.designer/` should walk the user through to a working state. Detail in `roadmap.md` § 15.K.
 
-### Track 13.J — Phase 13.H follow-ups *(non-blocking; structural cleanups + ADR + live test)*
+### Track 13.J — Phase 13.H + 13.K follow-ups *(non-blocking; structural cleanups + first-run polish carry-overs)*
 
-Surfaced by the PR #22 six-perspective review. Each ~half-day, batchable into one PR:
+Surfaced by the PR #22 six-perspective review (13.H wiring) and the PR #24 three-perspective review (first-run polish). Each ~half-day, batchable into one PR. **Pick first when you want clean infrastructure work.**
+
+13.H follow-ups:
 
 - [ ] **F5+1** — tool_use_id → tool_result correlation; emit `ArtifactUpdated` on the original "Read X" card with the result's summary (~50 LOC stateful pass; flagged as `TODO(13.H+1)` in `stream.rs`).
 - [ ] **ADR addendum** — decide whether `Orchestrator::subscribe_signals` keeps `ClaudeSignal` or factors a neutral `OrchestratorSignal` enum. Lock before a second orchestrator (Cursor, Ollama) lands.
@@ -145,6 +160,15 @@ Surfaced by the PR #22 six-perspective review. Each ~half-day, batchable into on
 - [ ] **`run_reader_loop` context struct** — bundle the 9 args into `ReaderLoopCtx`, drop `#[allow(clippy::too_many_arguments)]`.
 - [ ] **Bounded translator state** — LRU cap (~1k) on `ClaudeStreamTranslator::tasks`/`agents` HashMaps so multi-day sessions can't grow them unboundedly.
 - [ ] **`CostTracker::replay_from_store` bulk-update** — collapse N shard-locks into one bulk projection at end of replay.
+
+13.K (first-run polish — PR #24) follow-ups:
+
+- [ ] **Browse… button on `CreateProjectModal`** (and `RepoLinkModal`) — install `@tauri-apps/plugin-dialog`, register the capability, fall back gracefully in the web build. The user should not have to copy-paste an absolute path.
+- [ ] **Inline path validation as the user types** — debounced call to `cmd_validate_project_path`; show the canonical resolved path on success, error inline on failure. Backend already validates on submit; this just moves feedback earlier.
+- [ ] **`<Modal>` primitive** — three modals now (AppDialog/help, RepoLinkModal, CreateProjectModal) share scrim + focus-trap + ESC + Tab-cycle plumbing. `lib/modal.ts` extracted the 30-LOC dedup; the next consolidation is a real composition primitive (header + body + button-row slot pattern). File a short ADR on whether it owns the scrim or accepts one.
+- [ ] **Onboarding chained to create-project** — `Onboarding.tsx`'s final slide should call `openCreateProject()` so first-launch flows directly into the "create your first project" surface instead of dumping the user on an empty strip with a small `+` icon.
+- [ ] **Empty-state CTA** — when `projects.length === 0`, the main pane should render a single calm "Create your first project" hero, not a generic empty pane. Discoverability fix for users who dismiss the welcome slabs.
+- [ ] **Settings → Reset Designer** — confirmation-gated wipe of `~/.designer/events.db`. Replaces today's "tell the user to `rm`" workaround for stale mock-mode data.
 
 ### Phase 13.H — Safety enforcement *(after 13.G; GA gate; detail in `security.md`)*
 

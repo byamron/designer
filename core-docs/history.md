@@ -37,6 +37,110 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### First-run polish — PR #24 + review pass (PR #25-equivalent commits)
+**Date:** 2026-04-26
+**Branch:** fix-first-run
+**Commits:** a074463 (initial PR #24) → 907c278 (review-pass fixes)
+**PR:** [#24](https://github.com/byamron/designer/pull/24)
+
+**What was done:**
+
+The user built and ran Designer from `/Applications` for the first time (post-PR #23 dogfood-readiness merge) and immediately hit four day-1 blockers. PR #24 fixed all four; a follow-on three-perspective review (staff engineer, staff design engineer, staff UX designer) surfaced a dozen smaller-scope fixes that were applied in the same branch before merge.
+
+Initial four blockers (PR #24 first commit):
+
+1. **Claude binary not found.** macOS .app launches inherit a minimal PATH from launchd that excludes the shell's PATH (where `~/.npm-global/bin/claude` lives). New `resolve_claude_binary_path()` in `apps/desktop/src-tauri/src/core.rs` probes common install locations and falls back to `bash -lc 'command -v claude'`. Resolved absolute path goes onto `ClaudeCodeOptions::binary_path` at boot.
+2. **Whole app scrolled like a web page.** `html, body, #app` had `height: 100%` with no overflow restriction; root would scroll on wheel events. Changed to `position: fixed; inset: 0; overflow: hidden`.
+3. **Traffic-lights overlapped UI / window couldn't be dragged.** `titleBarStyle: Overlay` paints content from y=0; the original 32px drag spacer was inside `ProjectStrip` only, so main + sidebar + spine had nothing reserving the inset. Added a full-width `.app-titlebar` zone with `data-tauri-drag-region` above the shell grid; `.app-shell` `padding-top` reserves the height; strip's local spacer removed.
+4. **"Add project" silently failed.** The flow used `window.prompt()` which Tauri's bundled webview doesn't implement. Replaced with a real `CreateProjectModal` (scrim, focus trap, ESC dismiss, Enter submit, error display) modeled on `RepoLinkModal`.
+
+Three-perspective review surfaced: a portability hole in the claude resolver, a fragile z-index, a missing path-validation surface, modal-state fragmentation, ~30 LOC of verbatim duplication between two modals, an `useEffect` that reset the form on busy-flip, several copy issues, and a missing test file. All but the largest items applied in 907c278:
+
+- **Backend correctness.** `bash -lc` → `$SHELL -lc` (macOS default is zsh; bash login shells skip `~/.zshrc`). Added `~/.bun/bin`, `~/.yarn/bin`, `~/.asdf/shims`, `~/.cargo/bin` to the candidate list. Invalid `DESIGNER_CLAUDE_BINARY` overrides now `warn!` instead of falling through silently. `home == Path::new(".")` guard added. New `cmd_validate_project_path` IPC + tilde expansion in `cmd_create_project`: typing `~/code/foo` now expands to `$HOME/code/foo`, validates the directory exists, and canonicalizes symlinks before storing the project.
+- **UX.** CreateProjectModal field order flipped: Project folder FIRST, Name SECOND. Name autofills from `basename(path)` when the user hasn't typed in the Name field. Title changed from "New project" to "Create a project" (consistent verb-noun with "Link a repository"). Removed "seed" jargon from copy.
+- **Design system.** `--app-titlebar-height: var(--space-6)` defined in `app.css` :root; `--layer-titlebar: 5` defined in `tokens.css`. Both replace inline literals. `.app-titlebar` switched from `position: absolute` (fragile, depends on body being positioned) to `position: fixed`, and from hardcoded `z-index: 100` (collided with `--layer-modal: 100`) to `var(--layer-titlebar)`. Migrated `createProjectOpen` boolean to extending `AppDialog` discriminant: `"settings" | "help" | "create-project" | null`. Modal state is now centralized; impossible-state of two modals open at once is unreachable.
+- **Dedup.** Extracted `collectFocusable` + `messageFromError` helpers to `packages/app/src/lib/modal.ts`. Both `RepoLinkModal` and `CreateProjectModal` now share. ~30 LOC of verbatim copy-paste removed.
+- **Modal hygiene.** CreateProjectModal `useEffect` split into two: one keyed `[open]` for reset+focus, one keyed `[open]` (with `busyRef` for in-handler check) for the keyboard listener. Previously a single effect with `[open, busy]` deps reset the form on every busy flip, clobbering form state mid-error. Added an optional `onCreated?` callback prop so onboarding flows can chain into a follow-up step instead of always routing through `selectProject`.
+- **Tests.** New `create-project.test.tsx` (5 cases): renders nothing when not open, autofills name from path basename, lets the user override auto-name without clobber, disables submit on empty fields, uses the dialog discriminant correctly. All 38 vitest cases + full `cargo test --workspace` green.
+- **Cleanup.** Deleted orphaned `.app-strip-drag` CSS rule (the JSX node was removed but the rule was left behind).
+
+**Why:**
+
+The post-13.H dogfood-readiness PR (#23) flipped the default to real Claude but the user's first cold-boot from `/Applications` revealed four blockers that no amount of `cargo test --workspace` could surface — all of them were "first time the app ran outside `cargo tauri dev` and outside the test harness" issues. The review pass on top caught the polish items that distinguish "the app technically works" from "I can use this daily."
+
+**Design decisions:**
+
+- **`$SHELL -lc` over `bash -lc`.** macOS's default shell is zsh; users add PATH lines to `.zshrc`. `bash -l` reads `.profile`/`.bash_profile`/`.bashrc`, never `.zshrc`. Honoring the user's actual login shell is the safe call. Falls back to `/bin/sh` if `SHELL` is unset.
+- **Path validation in the backend, not just frontend.** Frontend can be bypassed by a malicious or buggy IPC caller. The backend is the authority. Added a separate `cmd_validate_project_path` IPC for inline UI feedback, but `cmd_create_project` validates again — defense in depth.
+- **Discriminant over boolean for modal state.** The PR's first commit added `AppState.createProjectOpen: boolean`. The review correctly pointed out this fragments dialog state — settings, help, create-project should all be in one discriminant. Migrated mid-PR.
+- **`<Modal>` primitive deferred.** Three modals now share enough that a primitive is warranted, but extracting it under a "first-run polish" PR adds risk. Filed as a Phase 15.J carry-over with an explicit ADR question: does the primitive own the scrim, or accept one?
+- **Browse… button deferred.** Real value but real scope (`@tauri-apps/plugin-dialog` install, capability registration, web-build fallback). With backend `~` expansion the user can paste paths cleanly enough; the Browse button is a quality-of-life follow-up, not a blocker.
+
+**Technical decisions:**
+
+- **`run_reader_loop` ctx struct rejected (for now).** Staff engineer flagged the 9-arg signature with `#[allow(clippy::too_many_arguments)]` as a smell. Filed as Track 13.J follow-up — bundling args into `ReaderLoopCtx` is right but it's a refactor at the wrong scope for this PR.
+- **`onCreated` callback as optional prop.** Defaults to `selectProject(id)` so existing callers (the strip `+` button, the menu item) keep their behavior. Onboarding flows in 15.K can override without touching the modal.
+- **Test seam vs production code.** `CreateProjectModal` reads from `useAppState((s) => s.dialog === "create-project")` directly rather than accepting `open` as a prop. Slightly less reusable than `RepoLinkModal`'s prop-driven API, but the create-project surface is global (one modal at a time, app-wide); a prop interface would just be ceremony.
+
+**Tradeoffs:**
+
+- **`promptCreateProject` deletion.** No callers remained after the modal swap. Deleting was easy. The function was already broken (Tauri webview doesn't implement `window.prompt`); preserving it for "compatibility" would have just been dead code.
+- **`Actor::user()` → `Actor::system()` in the F4 hook seam (carryover from 13.H).** Already documented in the 13.H entry; the actor shift is locked by the F4 test.
+- **Stale events.db UX.** The user's existing `~/.designer/events.db` carries workspaces from the earlier mock-orchestrator era. Telling the user to `rm` is a workaround. Filed as Phase 15.K (Settings → "Reset Designer" with confirmation). Not in this PR; would have required a confirmation dialog component, settings panel surface, and IPC. Single-PR scope discipline.
+
+**Lessons learned:**
+
+- **The first cold launch from /Applications is the test the test harness can't run.** Body scroll, traffic-light overlap, drag region, and prompt-fallback were all invisible to `cargo tauri dev` (which has the Vite dev server in front and inherits the launching shell's PATH). Whenever a phase claims "ready to ship," the smoke test should include `cargo tauri build && open /Applications/Designer.app`.
+- **Reviews of PRs that touch user-visible surfaces should run on those surfaces.** The 13.H review caught the F1-F5 wire-up correctness issues; it wouldn't have caught the body-scroll bug because none of the 13.H reviewers booted the app. PR #24's review caught everything because the user reported the visible bugs first.
+- **Migrating boolean state to a tagged-union discriminant is cheap and high-value.** `createProjectOpen: boolean` was the easy diff in the first commit. The review-pass migration to extending `AppDialog` was 6 lines and removed the impossible-state class entirely. Worth doing eagerly when the union already exists.
+
+**Quality gates:**
+
+- `cargo fmt --all -- --check` ✅
+- `cargo clippy --workspace --all-targets -- -D warnings` ✅
+- `cargo test --workspace` ✅
+- `npx tsc --noEmit` ✅
+- `npx vitest run` ✅ (38/38 across 9 files)
+
+**Filed for follow-up:**
+
+- Track 13.J (now also called "13.H + 13.K follow-ups") — see `roadmap.md`.
+- Phase 15.J — Real-Claude UX polish, now extended with the Browse… button, inline path validation, and `<Modal>` primitive items.
+- Phase 15.K (new) — Onboarding & first-run flow. See `roadmap.md`.
+
+### Real-Claude default + dogfood readiness — PR #23
+**Date:** 2026-04-26
+**Branch:** dogfood-real-claude
+**Commit:** aa15f37
+**PR:** [#23](https://github.com/byamron/designer/pull/23)
+
+**What was done:**
+
+Flipped Designer from "mock orchestrator by default" to "real Claude by default" and landed the wiring needed to actually use the app daily, on top of PR #22's 13.H runtime work.
+
+- **A. Real-Claude default + override.** `AppConfig::default_in_home()` sets `use_mock_orchestrator: false`. New `Settings.use_mock_orchestrator: Option<bool>` overrides via `settings.json`. `DESIGNER_USE_MOCK=1` env var overrides both. Boot resolves env > settings > config and logs the source.
+- **B. Workspace cwd in spawn.** `TeamSpec` gains `cwd: Option<PathBuf>`. `core_agents::post_message` resolves the workspace's project `root_path` and threads it through the lazy-spawn. Without this, the agent's `Read`/`Edit` tools resolve against the desktop process's cwd, not the user's repo.
+- **C. Isolated `claude_home`.** `ClaudeCodeOptions.claude_home` defaults to `~/.designer/claude-home` so Designer's session/team/inbox files don't collide with the user's interactive `claude` CLI or Conductor running in parallel.
+- **D. Boot preflight.** `claude --version` runs at boot in real-Claude mode. Logs the version on success; warns loudly on failure. Doesn't crash boot.
+- **E. Boot logging.** One info line at startup carries `orchestrator`, `orchestrator_source`, `claude_version`. No ambiguity about which mode is running.
+- **F. Cost chip on by default.** `Settings.cost_chip_enabled` defaults to `true`. Real-Claude mode means every turn costs money — usage visibility is the right default.
+
+**Why:**
+
+PR #22 wired the runtime; #23 made it the daily-driver default. Without these, the user would either need to know to flip a flag or wonder why mock data kept appearing.
+
+**Bug caught by first run:**
+
+`spawn_message_coalescer` called `tokio::spawn` directly, which panics with *"there is no reactor running"* when invoked from Tauri's `setup` callback (it runs on the main thread, outside the runtime context). Swapped to `tauri::async_runtime::spawn` to match the existing `spawn_event_bridge` pattern. Coalescer tests still green. This was a latent bug from 13.D — only triggered now because PR #22 added enough logging to expose it on actual GUI launch.
+
+**Quality gates:**
+
+- `cargo fmt --check` ✅
+- `cargo clippy --workspace --all-targets -- -D warnings` ✅
+- `cargo test --workspace` ✅
+- `npx tsc --noEmit` ✅
+- `npx vitest run` ✅
+
 ### Phase 13.H — Wire real Claude (F1–F5)
 **Date:** 2026-04-26
 **Branch:** phase-13h-wire-claude
