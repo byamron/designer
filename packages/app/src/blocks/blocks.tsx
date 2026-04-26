@@ -3,6 +3,7 @@ import type { BlockProps } from "./registry";
 import { humanizeKind } from "../util/humanize";
 import { ipcClient } from "../ipc/client";
 import type { StreamEvent } from "../ipc/types";
+import { PrototypePreview } from "../lab/PrototypePreview";
 
 /**
  * Block renderers — each artifact kind gets a classed component. Visual
@@ -379,6 +380,7 @@ export function ReportBlock(props: BlockProps) {
 }
 
 export function PrototypeBlock(props: BlockProps) {
+  const html = props.payload?.kind === "inline" ? props.payload.body : null;
   return (
     <article className="block block--prototype">
       <BlockHeader
@@ -389,9 +391,13 @@ export function PrototypeBlock(props: BlockProps) {
         onTogglePin={props.onTogglePin}
       />
       <p className="block__summary">{props.artifact.summary}</p>
-      <div className="block__prototype-placeholder" role="presentation">
-        Prototype preview wires through in Phase 13.F.
-      </div>
+      {html ? (
+        <PrototypePreview inlineHtml={html} title={props.artifact.title} />
+      ) : (
+        <div className="block__prototype-placeholder" role="presentation">
+          Prototype preview pending payload.
+        </div>
+      )}
     </article>
   );
 }

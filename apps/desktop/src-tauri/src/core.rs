@@ -26,6 +26,8 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
+use crate::core_local::SummaryDebounce;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub data_dir: PathBuf,
@@ -185,7 +187,10 @@ pub struct AppCore {
     /// `HelperEvent`s from the supervisor. `None` when the NullHelper is
     /// active (there's nothing to transition). 13.F subscribes via
     /// `AppCore::subscribe_helper_events()`.
-    helper_events: Option<broadcast::Sender<HelperEvent>>,
+    pub(crate) helper_events: Option<broadcast::Sender<HelperEvent>>,
+    /// Per-track debounce cache backing the write-time summary hook (Phase
+    /// 13.F). See `core_local::SummaryDebounce` for semantics.
+    pub summary_debounce: Arc<SummaryDebounce>,
 }
 
 #[async_trait]
@@ -265,6 +270,7 @@ impl AppCoreBoot for AppCore {
             local_ops,
             helper_status,
             helper_events,
+            summary_debounce: Arc::new(SummaryDebounce::new()),
         });
         core.spawn_projector_task();
         // Replay safety (Phase 13.G): every `ApprovalRequested` event

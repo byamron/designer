@@ -147,7 +147,7 @@
     {
       "name": "BlockRenderers",
       "path": "packages/app/src/blocks/blocks.tsx",
-      "purpose": "Twelve typed-artifact renderers registered against the block registry (`packages/app/src/blocks/registry.ts`) on import of `packages/app/src/blocks/index.ts`. Real-data renderers: Message, Spec, CodeChange, Pr, Approval, Comment, TaskList. Stub renderers (title + summary) for Phase 13.D/E/F to fill in: Report, Prototype, Diagram, Variant, TrackRollup. GenericBlock is the fallback for unknown kinds. ApprovalBlock (Phase 13.G) parses the inline JSON payload for `approval_id`, calls `cmd_resolve_approval` on Grant/Deny with optimistic flip + projector truth via `approval_granted/denied` stream subscription. Buttons disabled when payload lacks a parsable id. Every block is an <article> with BlockHeader (kind badge, title, author, expand/pin actions). All visual decisions route through tokens — no inline styles.",
+      "purpose": "Twelve typed-artifact renderers registered against the block registry (`packages/app/src/blocks/registry.ts`) on import of `packages/app/src/blocks/index.ts`. Real-data renderers: Message, Spec, CodeChange, Pr, Approval, Comment, TaskList, Prototype (Phase 13.F: renders inline-HTML payloads via `PrototypePreview` with `sandbox=\"\"` + injected CSP). Stub renderers (title + summary) still pending: Report, Diagram, Variant, TrackRollup. GenericBlock is the fallback for unknown kinds. ApprovalBlock (Phase 13.G) parses the inline JSON payload for `approval_id`, calls `cmd_resolve_approval` on Grant/Deny with optimistic flip + projector truth via `approval_granted/denied` stream subscription. Buttons disabled when payload lacks a parsable id. Every block is an <article> with BlockHeader (kind badge, title, author, expand/pin actions). All visual decisions route through tokens — no inline styles.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
@@ -308,13 +308,13 @@
     {
       "name": "PrototypePreview",
       "path": "packages/app/src/lab/PrototypePreview.tsx",
-      "purpose": "Sandboxed iframe rendering agent-produced prototype HTML under strict meta-CSP.",
+      "purpose": "Sandboxed iframe rendering agent-produced prototype HTML. Two prop forms: { workspace } drives the lab demo (variant explorer + annotation layer); { inlineHtml, title? } is the artifact-thread form used by PrototypeBlock — bare iframe with sandbox=\"\" and CSP <meta> injected for defense-in-depth.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-3", "radius-card", "border-thin", "color-border"],
       "variants": ["A", "B", "C"],
-      "last_updated": "2026-04-21"
+      "last_updated": "2026-04-25"
     },
     {
       "name": "AnnotationLayer",

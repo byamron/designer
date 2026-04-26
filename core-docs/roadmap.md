@@ -31,7 +31,7 @@ Phase 13 — Wire the real runtime            (2 prereqs + 5 tracks, gated indiv
   ├─ 13.1  Artifact foundation           (← 13.0; unifies tab model; blocks D/E/F/G emitters) ✅
   ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts] ✅
   ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr] ✅
-  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype]
+  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype] ✅
   ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment]
   └─ 13.H  Safety enforcement            (← 13.G)                [GA gate; see security.md]
 

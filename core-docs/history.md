@@ -37,6 +37,69 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 13.F — local-model surfaces (initial + post-review pass)
+**Date:** 2026-04-25
+**Branch:** 13f-local-model-surfaces
+**Commit:** [pending — see PR]
+
+**Review pass (2026-04-25 same-day):**
+
+- **Debounce-burst race fix.** First-pass `SummaryDebounce` cached only resolved values; a second caller arriving while the first was in flight saw no entry and dispatched its own helper call (call_count == 2 for a burst that should be 1). Fixed by tracking inflight slots (`watch::Sender<Option<String>>`) alongside resolved entries; concurrent callers join the same in-flight watch. Test `concurrent_burst_shares_one_helper_call` asserts call_count == 1 after a 100ms-apart burst over an 800ms helper.
+- **Eviction.** Added `SUMMARY_DEBOUNCE_MAX_ENTRIES = 1024` cap with opportunistic prune of expired `Resolved` entries on each `claim`. Inflight slots are never evicted (would error every awaiter). Test `debounce_cache_is_bounded_under_churn` exercises 1000 unique keys.
+- **`Weak<AppCore>` on the late-return spawn.** Previous code held `Arc<AppCore>` in the detached task — a slow helper would extend AppCore's lifetime past shutdown by the helper-call duration. Now uses `Arc::downgrade(self)` and bails when `upgrade()` returns None.
+- **Archived target rejection.** `Projector::artifact()` returns artifacts regardless of `archived_at`; the projector preserves history. The audit/recap policy ("don't audit something that's been archived") lives at the boundary now: `audit_artifact` returns `NotFound` when `target.archived_at.is_some()`, `recap_workspace` returns `Invariant` for archived/errored workspaces, and `emit_artifact_updated` short-circuits if the target was archived between append and helper return.
+- **Cross-workspace audit boundary.** `AuditArtifactRequest` now requires `expected_workspace_id`; `AppCore::audit_artifact(id, expected, claim)` validates `target.workspace_id == expected` and returns `Invariant` (mapped to `IpcError::InvalidRequest`) on mismatch. Future-proofs the seam for per-workspace authorization in 13.G.
+- **Author-role registry.** New module `designer_core::author_roles` exports `RECAP`, `AUDITOR`, `AGENT`, `TRACK`, `SAFETY`, `WORKSPACE_LEAD` constants. Replaces inline `"auditor"` / `"recap"` literals; downstream tracks should reuse to avoid drift.
+- **Local timezone for "Wednesday recap".** Added `local-offset` to the workspace `time` feature set; `weekday_label()` now uses `OffsetDateTime::now_local()` with UTC fallback when the host can't resolve a local offset (sandboxed CI envs).
+- **PrototypeBlock CSP regression fixed.** First-pass inline-HTML mode used `sandbox="allow-forms allow-pointer-lock"` — same as the lab demo, but without the lab's CSP `<meta>` wrapping. A `<form action="https://attacker">` could exfiltrate. Two defenses now: (1) `sandbox=""` (no permissions — blocks form submission entirely) and (2) `wrapInlineHtmlWithCsp()` injects a CSP `meta` tag with `form-action 'none'`, `script-src 'none'`, etc. New vitest `hardens against form-action XSS` asserts both defenses.
+- **`summary_provenance` deferred** to a pre-launch ADR. Adding the field non-breakingly is a new variant on the artifact event vocabulary (`ArtifactSummaryProvenanceSet`), which warrants its own decision record. The 12.B system-level helper-status indicator covers the global case for now.
+- **Wiring TODO.** Module docs for `core_local.rs` and ADR 0003 explicitly note that tracks D/E/G must route `code-change` through `append_artifact_with_summary_hook`; direct `store.append` bypasses the hook and breaks Decision 39's at-write-time guarantee. Search for `TODO(13.F-wiring)` during track-integration merges.
+
+Test coverage: 15 Rust unit tests (5 new this pass — concurrent burst, archived target, cross-workspace boundary, helper-down + long summary, eviction under churn) + 4 vitest cases (1 new — XSS via form-action).
+
+
+**What was done:**
+
+- New `AppCore::append_artifact_with_summary_hook(draft: ArtifactDraft)` seam in `apps/desktop/src-tauri/src/core_local.rs`. For `ArtifactKind::CodeChange` it calls `LocalOps::summarize_row` with a 500ms timeout; success replaces the supplied summary before the event lands, timeout/error/fallback uses a deterministic 140-char ellipsis-truncated fallback, and a detached task emits `ArtifactUpdated` if the helper eventually returns. Other artifact kinds bypass the hook and append verbatim.
+- Per-track debounce (`SummaryDebounce` field on `AppCore`) — `(workspace_id, author_role)` keys; within a 2-second window, a second `code-change` reuses the cached summary instead of round-tripping the helper.
+- `AppCore::recap_workspace(workspace_id)` — gathers non-report artifacts, calls `LocalOps::recap`, emits `ArtifactCreated { kind: "report", title: "<Weekday> recap", summary: <headline>, author_role: Some("recap") }` with markdown payload.
+- `AppCore::audit_artifact(artifact_id, claim)` — calls `LocalOps::audit_claim`, emits `ArtifactCreated { kind: "comment", title: "Audit: <claim>", summary: <verdict>, author_role: Some("auditor") }` in the target's workspace.
+- `commands_local::cmd_recap_workspace` and `commands_local::cmd_audit_artifact` Tauri shims; both registered alphabetically in `main.rs`'s `tauri::generate_handler!`.
+- `PrototypeBlock` now renders inline-HTML payloads via `PrototypePreview`. `PrototypePreview` was extended with a discriminated-union prop signature so `{ workspace }` (existing lab demo) and `{ inlineHtml, title? }` (new artifact path) coexist. The artifact path renders just the sandbox iframe (`sandbox="allow-forms allow-pointer-lock"`, no `allow-scripts`). `PrototypeBlock` change: 7 LOC.
+- ADR 0003 amended with the hook-seam contract.
+- 10 new Rust tests in `core_local::tests` (in-deadline path, late-return → ArtifactUpdated, helper-error fallback, debounce reuse, recap happy path + missing-workspace error, audit emission, fallback truncate, non-code-change bypass). 3 new vitest tests in `prototype-block.test.tsx` (inline HTML → sandboxed iframe, no payload → placeholder, hash payload → placeholder).
+- Quality gates: `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `tsc --noEmit`, `vitest run` — all green. 16 frontend tests, 100+ backend tests.
+
+**Why:**
+
+Phase 13.1 (PR #15) shipped the typed-artifact foundation but left the local-model emitters as TODOs. 13.F is the on-device-models track in the four-track Phase-13 fan-out: write-time summaries (spec Decision 39), morning recap, audit verdicts. Without it, every emitted artifact carries the producer's raw `summary` text, which means the rail/collapsed views see verbose-and-noisy strings that don't summarize the change.
+
+**Design decisions:**
+
+- **Option B for debounce** (each artifact gets the same batch summary; no event suppression). Justification: keeps the rail's edit count accurate, doesn't violate `ArtifactCreated` semantics (each batch IS its own artifact), and avoids a race window where a "merged" representation would have to be reconciled with downstream pin/unpin events. Only the helper round-trip is coalesced, not the events themselves.
+- **Hook seam, not store interceptor.** The seam is an `AppCore` method that tracks call instead of `store.append`; this keeps `EventStore` agnostic to LocalOps and replays remain bit-for-bit deterministic (the stored summary is whatever was written, never regenerated). Late-arriving `ArtifactUpdated` events also persist their summary verbatim — replay safety preserved.
+- **Helper-down short-circuits before the call.** Per integration-notes §12.B, `NullHelper::generate` returns a `[unavailable …]` marker that must not be rendered as user copy. The hook checks `helper_status.kind == Fallback` before dispatch and uses the deterministic truncation directly.
+- **Per-artifact provenance not added to the schema.** ADR 0003 froze the artifact event vocabulary; adding `summary_provenance: Option<String>` would be a breaking change. The existing system-level helper status (12.B's IPC) drives a global "On-device models unavailable" indicator. Per-artifact "this is a fallback summary" badges are a 13.G/UI follow-up if and when needed.
+- **`PrototypePreview` discriminated-union prop signature.** Extending PrototypePreview with an `inlineHtml` prop kept the integration to a single prop pass on the consumer side without expanding the lab-demo's responsibilities. The new path is strictly the sandbox primitive — no variant explorer, no annotation toggle.
+
+**Technical decisions:**
+
+- **`tokio::spawn` + `&mut handle` for the timeout race.** Lets us wait up to 500ms inside the append, then keep awaiting the same future from a detached task without re-running the helper call.
+- **`ArtifactDraft` packed-arg struct** introduced to keep the public seam below clippy's `too_many_arguments` ceiling (was 8 args, ceiling is 7) without scattering `#[allow(clippy::…)]` markers. Bonus: gives downstream tracks a typed "build this artifact" object that's symmetric with `EventPayload::ArtifactCreated`.
+- **`pub(crate)` on `helper_events`.** Tests in `core_local::tests` need to construct `AppCore` directly with a custom `FoundationHelper` (so they can control response timing). Promoting `helper_events` from private to `pub(crate)` was the minimum change; no public API impact.
+- **Recap entries filter out `report` artifacts.** Avoids feeding yesterday's recap into today's recap as input; report-of-reports is a pathological recursion.
+
+**Tradeoffs discussed:**
+
+- **Option A vs B for debounce.** Option A (merge artifacts into one) was rejected: violates "each semantic edit batch is an artifact" (Decision 39's premise) and complicates pin/unpin/archive on a coalesced artifact. Option B is the simpler invariant.
+- **CSP injection in `PrototypePreview`.** The lab demo wraps each variant's HTML in a CSP `meta` header. The 13.F path passes payload-as-srcdoc verbatim — the iframe's `sandbox` attribute (without `allow-scripts`) is the principal defense; CSP-meta would require either parsing-and-reinjecting the agent's HTML or wrapping it in a host document. Either option moves user code; the sandbox attribute alone meets the brief's "PrototypePreview already handles iframe sandboxing" framing.
+
+**Lessons learned:**
+
+- Tokio's `tokio::spawn` returning `JoinHandle<HelperResult<T>>` produces a triple-nested Result on `tokio::time::timeout(..., &mut handle)` — `Result<Result<HelperResult<T>, JoinError>, Elapsed>`. Clear branches on each layer keep the timeout path readable.
+- `cargo clippy`'s `too_many_arguments` lint fires on `>7` args. The artifact-creation seam naturally has 7 fields; adding any one (e.g., `causation_id`) would push past it. Packing into `ArtifactDraft` future-proofs the boundary.
+
+
 ### Phase 13.D — agent wire
 **Date:** 2026-04-25
 **Branch:** 13d-agent-wire
