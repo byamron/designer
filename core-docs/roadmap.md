@@ -534,36 +534,101 @@ Five new Tauri commands: `cmd_list_pending_approvals`, `cmd_get_cost_status`, `c
 
 See `history.md` 2026-04-25 entry for the full design rationale, the post-merge security review fixes (cmd_request_approval injection, sweep race, single-writer ordering, stream consistency, missing-workspace audit row, gate-status drift, cost-replay), and the test coverage that locked them down.
 
-### Track 13.H — Phase 13 hardening pass *(P0 follow-ups from the integration review)*
+### Track 13.H — Phase 13 hardening pass *(P0 — gates real-Claude usability)*
 
-**Needs:** 13.D + 13.E + 13.F + 13.G (the integration meta-PR [#20](https://github.com/byamron/designer/pull/20) lands first).
+**Needs:** 13.D + 13.E + 13.F + 13.G integration meta-PR [#20](https://github.com/byamron/designer/pull/20) merged ✅ 2026-04-26.
 
-**Why a separate track:** the four parallel tracks each shipped against the mock orchestrator and their individual test surfaces. The integration review (six-agent pass: staff engineer / staff UX / staff design engineer / reuse / quality / efficiency) verified the parallel-track conventions held cleanly — but surfaced four production wiring gaps that no single track owned. None block the integration merge (mock-orchestrator path works fully, all gates green) but the production runtime is incomplete until they land. This track is a focused hardening PR right after the meta-PR merges.
+**Why this track is the gating step before dogfooding:** the four parallel tracks shipped against the mock orchestrator. With real Claude Code, the moment the agent wants to use any tool (`Read` / `Edit` / `Write` / `Bash`) it sends a stdio permission prompt that nothing in `claude_code.rs::reader_task` answers — the agent hangs until Claude's internal timeout (~10 min). **Until F1+F2 land, real-Claude usage is "first text reply works, then everything stalls."** F3/F4 add cost tracking and on-device summarization but are not gating; F5 (tool-use surfacing in the thread) is a UX completeness fix the PR 17 review flagged.
 
-**Steps:**
+**Parallelization decision: ONE workspace, sequential.** The 13.D/E/F/G fan-out made sense because each track was 1500+ LOC of orthogonal domain work. 13.H is ~500 LOC of cohesive runtime hardening, three of the five items live in the same two files (`crates/designer-claude/src/{stream,claude_code}.rs`), and the integration cost of parallel branches (six-agent review, conflict resolution, doc merging) is real — we just paid it for the meta-PR. The remaining two items (F3, F4) are each ~50 LOC of independent file work and finish faster serially in the same workspace than they would as separate PRs. Recommended internal sequence: **F1 → F2 (one-line plumbing) → F5 → F3 → F4**.
 
-- **F1 — Wire `permission_handler.decide()` into the stdio reader.** Today `crates/designer-claude/src/claude_code.rs::reader_task` consumes only `TranslatorOutput::{Event, RateLimit, Cost}`; there is no `PermissionPrompt` variant and no parser for Claude's `--permission-prompt-tool stdio` JSON shape. The orchestrator passes `--permission-prompt-tool stdio` so Claude expects stdio replies, but the reply never comes. Add a `TranslatorOutput::PermissionPrompt { tool, input, summary }` variant to `crates/designer-claude/src/stream.rs`, wire it through the reader to call `permission_handler.decide(req)`, and write the encoded response (`{"behavior": "allow"}` / `{"behavior": "deny", "message": "..."}`) back via the writer task's `stdin_tx`.
-- **F2 — Populate `PermissionRequest::workspace_id`.** When F1 lands, the reader must construct `PermissionRequest { workspace_id: Some(spec.workspace_id), tool, input, summary, … }`. The inbox handler fail-closes when `workspace_id == None` with `MISSING_WORKSPACE_REASON`; without F2, every prompt becomes an audit-only `ApprovalDenied` even after F1 routes them.
-- **F3 — Subscribe `ClaudeSignal::Cost` to `CostTracker::record`.** `claude_code.rs` constructs a per-orchestrator `signal_tx` broadcast channel and sends `ClaudeSignal::Cost { workspace_id, total_cost_usd }` on every `result/success` line. Nothing subscribes. The cost chip will read `$0.00` until `AppCore::boot` spawns a signal subscriber that calls `cost.record(...)` and persists `CostRecorded` to the store.
-- **F4 — Route `core_git::check_track_status` through `append_artifact_with_summary_hook`.** PR 18's seam contract (ADR 0003 §"Write-time summary hook seam") mandates that every `code-change` emitter routes through the hook. PR 16's `check_track_status` still calls `store.append` directly, bypassing the on-device summarization. Edit-batch summaries on the rail will show the raw `+12 −3 across 2 files` string instead of the helper-generated line until this is wired.
+#### F1 — Wire `permission_handler.decide()` into the stdio reader *(hard blocker, ~1.5 days)*
 
-**Test additions (folded into the F1–F4 hardening PR):**
+Without this, no real Claude tool use works.
 
-| Test | What it locks down |
+| File | Change |
 |---|---|
-| `claude_code::tests::stdio_permission_prompt_routes_to_decide` | Synthetic Claude stdout fixture emitting a `tool_use_request` permission prompt. Asserts `permission_handler.decide` is called once with the expected tool/input, and the writer task's stdin receives the encoded response. |
-| `claude_code::tests::permission_prompt_carries_workspace_id` | Round-trip the parsed `PermissionRequest`; assert `workspace_id == Some(spec.workspace_id)`. Without this guard, a future refactor that drops the field re-opens the silent-deny path. |
-| `cost::tests::signal_subscriber_records_to_store` | Boot `AppCore`, broadcast a fake `ClaudeSignal::Cost { workspace_id, total_cost_usd: 0.42 }`. Assert `cost_status(workspace_id).spent_dollars_cents == 42` and a `CostRecorded` event is appended to the store. |
-| `core_git::tests::check_track_status_routes_through_summary_hook` | Counting `LocalOps` mock; assert `check_track_status` calls `append_artifact_with_summary_hook` (not `store.append`) for `CodeChange` emits. |
-| `tests/claude_live.rs::permission_prompt_round_trip` *(`--features claude_live`)* | Single user-message → real Claude tool prompt → grant via inbox → tool result → `CodeChange` artifact with on-device summary. End-to-end smoke covering F1+F2+F4. |
+| `crates/designer-claude/src/stream.rs` | Add `TranslatorOutput::PermissionPrompt { id, tool, input, summary }` variant. Add a parse arm in the translator for Claude's `--permission-prompt-tool stdio` request shape. Capture three new JSON fixtures from `scripts/probe-claude.sh --permission-prompt` (Write / Edit / Bash) under `crates/designer-claude/tests/fixtures/permission_prompt/`. |
+| `crates/designer-claude/src/claude_code.rs::reader_task` | Match new arm; spawn `tokio::task` to call `self.permission_handler.decide(req)` so the reader stays unblocked; on resolve, encode `{"behavior":"allow"}` or `{"behavior":"deny","message":"..."}` and send through `stdin_tx`. The writer task already exists; just adds one channel send per prompt. |
+| `crates/designer-claude/tests/permission_prompt_translator.rs` | Three fixture-based round-trip tests (translate fixture → assert variant fields). |
+| `crates/designer-claude/src/claude_code.rs` (test module) | `stdio_permission_prompt_routes_to_decide`: synthetic Claude stdout, assert `decide` called once with expected tool/input, assert writer's stdin receives the encoded response. |
 
-**Other test gaps surfaced by the integration review (file as separate test-only PR before GA, or roll into 13.H):**
+Acceptance: `cargo test -p designer-claude --test permission_prompt_translator` and `cargo test -p designer-claude claude_code::tests::stdio_permission_prompt_routes_to_decide` green.
 
-- Frontend Playwright + screenshot-diff harness — already on Phase 15's list; pull forward to catch regressions in the integration UI surfaces (CostChip color bands, RepoLinkModal focus trap, ApprovalBlock state transitions, dark-mode rendering).
-- Concurrent-burst test for `SummaryDebounce` covering the case where a third caller arrives mid-flight after the in-flight slot's `Resolved` value lands but before the next request — verifies in-flight slot transitions correctly to `Resolved` without a race window.
-- `TabOpened` double-apply regression — covered earlier as the projector-vs-broadcast race; needs an explicit test that opens N tabs in sequence and asserts `workspace.tabs.len() == N` even after the broadcast subscriber catches up.
-- `cmd_list_pending_approvals` perf regression test — assert it returns from in-memory `pending_ids()` without an event-log scan once the optimization in F3-followup lands.
-- Cost-cap=0 boundary test — assert `cost_status` ratio when `cap_dollars_cents=0` and `spent=0` is `None` (no-spend hold) rather than `Some(1.0)` (currently silently red-banded).
+#### F2 — Populate `PermissionRequest::workspace_id` *(trivial, ~5 min — folds into F1's PR)*
+
+Without this, F1 routes prompts but `InboxPermissionHandler::decide` fail-closes on `workspace_id.is_none()` with `MISSING_WORKSPACE_REASON`, surfacing in audit but not in the inbox.
+
+| File | Change |
+|---|---|
+| `crates/designer-claude/src/claude_code.rs::reader_task` | When constructing the `PermissionRequest` at the F1 site, set `workspace_id: Some(spec.workspace_id)`. The team-spec is already in scope. |
+| `crates/designer-claude/src/claude_code.rs` (test module) | `permission_prompt_carries_workspace_id`: round-trip a parsed prompt; assert the field is populated. Lock guard against future regression. |
+
+#### F5 — Tool-use translator + ArtifactProduced emission *(folds into F1's PR; same files)* — formerly the PR 17 review's `TODO(13.D-followup)`
+
+Today `ClaudeStreamTranslator::extract_assistant_text` extracts only `text` content blocks from assistant messages, dropping `tool_use` blocks entirely. Result: the user sees Claude's narration but never which tool was invoked — only the approval block in the inbox tells them, and the thread reads as discontinuous. This breaks the "summarize by default, drill on demand" principle for tool transparency.
+
+| File | Change |
+|---|---|
+| `crates/designer-claude/src/stream.rs` | Extend `extract_assistant_text` to also surface `tool_use` blocks. Two options: (a) emit one `OrchestratorEvent::ArtifactProduced { kind: Report, title: format!("Used {tool}"), summary: <input snippet>, ... }` per `tool_use` block; (b) emit a new `Tool` artifact kind. Option (a) is the lower-friction choice since `Report` already has a registered renderer; promote to a typed `Tool` kind in a future ADR if churn warrants it. |
+| `crates/designer-claude/src/stream.rs` (test module) | Fixture with mixed text + tool_use blocks; assert one `MessagePosted` for text + one `ArtifactProduced` per tool_use. |
+| **Stretch (in-scope if time permits):** correlate `tool_use_id` → eventual `tool_result` in the next user-turn. Emit `ArtifactUpdated` on the original `Report` artifact with the result's summary. Stateful translator field; ~50 LOC. If skipped, file as `TODO(13.H+1)` with a clear marker. | |
+
+Acceptance: a real Claude session that invokes Write + Edit + Bash produces three `Report` artifacts in the thread alongside the assistant's narration text, **before** the F1 permission prompts fire.
+
+#### F3 — Subscribe `ClaudeSignal::Cost` to `CostTracker::record` *(independent, ~half day)*
+
+Without this, the cost chip reads `$0.00` forever and the cap check silently allows a workspace to spend past its budget.
+
+| File | Change |
+|---|---|
+| `apps/desktop/src-tauri/src/core.rs::AppCore::boot` | After orchestrator construction, call `orchestrator.subscribe_signals()` (already exists on the trait). Spawn a `tokio::task` that loops `recv()` and on `ClaudeSignal::Cost { workspace_id, total_cost_usd }` calls `core.cost.record(workspace_id, total_cost_usd, …)` and writes `EventPayload::CostRecorded` via `store.append`. Use `Weak<AppCore>` to avoid lifetime-extending the core. |
+| `crates/designer-safety/tests/gates.rs` (or new `crates/designer-safety/tests/cost_subscriber.rs`) | `signal_subscriber_records_to_store`: boot `AppCore` with a `MockOrchestrator` that exposes a manual `signal_tx`; broadcast `ClaudeSignal::Cost { workspace_id, total_cost_usd: 0.42 }`; poll `cost_status(workspace_id).spent_dollars_cents == 42`; assert `CostRecorded` event in store. |
+
+Acceptance: cost chip increments in the topbar after each agent turn that emits a `result/success` line.
+
+#### F4 — Route `core_git::check_track_status` through `append_artifact_with_summary_hook` *(independent, ~half day)*
+
+Without this, code-change rail summaries show raw `+12 −3 across 2 files` instead of on-device LLM lines like `"Refactored Tauri command registration to alphabetize handlers."`.
+
+| File | Change |
+|---|---|
+| `apps/desktop/src-tauri/src/core_git.rs::check_track_status` | Replace the direct `self.store.append(EventPayload::ArtifactCreated { … kind: CodeChange … })` with `self.append_artifact_with_summary_hook(ArtifactDraft { … })`. The hook (defined in `core_local.rs`) already handles the 500ms deadline + late-return ArtifactUpdated + per-track debounce. The seam is opt-in by call site; this just opts the git-emitted code-change artifact in. |
+| `apps/desktop/src-tauri/src/core_git.rs` (test module) | `check_track_status_routes_through_summary_hook`: counting `LocalOps` mock injected via the hook seam; assert one `summarize_row` call per `CodeChange` emit. |
+
+Acceptance: the rail's edit-batch summary reads as the on-device LLM line on AI-capable hardware, or the deterministic 140-char fallback elsewhere — never the raw diff stat.
+
+#### Test additions summary table
+
+| Test | F-item | What it locks down |
+|---|---|---|
+| `claude_code::tests::stdio_permission_prompt_routes_to_decide` | F1 | `decide` called once, response written through stdin |
+| `permission_prompt_translator::*` (3 fixtures) | F1 | Translator parses Write / Edit / Bash prompt JSON |
+| `claude_code::tests::permission_prompt_carries_workspace_id` | F2 | `workspace_id` field populated; regression guard |
+| `stream::tests::tool_use_block_emits_artifact_produced` | F5 | Mixed text + tool_use → MessagePosted + ArtifactProduced |
+| `signal_subscriber_records_to_store` | F3 | Cost broadcast → in-memory + persisted |
+| `check_track_status_routes_through_summary_hook` | F4 | Counting LocalOps mock asserts hook usage |
+| `tests/claude_live.rs::permission_prompt_round_trip` *(`--features claude_live`)* | F1+F2+F4+F5 | End-to-end real Claude smoke; gated by self-hosted runner |
+
+#### Other test gaps surfaced by the integration review *(file as separate test-only PR before GA; some fold cheaply into 13.H)*
+
+- **Frontend Playwright + screenshot-diff harness** — already on Phase 15's list; pull forward to catch regressions in the integration UI surfaces (CostChip color bands, RepoLinkModal focus trap, ApprovalBlock state transitions, dark-mode rendering). Recommend opening this as a parallel PR while 13.H's backend work happens.
+- **`SummaryDebounce` concurrent-burst race** — third caller arriving mid-flight after `Resolved` lands but before the next request.
+- **`TabOpened` double-apply regression** — projector-vs-broadcast race; opens N tabs in sequence and asserts `workspace.tabs.len() == N`. The integration review caught one flaky failure here; pre-existing, not introduced by 13.D/E/F/G.
+- **`cmd_list_pending_approvals` perf regression test** — once the in-memory `pending_ids()` join optimization lands, assert it returns without an event-log scan.
+- **`cost_status` boundary test** — `cap_dollars_cents=0 && spent=0` should return `None` (no-spend hold), not `Some(1.0)` (currently silently red-banded).
+- **`tools/invariants/check.mjs` in CI** — the UI regression review flagged that the design-language invariants checker exists but isn't run in any CI workflow. Add to `.github/workflows/ci.yml::frontend` job. ~5-line change.
+
+#### Acceptance for 13.H as a whole
+
+- `cargo test --workspace` 30 test groups (no regressions).
+- `cargo test --workspace --features claude_live` (self-hosted runner) — `permission_prompt_round_trip` green.
+- Manual dogfood: open the Tauri app with `cargo tauri dev`, create a workspace, link the Designer repo itself, send "read CLAUDE.md and summarize it" — assistant's narration appears in the thread, an `ArtifactProduced { kind: Report, title: "Used Read" }` lands inline, the inbox surfaces an approval, granting it unblocks the agent, the response streams back, the cost chip increments.
+- All quality gates (fmt / clippy / test / tsc / vitest) green.
+
+#### After 13.H ships
+
+The app is genuinely runnable end-to-end against real Claude Code. Open issues become **user-driven** (real workflow friction, not infrastructure gaps). The natural next step pivots from infrastructure to either Phase 14 (sync transport) or Phase 15 polish — driven by what dogfooding surfaces.
 
 ### Track 13.I — Safety enforcement *(GA gate; detail in `security.md`)*
 
