@@ -20,7 +20,7 @@ mod permission;
 mod stream;
 mod watcher;
 
-pub use claude_code::{ClaudeCodeOptions, ClaudeCodeOrchestrator};
+pub use claude_code::{ClaudeCodeOptions, ClaudeCodeOrchestrator, ClaudeSignal};
 pub use inbox_permission::{
     GateStatusSink, InboxPermissionHandler, APPROVAL_TIMEOUT, MISSING_WORKSPACE_REASON,
     PROCESS_RESTART_REASON, TIMEOUT_REASON,

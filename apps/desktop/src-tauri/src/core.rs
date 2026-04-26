@@ -6,8 +6,8 @@
 use async_trait::async_trait;
 use designer_audit::{AuditLog, SqliteAuditLog};
 use designer_claude::{
-    ClaudeCodeOptions, ClaudeCodeOrchestrator, InboxPermissionHandler, MockOrchestrator,
-    Orchestrator,
+    ClaudeCodeOptions, ClaudeCodeOrchestrator, ClaudeSignal, InboxPermissionHandler,
+    MockOrchestrator, Orchestrator,
 };
 use designer_core::{
     Actor, Artifact, ArtifactId, EventPayload, EventStore, ProjectId, Projection, Projector,
@@ -18,7 +18,7 @@ use designer_local_models::{
     probe_helper, FoundationHelper, FoundationLocalOps, HelperError, HelperEvent, HelperHealth,
     LocalOps, NullHelper, SwiftFoundationHelper,
 };
-use designer_safety::{CostCap, CostTracker, InMemoryApprovalGate};
+use designer_safety::{usd_to_cents, CostCap, CostTracker, CostUsage, InMemoryApprovalGate};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -206,6 +206,19 @@ const HELPER_BOOT_DEADLINE: Duration = Duration::from_millis(750);
 #[async_trait]
 impl AppCoreBoot for AppCore {
     async fn boot(config: AppConfig) -> designer_core::Result<Arc<AppCore>> {
+        AppCore::boot_with_orchestrator(config, None).await
+    }
+}
+
+impl AppCore {
+    /// Boot path with an optional pre-supplied orchestrator. Production callers
+    /// pass `None` so AppCore picks Claude vs. Mock from `config`; tests pass
+    /// `Some(...)` to inject a mock whose `signals()` sender they retain a
+    /// handle to (Phase 13.H/F3 cost-subscriber test).
+    pub async fn boot_with_orchestrator(
+        config: AppConfig,
+        orchestrator_override: Option<Arc<dyn Orchestrator>>,
+    ) -> designer_core::Result<Arc<AppCore>> {
         let store = Arc::new(SqliteEventStore::open(config.data_dir.join("events.db"))?);
         let projector = Projector::new();
 
@@ -246,17 +259,21 @@ impl AppCoreBoot for AppCore {
             Arc::new(InboxPermissionHandler::new(store.clone()).with_gate_sink(gate_sink));
         let inbox_handler = crate::core_safety::install_inbox_handler(inbox_handler);
 
-        let orchestrator: Arc<dyn Orchestrator> = if config.use_mock_orchestrator {
-            Arc::new(MockOrchestrator::new(store.clone()))
-        } else {
-            Arc::new(
+        let orchestrator: Arc<dyn Orchestrator> = match orchestrator_override {
+            Some(o) => o,
+            None if config.use_mock_orchestrator => Arc::new(MockOrchestrator::new(store.clone())),
+            None => Arc::new(
                 ClaudeCodeOrchestrator::new(store.clone(), config.claude_options.clone())
                     .with_permission_handler(inbox_handler.clone()),
-            )
+            ),
         };
 
         let (helper, helper_status, helper_events) = select_helper(&config).await;
         let local_ops: Arc<dyn LocalOps> = Arc::new(FoundationLocalOps::new(helper.clone()));
+
+        // Subscribe before any first event is broadcast; the cost subscriber
+        // task holds a `Weak<AppCore>` so it terminates when the core drops.
+        let signal_rx = orchestrator.subscribe_signals();
 
         let core = Arc::new(AppCore {
             config,
@@ -272,6 +289,7 @@ impl AppCoreBoot for AppCore {
             helper_events,
             summary_debounce: Arc::new(SummaryDebounce::new()),
         });
+        spawn_cost_subscriber(Arc::downgrade(&core), signal_rx);
         core.spawn_projector_task();
         // Replay safety (Phase 13.G): every `ApprovalRequested` event
         // without a matching grant/deny resolves to a process-restart
@@ -433,6 +451,65 @@ fn build_event_bridge(mut rx: broadcast::Receiver<HelperEvent>) -> broadcast::Se
         }
     });
     tx
+}
+
+/// Listen on the orchestrator's `ClaudeSignal` broadcast and route every
+/// `Cost` signal through [`CostTracker::record`] (which appends
+/// `EventPayload::CostRecorded` and updates the in-memory usage map). Holds a
+/// `Weak<AppCore>` so the task terminates when the core drops — no leaked
+/// tokio task across boots.
+fn spawn_cost_subscriber(
+    weak: std::sync::Weak<AppCore>,
+    mut rx: broadcast::Receiver<ClaudeSignal>,
+) {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(ClaudeSignal::Cost {
+                    workspace_id,
+                    total_cost_usd,
+                }) => {
+                    let Some(core) = weak.upgrade() else {
+                        break;
+                    };
+                    if !total_cost_usd.is_finite() || total_cost_usd <= 0.0 {
+                        // Anomaly on Anthropic's side or a future zero-cost
+                        // result — log so support bundles surface it, then
+                        // skip the DB write since there's nothing to project.
+                        warn!(
+                            workspace = %workspace_id,
+                            total_cost_usd,
+                            "cost subscriber: non-positive or non-finite cost; skipping"
+                        );
+                        continue;
+                    }
+                    let usage = CostUsage {
+                        tokens_input: 0,
+                        tokens_output: 0,
+                        dollars_cents: usd_to_cents(total_cost_usd),
+                    };
+                    if let Err(err) = core.cost.record(workspace_id, usage, Actor::system()).await {
+                        warn!(
+                            workspace = %workspace_id,
+                            cents = usage.dollars_cents,
+                            error = %err,
+                            "cost subscriber: record failed"
+                        );
+                    }
+                }
+                Ok(ClaudeSignal::RateLimit(_)) => {}
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    // Buffer overflowed; cost lag means totals understate
+                    // actual spend. Surface so cap drift isn't silent.
+                    warn!(
+                        skipped,
+                        "cost subscriber: broadcast lagged; cost totals may be understated"
+                    );
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 impl AppCore {
@@ -803,5 +880,82 @@ mod tests {
         let core = boot_test_core().await;
         let rows = core.spine(Some(WorkspaceId::new())).await;
         assert!(rows.is_empty());
+    }
+
+    /// F3: a `ClaudeSignal::Cost` broadcast lands as `CostTracker::record` —
+    /// in-memory usage updates AND a `CostRecorded` event hits the store.
+    /// Without this wiring the cost chip would read $0.00 forever and the cap
+    /// check would silently allow over-budget spend.
+    #[tokio::test]
+    async fn signal_subscriber_records_to_store() {
+        let dir = tempdir().unwrap();
+        // Build a fresh in-memory event store + mock orchestrator so we own
+        // the signal sender side.
+        let store = Arc::new(SqliteEventStore::open(dir.path().join("events.db")).unwrap());
+        let mock = Arc::new(MockOrchestrator::new(store.clone()));
+        let signals_tx = mock.signals();
+        let config = AppConfig {
+            data_dir: dir.path().to_path_buf(),
+            use_mock_orchestrator: true,
+            claude_options: Default::default(),
+            default_cost_cap: CostCap {
+                max_dollars_cents: None,
+                max_tokens: None,
+            },
+            helper_binary_path: None,
+        };
+        std::mem::forget(dir);
+        let core = AppCore::boot_with_orchestrator(config, Some(mock.clone()))
+            .await
+            .unwrap();
+
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+
+        // Broadcast a $0.42 cost. The subscriber rounds to 42 cents.
+        signals_tx
+            .send(ClaudeSignal::Cost {
+                workspace_id: ws.id,
+                total_cost_usd: 0.42,
+            })
+            .expect("subscriber receiving");
+
+        // Poll until the in-memory tracker reflects the spend (subscriber is
+        // a tokio task; it runs concurrently).
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if core.cost.usage(ws.id).dollars_cents == 42 {
+                break;
+            }
+            if std::time::Instant::now() > deadline {
+                panic!(
+                    "cost subscriber did not record within deadline; saw {}",
+                    core.cost.usage(ws.id).dollars_cents
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        // And the event log carries a `CostRecorded` row for the workspace.
+        let events = core.store.read_all(StreamOptions::default()).await.unwrap();
+        let cost_events = events
+            .iter()
+            .filter(|env| {
+                matches!(
+                    env.payload,
+                    EventPayload::CostRecorded {
+                        dollars_cents: 42,
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(cost_events, 1, "expected one CostRecorded event");
     }
 }

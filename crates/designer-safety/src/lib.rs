@@ -19,7 +19,7 @@ mod scope;
 pub use approval::{
     ApprovalDecision, ApprovalGate, ApprovalRequest, ApprovalStatus, InMemoryApprovalGate,
 };
-pub use cost::{CostCap, CostTracker, CostUsage};
+pub use cost::{usd_to_cents, CostCap, CostTracker, CostUsage};
 pub use csp::{CspBuilder, CspDirective, SANDBOX_ATTRIBUTE};
 pub use scope::{ScopeGuard, ScopeRule, ScopeVerdict};
 

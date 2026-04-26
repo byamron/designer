@@ -1,0 +1,1 @@
+{"type":"control_request","request_id":"3112f114-4aca-478f-977b-617bb481c597","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"/tmp/prompt-probe/foo.txt","content":"hello"},"permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_01WP8fmw7CuQ3d2vbwGBhvtY"}}
