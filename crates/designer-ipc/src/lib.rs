@@ -71,8 +71,14 @@ impl IpcError {
 
 impl From<designer_core::CoreError> for IpcError {
     fn from(value: designer_core::CoreError) -> Self {
-        IpcError::Unknown {
-            message: value.to_string(),
+        use designer_core::CoreError;
+        match value {
+            CoreError::Invariant(message) => IpcError::InvalidRequest { message },
+            CoreError::NotFound(id) => IpcError::NotFound { id },
+            CoreError::InvalidId(message) => IpcError::InvalidRequest { message },
+            other => IpcError::Unknown {
+                message: other.to_string(),
+            },
         }
     }
 }

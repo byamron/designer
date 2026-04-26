@@ -3358,7 +3358,7 @@ kbd {
 }
 
 .block__file {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
   color: var(--color-foreground);
   background: var(--color-surface-sunken);

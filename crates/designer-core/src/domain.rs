@@ -136,6 +136,13 @@ pub mod author_roles {
     /// Workspace-lead Claude session (13.D) — the persistent manager-level
     /// chat producer.
     pub const WORKSPACE_LEAD: &str = "workspace-lead";
+    /// Default lead role inside a fresh agent team (the "team lead").
+    pub const TEAM_LEAD: &str = "team-lead";
+    /// User-authored thread message.
+    pub const USER: &str = "user";
+    /// Non-user, non-agent system event (e.g. orphan-sweep denial,
+    /// process-restart audit row, scope-deny comment).
+    pub const SYSTEM: &str = "system";
 }
 
 /// A typed artifact — the data a block renderer knows how to display.

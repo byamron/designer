@@ -24,8 +24,8 @@ use crate::permission::{PermissionDecision, PermissionHandler, PermissionRequest
 use async_trait::async_trait;
 use dashmap::DashMap;
 use designer_core::{
-    Actor, ApprovalId, ArtifactId, ArtifactKind, EventPayload, EventStore, PayloadRef, StreamId,
-    WorkspaceId,
+    author_roles, Actor, ApprovalId, ArtifactId, ArtifactKind, EventPayload, EventStore,
+    PayloadRef, StreamId, WorkspaceId,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -307,7 +307,7 @@ impl<S: EventStore + 'static> PermissionHandler for InboxPermissionHandler<S> {
                     title,
                     summary: req.summary.clone(),
                     payload: PayloadRef::inline(payload_body),
-                    author_role: Some("system".into()),
+                    author_role: Some(author_roles::SAFETY.into()),
                 },
             )
             .await

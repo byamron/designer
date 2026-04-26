@@ -201,11 +201,7 @@ pub async fn cmd_link_repo(core: &Arc<AppCore>, req: LinkRepoRequest) -> Result<
     }
     core.link_repo(req.workspace_id, req.repo_path)
         .await
-        .map_err(|e| match e {
-            designer_core::CoreError::Invariant(msg) => IpcError::invalid_request(msg),
-            designer_core::CoreError::NotFound(msg) => IpcError::not_found(msg),
-            other => IpcError::from(other),
-        })
+        .map_err(IpcError::from)
 }
 
 pub async fn cmd_start_track(
@@ -217,22 +213,16 @@ pub async fn cmd_start_track(
     }
     core.start_track(req.workspace_id, req.branch, req.base)
         .await
-        .map_err(|e| match e {
-            designer_core::CoreError::Invariant(msg) => IpcError::invalid_request(msg),
-            designer_core::CoreError::NotFound(msg) => IpcError::not_found(msg),
-            other => IpcError::from(other),
-        })
+        .map_err(IpcError::from)
 }
 
 pub async fn cmd_request_merge(
     core: &Arc<AppCore>,
     req: RequestMergeRequest,
 ) -> Result<u64, IpcError> {
-    core.request_merge(req.track_id).await.map_err(|e| match e {
-        designer_core::CoreError::Invariant(msg) => IpcError::invalid_request(msg),
-        designer_core::CoreError::NotFound(msg) => IpcError::not_found(msg),
-        other => IpcError::from(other),
-    })
+    core.request_merge(req.track_id)
+        .await
+        .map_err(IpcError::from)
 }
 
 pub async fn cmd_list_tracks(

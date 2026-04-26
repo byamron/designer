@@ -60,14 +60,7 @@ pub async fn cmd_audit_artifact(
     let env = core
         .audit_artifact(req.artifact_id, req.expected_workspace_id, req.claim)
         .await
-        .map_err(|e| match e {
-            // Cross-workspace boundary violation surfaces as InvalidRequest
-            // (the data-shape error) so a frontend can distinguish it from a
-            // missing/archived artifact (NotFound).
-            designer_core::CoreError::Invariant(msg) => IpcError::invalid_request(msg),
-            designer_core::CoreError::NotFound(msg) => IpcError::not_found(msg),
-            other => IpcError::from(other),
-        })?;
+        .map_err(IpcError::from)?;
     artifact_from_env(&core, &env).await
 }
 

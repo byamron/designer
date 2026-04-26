@@ -17,8 +17,8 @@
 
 use crate::core::AppCore;
 use designer_core::{
-    Actor, ArtifactId, ArtifactKind, CoreError, EventPayload, EventStore, PayloadRef, ProjectId,
-    Projection, StreamId, Track, TrackId, TrackState, WorkspaceId,
+    author_roles, Actor, ArtifactId, ArtifactKind, CoreError, EventPayload, EventStore, PayloadRef,
+    ProjectId, Projection, StreamId, Track, TrackId, TrackState, WorkspaceId,
 };
 use designer_git::{GitError, GitOps, RealGitOps, Status};
 use parking_lot::Mutex;
@@ -456,7 +456,7 @@ impl AppCore {
                     title: format!("#{} — {}", pr.number, pr.title),
                     summary: pr_summary,
                     payload: PayloadRef::inline(pr.url.clone()),
-                    author_role: Some("system".into()),
+                    author_role: Some(author_roles::TRACK.into()),
                 },
             )
             .await?;
@@ -547,7 +547,7 @@ impl AppCore {
                     title,
                     summary,
                     payload: PayloadRef::inline(body),
-                    author_role: Some("system".into()),
+                    author_role: Some(author_roles::TRACK.into()),
                 },
             )
             .await?;

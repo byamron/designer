@@ -29,8 +29,8 @@
 use crate::core::AppCore;
 use designer_claude::{GateStatusSink, InboxPermissionHandler, PROCESS_RESTART_REASON};
 use designer_core::{
-    Actor, ApprovalId, ArtifactId, ArtifactKind, EventPayload, EventStore, PayloadRef, Projection,
-    SqliteEventStore, StreamId, StreamOptions, WorkspaceId,
+    author_roles, Actor, ApprovalId, ArtifactId, ArtifactKind, EventPayload, EventStore,
+    PayloadRef, Projection, SqliteEventStore, StreamId, StreamOptions, WorkspaceId,
 };
 use designer_safety::{ApprovalGate, ApprovalStatus, CostUsage, InMemoryApprovalGate};
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,9 @@ use std::sync::Arc;
 /// (caller of `resolve`). Keeping it on `AppCore` would require a circular
 /// `Arc`; keeping it here keeps the wiring direct.
 ///
-/// Set once at boot by `install_inbox_handler`; cleared in tests via
-/// `__reset_inbox_handler_for_tests`. Never cleared in production.
+/// Set once at boot by `install_inbox_handler`. Never cleared in
+/// production; tests that need isolation pass per-test handlers
+/// explicitly to `AppCore::resolve_approval_inbox`.
 static INBOX_HANDLER: once_cell::sync::OnceCell<Arc<InboxPermissionHandler<SqliteEventStore>>> =
     once_cell::sync::OnceCell::new();
 
@@ -93,8 +94,9 @@ pub fn install_inbox_handler(
 ) -> Arc<InboxPermissionHandler<SqliteEventStore>> {
     if INBOX_HANDLER.set(handler.clone()).is_err() {
         // Already installed — return the existing one so the caller still
-        // has a usable handle. Tests that need a fresh handler should
-        // clear via `__reset_inbox_handler_for_tests`.
+        // has a usable handle. Tests that need isolation pass a per-test
+        // handler explicitly to `AppCore::resolve_approval_inbox` rather
+        // than touching this global.
         return INBOX_HANDLER.get().expect("just-set").clone();
     }
     handler
@@ -102,15 +104,6 @@ pub fn install_inbox_handler(
 
 pub fn inbox_handler() -> Option<Arc<InboxPermissionHandler<SqliteEventStore>>> {
     INBOX_HANDLER.get().cloned()
-}
-
-#[doc(hidden)]
-pub fn __reset_inbox_handler_for_tests() {
-    // `OnceCell` doesn't expose `take`; the test loop short-circuits the
-    // global by constructing a per-test handler and passing it explicitly
-    // into `AppCore::resolve_approval_inbox` via the `handler` arg. The
-    // global is touched only by the production `install_inbox_handler`
-    // path, so leaving it set across tests is fine.
 }
 
 /// Pending row surfaced to the inbox view. Joins the handler's "parked"
@@ -366,7 +359,7 @@ impl AppCore {
                     title,
                     summary,
                     payload: PayloadRef::inline(payload_body),
-                    author_role: Some("system".into()),
+                    author_role: Some(author_roles::SAFETY.into()),
                 },
             )
             .await?;
