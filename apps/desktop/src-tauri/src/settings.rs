@@ -58,15 +58,27 @@ pub struct Settings {
     pub theme: ThemeChoice,
     #[serde(default = "default_version")]
     pub version: u32,
-    /// Show the cost chip in the workspace topbar. Off by default per
-    /// spec Decision 34 — the chip is opt-in so usage anxiety is a user
-    /// choice, not a default.
-    #[serde(default)]
+    /// Show the cost chip in the workspace topbar. On by default since
+    /// real-Claude mode means every turn costs money — usage visibility
+    /// is the right default for a daily driver. Users can hide it via
+    /// settings if they don't want the signal.
+    #[serde(default = "default_cost_chip_enabled")]
     pub cost_chip_enabled: bool,
+    /// Force the mock orchestrator instead of the configured default.
+    /// `None` = use whatever `AppConfig.use_mock_orchestrator` is set to.
+    /// `Some(true)` = force mock (useful for offline demos / replay tests).
+    /// `Some(false)` = force real Claude. Settable from the UI's
+    /// experimental section.
+    #[serde(default)]
+    pub use_mock_orchestrator: Option<bool>,
 }
 
 fn default_version() -> u32 {
     1
+}
+
+fn default_cost_chip_enabled() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -74,7 +86,8 @@ impl Default for Settings {
         Settings {
             theme: ThemeChoice::default(),
             version: 1,
-            cost_chip_enabled: false,
+            cost_chip_enabled: true,
+            use_mock_orchestrator: None,
         }
     }
 }
@@ -147,6 +160,31 @@ mod tests {
         let s = Settings::load(dir.path());
         assert_eq!(s.theme, ThemeChoice::System);
         assert_eq!(s.version, 1);
+        // Real-Claude mode is the default; the cost chip is on so the user
+        // sees per-turn spend without an opt-in step.
+        assert!(
+            s.cost_chip_enabled,
+            "cost chip should default on for daily-driver real-Claude use"
+        );
+        assert_eq!(
+            s.use_mock_orchestrator, None,
+            "no override by default; AppConfig decides"
+        );
+    }
+
+    #[test]
+    fn legacy_settings_without_use_mock_field_loads() {
+        // A settings.json written before the field existed must still
+        // deserialize — the field uses serde(default) so missing → None.
+        let dir = tempdir().unwrap();
+        fs::write(
+            Settings::path(dir.path()),
+            br#"{"theme":"dark","version":1,"cost_chip_enabled":true}"#,
+        )
+        .unwrap();
+        let s = Settings::load(dir.path());
+        assert_eq!(s.theme, ThemeChoice::Dark);
+        assert_eq!(s.use_mock_orchestrator, None);
     }
 
     #[test]

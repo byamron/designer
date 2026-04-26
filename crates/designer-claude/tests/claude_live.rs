@@ -72,6 +72,7 @@ async fn spawn_team_and_observe_lifecycle() {
         lead_role: "team-lead".into(),
         teammates: vec![],
         env: Default::default(),
+        cwd: None,
     };
 
     orch.spawn_team(spec)

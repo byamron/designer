@@ -224,10 +224,19 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         for (k, v) in &spec.env {
             cmd.env(k, v);
         }
+        // Per-spec cwd overrides the orchestrator-global default. Workspace
+        // and track leads set this so the agent operates in the right repo /
+        // worktree; without it the agent inherits the desktop process's cwd
+        // and tools like `Read` resolve against random paths.
+        if let Some(cwd) = &spec.cwd {
+            cmd.current_dir(cwd);
+        }
 
         info!(
             binary = %bin.display(), workspace = %spec.workspace_id,
-            session = %session_id, team = %spec.team_name, "spawning claude"
+            session = %session_id, team = %spec.team_name,
+            cwd = ?spec.cwd.as_ref().or(self.options.cwd.as_ref()),
+            "spawning claude"
         );
 
         let mut child = cmd
@@ -691,6 +700,7 @@ mod tests {
             lead_role: "team-lead".into(),
             teammates: vec!["design-reviewer".into(), "test-runner".into()],
             env: Default::default(),
+            cwd: None,
         };
         let p = build_spawn_prompt(&spec);
         assert!(p.contains("\"onboarding\""));
@@ -708,6 +718,7 @@ mod tests {
             lead_role: "team-lead".into(),
             teammates: vec![],
             env: Default::default(),
+            cwd: None,
         };
         let p = build_spawn_prompt(&spec);
         assert!(p.contains("Do not spawn any teammates yet"));

@@ -20,6 +20,7 @@ use designer_desktop::events::spawn_event_bridge;
 use designer_desktop::menu::{build_menu, MENU_ID_FEEDBACK, MENU_ID_NEW_PROJECT};
 use designer_desktop::settings::{ResolvedTheme, Settings};
 use designer_desktop::{crash, AppConfig, AppCore};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Emitter, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindowBuilder};
 
@@ -35,16 +36,75 @@ fn main() {
         )
         .init();
 
-    let config = AppConfig::default_in_home();
+    let mut config = AppConfig::default_in_home();
     crash::install_panic_hook(config.data_dir.join("crashes"));
 
     // Settings load is synchronous-by-design: we need the resolved theme
     // *before* the window opens so the first paint is already the right color.
     let settings = Settings::load(&config.data_dir);
     let theme = settings.resolve();
+
+    // Resolve which orchestrator runs this session. Precedence: env var >
+    // settings.json > AppConfig default. Logged below so the boot mode is
+    // unambiguous in support bundles.
+    let orchestrator_source = if let Ok(v) = std::env::var("DESIGNER_USE_MOCK") {
+        let mock = matches!(v.as_str(), "1" | "true" | "yes");
+        config.use_mock_orchestrator = mock;
+        "DESIGNER_USE_MOCK"
+    } else if let Some(mock) = settings.use_mock_orchestrator {
+        config.use_mock_orchestrator = mock;
+        "settings.json"
+    } else {
+        "AppConfig default"
+    };
+    let orchestrator_label = if config.use_mock_orchestrator {
+        "mock simulator"
+    } else {
+        "real Claude"
+    };
+
+    // Preflight against the configured `claude` binary when running in
+    // real-Claude mode. A missing or unauth'd binary won't crash boot —
+    // we degrade with a loud warning so the UI's first claude tool call
+    // can surface a clean error instead of a generic spawn failure.
+    let claude_version = if !config.use_mock_orchestrator {
+        let bin = config
+            .claude_options
+            .binary_path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("claude"));
+        match std::process::Command::new(&bin).arg("--version").output() {
+            Ok(out) if out.status.success() => {
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+            }
+            Ok(out) => {
+                tracing::warn!(
+                    binary = %bin.display(),
+                    status = ?out.status,
+                    stderr = %String::from_utf8_lossy(&out.stderr),
+                    "claude --version returned a non-zero exit; agent calls will fail until this is resolved"
+                );
+                None
+            }
+            Err(err) => {
+                tracing::warn!(
+                    binary = %bin.display(),
+                    error = %err,
+                    "could not run `claude --version` (is the binary installed and on PATH?); agent calls will fail until this is resolved"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     tracing::info!(
         theme = ?theme,
         data_dir = %config.data_dir.display(),
+        orchestrator = orchestrator_label,
+        orchestrator_source,
+        claude_version = claude_version.as_deref(),
         "designer starting"
     );
 

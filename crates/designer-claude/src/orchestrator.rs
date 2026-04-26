@@ -33,6 +33,15 @@ pub struct TeamSpec {
     /// Optional extra environment variables for the subprocess.
     #[serde(default)]
     pub env: std::collections::BTreeMap<String, String>,
+    /// Working directory the agent operates in. For workspace-level chat
+    /// this is the project's repo root; for a track lead this is the
+    /// track's worktree. `None` falls back to the orchestrator-global
+    /// `ClaudeCodeOptions::cwd`, which is in turn `None` by default —
+    /// meaning the agent inherits the desktop process's cwd, which is
+    /// almost never what the user wants. Real-Claude callers should
+    /// always set this.
+    #[serde(default)]
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

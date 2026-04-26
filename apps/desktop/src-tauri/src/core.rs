@@ -49,12 +49,25 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn default_in_home() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        let home_str = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        let home = PathBuf::from(home_str);
+        let data_dir = home.join(".designer");
         let helper_binary_path = resolve_default_helper_path();
+        // Isolate Claude state under `~/.designer/claude-home/` so Designer
+        // sessions, teams, inboxes, and approval files don't collide with
+        // a user's interactive `claude` CLI or with Conductor's parallel
+        // installation. Keeps multi-tool dogfooding sane.
+        let claude_options = ClaudeCodeOptions {
+            claude_home: Some(data_dir.join("claude-home")),
+            ..ClaudeCodeOptions::default()
+        };
         Self {
-            data_dir: PathBuf::from(home).join(".designer"),
-            use_mock_orchestrator: true,
-            claude_options: ClaudeCodeOptions::default(),
+            data_dir,
+            // Real Claude is the daily-driver default. Tests + the demo
+            // mode override via `Settings.use_mock_orchestrator` or the
+            // `DESIGNER_USE_MOCK` env var.
+            use_mock_orchestrator: false,
+            claude_options,
             default_cost_cap: CostCap {
                 max_dollars_cents: Some(10_00),
                 max_tokens: Some(1_000_000),

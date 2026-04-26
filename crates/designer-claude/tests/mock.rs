@@ -17,6 +17,7 @@ async fn mock_spawns_team_emits_expected_events() {
         lead_role: "team-lead".into(),
         teammates: vec!["design-reviewer".into(), "test-runner".into()],
         env: Default::default(),
+        cwd: None,
     })
     .await
     .unwrap();
@@ -50,6 +51,7 @@ async fn mock_assign_task_produces_create_and_complete() {
         lead_role: "team-lead".into(),
         teammates: vec![],
         env: Default::default(),
+        cwd: None,
     })
     .await
     .unwrap();

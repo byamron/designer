@@ -87,6 +87,7 @@ async fn run_demo() -> anyhow::Result<()> {
             lead_role: "team-lead".into(),
             teammates: vec!["design-reviewer".into(), "test-runner".into()],
             env: Default::default(),
+            cwd: None,
         })
         .await?;
 
