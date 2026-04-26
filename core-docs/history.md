@@ -37,6 +37,57 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 13 integration meta-PR [#20] — D/E/F/G unified onto `phase-13-integration`
+**Date:** 2026-04-26
+**Branch:** phase-13-integration → main
+**Commits:** 4dd11c7 (D) → bc40343 (E) → 58b4861 (G) → 5a32418 (F) → 8c712d4 (post-review cleanup)
+**PR:** [#20](https://github.com/byamron/designer/pull/20) — MERGEABLE / CLEAN, all five CI checks green (rust test / clippy / fmt / frontend / claude-live integration)
+
+**What was done:**
+
+The four parallel Phase 13 tracks (D agent-wire, E track+git, G safety+keychain, F local-model surfaces) were merged in the documented integration order onto a single `phase-13-integration` branch. Conflicts resolved cleanly across the predicted hot-spots — `apps/desktop/src-tauri/src/main.rs::generate_handler!` (alphabetized handler list with all four tracks' commands interleaved), `apps/desktop/src-tauri/src/{core,ipc}.rs` (PR 19's `cmd_request_approval`/`cmd_resolve_approval` real implementations co-exist with PR 16's track commands), `crates/designer-{core,ipc}/` (re-exports merged: `author_roles + Track + TrackState + USER_AUTHOR_ROLE`), `packages/app/src/ipc/{client,types,mock}.ts` (one unified `IpcClient` interface with all 22 methods), `packages/app/src/blocks/blocks.tsx` (PrototypePreview import alongside ipc/StreamEvent imports), `core-docs/{plan,history,generation-log,roadmap,integration-notes}.md` (chronological merge of 13.D + 13.E + 13.G + 13.F entries side-by-side). PR 18's `FB-0027/0028` were renumbered to `FB-0030/0031` to avoid collision with PR 16's review-pass feedback entries. PR 18's tuple-form `IpcError` sites were migrated to PR 17's struct-form constructors (`invalid_request`, `not_found`, `unknown`).
+
+**Six-agent post-merge review:**
+
+After the integration commits landed, a parallel review pass ran six agents: staff engineer, staff UX designer, staff design engineer (the three perspectives the user asks for on every milestone), plus the simplify pass's reuse / quality / efficiency reviewers. Findings:
+
+- **Staff engineer** (`af5f93b352b883dd5`) — verdict "needs changes, blocking on C1 + C2." Identified four production wiring gaps inherent to the underlying PRs (not regressions from the merge): F1 `permission_handler.decide()` not routed in stdio reader, F2 `PermissionRequest::workspace_id` not populated, F3 `ClaudeSignal::Cost` broadcast into the void, F4 `core_git::check_track_status` bypasses the 13.F summary hook. Plus pre-existing `TabOpened` double-apply (synchronous + broadcast subscriber both fire). All four are tracked as Phase 13.H.
+- **Staff UX designer** (`a1756e45cd898c0b4`) — verdict "needs changes before merge." Three blockers: mock "Acknowledged: …" reply visible without a dev/mock indicator, ComposeDock loses attachments on send failure (only text restores), late-grant after timeout produces contradictory UI. Nine high-priority UX gaps including missing 5-min timeout copy on ApprovalBlock, generic repo-link error messages, color-blind accessibility on the cost-chip band. Filed as 13.H polish + Phase 15 a11y work.
+- **Staff design engineer** (`ac8d98fe32694a260`) — verdict "ready to merge with H1–H5 fixed." H1 (broken `--font-mono` token reference, fixed) was the only must-fix-before-merge. H2 RequestMergeButton needs stream subscription, H3 CostChip popover needs overflow guard, H4 AppDialog/RepoLinkModal scrim-dismiss disagreement, H5 two parallel modal implementations (RepoLinkModal duplicates AppDialog plumbing). Token discipline broadly clean.
+- **Reuse review** (`a2fea0cba52cb8536`) — top win: blanket `impl From<CoreError> for IpcError` collapses everything to `Unknown`, masking 7 sites that should be `not_found` / `invalid_request`. Fixed in 8c712d4. Mock IPC stub duplicated across 3 test files (filed as Phase 13.H+ helper extraction). `first_line_truncate` (Rust) vs `firstLineTruncate` (TS) drift on multibyte input.
+- **Quality review** (`ad20cd7b22b665498`) — top issues: stringly-typed author roles partially adopted (registry exists; only 13.F imports it). Fixed in 8c712d4 by expanding `author_roles` registry with `TEAM_LEAD / USER / SYSTEM` and migrating four production sites. `cmd_request_approval` is dead-but-shipped — kept deliberately as a security stub; documented in 13.G integration-notes.
+- **Efficiency review** (`aa4b46578c70a4a44`) — boot path runs four sequential full event-log scans (projector replay + cost replay + gate replay + orphan sweep). Filed as 13.H+ optimization. Coalescer ticks 33×/sec when idle. ApprovalBlock mounts one stream listener per block (N approval blocks = N listeners). All filed as follow-ups; none are correctness issues.
+
+**Post-review cleanup (commit 8c712d4):**
+
+Four low-risk wins applied to the integration branch:
+1. `impl From<CoreError> for IpcError` discriminates `Invariant → invalid_request`, `NotFound → not_found`, `InvalidId → invalid_request`. Removes 4 hand-rolled match blocks; fixes 7 silent error-downgrade sites.
+2. `.block__file` references `--type-family-mono` (the canonical token) instead of the undefined `--font-mono` (which was masked by the `monospace` fallback).
+3. `designer_core::author_roles` adds `TEAM_LEAD`, `USER`, `SYSTEM` constants. Production sites that hardcoded `"system".into()` (core_git PR + code-change emit, core_safety scope-deny comment, inbox_permission approval artifact) now route through the registry — `TRACK` for git-emitted, `SAFETY` for safety-emitted.
+4. Deleted no-op `__reset_inbox_handler_for_tests` stub the engineer review flagged as misleading; the docstring claimed it cleared the OnceCell but the body did nothing.
+
+**Frozen-contract compliance verified:**
+- `crates/designer-core/src/event.rs` event vocabulary unchanged.
+- `crates/designer-claude/src/permission.rs` `PermissionHandler` trait shape unchanged (PR 19's `workspace_id` field is additive on the request struct, not on the trait method signature).
+- `crates/designer-ipc/src/lib.rs` artifact DTOs unchanged. New non-artifact DTOs added per ADR 0003's "frozen surface is the artifact DTOs; new IPC commands grow non-artifact request/response shapes."
+
+**Quality gates (final, post-cleanup):**
+- `cargo fmt --all -- --check` ✅
+- `cargo clippy --workspace --all-targets -- -D warnings` ✅
+- `cargo test --workspace` ✅ (30 test groups, ~150+ tests)
+- `npx tsc --noEmit` ✅
+- `npx vitest run` ✅ (33/33 across 8 files)
+
+**Known follow-ups (filed as Phase 13.H — Phase 13 hardening pass):**
+
+F1, F2, F3, F4 (see `roadmap.md` Track 13.H). Plus the medium-priority items from the six reviews: mock IPC stub helper extraction, `IpcClient` interface split into thematic sub-interfaces, boot-path replay consolidation, `cmd_list_artifacts` summary projection, coalescer idle-wakeup elimination, `ApprovalBlock` subscription multiplexing, `RequestMergeButton` stream subscription, AppDialog scrim-dismiss alignment, ComposeDock attachment restoration on send failure, mock-orchestrator dev-only string indicator, `TabOpened` double-apply.
+
+**Lessons learned:**
+
+- The integration commit (`5a32418`) where conflicts get resolved is the most error-prone surface; the post-merge review pass is a real defense. Six agents in parallel surfaced four production wiring gaps that none of the per-PR reviews caught, because each per-PR reviewer didn't have the cross-cut visibility.
+- The "frozen contracts" convention (event.rs, PermissionHandler trait, artifact DTOs locked by 13.0) held across four parallel branches with zero shape conflicts. Worth keeping the convention for future parallel-fan-out phases.
+- Stale `.git/index.lock` from a parallel git operation in another worktree blocked the final commit and could not be cleared from the sandbox; required user intervention. Future automation should detect this and fail loudly rather than silently looping.
+
 ### Phase 13.F — local-model surfaces (initial + post-review pass)
 **Date:** 2026-04-25
 **Branch:** 13f-local-model-surfaces

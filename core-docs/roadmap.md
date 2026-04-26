@@ -32,8 +32,9 @@ Phase 13 — Wire the real runtime            (2 prereqs + 5 tracks, gated indiv
   ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts] ✅
   ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr] ✅
   ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype] ✅
-  ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment]
-  └─ 13.H  Safety enforcement            (← 13.G)                [GA gate; see security.md]
+  ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment] ✅
+  ├─ 13.H  Phase 13 hardening pass       (← 13.D/E/F/G integration) [F1–F4 production wiring]
+  └─ 13.I  Safety enforcement            (← 13.H)                [GA gate; see security.md]
 
 Phase 14 — Sync transport        (parallel with 13, 15)
 Phase 15 — Hardening + polish    (parallel with 13, 14)
@@ -89,7 +90,7 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 - **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
 - **Phase 13.0** — Pre-track scaffolding. Partitions hot-spot files so the four 13.X agents don't collide; freezes event / IPC / permission-handler contracts. Completed by the scaffolding PR; blocks 13.1 + 13.D/E/F/G.
 - **Phase 13.1** — Artifact foundation + unified workspace thread. Consolidates tab-model-rethink + find-agentation-server into one PR. Retires Plan/Design/Build tab types; every tab renders `WorkspaceThread` with typed artifact blocks inline. Ships the `ArtifactCreated/Updated/Pinned/Unpinned/Archived` event vocabulary, `PayloadRef` (inline/hash), rail projection, IPC commands, and a 12-renderer block registry. D/E/F/G now emit into the registry instead of painting bespoke UI — **they run in parallel after 13.1 with zero UI contention.**
-- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus five tracks (D: agent wire ✅, E: git + repo linking ✅, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and can run in parallel after 13.1; H gates on G and blocks GA. **13.D shipped 2026-04-25:** end-to-end user-prompt → agent-reply loop with 120ms partial-message coalescer, lazy team spawn, draft-restore on failure. **13.E shipped 2026-04-25:** Track aggregate + projection, repo-linking modal, `gh pr create` automation, edit-batch coalescer with per-file +/- signature, partial-init rollback, branch-name argument-injection guard, `gh` subprocess timeout, idempotent `request_merge`, RepoLinkModal focus trap. See `security.md` for 13.H detail.
+- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus six tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: Phase 13 hardening pass / F1–F4 production wiring, I: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and ran in parallel after 13.1; H gates on the D/E/F/G integration; I gates on H and blocks GA. **All four parallel tracks shipped 2026-04-25 and integrated via meta-PR [#20](https://github.com/byamron/designer/pull/20) on 2026-04-26.** 13.H wires the four production gaps the integration review surfaced: stdio reader → `permission_handler.decide()` (F1), `PermissionRequest::workspace_id` population (F2), `ClaudeSignal::Cost` subscriber (F3), `core_git::check_track_status` routing through `append_artifact_with_summary_hook` (F4). 13.I covers pre-write enforcement, binary pinning, tamper-evidence — see `security.md`.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
 - **Phase 16** — Shippable desktop build. Splits into 16.R (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA) and 16.S (supply-chain posture — blocking audit CI, SBOM, SLSA, dual-key updater, pentest, SECURITY.md). Gates on 13 + 15; Phase 14 optional for MVP. Signed DMG blocked until 16.S lands. Detail in `security.md`.
@@ -533,11 +534,42 @@ Five new Tauri commands: `cmd_list_pending_approvals`, `cmd_get_cost_status`, `c
 
 See `history.md` 2026-04-25 entry for the full design rationale, the post-merge security review fixes (cmd_request_approval injection, sweep race, single-writer ordering, stream consistency, missing-workspace audit row, gate-status drift, cost-replay), and the test coverage that locked them down.
 
-### Track 13.H — Safety enforcement *(GA gate; detail in `security.md`)*
+### Track 13.H — Phase 13 hardening pass *(P0 follow-ups from the integration review)*
+
+**Needs:** 13.D + 13.E + 13.F + 13.G (the integration meta-PR [#20](https://github.com/byamron/designer/pull/20) lands first).
+
+**Why a separate track:** the four parallel tracks each shipped against the mock orchestrator and their individual test surfaces. The integration review (six-agent pass: staff engineer / staff UX / staff design engineer / reuse / quality / efficiency) verified the parallel-track conventions held cleanly — but surfaced four production wiring gaps that no single track owned. None block the integration merge (mock-orchestrator path works fully, all gates green) but the production runtime is incomplete until they land. This track is a focused hardening PR right after the meta-PR merges.
+
+**Steps:**
+
+- **F1 — Wire `permission_handler.decide()` into the stdio reader.** Today `crates/designer-claude/src/claude_code.rs::reader_task` consumes only `TranslatorOutput::{Event, RateLimit, Cost}`; there is no `PermissionPrompt` variant and no parser for Claude's `--permission-prompt-tool stdio` JSON shape. The orchestrator passes `--permission-prompt-tool stdio` so Claude expects stdio replies, but the reply never comes. Add a `TranslatorOutput::PermissionPrompt { tool, input, summary }` variant to `crates/designer-claude/src/stream.rs`, wire it through the reader to call `permission_handler.decide(req)`, and write the encoded response (`{"behavior": "allow"}` / `{"behavior": "deny", "message": "..."}`) back via the writer task's `stdin_tx`.
+- **F2 — Populate `PermissionRequest::workspace_id`.** When F1 lands, the reader must construct `PermissionRequest { workspace_id: Some(spec.workspace_id), tool, input, summary, … }`. The inbox handler fail-closes when `workspace_id == None` with `MISSING_WORKSPACE_REASON`; without F2, every prompt becomes an audit-only `ApprovalDenied` even after F1 routes them.
+- **F3 — Subscribe `ClaudeSignal::Cost` to `CostTracker::record`.** `claude_code.rs` constructs a per-orchestrator `signal_tx` broadcast channel and sends `ClaudeSignal::Cost { workspace_id, total_cost_usd }` on every `result/success` line. Nothing subscribes. The cost chip will read `$0.00` until `AppCore::boot` spawns a signal subscriber that calls `cost.record(...)` and persists `CostRecorded` to the store.
+- **F4 — Route `core_git::check_track_status` through `append_artifact_with_summary_hook`.** PR 18's seam contract (ADR 0003 §"Write-time summary hook seam") mandates that every `code-change` emitter routes through the hook. PR 16's `check_track_status` still calls `store.append` directly, bypassing the on-device summarization. Edit-batch summaries on the rail will show the raw `+12 −3 across 2 files` string instead of the helper-generated line until this is wired.
+
+**Test additions (folded into the F1–F4 hardening PR):**
+
+| Test | What it locks down |
+|---|---|
+| `claude_code::tests::stdio_permission_prompt_routes_to_decide` | Synthetic Claude stdout fixture emitting a `tool_use_request` permission prompt. Asserts `permission_handler.decide` is called once with the expected tool/input, and the writer task's stdin receives the encoded response. |
+| `claude_code::tests::permission_prompt_carries_workspace_id` | Round-trip the parsed `PermissionRequest`; assert `workspace_id == Some(spec.workspace_id)`. Without this guard, a future refactor that drops the field re-opens the silent-deny path. |
+| `cost::tests::signal_subscriber_records_to_store` | Boot `AppCore`, broadcast a fake `ClaudeSignal::Cost { workspace_id, total_cost_usd: 0.42 }`. Assert `cost_status(workspace_id).spent_dollars_cents == 42` and a `CostRecorded` event is appended to the store. |
+| `core_git::tests::check_track_status_routes_through_summary_hook` | Counting `LocalOps` mock; assert `check_track_status` calls `append_artifact_with_summary_hook` (not `store.append`) for `CodeChange` emits. |
+| `tests/claude_live.rs::permission_prompt_round_trip` *(`--features claude_live`)* | Single user-message → real Claude tool prompt → grant via inbox → tool result → `CodeChange` artifact with on-device summary. End-to-end smoke covering F1+F2+F4. |
+
+**Other test gaps surfaced by the integration review (file as separate test-only PR before GA, or roll into 13.H):**
+
+- Frontend Playwright + screenshot-diff harness — already on Phase 15's list; pull forward to catch regressions in the integration UI surfaces (CostChip color bands, RepoLinkModal focus trap, ApprovalBlock state transitions, dark-mode rendering).
+- Concurrent-burst test for `SummaryDebounce` covering the case where a third caller arrives mid-flight after the in-flight slot's `Resolved` value lands but before the next request — verifies in-flight slot transitions correctly to `Resolved` without a race window.
+- `TabOpened` double-apply regression — covered earlier as the projector-vs-broadcast race; needs an explicit test that opens N tabs in sequence and asserts `workspace.tabs.len() == N` even after the broadcast subscriber catches up.
+- `cmd_list_pending_approvals` perf regression test — assert it returns from in-memory `pending_ids()` without an event-log scan once the optimization in F3-followup lands.
+- Cost-cap=0 boundary test — assert `cost_status` ratio when `cap_dollars_cents=0` and `spent=0` is `None` (no-spend hold) rather than `Some(1.0)` (currently silently red-banded).
+
+### Track 13.I — Safety enforcement *(GA gate; detail in `security.md`)*
 
 **Needs:** 13.G (approval inbox + scope-deny path + Keychain status surface must exist to build on).
 
-**Why a separate track:** 13.G builds the UX surfaces for safety (inbox, cost chip, scope-denied comment artifact, Keychain status row) and the production permission handler that routes every Claude prompt through the user. 13.H hardens the *enforcement* — pre-write gates, binary verification, tamper-evidence, scope canonicalization, and a Designer-owned Keychain item for the HMAC chain key (separate from Claude's OAuth credential, which 13.G only reads metadata from). Shipping 13.G without 13.H would leave the user with a safety UI whose enforcement is advisory. GA cannot ship without 13.H.
+**Why a separate track:** 13.G builds the UX surfaces for safety (inbox, cost chip, scope-denied comment artifact, Keychain status row) and the production permission handler that routes every Claude prompt through the user. 13.I hardens the *enforcement* — pre-write gates, binary verification, tamper-evidence, scope canonicalization, and a Designer-owned Keychain item for the HMAC chain key (separate from Claude's OAuth credential, which 13.G only reads metadata from). Shipping 13.G without 13.I would leave the user with a safety UI whose enforcement is advisory. GA cannot ship without 13.I.
 
 **Steps:**
 
@@ -667,7 +699,7 @@ Splits into two sub-tracks. Both must land before the first signed DMG leaves th
 - MDM / admin-signed managed-preferences policy at `/Library/Managed Preferences/com.designer.app.plist`. Admin-signed policies can pin scope rules, force-enable approval tiers, restrict tool allowlists, disable specific agents fleet-wide. Policy signature verified against a compiled-in admin root.
 - SIEM-ready audit-log export (JSON lines, CEF-compatible fields). User-initiated with diff preview; never network.
 - Narrowly-scoped GitHub App with per-workspace grants replacing ambient `gh` token reliance; revocable per-workspace. `gh` stays as the individual-tier default; team tier defaults to the App.
-- Inter-workspace isolation: per-workspace keyed HMAC domain separation on the event chain (builds on 13.H chain infrastructure).
+- Inter-workspace isolation: per-workspace keyed HMAC domain separation on the event chain (builds on 13.I chain infrastructure).
 - Bug bounty live (HackerOne or equivalent); VDP discoverable via `.well-known/security.txt`.
 - Foundation helper data-deletion completeness: when a workspace is deleted, helper caches + model-session state go with it. Audit of where helper state lives, documented in `security.md`.
 - SOC 2 Type I: reactive to named enterprise deals, scoped narrowly to the zero-data-collection posture. Not pursued preemptively.
@@ -1068,9 +1100,11 @@ Every event carries an explicit `schema_version` discriminator. Proposal diffs a
 | First user-visible surface | 8, 9 | — | ✅ Preliminary build |
 | Design lab + polish scaffolding | 10, 11 | — | ✅ Preliminary build |
 | **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.A ✅ 2026-04-22; 12.C ✅ 2026-04-21; 12.B infrastructure landed, real-hardware validation pending** |
-| Pre-track scaffolding | 13.0 | — (single PR) | Pending |
-| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after 13.0) | Pending |
-| **GA safety enforcement** | **13.H** | After 13.G | **Pending — blocks GA** |
+| Pre-track scaffolding | 13.0 | — (single PR) | ✅ 2026-04-23 |
+| Artifact foundation | 13.1 | — (single PR after 13.0) | ✅ 2026-04-24/25 |
+| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after 13.1) | ✅ 2026-04-25, integration meta-PR #20 opened 2026-04-26 |
+| Phase 13 hardening pass | 13.H | After integration merge | **Pending — F1–F4 production wiring** |
+| **GA safety enforcement** | **13.I** | After 13.H | **Pending — blocks GA** |
 | Sync transport | 14 | Yes (parallel with 13/15) | Pending |
 | Hardening + polish | 15 | Yes (parallel with 13/14) | Pending |
 | Shippable desktop beta | 16.R + 16.S | After 13 + 15 | Blocked on Apple Developer ID; 16.S blocks signed DMG |
