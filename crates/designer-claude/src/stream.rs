@@ -172,16 +172,9 @@ impl ClaudeStreamTranslator {
     }
 
     fn translate_assistant(&mut self, v: &Value) -> Vec<TranslatorOutput> {
-        // F5: surface both `text` and `tool_use` content blocks. Text blocks
-        // become a single `MessagePosted` (concatenated, matching prior
-        // behavior); each tool_use block becomes a `Report`-kind
-        // `ArtifactProduced` so the thread carries "Used Read" / "Used Edit"
-        // cards inline with the agent's narration. The block registry's
-        // existing `Report` renderer displays them — no new artifact kind.
-        //
-        // TODO(13.H+1): correlate `tool_use_id` → eventual `tool_result` in
-        // the next user-turn, and emit `ArtifactUpdated` on the original
-        // Report with the result's summary (~50 LOC stateful pass).
+        // TODO(13.H+1): correlate `tool_use_id` → eventual `tool_result` and
+        // emit `ArtifactUpdated` on the original Report with the result's
+        // summary (~50 LOC stateful pass).
         let Some(content) = v
             .get("message")
             .and_then(|m| m.get("content"))
@@ -203,9 +196,8 @@ impl ClaudeStreamTranslator {
                 Some("tool_use") => {
                     let tool = block.get("name").and_then(Value::as_str).unwrap_or("tool");
                     let input = block.get("input").cloned().unwrap_or(Value::Null);
-                    let title = format!("Used {tool}");
-                    let summary = tool_use_summary(tool, &input);
-                    let body = serde_json::to_string_pretty(&input).unwrap_or_default();
+                    let (title, summary) = tool_use_card(tool, &input);
+                    let body = serde_json::to_string(&input).unwrap_or_default();
                     outputs.push(TranslatorOutput::Event(
                         OrchestratorEvent::ArtifactProduced {
                             workspace_id: self.workspace_id,
@@ -265,33 +257,71 @@ impl ClaudeStreamTranslator {
     }
 }
 
+/// Char-count truncate that returns the input unchanged when it already fits,
+/// avoiding an allocation in the common (short-path) case.
 fn truncate(s: &str, max_chars: usize) -> String {
+    if s.chars().nth(max_chars).is_none() {
+        return s.to_string();
+    }
     s.chars().take(max_chars).collect()
 }
 
-/// Build a short, human-readable summary of a `tool_use` invocation. Used as
-/// the `summary` field of the `Report` artifact F5 emits per tool call.
-/// Falls back to a tool-name string when input shape is unrecognized.
-fn tool_use_summary(tool: &str, input: &Value) -> String {
+/// Strip directory components from a `/`-style path; falls back to the input
+/// when there's no slash. Used by `tool_use_card` to surface the leaf in the
+/// title while keeping the full path in the summary.
+fn basename(path: &str) -> &str {
+    path.rsplit_once('/').map(|(_, name)| name).unwrap_or(path)
+}
+
+/// First whitespace-delimited token of a shell command, used as the verb in
+/// "Ran git" / "Ran cargo". Falls back to a generic "Ran" for empty input.
+fn shell_verb(command: &str) -> &str {
+    command.split_whitespace().next().unwrap_or("command")
+}
+
+/// Build (title, summary) for a `tool_use` block. Title is verb-first
+/// present-tense ("Read CLAUDE.md", "Wrote x.txt", "Ran git push origin main")
+/// so the rail reads as agent action, not engineer log lines. Summary holds
+/// the full path/command so the expanded view drills in.
+fn tool_use_card(tool: &str, input: &Value) -> (String, String) {
     let pick = |key: &str| input.get(key).and_then(Value::as_str);
+    let pair = |verb: &str, full: Option<&str>| match full {
+        Some(p) => (
+            format!("{verb} {}", basename(p)),
+            truncate(p, TOOL_SUMMARY_MAX),
+        ),
+        None => (verb.to_string(), String::new()),
+    };
     match tool {
-        "Read" | "Glob" => pick("file_path")
-            .or_else(|| pick("path"))
-            .or_else(|| pick("pattern"))
-            .map(|p| truncate(p, 120))
-            .unwrap_or_else(|| tool.to_string()),
-        "Grep" => pick("pattern")
-            .map(|p| truncate(p, 120))
-            .unwrap_or_else(|| tool.to_string()),
-        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => pick("file_path")
-            .map(|p| truncate(p, 120))
-            .unwrap_or_else(|| tool.to_string()),
-        "Bash" => pick("command")
-            .map(|c| truncate(c, 120))
-            .unwrap_or_else(|| tool.to_string()),
-        _ => tool.to_string(),
+        "Read" => pair("Read", pick("file_path").or_else(|| pick("path"))),
+        "Write" => pair("Wrote", pick("file_path")),
+        "Edit" | "MultiEdit" | "NotebookEdit" => pair("Edited", pick("file_path")),
+        "Glob" => pair(
+            "Searched files",
+            pick("pattern").or_else(|| pick("file_path")),
+        ),
+        "Grep" => match pick("pattern") {
+            Some(p) => (
+                format!("Searched for \"{}\"", truncate(p, 60)),
+                pick("path")
+                    .or_else(|| pick("glob"))
+                    .map(|p| truncate(p, TOOL_SUMMARY_MAX))
+                    .unwrap_or_default(),
+            ),
+            None => ("Searched".into(), String::new()),
+        },
+        "Bash" => match pick("command") {
+            Some(c) => (
+                format!("Ran {}", shell_verb(c)),
+                truncate(c, TOOL_SUMMARY_MAX),
+            ),
+            None => ("Ran command".into(), String::new()),
+        },
+        _ => (format!("Used {tool}"), String::new()),
     }
 }
+
+const TOOL_SUMMARY_MAX: usize = 120;
 
 /// Parse a `--permission-prompt-tool stdio` request into a
 /// [`TranslatorOutput::PermissionPrompt`]. The stdio protocol's `subtype` is
@@ -304,9 +334,8 @@ fn translate_control_request(v: &Value) -> Vec<TranslatorOutput> {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let req = match v.get("request") {
-        Some(r) => r,
-        None => return Vec::new(),
+    let Some(req) = v.get("request") else {
+        return Vec::new();
     };
     if req.get("subtype").and_then(Value::as_str) != Some("can_use_tool") {
         return Vec::new();
@@ -319,16 +348,17 @@ fn translate_control_request(v: &Value) -> Vec<TranslatorOutput> {
     if request_id.is_empty() || tool.is_empty() {
         return Vec::new();
     }
+    // Defer the (potentially large) input clone until validity passes.
+    let input = req.get("input").cloned().unwrap_or(Value::Null);
     let display = req
         .get("display_name")
         .and_then(Value::as_str)
         .unwrap_or(&tool);
-    let input = req.get("input").cloned().unwrap_or(Value::Null);
-    let summary = tool_use_summary(&tool, &input);
-    let summary = if summary == tool {
+    let (_, raw_summary) = tool_use_card(&tool, &input);
+    let summary = if raw_summary.is_empty() {
         display.to_string()
     } else {
-        format!("{display}: {summary}")
+        format!("{display}: {raw_summary}")
     };
     let tool_use_id = req
         .get("tool_use_id")
@@ -341,39 +371,6 @@ fn translate_control_request(v: &Value) -> Vec<TranslatorOutput> {
         summary,
         tool_use_id,
     }]
-}
-
-/// Encode a permission decision as the `control_response` line Claude expects
-/// on stdin (newline-terminated). `request_id` must echo the request's id —
-/// Claude uses it to correlate. Used by `claude_code.rs::reader_task` after
-/// the [`crate::PermissionHandler`] resolves.
-pub fn encode_permission_response(
-    request_id: &str,
-    decision: &crate::permission::PermissionDecision,
-    original_input: &Value,
-) -> Vec<u8> {
-    use crate::permission::PermissionDecision;
-    let response = match decision {
-        PermissionDecision::Accept => serde_json::json!({
-            "behavior": "allow",
-            "updatedInput": original_input,
-        }),
-        PermissionDecision::Deny { reason } => serde_json::json!({
-            "behavior": "deny",
-            "message": reason,
-        }),
-    };
-    let envelope = serde_json::json!({
-        "type": "control_response",
-        "response": {
-            "subtype": "success",
-            "request_id": request_id,
-            "response": response,
-        }
-    });
-    let mut bytes = serde_json::to_vec(&envelope).unwrap_or_default();
-    bytes.push(b'\n');
-    bytes
 }
 
 #[cfg(test)]
@@ -503,9 +500,8 @@ mod tests {
     #[test]
     fn tool_use_block_emits_artifact_produced() {
         let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
-        // Mixed text + tool_use blocks. Expect: 1 ArtifactProduced (Used Read)
-        // + 1 MessagePosted with concatenated text. Tool block precedes text
-        // since iteration order matches the content array.
+        // Mixed text + tool_use blocks. Expect: 1 ArtifactProduced
+        // ("Read CLAUDE.md") + 1 MessagePosted with concatenated text.
         let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Reading CLAUDE.md."},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/repo/CLAUDE.md"}}]}}"#;
         let out = t.translate(line);
         assert_eq!(out.len(), 2);
@@ -520,7 +516,7 @@ mod tests {
                     author_role,
                     ..
                 }) => {
-                    assert_eq!(title, "Used Read");
+                    assert_eq!(title, "Read CLAUDE.md");
                     assert_eq!(summary, "/repo/CLAUDE.md");
                     assert!(matches!(artifact_kind, designer_core::ArtifactKind::Report));
                     assert_eq!(author_role.as_deref(), Some("agent"));
@@ -547,10 +543,47 @@ mod tests {
             TranslatorOutput::Event(OrchestratorEvent::ArtifactProduced {
                 title, summary, ..
             }) => {
-                assert_eq!(title, "Used Bash");
+                assert_eq!(title, "Ran git");
                 assert_eq!(summary, "git status");
             }
             other => panic!("unexpected output: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_use_card_titles_are_verb_first() {
+        // Lock the verb-first microcopy across all five families. If a
+        // future regression flips back to "Used X" this test catches it.
+        let cases = [
+            (
+                "Read",
+                serde_json::json!({"file_path":"/a/b.txt"}),
+                "Read b.txt",
+            ),
+            (
+                "Write",
+                serde_json::json!({"file_path":"/a/b.txt"}),
+                "Wrote b.txt",
+            ),
+            (
+                "Edit",
+                serde_json::json!({"file_path":"/a/b.txt"}),
+                "Edited b.txt",
+            ),
+            (
+                "Grep",
+                serde_json::json!({"pattern":"auth"}),
+                "Searched for \"auth\"",
+            ),
+            (
+                "Bash",
+                serde_json::json!({"command":"git push origin main"}),
+                "Ran git",
+            ),
+        ];
+        for (tool, input, expected) in cases {
+            let (title, _) = tool_use_card(tool, &input);
+            assert_eq!(title, expected, "title mismatch for {tool}");
         }
     }
 
@@ -593,7 +626,7 @@ mod tests {
     fn encode_permission_response_allow_includes_updated_input() {
         use crate::permission::PermissionDecision;
         let original = serde_json::json!({"file_path":"/x.txt","content":"hi"});
-        let bytes = encode_permission_response("req-9", &PermissionDecision::Accept, &original);
+        let bytes = PermissionDecision::Accept.encode_response("req-9", &original);
         let s = std::str::from_utf8(&bytes).unwrap();
         assert!(s.ends_with('\n'));
         let parsed: serde_json::Value = serde_json::from_str(s.trim()).unwrap();
@@ -610,13 +643,10 @@ mod tests {
     #[test]
     fn encode_permission_response_deny_includes_message() {
         use crate::permission::PermissionDecision;
-        let bytes = encode_permission_response(
-            "req-10",
-            &PermissionDecision::Deny {
-                reason: "user denied".into(),
-            },
-            &Value::Null,
-        );
+        let bytes = PermissionDecision::Deny {
+            reason: "user denied".into(),
+        }
+        .encode_response("req-10", &Value::Null);
         let parsed: serde_json::Value = serde_json::from_slice(&bytes[..bytes.len() - 1]).unwrap();
         assert_eq!(parsed["response"]["response"]["behavior"], "deny");
         assert_eq!(parsed["response"]["response"]["message"], "user denied");
@@ -668,14 +698,12 @@ mod tests {
                 }
             }
         }
-        let _ = prompts; // representative fixture has no prompts; locked.
-                         // representative-events.jsonl is one example of each event type. We
-                         // expect at least: 1 AgentSpawned (task_started + in_process_teammate),
-                         // 1 TaskCompleted (task_updated completed), 1 TeammateIdle
-                         // (task_notification completed w/ @ summary), 1 MessagePosted
-                         // (assistant), 1 rate limit, 1 cost.
+        // Expect: 1 AgentSpawned (in_process teammate), 1 TaskCompleted, 1
+        // TeammateIdle, 1 rate limit, 1 cost. Permission prompts are locked
+        // out of this fixture so a regression that injects one is loud.
         assert!(events >= 3, "got {events} events");
         assert_eq!(rate_limits, 1);
         assert_eq!(costs, 1);
+        assert_eq!(prompts, 0, "representative fixture should not emit prompts");
     }
 }

@@ -37,7 +37,7 @@ use crate::orchestrator::{
     TeamSpec,
 };
 use crate::permission::{AutoAcceptSafeTools, PermissionHandler, PermissionRequest};
-use crate::stream::{encode_permission_response, ClaudeStreamTranslator, TranslatorOutput};
+use crate::stream::{ClaudeStreamTranslator, TranslatorOutput};
 use async_trait::async_trait;
 use designer_core::{Actor, EventPayload, EventStore, StreamId, WorkspaceId};
 use parking_lot::Mutex;
@@ -119,10 +119,10 @@ pub struct ClaudeCodeOrchestrator<S: EventStore> {
     teams: Mutex<HashMap<WorkspaceId, TeamHandle>>,
     /// Policy deciding whether a permission-prompted tool use should be
     /// accepted or denied. Default is [`AutoAcceptSafeTools`] (read-only
-    /// tools + safe `Bash` prefixes); Phase 13.G replaces this with an
-    /// inbox-routing handler via [`Self::with_permission_handler`].
-    /// Wired into `reader_task` via the `control_request` arm of the stream
-    /// translator (Phase 13.H/F1).
+    /// tools + safe `Bash` prefixes); production swaps in an inbox-routing
+    /// handler via [`Self::with_permission_handler`]. Consulted from
+    /// `run_reader_loop` whenever the translator surfaces a
+    /// `control_request` permission prompt.
     permission_handler: Arc<dyn PermissionHandler>,
 }
 
@@ -578,7 +578,6 @@ async fn run_reader_loop<R, S>(
     R: tokio::io::AsyncRead + Unpin,
     S: EventStore + 'static,
 {
-    use tokio::io::AsyncBufReadExt;
     let mut translator = ClaudeStreamTranslator::new(workspace_id, team_name.clone());
     let mut buf = String::new();
     loop {
@@ -618,10 +617,11 @@ async fn run_reader_loop<R, S>(
                             summary,
                             tool_use_id: _,
                         } => {
-                            // Spawn so the reader stays unblocked — `decide()`
-                            // may park up to 5 minutes on user approval;
-                            // awaiting inline would stall every other event
-                            // from Claude during that window.
+                            // Spawn — `decide()` may park up to 5 minutes on
+                            // user approval; awaiting inline would block
+                            // every other event from Claude during that
+                            // window. workspace_id is required by the inbox
+                            // handler (it fail-closes on `None`).
                             let handler = permission_handler.clone();
                             let stdin_tx = stdin_tx.clone();
                             tokio::spawn(async move {
@@ -629,15 +629,10 @@ async fn run_reader_loop<R, S>(
                                     tool,
                                     input: input.clone(),
                                     summary,
-                                    // F2: populate workspace_id so the inbox
-                                    // handler can anchor the approval
-                                    // artifact (otherwise it fail-closes
-                                    // with MISSING_WORKSPACE_REASON).
                                     workspace_id: Some(workspace_id),
                                 };
                                 let decision = handler.decide(req).await;
-                                let reply =
-                                    encode_permission_response(&request_id, &decision, &input);
+                                let reply = decision.encode_response(&request_id, &input);
                                 if let Err(e) = stdin_tx.send(reply).await {
                                     warn!(
                                         error = %e,

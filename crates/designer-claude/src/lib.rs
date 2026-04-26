@@ -33,5 +33,5 @@ pub use orchestrator::{
 pub use permission::{
     AutoAcceptSafeTools, PermissionDecision, PermissionHandler, PermissionRequest,
 };
-pub use stream::{encode_permission_response, ClaudeStreamTranslator, TranslatorOutput};
+pub use stream::{ClaudeStreamTranslator, TranslatorOutput};
 pub use watcher::{ClaudeFileWatcher, WatcherEvent};

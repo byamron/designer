@@ -18,6 +18,7 @@
 use async_trait::async_trait;
 use designer_core::WorkspaceId;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// A single permission request from Claude. Claude's stdio protocol sends
 /// the tool name plus a compact description; we also carry the raw input so
@@ -56,6 +57,38 @@ pub struct PermissionRequest {
 pub enum PermissionDecision {
     Accept,
     Deny { reason: String },
+}
+
+impl PermissionDecision {
+    /// Encode this decision as the `control_response` line Claude expects on
+    /// stdin (newline-terminated). `request_id` must echo the request's id —
+    /// Claude correlates the response by it. Used by `claude_code::reader_task`
+    /// after the handler resolves. Hand-built `json!` envelope; serialization
+    /// of a literal can't fail.
+    pub fn encode_response(&self, request_id: &str, original_input: &Value) -> Vec<u8> {
+        let response = match self {
+            PermissionDecision::Accept => serde_json::json!({
+                "behavior": "allow",
+                "updatedInput": original_input,
+            }),
+            PermissionDecision::Deny { reason } => serde_json::json!({
+                "behavior": "deny",
+                "message": reason,
+            }),
+        };
+        let envelope = serde_json::json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": request_id,
+                "response": response,
+            }
+        });
+        let mut bytes =
+            serde_json::to_vec(&envelope).expect("control_response is always serializable");
+        bytes.push(b'\n');
+        bytes
+    }
 }
 
 /// Contract for anything that can decide whether a tool use is allowed.

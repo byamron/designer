@@ -534,11 +534,11 @@ impl AppCore {
             .collect::<Vec<_>>()
             .join("\n");
         let artifact_id = ArtifactId::new();
-        // F4: route through the on-device summary hook so the rail's
-        // edit-batch summary reads as an LLM line ("Refactored Tauri command
-        // registration to alphabetize handlers.") instead of the raw
-        // `+12 −3 across 2 files` diff stat. The hook handles the 500ms
-        // deadline + late-return ArtifactUpdated + per-track debounce.
+        // Route through the on-device summary hook so the rail's edit-batch
+        // summary reads as an LLM line ("Refactored Tauri command
+        // registration…") instead of the raw `+12 −3 across 2 files` diff
+        // stat. The hook handles the 500ms deadline + late-return
+        // ArtifactUpdated + per-track debounce.
         let draft = crate::core_local::ArtifactDraft {
             workspace_id: track.workspace_id,
             artifact_id,
@@ -1407,5 +1407,28 @@ mod tests {
             .find(|a| matches!(a.kind, designer_core::ArtifactKind::CodeChange))
             .expect("at least one code-change artifact");
         assert_eq!(code_change.summary, "summary line");
+
+        // Routing through the hook intentionally shifts the actor from
+        // `Actor::user()` (legacy direct-append) to `Actor::system()` (the
+        // hook's append_artifact_inner attribution). Lock that semantics
+        // so a future revert to Actor::user can't slip through.
+        let stored = core
+            .store
+            .read_all(designer_core::StreamOptions::default())
+            .await
+            .unwrap();
+        let cc_event = stored
+            .iter()
+            .find(|env| {
+                matches!(
+                    env.payload,
+                    designer_core::EventPayload::ArtifactCreated {
+                        artifact_kind: designer_core::ArtifactKind::CodeChange,
+                        ..
+                    }
+                )
+            })
+            .expect("CodeChange event in store");
+        assert_eq!(cc_event.actor, Actor::system());
     }
 }

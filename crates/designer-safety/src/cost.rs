@@ -154,7 +154,9 @@ impl<S: EventStore> CostTracker<S> {
         Ok(env)
     }
 
-    /// Read-before-write: project new total, check cap, then append + update.
+    /// Read-before-write: project new total, check cap, then delegate to
+    /// [`CostTracker::record`]. Use this for forecasted spend (an action
+    /// about to incur cost); use `record` directly for observed telemetry.
     pub async fn check_and_record(
         &self,
         workspace_id: WorkspaceId,
@@ -163,9 +165,9 @@ impl<S: EventStore> CostTracker<S> {
     ) -> std::result::Result<EventEnvelope, SafetyError> {
         let current = self.usage(workspace_id);
         let projected = CostUsage {
-            tokens_input: current.tokens_input + delta.tokens_input,
-            tokens_output: current.tokens_output + delta.tokens_output,
-            dollars_cents: current.dollars_cents + delta.dollars_cents,
+            tokens_input: current.tokens_input.saturating_add(delta.tokens_input),
+            tokens_output: current.tokens_output.saturating_add(delta.tokens_output),
+            dollars_cents: current.dollars_cents.saturating_add(delta.dollars_cents),
         };
         let cap = self.cap_for(workspace_id);
         if !cap.allows(projected) {
@@ -174,24 +176,17 @@ impl<S: EventStore> CostTracker<S> {
                 workspace_id, projected, cap
             )));
         }
-
-        let env = self
-            .store
-            .append(
-                StreamId::Workspace(workspace_id),
-                None,
-                actor,
-                EventPayload::CostRecorded {
-                    workspace_id,
-                    tokens_input: delta.tokens_input,
-                    tokens_output: delta.tokens_output,
-                    dollars_cents: delta.dollars_cents,
-                },
-            )
-            .await
-            .map_err(SafetyError::Core)?;
-
-        self.usage.insert(workspace_id, projected);
-        Ok(env)
+        self.record(workspace_id, delta, actor).await
     }
+}
+
+/// Convert observed dollars into cents, rounding to nearest. Non-finite or
+/// negative values clamp to zero — the alternative (`as u64` saturation on
+/// negatives) would wrap to `u64::MAX`. The caller decides whether a clamp
+/// warrants a log line; this helper is silent.
+pub fn usd_to_cents(usd: f64) -> u64 {
+    if !usd.is_finite() || usd <= 0.0 {
+        return 0;
+    }
+    (usd * 100.0).round() as u64
 }

@@ -363,18 +363,28 @@ export function TaskListBlock(props: BlockProps) {
 // ---------------------------------------------------------------------------
 
 export function ReportBlock(props: BlockProps) {
+  const { artifact, payload, expanded, onToggleExpanded, isPinned, onTogglePin } = props;
+  const body = payload?.kind === "inline" ? payload.body : null;
+  const panelId = useId();
+  const expandable = Boolean(body);
   return (
     <article className="block block--report">
       <BlockHeader
-        title={props.artifact.title}
-        authorRole={props.artifact.author_role}
-        kind={props.artifact.kind}
-        isPinned={props.isPinned}
-        onTogglePin={props.onTogglePin}
-        onToggleExpanded={props.onToggleExpanded}
-        expanded={props.expanded}
+        title={artifact.title}
+        authorRole={artifact.author_role}
+        kind={artifact.kind}
+        isPinned={isPinned}
+        onTogglePin={onTogglePin}
+        onToggleExpanded={expandable ? onToggleExpanded : undefined}
+        expanded={expanded}
+        panelId={expandable ? panelId : undefined}
       />
-      <p className="block__summary">{props.artifact.summary}</p>
+      <p className="block__summary">{artifact.summary}</p>
+      {expandable && expanded ? (
+        <pre id={panelId} className="block__prose">
+          {body}
+        </pre>
+      ) : null}
     </article>
   );
 }

@@ -18,7 +18,7 @@ use designer_local_models::{
     probe_helper, FoundationHelper, FoundationLocalOps, HelperError, HelperEvent, HelperHealth,
     LocalOps, NullHelper, SwiftFoundationHelper,
 };
-use designer_safety::{CostCap, CostTracker, CostUsage, InMemoryApprovalGate};
+use designer_safety::{usd_to_cents, CostCap, CostTracker, CostUsage, InMemoryApprovalGate};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -271,12 +271,8 @@ impl AppCore {
         let (helper, helper_status, helper_events) = select_helper(&config).await;
         let local_ops: Arc<dyn LocalOps> = Arc::new(FoundationLocalOps::new(helper.clone()));
 
-        // Subscribe to ClaudeSignal::Cost before constructing AppCore so the
-        // task body holds a `Weak<AppCore>` and gracefully terminates when
-        // the core drops. Per Phase 13.H/F3: every `result/success` line
-        // routes a real cost into `CostTracker::record` + a
-        // `CostRecorded` event. Without this, the cost chip reads $0.00
-        // forever and the cap silently allows over-budget spend.
+        // Subscribe before any first event is broadcast; the cost subscriber
+        // task holds a `Weak<AppCore>` so it terminates when the core drops.
         let signal_rx = orchestrator.subscribe_signals();
 
         let core = Arc::new(AppCore {
@@ -457,12 +453,12 @@ fn build_event_bridge(mut rx: broadcast::Receiver<HelperEvent>) -> broadcast::Se
     tx
 }
 
-/// Phase 13.H/F3 cost subscriber. Listens on the orchestrator's
-/// `ClaudeSignal` broadcast and on every `Cost` signal records the spend
-/// through [`CostTracker::record`] (which appends `EventPayload::CostRecorded`
-/// and updates the in-memory usage map). Holds a `Weak<AppCore>` so the
-/// task terminates when the core drops — no leaked tokio task across boots.
-pub(crate) fn spawn_cost_subscriber(
+/// Listen on the orchestrator's `ClaudeSignal` broadcast and route every
+/// `Cost` signal through [`CostTracker::record`] (which appends
+/// `EventPayload::CostRecorded` and updates the in-memory usage map). Holds a
+/// `Weak<AppCore>` so the task terminates when the core drops — no leaked
+/// tokio task across boots.
+fn spawn_cost_subscriber(
     weak: std::sync::Weak<AppCore>,
     mut rx: broadcast::Receiver<ClaudeSignal>,
 ) {
@@ -476,30 +472,40 @@ pub(crate) fn spawn_cost_subscriber(
                     let Some(core) = weak.upgrade() else {
                         break;
                     };
-                    // Convert dollars to cents, rounding to nearest cent.
-                    // Negative or NaN values clamp to zero rather than wrap
-                    // through `as u64`'s saturation semantics.
-                    let cents = if total_cost_usd.is_finite() && total_cost_usd > 0.0 {
-                        (total_cost_usd * 100.0).round() as u64
-                    } else {
-                        0
-                    };
+                    if !total_cost_usd.is_finite() || total_cost_usd <= 0.0 {
+                        // Anomaly on Anthropic's side or a future zero-cost
+                        // result — log so support bundles surface it, then
+                        // skip the DB write since there's nothing to project.
+                        warn!(
+                            workspace = %workspace_id,
+                            total_cost_usd,
+                            "cost subscriber: non-positive or non-finite cost; skipping"
+                        );
+                        continue;
+                    }
                     let usage = CostUsage {
                         tokens_input: 0,
                         tokens_output: 0,
-                        dollars_cents: cents,
+                        dollars_cents: usd_to_cents(total_cost_usd),
                     };
                     if let Err(err) = core.cost.record(workspace_id, usage, Actor::system()).await {
                         warn!(
                             workspace = %workspace_id,
-                            cents,
+                            cents = usage.dollars_cents,
                             error = %err,
                             "cost subscriber: record failed"
                         );
                     }
                 }
                 Ok(ClaudeSignal::RateLimit(_)) => {}
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    // Buffer overflowed; cost lag means totals understate
+                    // actual spend. Surface so cap drift isn't silent.
+                    warn!(
+                        skipped,
+                        "cost subscriber: broadcast lagged; cost totals may be understated"
+                    );
+                }
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
