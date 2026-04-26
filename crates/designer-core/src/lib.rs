@@ -14,13 +14,14 @@ pub mod store;
 pub mod time;
 
 pub use domain::{
-    Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project, Tab, TabTemplate, Workspace,
-    WorkspaceState,
+    author_roles, Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project, Tab, TabTemplate,
+    Track, TrackState, Workspace, WorkspaceState,
 };
 pub use error::{CoreError, Result};
 pub use event::{Event, EventEnvelope, EventKind, EventPayload};
 pub use ids::{
-    AgentId, ApprovalId, ArtifactId, EventId, ProjectId, StreamId, TabId, TaskId, WorkspaceId,
+    AgentId, ApprovalId, ArtifactId, EventId, ProjectId, StreamId, TabId, TaskId, TrackId,
+    WorkspaceId,
 };
 pub use projection::{Projection, ProjectionError, Projector};
 pub use store::{EventStore, SqliteEventStore, StreamOptions};

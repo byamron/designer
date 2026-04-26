@@ -1,4 +1,9 @@
 import { useEffect, useState } from "react";
+import { useAppState } from "../store/app";
+import { useDataState } from "../store/data";
+import { RepoLinkModal } from "./RepoLinkModal";
+import type { WorkspaceSummary } from "../ipc/types";
+import { emptyArray } from "../util/empty";
 
 /**
  * First-run onboarding. Dismissible slab that sits on top of the shell while
@@ -17,6 +22,12 @@ export function Onboarding() {
     return localStorage.getItem(STORAGE_KEY) === "1";
   });
   const [step, setStep] = useState(0);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const activeProjectId = useAppState((s) => s.activeProject);
+  const workspaces = useDataState<WorkspaceSummary[]>((s) =>
+    activeProjectId ? s.workspaces[activeProjectId] ?? emptyArray() : emptyArray(),
+  );
+  const firstWorkspaceId = workspaces[0]?.workspace.id ?? null;
 
   useEffect(() => {
     if (dismissed) return;
@@ -124,6 +135,16 @@ export function Onboarding() {
               >
                 Next <kbd style={{ marginLeft: "var(--space-1)" }}>→</kbd>
               </button>
+            ) : firstWorkspaceId ? (
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={() => setLinkOpen(true)}
+                title="Link a repository to this workspace"
+              >
+                Link a repository
+              </button>
             ) : (
               <button
                 type="button"
@@ -138,6 +159,17 @@ export function Onboarding() {
           </div>
         </div>
       </div>
+      {firstWorkspaceId && (
+        <RepoLinkModal
+          workspaceId={firstWorkspaceId}
+          open={linkOpen}
+          onClose={() => setLinkOpen(false)}
+          onLinked={() => {
+            setLinkOpen(false);
+            dismiss();
+          }}
+        />
+      )}
     </div>
   );
 }

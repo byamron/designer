@@ -29,11 +29,12 @@ Phase 12 — Real-integration validation     (3 parallel tracks)
 Phase 13 — Wire the real runtime            (2 prereqs + 5 tracks, gated individually)
   ├─ 13.0  Pre-track scaffolding         (← 12.A + 12.C; blocks all 13.X)
   ├─ 13.1  Artifact foundation           (← 13.0; unifies tab model; blocks D/E/F/G emitters) ✅
-  ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts]
-  ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr]
-  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype]
-  ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment]
-  └─ 13.H  Safety enforcement            (← 13.G)                [GA gate; see security.md]
+  ├─ 13.D  Agent wire                    (← 12.A + 12.C + 13.1)  [emits message + agent artifacts] ✅
+  ├─ 13.E  Track primitive + git wire    (← 12.C + 13.1)         [emits code-change + pr] ✅
+  ├─ 13.F  Local-model surfaces          (← 12.B + 12.C + 13.1)  [emits report + comment; wires prototype] ✅
+  ├─ 13.G  Safety surfaces + Keychain    (← 12.C + 13.1)         [emits approval + comment] ✅
+  ├─ 13.H  Phase 13 hardening pass       (← 13.D/E/F/G integration) [F1–F4 production wiring]
+  └─ 13.I  Safety enforcement            (← 13.H)                [GA gate; see security.md]
 
 Phase 14 — Sync transport        (parallel with 13, 15)
 Phase 15 — Hardening + polish    (parallel with 13, 14)
@@ -89,7 +90,7 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 - **Phase 12** — Real-integration validation. 12.C (Tauri shell binary) landed 2026-04-21; see `history.md`. 12.A (real Claude Code) and 12.B (Foundation Models helper build) remain open and gate their respective Phase 13 tracks.
 - **Phase 13.0** — Pre-track scaffolding. Partitions hot-spot files so the four 13.X agents don't collide; freezes event / IPC / permission-handler contracts. Completed by the scaffolding PR; blocks 13.1 + 13.D/E/F/G.
 - **Phase 13.1** — Artifact foundation + unified workspace thread. Consolidates tab-model-rethink + find-agentation-server into one PR. Retires Plan/Design/Build tab types; every tab renders `WorkspaceThread` with typed artifact blocks inline. Ships the `ArtifactCreated/Updated/Pinned/Unpinned/Archived` event vocabulary, `PayloadRef` (inline/hash), rail projection, IPC commands, and a 12-renderer block registry. D/E/F/G now emit into the registry instead of painting bespoke UI — **they run in parallel after 13.1 with zero UI contention.**
-- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus five tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and can run in parallel after 13.1; H gates on G and blocks GA. See `security.md` for 13.H detail.
+- **Phase 13** — Wire the real runtime. Two prerequisite sub-phases (13.0, 13.1) plus six tracks (D: agent wire, E: git + repo linking, F: local-model surfaces, G: safety surfaces + Keychain, H: Phase 13 hardening pass / F1–F4 production wiring, I: safety enforcement / GA gate). D–G gated on 13.1 plus their Phase-12 inputs and ran in parallel after 13.1; H gates on the D/E/F/G integration; I gates on H and blocks GA. **All four parallel tracks shipped 2026-04-25 and integrated via meta-PR [#20](https://github.com/byamron/designer/pull/20) on 2026-04-26.** 13.H wires the four production gaps the integration review surfaced: stdio reader → `permission_handler.decide()` (F1), `PermissionRequest::workspace_id` population (F2), `ClaudeSignal::Cost` subscriber (F3), `core_git::check_track_status` routing through `append_artifact_with_summary_hook` (F4). 13.I covers pre-write enforcement, binary pinning, tamper-evidence — see `security.md`.
 - **Phase 14** — Sync transport. Independent; can run concurrently with Phase 13 or 15.
 - **Phase 15** — Hardening + polish (Mini primitives, correlation IDs, dark-mode regression, auto-grow textarea, pairing RNG, event-log incrementalization). Independent; all six items are parallelizable.
 - **Phase 16** — Shippable desktop build. Splits into 16.R (Apple Developer ID, signed `.dmg`, update channel, crash-report endpoint, install QA) and 16.S (supply-chain posture — blocking audit CI, SBOM, SLSA, dual-key updater, pentest, SECURITY.md). Gates on 13 + 15; Phase 14 optional for MVP. Signed DMG blocked until 16.S lands. Detail in `security.md`.
@@ -326,13 +327,13 @@ Phases 0–11 landed behind stable trait interfaces; every downstream subsystem 
 | G2 | Swift Foundation Models helper not built | `LanguageModelSession.respond(to:)` call unverified; helper binary missing | 12.B |
 | G3 | Tauri shell binary absent | React app + Rust core can't talk in one process; no window chrome | 12.C |
 | G4 | PlanTab chat hardcodes `ackFor()` | No `Orchestrator::post_message` path from UI to agent | 13.D |
-| G5 | `create_workspace` doesn't create a track (worktree + branch) | `GitOps` wired but never called from UI; no track on disk. Resolution introduces the Track primitive per spec Decisions 29–30. | 13.E |
+| G5 | `create_workspace` doesn't create a track (worktree + branch) | `GitOps` wired but never called from UI; no track on disk. Resolution introduces the Track primitive per spec Decisions 29–30. **Resolved 2026-04-25 (13.E):** `Track` aggregate + projection, `cmd_start_track` calls `init_worktree`, `gh pr create` automation, edit-batch coalescer. | 13.E ✅ |
 | G6 | Local-model jobs (`recap`, `audit_claim`, `summarize_row`) have no caller | Activity spine summaries, morning recap, audit verdicts all stubbed | 13.F |
-| G7 | Approval resolution surface is a `setTimeout` in BuildTab | Real approvals need a real inbox; currently non-interactive | 13.G |
-| G8 | No repo-linking UI or file picker | User can't point Designer at a codebase | 13.E |
-| G9 | No user-repo file persistence (`core-docs/*.md`) | Spec calls for docs-in-repo; only `events.db` is written today | 13.E |
+| G7 | ~~Approval resolution surface is a `setTimeout` in BuildTab~~ ✅ closed 2026-04-25 (PR #19) | `InboxPermissionHandler` parks each prompt on a `oneshot`; `ApprovalBlock` resolves via `cmd_resolve_approval` with optimistic UI + projector truth | 13.G ✅ |
+| G8 | No repo-linking UI or file picker | User can't point Designer at a codebase. **Resolved 2026-04-25 (13.E):** `RepoLinkModal` in onboarding final slide + Settings → Account; `cmd_link_repo` canonicalizes + validates path. | 13.E ✅ |
+| G9 | No user-repo file persistence (`core-docs/*.md`) | Spec calls for docs-in-repo; only `events.db` is written today. **Resolved 2026-04-25 (13.E):** `start_track` seeds `core-docs/{plan,spec,feedback,history}.md` and commits them on the new branch. | 13.E ✅ |
 | G10 | No sync transport (WebRTC / relay / pairing QR) | Protocol types exist, no wire | 14 |
-| G11 | Keychain integration missing | Spec invariant; no secret store today | 13.G |
+| G11 | ~~Keychain integration missing~~ ✅ closed 2026-04-25 (PR #19) | `security-framework` read-only check for Claude Code's OAuth credential; Settings → Account renders presence + last-verified time. Decision 26 — Designer never reads contents and never writes | 13.G |
 | G12 | Mini primitives (Box/Stack/Cluster) not used | Cohesion drift; every layout is inline CSS | 15 |
 | G13 | `correlation_id` / `causation_id` never set | Traces can't be reconstructed | 15 |
 | G14 | Manual-entropy pairing RNG fallback | Non-crypto for non-unix; worth `OsRng` | 15 |
@@ -404,7 +405,7 @@ Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–H; 16.R / 
 
 **Deferred into Phase 13** (not blocking 13.D start):
 - `designer-hook` binary as secondary feed (hooks are visible in stream-json; file-based backup is a 13.G concern when approval-gate file triggers arrive).
-- `PreToolUse` approval-gate spike (moves to 13.G scope; the stdio permission-prompt path is already wired and will carry this).
+- ~~`PreToolUse` approval-gate spike~~ ✅ landed in 13.G via `InboxPermissionHandler` — stdio permission prompts now route through the user inbox with a 5-min timeout.
 - Partial-message coalescer at 120ms (moves to 13.D scope; only matters when the UI renders live chat).
 
 ### Track 12.B — Swift Foundation Models helper build (gap G2)
@@ -469,18 +470,25 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Goal:** turn the "scaffold that demos the UX" into "a product that actually does the thing." Each track replaces a stubbed frontend path with a real backend call. After 13.0 lands, all four tracks can be built in parallel by separate agents with zero file contention.
 
-### Track 13.D — Agent wire (gaps G4)
+### Track 13.D — Agent wire (gaps G4) — landed 2026-04-25
 
-**Needs:** 12.A + 12.C.
+**Needs:** 12.A + 12.C + 13.1.
 
-**Steps:**
-- Replace `PlanTab`'s `ackFor()` with `ipcClient().postMessage(workspace.id, "you", draft)`; add a corresponding `#[tauri::command]` backed by `Orchestrator::post_message`.
-- Stream agent replies back via the `designer://event-stream` channel (`MessagePosted` events with `author.role != "you"`).
-- Render incoming `MessagePosted` events into the chat as streaming-text bubbles; honor reduced-motion.
-- Add a "who's replying" indicator driven by `AgentSpawned` / `TeammateIdle` state.
-- Test against a real Claude team: ask "What's the plan for X?" and see a real reply land.
+**Shipped:**
+- New `cmd_post_message(workspace_id, text, attachments)` IPC. Wrapper in `commands_agents.rs`; async fn in `ipc_agents.rs`; registered in `main.rs`'s `tauri::generate_handler!` (alphabetical). DTOs (`PostMessageRequest` / `PostMessageAttachment` / `PostMessageResponse`) in `crates/designer-ipc/src/lib.rs`.
+- `AppCore::post_message` dispatches to `Orchestrator::post_message` first; on success, persists `MessagePosted { author: User }` + `ArtifactCreated { kind: Message, author_role: "user" }` synchronously. Lazy-spawns a `team-lead` team on `TeamNotFound` for the demo / first-message flow. The dispatch-first ordering rules out duplicate user artifacts on retry after orchestrator failure.
+- Boot-spawned message coalescer in `core_agents.rs::spawn_message_coalescer` (called from `main.rs::setup`): subscribes to `orchestrator.subscribe()`, drops user echoes, accumulates per-(workspace, author_role) bursts, flushes one `ArtifactCreated { kind: Message }` per burst at 120 ms idle (`DEFAULT_COALESCE_WINDOW`; tests override via `DESIGNER_MESSAGE_COALESCE_MS`). Tasks hold `Weak<AppCore>` so they don't leak across test boots.
+- New `OrchestratorEvent::ArtifactProduced { workspace_id, artifact_kind, title, summary, body, author_role }` variant — broadcast-only; `event_to_payload` returns `None`. AppCore is the single writer of `EventPayload::ArtifactCreated`. MockOrchestrator emits this for keyword-matched ("diagram" / "report") prompts; real Claude tool-use translation lands per-tool (TODO(13.D-followup) marker in `crates/designer-claude/src/stream.rs::translate_assistant`).
+- `WorkspaceThread.onSend` awaits `ipcClient().postMessage`. Synchronous `useRef` re-entry guard prevents concurrent dispatch on rapid double-clicks. On error: typed `IpcError` translated by `packages/app/src/ipc/error.ts::describeIpcError` (cost-cap / scope-deny / etc. each get distinct copy); draft restored via `composeRef.current?.setDraft(payload.text)` + refocus; alert banner surfaces the message.
+- Foundation fix needed by the above: `SqliteEventStore::append` now uses `transaction_with_behavior(Immediate)` (DEFERRED transactions deadlock under concurrent writers in WAL mode with `SQLITE_LOCKED`, which `busy_timeout` can't retry); `PRAGMA busy_timeout=5000` added to per-connection init. `IpcError` enum variants converted to struct form so the tagged-union representation actually serializes (newtype-tuple variants fail at runtime).
+- Tests: 6 cargo (round-trip, coalescer-drops-echoes, coalescer-separates-keys, no-artifact-on-failure, oversized-text, ArtifactProduced-broadcast-only) + 5 vitest (postMessage shape, empty-draft guard, restores-draft-on-failure, ignores-concurrent-sends, refreshes-on-production-stream-id).
 
-**Done when:** a user message travels UI → Rust → Claude → events → UI with no hardcoded text anywhere; the activity spine shows the lead going active during the reply.
+**Deferred to 13.D-followup or downstream tracks:**
+- `tool_use` / `tool_result` content blocks in `ClaudeStreamTranslator` — currently dropped with a `TODO(13.D-followup)` marker. Per "summarize by default, drill on demand," these should at minimum emit `ArtifactProduced` summaries; wiring lands per-tool as Claude tool-use shapes are observed.
+- Attachment byte storage. The IPC accepts `attachments: Vec<PostMessageAttachment>` and logs at WARN; no storage path yet.
+- "Agent is typing…" liveness indicator. ADR 0001 deferred this; revisit once real subprocess timing is observed in 13.E/F/G integration.
+
+**Original spec for reference:** the pre-13.D plan was to replace `PlanTab`'s `ackFor()` with `ipcClient().postMessage(...)`. PlanTab was retired in 13.1 (spec Decision 36); the unified `WorkspaceThread` is the surface that now owns the send path.
 
 ### Track 13.E — Track primitive + git wire + repo linking + core-docs persistence (gaps G5, G8, G9)
 
@@ -511,24 +519,57 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 
 **Done when:** spine summaries + recap + audit verdicts are real local-model output, not placeholders.
 
-### Track 13.G — Safety surfaces + Keychain (gaps G7, G11)
+### Track 13.G — Safety surfaces + Keychain (gaps G7, G11) ✅ *landed 2026-04-25*
 
 **Needs:** 12.C.
 
+**Shipped (PR #19):**
+- `InboxPermissionHandler` (in `crates/designer-claude/src/inbox_permission.rs`) replaces `AutoAcceptSafeTools` as the production permission handler via `ClaudeCodeOrchestrator::with_permission_handler()`. Every Claude permission prompt parks the agent on a per-request `tokio::sync::oneshot` channel with a 5-minute deadline. Resolutions resolve via `cmd_resolve_approval`; timeouts emit `ApprovalDenied{reason:"timeout"}` and tell the agent to deny. Boot-time `sweep_orphan_approvals` auto-denies any `ApprovalRequested` without a matching grant/deny (reason `"process_restart"`) so the inbox doesn't surface phantom rows after restart.
+- `ApprovalBlock` (already-rendered Phase 13.1 surface) wired to `cmd_resolve_approval` with optimistic flip + projector-truth via `approval_granted/denied` stream subscription. Buttons disabled when payload lacks a parsable `approval_id`. The earlier `BuildTab` `setTimeout` stub was retired with the tab refactor — there is no dedicated build tab in the post-13.1 unified workspace thread.
+- `CostChip` (`packages/app/src/components/CostChip.tsx`) in the workspace topbar shows `$<spent> / $<cap>` with a colored band (50% green / 80% amber / >80% red). Off by default per Decision 34; toggle in Settings → Preferences. `CostTracker::replay_from_store` runs at boot so `cost_status` reflects historical spend across restarts.
+- Scope denials: `record_scope_denial` emits both `ScopeDenied` (audit) and a `comment` artifact anchored to the offending change (UX). The artifact appears inline in the workspace thread, non-blocking.
+- macOS Keychain integration (`security-framework = { … default-features = false }`, `[target.'cfg(target_os = "macos")']`). **Read-only per Decision 26** — `get_generic_password` only confirms the credential is present. Never reads secret contents, never writes. The handler does **not** introduce a `SecretStore` trait — Designer doesn't store agent secrets; the only credentials in the Keychain are Claude Code's own OAuth, which Anthropic owns end-to-end. Settings → Account renders the credential's presence + last-verified time. Service name overridable via `DESIGNER_CLAUDE_KEYCHAIN_SERVICE` for non-default Claude installs.
+
+Five new Tauri commands: `cmd_list_pending_approvals`, `cmd_get_cost_status`, `cmd_get_keychain_status`, `cmd_get_cost_chip_preference`, `cmd_set_cost_chip_preference`. `cmd_request_approval` is an explicit error stub — the IPC was forgeable from the webview, and the only legitimate producer of approval requests is the orchestrator's `InboxPermissionHandler`. Single-writer guarantee in `resolve` (atomic-remove-then-write) prevents contradictory terminal events for one approval id; resolutions write to the workspace stream so subscribers see them on the same stream as the request. `gate.status` stays truthful via `GateStatusSink` — the inbox handler notifies the in-memory `InMemoryApprovalGate` after each resolve via a desktop-side `GateSinkAdapter`. Boot-time `gate.replay_from_store` keeps the legacy gate-trait surface honest across restarts.
+
+See `history.md` 2026-04-25 entry for the full design rationale, the post-merge security review fixes (cmd_request_approval injection, sweep race, single-writer ordering, stream consistency, missing-workspace audit row, gate-status drift, cost-replay), and the test coverage that locked them down.
+
+### Track 13.H — Phase 13 hardening pass *(P0 follow-ups from the integration review)*
+
+**Needs:** 13.D + 13.E + 13.F + 13.G (the integration meta-PR [#20](https://github.com/byamron/designer/pull/20) lands first).
+
+**Why a separate track:** the four parallel tracks each shipped against the mock orchestrator and their individual test surfaces. The integration review (six-agent pass: staff engineer / staff UX / staff design engineer / reuse / quality / efficiency) verified the parallel-track conventions held cleanly — but surfaced four production wiring gaps that no single track owned. None block the integration merge (mock-orchestrator path works fully, all gates green) but the production runtime is incomplete until they land. This track is a focused hardening PR right after the meta-PR merges.
+
 **Steps:**
-- Build an approval inbox (either a drawer inside `ActivitySpine` or a dedicated `/inbox` route). Lists pending `ApprovalRequested` events with grant/deny actions bound to `cmd_resolve_approval`.
-- Replace `BuildTab`'s `setTimeout(900)` with a real pending state that resolves only when the inbox grants.
-- Add a usage chip to the topbar (`CostTracker.usage` + rate-limit signals parsed from Claude Code stream-json / stderr). Color ramps as spend approaches `CostCap.max_dollars_cents` *or* as Anthropic's own capacity warnings surface. Toggleable in settings, off by default (Decision 34). Ambient notice in the activity spine when a known 5-hour or weekly threshold is approached; hard-stop messages surface the specific limit + reset time.
-- Surface `ScopeDenied` events in the inbox with the denied path and the rule that matched.
-- Integrate `security-framework` (macOS Keychain) via a `SecretStore` trait; store any future agent credentials there (initial use: GitHub token discovery hint for `gh`).
 
-**Done when:** merge / publish / deploy gates block real agent writes until the inbox approves; cost chip visibly warns before cap; Keychain is the only place secrets live.
+- **F1 — Wire `permission_handler.decide()` into the stdio reader.** Today `crates/designer-claude/src/claude_code.rs::reader_task` consumes only `TranslatorOutput::{Event, RateLimit, Cost}`; there is no `PermissionPrompt` variant and no parser for Claude's `--permission-prompt-tool stdio` JSON shape. The orchestrator passes `--permission-prompt-tool stdio` so Claude expects stdio replies, but the reply never comes. Add a `TranslatorOutput::PermissionPrompt { tool, input, summary }` variant to `crates/designer-claude/src/stream.rs`, wire it through the reader to call `permission_handler.decide(req)`, and write the encoded response (`{"behavior": "allow"}` / `{"behavior": "deny", "message": "..."}`) back via the writer task's `stdin_tx`.
+- **F2 — Populate `PermissionRequest::workspace_id`.** When F1 lands, the reader must construct `PermissionRequest { workspace_id: Some(spec.workspace_id), tool, input, summary, … }`. The inbox handler fail-closes when `workspace_id == None` with `MISSING_WORKSPACE_REASON`; without F2, every prompt becomes an audit-only `ApprovalDenied` even after F1 routes them.
+- **F3 — Subscribe `ClaudeSignal::Cost` to `CostTracker::record`.** `claude_code.rs` constructs a per-orchestrator `signal_tx` broadcast channel and sends `ClaudeSignal::Cost { workspace_id, total_cost_usd }` on every `result/success` line. Nothing subscribes. The cost chip will read `$0.00` until `AppCore::boot` spawns a signal subscriber that calls `cost.record(...)` and persists `CostRecorded` to the store.
+- **F4 — Route `core_git::check_track_status` through `append_artifact_with_summary_hook`.** PR 18's seam contract (ADR 0003 §"Write-time summary hook seam") mandates that every `code-change` emitter routes through the hook. PR 16's `check_track_status` still calls `store.append` directly, bypassing the on-device summarization. Edit-batch summaries on the rail will show the raw `+12 −3 across 2 files` string instead of the helper-generated line until this is wired.
 
-### Track 13.H — Safety enforcement *(GA gate; detail in `security.md`)*
+**Test additions (folded into the F1–F4 hardening PR):**
 
-**Needs:** 13.G (approval inbox surface + Keychain trait must exist to build on).
+| Test | What it locks down |
+|---|---|
+| `claude_code::tests::stdio_permission_prompt_routes_to_decide` | Synthetic Claude stdout fixture emitting a `tool_use_request` permission prompt. Asserts `permission_handler.decide` is called once with the expected tool/input, and the writer task's stdin receives the encoded response. |
+| `claude_code::tests::permission_prompt_carries_workspace_id` | Round-trip the parsed `PermissionRequest`; assert `workspace_id == Some(spec.workspace_id)`. Without this guard, a future refactor that drops the field re-opens the silent-deny path. |
+| `cost::tests::signal_subscriber_records_to_store` | Boot `AppCore`, broadcast a fake `ClaudeSignal::Cost { workspace_id, total_cost_usd: 0.42 }`. Assert `cost_status(workspace_id).spent_dollars_cents == 42` and a `CostRecorded` event is appended to the store. |
+| `core_git::tests::check_track_status_routes_through_summary_hook` | Counting `LocalOps` mock; assert `check_track_status` calls `append_artifact_with_summary_hook` (not `store.append`) for `CodeChange` emits. |
+| `tests/claude_live.rs::permission_prompt_round_trip` *(`--features claude_live`)* | Single user-message → real Claude tool prompt → grant via inbox → tool result → `CodeChange` artifact with on-device summary. End-to-end smoke covering F1+F2+F4. |
 
-**Why a separate track:** 13.G builds the UX surfaces for safety (inbox, cost chip, Keychain trait). 13.H hardens the *enforcement* — pre-write gates, binary verification, tamper-evidence, scope canonicalization. Shipping 13.G without 13.H would leave the user with a safety UI whose enforcement is advisory. GA cannot ship without 13.H.
+**Other test gaps surfaced by the integration review (file as separate test-only PR before GA, or roll into 13.H):**
+
+- Frontend Playwright + screenshot-diff harness — already on Phase 15's list; pull forward to catch regressions in the integration UI surfaces (CostChip color bands, RepoLinkModal focus trap, ApprovalBlock state transitions, dark-mode rendering).
+- Concurrent-burst test for `SummaryDebounce` covering the case where a third caller arrives mid-flight after the in-flight slot's `Resolved` value lands but before the next request — verifies in-flight slot transitions correctly to `Resolved` without a race window.
+- `TabOpened` double-apply regression — covered earlier as the projector-vs-broadcast race; needs an explicit test that opens N tabs in sequence and asserts `workspace.tabs.len() == N` even after the broadcast subscriber catches up.
+- `cmd_list_pending_approvals` perf regression test — assert it returns from in-memory `pending_ids()` without an event-log scan once the optimization in F3-followup lands.
+- Cost-cap=0 boundary test — assert `cost_status` ratio when `cap_dollars_cents=0` and `spent=0` is `None` (no-spend hold) rather than `Some(1.0)` (currently silently red-banded).
+
+### Track 13.I — Safety enforcement *(GA gate; detail in `security.md`)*
+
+**Needs:** 13.G (approval inbox + scope-deny path + Keychain status surface must exist to build on).
+
+**Why a separate track:** 13.G builds the UX surfaces for safety (inbox, cost chip, scope-denied comment artifact, Keychain status row) and the production permission handler that routes every Claude prompt through the user. 13.I hardens the *enforcement* — pre-write gates, binary verification, tamper-evidence, scope canonicalization, and a Designer-owned Keychain item for the HMAC chain key (separate from Claude's OAuth credential, which 13.G only reads metadata from). Shipping 13.G without 13.I would leave the user with a safety UI whose enforcement is advisory. GA cannot ship without 13.I.
 
 **Steps:**
 
@@ -538,7 +579,7 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 - `claude` binary pinning: `SecStaticCodeCheckValidity` against Anthropic's Developer ID requirement before spawn. Refuse to start the orchestrator if the signature does not match; surface a distinctive error in the UI.
 - Context manifest at turn boundaries: when net-new context enters an agent turn (new file in scope, changed `CLAUDE.md`, freshly merged doc), render a diffable manifest in the activity spine before the agent acts. Untrusted-lane content (unmerged PR, fork, non-user-authored commit) is tagged and requires an additional capability grant.
 - Event schema adds `(track_id, role, claude_session_id, tool_name)` to every event; tool-call events become a first-class queryable kind.
-- HMAC chain over events keyed from a session-sealed Keychain item (the Keychain trait from 13.G). Chain is domain-separated per-workspace so a compromised workspace cannot forge another's history. Periodic external anchor to a user-owned git notes ref; chain breaks surface as attention-level alerts.
+- HMAC chain over events keyed from a session-sealed Keychain item — a *new* Designer-owned generic-password entry (e.g. `com.designer.event-chain`), distinct from Claude Code's `Claude Code-credentials` entry that 13.G only reads metadata from. Chain is domain-separated per-workspace so a compromised workspace cannot forge another's history. Periodic external anchor to a user-owned git notes ref; chain breaks surface as attention-level alerts.
 - Secrets scanner on pre-write: curated `gitleaks`-equivalent ruleset for strong patterns (AWS keys, PEM blocks, GitHub tokens, Anthropic keys) blocks writes; high-entropy matches warn only, to avoid training users to click through noise.
 - Secret-input mode in chat: dedicated composer affordance for pasted secrets; content is session-only, redacted from the event store, evicted from Claude's context after the agent's immediate reply.
 - CSP adds `frame-ancestors 'self'`; helper IPC gets a max-frame cap + fuzz-test harness; webview lockdown audit documented.
@@ -658,7 +699,7 @@ Splits into two sub-tracks. Both must land before the first signed DMG leaves th
 - MDM / admin-signed managed-preferences policy at `/Library/Managed Preferences/com.designer.app.plist`. Admin-signed policies can pin scope rules, force-enable approval tiers, restrict tool allowlists, disable specific agents fleet-wide. Policy signature verified against a compiled-in admin root.
 - SIEM-ready audit-log export (JSON lines, CEF-compatible fields). User-initiated with diff preview; never network.
 - Narrowly-scoped GitHub App with per-workspace grants replacing ambient `gh` token reliance; revocable per-workspace. `gh` stays as the individual-tier default; team tier defaults to the App.
-- Inter-workspace isolation: per-workspace keyed HMAC domain separation on the event chain (builds on 13.H chain infrastructure).
+- Inter-workspace isolation: per-workspace keyed HMAC domain separation on the event chain (builds on 13.I chain infrastructure).
 - Bug bounty live (HackerOne or equivalent); VDP discoverable via `.well-known/security.txt`.
 - Foundation helper data-deletion completeness: when a workspace is deleted, helper caches + model-session state go with it. Audit of where helper state lives, documented in `security.md`.
 - SOC 2 Type I: reactive to named enterprise deals, scoped narrowly to the zero-data-collection posture. Not pursued preemptively.
@@ -1059,9 +1100,11 @@ Every event carries an explicit `schema_version` discriminator. Proposal diffs a
 | First user-visible surface | 8, 9 | — | ✅ Preliminary build |
 | Design lab + polish scaffolding | 10, 11 | — | ✅ Preliminary build |
 | **Real-integration validated** | **12.A, 12.B, 12.C** | **Yes (3 tracks)** | **12.A ✅ 2026-04-22; 12.C ✅ 2026-04-21; 12.B infrastructure landed, real-hardware validation pending** |
-| Pre-track scaffolding | 13.0 | — (single PR) | Pending |
-| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after 13.0) | Pending |
-| **GA safety enforcement** | **13.H** | After 13.G | **Pending — blocks GA** |
+| Pre-track scaffolding | 13.0 | — (single PR) | ✅ 2026-04-23 |
+| Artifact foundation | 13.1 | — (single PR after 13.0) | ✅ 2026-04-24/25 |
+| Real runtime wired | 13.D, 13.E, 13.F, 13.G | Yes (after 13.1) | ✅ 2026-04-25, integration meta-PR #20 opened 2026-04-26 |
+| Phase 13 hardening pass | 13.H | After integration merge | **Pending — F1–F4 production wiring** |
+| **GA safety enforcement** | **13.I** | After 13.H | **Pending — blocks GA** |
 | Sync transport | 14 | Yes (parallel with 13/15) | Pending |
 | Hardening + polish | 15 | Yes (parallel with 13/14) | Pending |
 | Shippable desktop beta | 16.R + 16.S | After 13 + 15 | Blocked on Apple Developer ID; 16.S blocks signed DMG |

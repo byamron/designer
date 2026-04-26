@@ -15,8 +15,69 @@ import { VariantExplorer } from "./VariantExplorer";
  *
  * This is the Phase 10 deliverable: agent-produced prototypes never run in the
  * trust context. The CSP + sandbox combination enforces that.
+ *
+ * Phase 13.F adds the `inlineHtml` form: the workspace-thread `PrototypeBlock`
+ * passes the artifact's inline payload directly. The component skips the
+ * variant explorer in that mode and renders just the sandboxed iframe.
  */
-export function PrototypePreview({ workspace }: { workspace: Workspace }) {
+type PrototypePreviewProps =
+  | { workspace: Workspace; inlineHtml?: undefined }
+  | { workspace?: undefined; inlineHtml: string; title?: string };
+
+/**
+ * Inline-payload sandbox: the agent-authored HTML is rendered with the
+ * **most restrictive** sandbox (no token at all — no scripts, no forms, no
+ * top navigation, no popups, no pointer-lock). Even though the lab demo
+ * grants `allow-forms` (paired with CSP `form-action 'none'`), the artifact
+ * path drops it entirely so a `<form action="https://attacker">` cannot
+ * exfiltrate via submission. CSP `form-action 'none'` is also injected as
+ * defense in depth — see `wrapInlineHtmlWithCsp`.
+ */
+export const INLINE_HTML_CSP = [
+  "default-src 'none'",
+  "script-src 'none'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "connect-src 'none'",
+  "font-src 'self' data:",
+  "frame-src 'none'",
+  "frame-ancestors 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "worker-src 'none'",
+].join("; ");
+
+/** Inject a CSP meta into the agent's HTML head (or wrap a host head if absent). */
+export function wrapInlineHtmlWithCsp(html: string): string {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${INLINE_HTML_CSP}">`;
+  // Fast path: insert right after <head> when present (case-insensitive).
+  const headOpen = /<head\b[^>]*>/i.exec(html);
+  if (headOpen) {
+    const idx = headOpen.index + headOpen[0].length;
+    return html.slice(0, idx) + meta + html.slice(idx);
+  }
+  // Fallback: wrap in a host shell. The agent's body becomes the body of the
+  // host doc; an existing <html> in the agent payload becomes nested markup
+  // (parsers treat the second <html> as a no-op), which is fine.
+  return `<!doctype html><html><head>${meta}</head><body>${html}</body></html>`;
+}
+
+export function PrototypePreview(props: PrototypePreviewProps) {
+  if (props.inlineHtml !== undefined) {
+    return (
+      <iframe
+        title={props.title ?? "Prototype"}
+        className="prototype-frame"
+        sandbox=""
+        srcDoc={wrapInlineHtmlWithCsp(props.inlineHtml)}
+      />
+    );
+  }
+  return <PrototypePreviewLab workspace={props.workspace!} />;
+}
+
+function PrototypePreviewLab({ workspace }: { workspace: Workspace }) {
   const [variant, setVariant] = useState<"A" | "B" | "C">("A");
   const [showAnnotations, setShowAnnotations] = useState(true);
 

@@ -1,6 +1,6 @@
 //! Domain aggregates. Projections derive these by replaying events.
 
-use crate::ids::{ArtifactId, ProjectId, TabId, WorkspaceId};
+use crate::ids::{ArtifactId, ProjectId, TabId, TrackId, WorkspaceId};
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -116,6 +116,35 @@ impl TabTemplate {
 // Artifact foundation (Phase 13.1)
 // ---------------------------------------------------------------------------
 
+/// Canonical `author_role` strings. The field on `Artifact` is `String` (free-
+/// form) but every emitter inside Designer writes one of these — keeping the
+/// vocabulary discoverable in one place avoids 13.D / 13.E / 13.F / 13.G drift
+/// (FB-codified after the 13.F review).
+pub mod author_roles {
+    /// Helper-driven workspace recap card (`cmd_recap_workspace`).
+    pub const RECAP: &str = "recap";
+    /// On-device claim audit comment (`cmd_audit_artifact`).
+    pub const AUDITOR: &str = "auditor";
+    /// Generic agent-team output where the role isn't otherwise specified.
+    pub const AGENT: &str = "agent";
+    /// Track-aware emitter (13.E) — code-change / pr artifacts. Will gain
+    /// per-track suffixing when track ids land on the artifact event.
+    pub const TRACK: &str = "track";
+    /// Safety / approval surface (13.G) — approval requests + scope-deny
+    /// comments.
+    pub const SAFETY: &str = "safety";
+    /// Workspace-lead Claude session (13.D) — the persistent manager-level
+    /// chat producer.
+    pub const WORKSPACE_LEAD: &str = "workspace-lead";
+    /// Default lead role inside a fresh agent team (the "team lead").
+    pub const TEAM_LEAD: &str = "team-lead";
+    /// User-authored thread message.
+    pub const USER: &str = "user";
+    /// Non-user, non-agent system event (e.g. orphan-sweep denial,
+    /// process-restart audit row, scope-deny comment).
+    pub const SYSTEM: &str = "system";
+}
+
 /// A typed artifact — the data a block renderer knows how to display.
 ///
 /// Lifecycle (one stream per workspace):
@@ -202,4 +231,45 @@ impl PayloadRef {
     pub fn is_inline(&self) -> bool {
         matches!(self, PayloadRef::Inline { .. })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Track primitive (Phase 13.E — spec Decisions 29–30)
+// ---------------------------------------------------------------------------
+
+/// A track inside a workspace: one worktree + one branch + one agent team +
+/// one PR series. Derived from the `TrackStarted / TrackCompleted /
+/// PullRequestOpened / TrackArchived` events the projector replays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Track {
+    pub id: TrackId,
+    pub workspace_id: WorkspaceId,
+    pub branch: String,
+    pub worktree_path: PathBuf,
+    pub state: TrackState,
+    pub pr_number: Option<u64>,
+    pub pr_url: Option<String>,
+    pub created_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
+    pub archived_at: Option<Timestamp>,
+}
+
+/// Track lifecycle. The projected (replayable) state machine is
+/// `Active → PrOpen → Merged → Archived`. `RequestingMerge` is reserved
+/// for a future event-sourced flag (it's not produced by replay today)
+/// and currently exists only as a transient frontend hint while the user
+/// is mid-`gh pr create`. Designer enforces idempotence of merge requests
+/// in-process via an in-memory in-flight set in `core_git.rs`, so two
+/// concurrent calls cannot both reach `gh`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackState {
+    Active,
+    /// Reserved — not emitted by replay today. See `core_git.rs` for the
+    /// in-memory idempotence machinery used during the live `gh pr create`
+    /// window.
+    RequestingMerge,
+    PrOpen,
+    Merged,
+    Archived,
 }

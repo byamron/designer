@@ -1,15 +1,53 @@
-//! Tauri `#[tauri::command]` handlers reserved for Phase 13.E (track
-//! primitive + git wire + repo linking).
-//!
-//! Add new handlers here; register them in `lib.rs`'s
-//! `tauri::generate_handler![…]` list. Don't touch `commands.rs` or other
-//! `commands_*.rs` siblings.
-//!
-//! See ADR 0002 §D2 for the repo-linking UX (native file picker v1; GitHub
-//! URL reserved).
+//! Tauri `#[tauri::command]` handlers for Phase 13.E (track primitive +
+//! git wire + repo linking). Thin shims over the typed `ipc::cmd_*`
+//! functions so tests and the CLI can invoke the same code paths
+//! without a Tauri runtime.
 
-// Phase 13.E will add:
-//   #[tauri::command]
-//   pub async fn cmd_link_repo(core: State<'_, …>, req: LinkRepoRequest) -> Result<…, IpcError>
-//   pub async fn cmd_create_track(core: State<'_, …>, req: CreateTrackRequest) -> Result<Track, IpcError>
-//   pub async fn cmd_request_merge(core: State<'_, …>, req: RequestMergeRequest) -> Result<…, IpcError>
+use crate::core::AppCore;
+use crate::ipc;
+use designer_core::{TrackId, WorkspaceId};
+use designer_ipc::{
+    IpcError, LinkRepoRequest, RequestMergeRequest, StartTrackRequest, TrackSummary,
+};
+use std::sync::Arc;
+use tauri::State;
+
+#[tauri::command]
+pub async fn cmd_link_repo(
+    core: State<'_, Arc<AppCore>>,
+    req: LinkRepoRequest,
+) -> Result<(), IpcError> {
+    ipc::cmd_link_repo(&core, req).await
+}
+
+#[tauri::command]
+pub async fn cmd_start_track(
+    core: State<'_, Arc<AppCore>>,
+    req: StartTrackRequest,
+) -> Result<TrackId, IpcError> {
+    ipc::cmd_start_track(&core, req).await
+}
+
+#[tauri::command]
+pub async fn cmd_request_merge(
+    core: State<'_, Arc<AppCore>>,
+    req: RequestMergeRequest,
+) -> Result<u64, IpcError> {
+    ipc::cmd_request_merge(&core, req).await
+}
+
+#[tauri::command]
+pub async fn cmd_list_tracks(
+    core: State<'_, Arc<AppCore>>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<TrackSummary>, IpcError> {
+    ipc::cmd_list_tracks(&core, workspace_id).await
+}
+
+#[tauri::command]
+pub async fn cmd_get_track(
+    core: State<'_, Arc<AppCore>>,
+    track_id: TrackId,
+) -> Result<TrackSummary, IpcError> {
+    ipc::cmd_get_track(&core, track_id).await
+}

@@ -6,7 +6,7 @@
 //! safety check (scope / cost / approval). Frontend callers cannot bypass.
 
 use crate::core::{AppCore, FallbackReason, HelperStatus, HelperStatusKind, RecoveryKind};
-use designer_core::{ArtifactId, ProjectId, Tab, WorkspaceId};
+use designer_core::{ArtifactId, ProjectId, Tab, TrackId, WorkspaceId};
 use designer_ipc::*;
 use designer_local_models::HelperHealth;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ pub async fn cmd_create_project(
     req: CreateProjectRequest,
 ) -> Result<ProjectSummary, IpcError> {
     if req.name.trim().is_empty() {
-        return Err(IpcError::InvalidRequest("name must not be empty".into()));
+        return Err(IpcError::invalid_request("name must not be empty"));
     }
     let project = core
         .create_project(req.name, req.root_path)
@@ -47,7 +47,7 @@ pub async fn cmd_create_workspace(
     req: CreateWorkspaceRequest,
 ) -> Result<WorkspaceSummary, IpcError> {
     if req.name.trim().is_empty() {
-        return Err(IpcError::InvalidRequest("name must not be empty".into()));
+        return Err(IpcError::invalid_request("name must not be empty"));
     }
     let workspace = core
         .create_workspace(req.project_id, req.name, req.base_branch)
@@ -81,7 +81,7 @@ pub async fn cmd_list_workspaces(
 
 pub async fn cmd_open_tab(core: &Arc<AppCore>, req: OpenTabRequest) -> Result<Tab, IpcError> {
     if req.title.trim().is_empty() {
-        return Err(IpcError::InvalidRequest("title must not be empty".into()));
+        return Err(IpcError::invalid_request("title must not be empty"));
     }
     core.open_tab(req.workspace_id, req.title, req.template)
         .await
@@ -102,29 +102,46 @@ pub async fn cmd_helper_status(core: &Arc<AppCore>) -> HelperStatusResponse {
     helper_status_to_response(status, health)
 }
 
-/// Approval flow is wired in Phase 13.G. Until then, `cmd_request_approval` and
-/// `cmd_resolve_approval` return an explicit error so the frontend can detect
-/// "not yet wired" and render a degraded state rather than silently dropping.
+/// Approval flow (Phase 13.G).
+///
+/// **Why `cmd_request_approval` errors out instead of forwarding to the
+/// store.** The IPC surface is callable from the webview, including from
+/// any future XSS-escaped script. If we let the frontend forge
+/// `ApprovalRequested` events, an attacker could plant a fake "Grant
+/// write access?" entry in the inbox, wait for the user to click Grant,
+/// and have the *next* real agent prompt inherit that granted state via
+/// a coincidental id collision (or simply pollute the audit log). The
+/// only legitimate producer of approval requests is the
+/// `InboxPermissionHandler` invoked by the orchestrator on a real Claude
+/// permission prompt. So this IPC stays an error stub — the legacy wire
+/// name is preserved only because the `IpcClient` interface still
+/// declares `requestApproval` for mock-orchestrator dev flows that
+/// haven't been refactored.
 pub async fn cmd_request_approval(
     _core: &Arc<AppCore>,
     _workspace_id: WorkspaceId,
     _gate: String,
     _summary: String,
 ) -> Result<String, IpcError> {
-    Err(IpcError::Unknown(
-        "approvals are a Phase 13.G surface".into(),
+    Err(IpcError::unknown(
+        "cmd_request_approval is internal; agents request approvals via the orchestrator's \
+         InboxPermissionHandler. The frontend cannot forge approvals.",
     ))
 }
 
 pub async fn cmd_resolve_approval(
-    _core: &Arc<AppCore>,
-    _id: String,
-    _granted: bool,
-    _reason: Option<String>,
+    core: &Arc<AppCore>,
+    id: String,
+    granted: bool,
+    reason: Option<String>,
 ) -> Result<(), IpcError> {
-    Err(IpcError::Unknown(
-        "approvals are a Phase 13.G surface".into(),
-    ))
+    use std::str::FromStr;
+    let approval_id = designer_core::ApprovalId::from_str(&id)
+        .map_err(|e| IpcError::invalid_request(format!("approval id: {e}")))?;
+    core.resolve_approval_inbox(approval_id, granted, reason)
+        .await
+        .map_err(IpcError::from)?;
+    Ok(())
 }
 
 // ---- Artifacts (Phase 13.1) ----------------------------------------------
@@ -160,7 +177,7 @@ pub async fn cmd_get_artifact(
     let artifact = core
         .get_artifact(artifact_id)
         .await
-        .ok_or_else(|| IpcError::NotFound(artifact_id.to_string()))?;
+        .ok_or_else(|| IpcError::not_found(artifact_id.to_string()))?;
     Ok(ArtifactDetail {
         payload: artifact.payload.clone(),
         summary: ArtifactSummary::from(artifact),
@@ -174,6 +191,60 @@ pub async fn cmd_toggle_pin_artifact(
     core.toggle_pin_artifact(req.artifact_id)
         .await
         .map_err(IpcError::from)
+}
+
+// ---- Track + git wire (Phase 13.E) ---------------------------------------
+
+pub async fn cmd_link_repo(core: &Arc<AppCore>, req: LinkRepoRequest) -> Result<(), IpcError> {
+    if req.repo_path.as_os_str().is_empty() {
+        return Err(IpcError::invalid_request("repo_path must not be empty"));
+    }
+    core.link_repo(req.workspace_id, req.repo_path)
+        .await
+        .map_err(IpcError::from)
+}
+
+pub async fn cmd_start_track(
+    core: &Arc<AppCore>,
+    req: StartTrackRequest,
+) -> Result<TrackId, IpcError> {
+    if req.branch.trim().is_empty() {
+        return Err(IpcError::invalid_request("branch must not be empty"));
+    }
+    core.start_track(req.workspace_id, req.branch, req.base)
+        .await
+        .map_err(IpcError::from)
+}
+
+pub async fn cmd_request_merge(
+    core: &Arc<AppCore>,
+    req: RequestMergeRequest,
+) -> Result<u64, IpcError> {
+    core.request_merge(req.track_id)
+        .await
+        .map_err(IpcError::from)
+}
+
+pub async fn cmd_list_tracks(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<TrackSummary>, IpcError> {
+    Ok(core
+        .list_tracks(workspace_id)
+        .await
+        .into_iter()
+        .map(TrackSummary::from)
+        .collect())
+}
+
+pub async fn cmd_get_track(
+    core: &Arc<AppCore>,
+    track_id: TrackId,
+) -> Result<TrackSummary, IpcError> {
+    core.get_track(track_id)
+        .await
+        .map(TrackSummary::from)
+        .ok_or_else(|| IpcError::not_found(track_id.to_string()))
 }
 
 fn helper_status_to_response(status: HelperStatus, health: HelperHealth) -> HelperStatusResponse {

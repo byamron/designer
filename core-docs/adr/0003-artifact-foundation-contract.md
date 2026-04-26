@@ -33,14 +33,87 @@ Each track owns one Rust sibling pair (`core_X.rs` + `commands_X.rs`) and the ar
 | **13.D — Agent wire** | `core_agents.rs` + `commands_agents.rs` | `MessagePosted` thread events, `ArtifactCreated { kind: "message" }`, agent-produced `diagram` / `report` artifacts, partial-message coalescer | 12.A + 12.C + 13.1 |
 | **13.E — Track primitive + git wire** | `core_git.rs` + `commands_git.rs` | `TrackStarted / TrackCompleted / PullRequestOpened`, `ArtifactCreated { kind: "code-change" }` per semantic edit batch, `ArtifactCreated { kind: "pr" }` on PR open | 12.C + 13.1 |
 | **13.F — Local-model surfaces** | `core_local.rs` + `commands_local.rs` | `LocalOps::summarize_row` write-time hook (per-track debounce), `ArtifactCreated { kind: "report" }` for recaps, `ArtifactCreated { kind: "comment" }` for audit verdicts. Wires existing `PrototypePreview` into `PrototypeBlock`. | 12.B + 12.C + 13.1 |
-| **13.G — Safety surfaces + Keychain** | `core_safety.rs` + `commands_safety.rs` | `ApprovalRequested / Granted / Denied`, `ArtifactCreated { kind: "approval" }` (renderer already has Grant/Deny action surface), `ArtifactCreated { kind: "comment" }` on scope-deny. `security-framework` keychain. Cost chip in topbar. | 12.C + 13.1 |
+| **13.G — Safety surfaces + Keychain** ✅ landed 2026-04-25 (PR #19) | `core_safety.rs` + `commands_safety.rs` | `ApprovalRequested / Granted / Denied` (resolutions on the workspace stream, single-writer per id), `ArtifactCreated { kind: "approval" }` with inline JSON payload carrying `approval_id` for the block to wire, `ArtifactCreated { kind: "comment" }` on scope-deny anchored to the offending change. `security-framework` Keychain (read-only — never reads contents, never writes; Decision 26). Cost chip in topbar (off by default per Decision 34, persisted in `settings.json`). `InboxPermissionHandler` swapped in for `AutoAcceptSafeTools` via `with_permission_handler`; boot-time orphan sweep + cost replay. See `core-docs/integration-notes.md` §13.G. | 12.C + 13.1 |
 | **13.H — Safety enforcement** | (no new track files; modifies safety crate) | GA gate per `security.md` | 13.G |
+
+### Compatibility notes (additions made by downstream tracks)
+
+- **13.D — `OrchestratorEvent::ArtifactProduced`** (added 2026-04-25 in
+  `crates/designer-claude/src/orchestrator.rs`). New variant on the
+  internal orchestrator-event enum, **not** on the frozen
+  `EventPayload` in `designer-core`. The variant carries
+  `(workspace_id, artifact_kind, title, summary, body, author_role)`
+  and is broadcast-only — `event_to_payload` returns `None` for it,
+  and the AppCore message-coalescer is the single writer that turns
+  it into the frozen `EventPayload::ArtifactCreated`. Adding the
+  variant is non-breaking: the `Orchestrator` trait is unchanged, the
+  domain event vocabulary is unchanged, and the projection only
+  observes `EventPayload::ArtifactCreated` regardless of producer.
+- **13.D — `PostMessageRequest` / `PostMessageResponse` DTOs** (added
+  2026-04-25 in `crates/designer-ipc/src/lib.rs`). New non-artifact
+  IPC DTOs paired with `cmd_post_message`. The frozen DTO list in §
+  "Frozen surface" is the artifact DTOs (`ArtifactSummary`,
+  `ArtifactDetail`, `TogglePinRequest`); adding non-artifact request
+  / response shapes is the intended growth path for new IPC
+  commands.
 
 ### Out-of-scope hooks
 
-- **`prototype` renderer body**: 13.F wires `packages/app/src/lab/PrototypePreview.tsx` into `PrototypeBlock`. Until then, `PrototypeBlock` shows title + summary + a "wires through in 13.F" placeholder. The integration is one prop pass.
+- **`prototype` renderer body**: 13.F wired `packages/app/src/lab/PrototypePreview.tsx` into `PrototypeBlock` via an optional `inlineHtml` prop on the existing component. The block now renders the sandboxed iframe whenever the artifact's payload is `Inline`; the placeholder shows for missing or `Hash` payloads.
 - **`reveal_in_finder` Rust shim**: 13.1 ships a macOS-only shell-out via `open -R`. 13.E may extend to Linux/Windows when GitOps materializes worktrees outside macOS.
 - **`PayloadRef::Hash` content store**: schema-only today. 13.1-storage follow-up writes blobs to `~/.designer/artifacts/<hash>` and adds blob garbage-collection. Tracks should only emit `Inline` until then; tests will fail closed if a `Hash` payload references a non-existent blob.
+
+### Write-time summary hook seam (added by 13.F, 2026-04-25)
+
+The artifact event vocabulary remains frozen — no new variants, no shape changes. The only contract addition 13.F lands is **a single `AppCore` method** that emitting tracks must route `code-change` artifacts through:
+
+```rust
+pub async fn append_artifact_with_summary_hook(
+    self: &Arc<Self>,
+    draft: ArtifactDraft,
+) -> designer_core::Result<EventEnvelope>
+```
+
+`ArtifactDraft` is the seven `ArtifactCreated` fields packed into a struct. For `ArtifactKind::CodeChange` the implementation calls `LocalOps::summarize_row` with a 500ms hard deadline and overwrites `draft.summary` before the `ArtifactCreated` event is appended. For every other kind it appends verbatim. Behavior the seam guarantees:
+
+- **Replay safe.** The stored summary is whatever the helper returned (or the deterministic 140-char ellipsis-truncation when the helper is down/slow/erroring). On replay, the projector reads what's in the log; the hook does not fire.
+- **Late-return path emits `ArtifactUpdated`.** When the helper exceeds 500ms the `code-change` artifact still appends inside the deadline with the truncated fallback summary. A detached task continues awaiting the helper; on success it emits `ArtifactUpdated { artifact_id, summary, payload, parent_version }` so the rail eventually shows the on-device line.
+- **Per-track debounce.** Bursts within a 2-second window keyed by `(workspace_id, author_role)` reuse the most recent successful summary instead of round-tripping the helper again. Each artifact still appends; only the helper call is coalesced ("Option B"). When 13.E lands a real `track_id` on the artifact event, the key should switch to that.
+- **Helper-down short-circuit.** When `AppCore::helper_status.kind == Fallback`, the seam never dispatches the call — it uses the truncated fallback summary directly. This avoids surfacing `NullHelper`'s `[unavailable …]` marker as user copy (see integration-notes §12.B).
+
+This is a backend-only contract; the frontend is unchanged. Tracks 13.E (and any future emitter of `code-change`) should call `append_artifact_with_summary_hook` instead of `store.append(... ArtifactCreated ...)` directly. Other artifact kinds may continue to call `store.append` directly, or route through the seam (the non-`CodeChange` arms are a no-op pass-through).
+
+13.F also added two read-side IPC commands that emit artifacts as a side-effect:
+
+- `cmd_recap_workspace(workspace_id)` — appends `ArtifactCreated { kind: "report", title: "<Weekday> recap", author_role: Some("recap") }` driven by `LocalOps::recap`.
+- `cmd_audit_artifact(artifact_id, claim)` — appends `ArtifactCreated { kind: "comment", title: "Audit: <claim>", author_role: Some("auditor") }` in the target's workspace, driven by `LocalOps::audit_claim`.
+
+Neither extends the registry contract; both produce ordinary kinds that already have renderers.
+
+#### Concurrency and lifetime invariants (added 2026-04-25 follow-up review)
+
+- **Concurrent burst → one helper round-trip.** `SummaryDebounce` distinguishes `Resolved` (cached value, recently seen) from `Inflight` (a `tokio::sync::watch::Sender` backing a pending helper call). A second caller within the window subscribes to the same watch instead of dispatching its own request. The owner publishes via `finish_inflight`; joiners read from `borrow()` and clone-out before any further `await` (the `watch::Ref` guard is not `Send`).
+- **Bounded cache.** `SUMMARY_DEBOUNCE_MAX_ENTRIES = 1024` with opportunistic prune of expired entries on each `claim`. Over-cap evicts the oldest `Resolved`, never an `Inflight` (dropping its `Sender` would error every awaiting receiver).
+- **Late-return uses `Weak<AppCore>`.** The detached task that emits `ArtifactUpdated` past the 500ms deadline holds a `Weak` reference, so an `AppCore` shutdown does not wait for in-flight helper calls.
+- **Joiners do not get late updates.** When a joining caller hits its 500ms deadline before the in-flight owner returns, it appends with the truncated fallback and that artifact stays at the fallback summary. Only the owner's `artifact_id` is updated by the late-return task. Broadcasting late updates per-artifact (so joiners' artifacts also catch up) is a future enhancement; the current behavior is the simplest semantic that preserves single-helper-call-per-burst.
+
+#### Cross-workspace audit boundary
+
+`AuditArtifactRequest` requires `expected_workspace_id`. The `AppCore::audit_artifact(id, expected_ws, claim)` method validates that `target.workspace_id == expected_ws` and returns `CoreError::Invariant` (surfaced as `IpcError::InvalidRequest`) on mismatch. Combined with archived-target rejection (`NotFound`), this makes the audit boundary structurally robust against a misbehaving caller landing comments in workspaces it didn't intend.
+
+#### Deferred — `summary_provenance` on `Artifact` (pre-launch ADR)
+
+Fallback-truncated summaries and on-device-generated summaries currently share the same `summary` field on `Artifact`; the user can't distinguish them per-artifact (the system-level `helper_status` IPC drives a global "On-device models unavailable" indicator, which is the only provenance signal today). Adding a per-artifact `summary_provenance` enum (`OnDevice` / `Fallback` / `Producer`) would be a non-breaking event addition via a new variant `ArtifactSummaryProvenanceSet { artifact_id, provenance }` projected onto `Artifact.summary_provenance: Option<…>`. This is **deferred to a pre-launch ADR** because:
+
+1. The artifact event vocabulary is frozen by this ADR; expanding it warrants its own decision record.
+2. The 12.B helper-status indicator covers the global case (most users either have on-device models or don't — they don't switch mid-session).
+3. The seam already records provenance internally (the `Resolved` slot in `SummaryDebounce` could carry a kind tag); only the projection out is missing.
+
+A new ADR (0004 or later) should land before any user-visible build that exposes summaries to non-engineers.
+
+#### Wiring TODO for 13.D / 13.E / 13.G
+
+Tracks emitting `ArtifactCreated { kind: "code-change" }` **must** route through `AppCore::append_artifact_with_summary_hook(draft)`; direct `store.append` bypasses the on-device summary and breaks the Decision 39 "summaries are written once at write time" guarantee. Search the workspace for `TODO(13.F-wiring)` to find the bypasses to fix during integration.
 
 ## Consequences
 

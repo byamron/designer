@@ -158,6 +158,15 @@ impl ClaudeStreamTranslator {
     }
 
     fn translate_assistant(&mut self, v: &Value) -> Vec<TranslatorOutput> {
+        // TODO(13.D-followup): assistant `content` arrays carry both
+        // `text` blocks (handled here) and `tool_use` / `tool_result`
+        // blocks (currently dropped). Per Designer's "summarize by
+        // default, drill on demand" principle, agent tool calls should
+        // emit at minimum a summary `ArtifactProduced` event so the
+        // user sees that the agent did something between text replies.
+        // Wiring lands per-tool as we observe Claude's tool-use shapes
+        // — see `core-docs/integration-notes.md` §12.A for the captured
+        // event vocabulary.
         let text = extract_assistant_text(v.get("message"));
         if text.is_empty() {
             return Vec::new();

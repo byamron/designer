@@ -105,7 +105,7 @@ pub fn set_theme(
     settings.theme = choice;
     settings
         .save(&core.config.data_dir)
-        .map_err(|e| IpcError::Unknown(format!("settings write failed: {e}")))?;
+        .map_err(|e| IpcError::unknown(format!("settings write failed: {e}")))?;
     let resolved = settings.resolve();
     // NSWindow background is only visible at first paint; subsequent theme
     // changes are handled by CSS via `documentElement.dataset.theme`. The
@@ -155,14 +155,14 @@ pub fn reveal_in_finder(path: String) -> Result<(), IpcError> {
         std::process::Command::new("open")
             .args(["-R", &path])
             .spawn()
-            .map_err(|e| IpcError::Unknown(format!("reveal_in_finder failed: {e}")))?;
+            .map_err(|e| IpcError::unknown(format!("reveal_in_finder failed: {e}")))?;
         Ok(())
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = path;
-        Err(IpcError::Unknown(
-            "reveal_in_finder only supported on macOS".into(),
+        Err(IpcError::unknown(
+            "reveal_in_finder only supported on macOS",
         ))
     }
 }

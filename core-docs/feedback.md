@@ -33,6 +33,60 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0031: Cache "in-flight" separately from "resolved" — concurrent callers must share one round-trip
+**Date:** 2026-04-25
+**Source:** review feedback (Phase 13.F PR #18)
+
+**What was said:** First-pass `SummaryDebounce` stored only resolved values. Two callers 100ms apart over an 800ms helper each saw cache-miss and dispatched their own helper request. Reviewer flagged it as a blocking debounce-burst race.
+
+**Synthesized rule:** Any "expensive call coalesces under a key" cache must distinguish *resolved* from *in flight*. Subsequent callers within the window subscribe to the in-flight future (e.g., a `tokio::sync::watch::Sender<Option<T>>`) instead of starting their own. Eviction policy: never drop an in-flight slot — its receivers would error. Tested with a deliberate concurrent-burst case; default `helper.call_count() == N` is the regression signal.
+
+**Applies to:** rust-core, performance, local-models
+
+### FB-0030: Cross-workspace boundaries belong on the IPC, not in-memory
+**Date:** 2026-04-25
+**Source:** review feedback (Phase 13.F PR #18)
+
+**What was said:** First-pass `cmd_audit_artifact` took only `artifact_id`; a misbehaving caller could land an audit comment in any workspace by passing a foreign artifact id. Reviewer flagged the missing boundary check as blocking.
+
+**Synthesized rule:** When an IPC writes to a workspace stream derived from request data (artifact id → artifact's workspace_id), the request must carry the caller's `expected_workspace_id` and the implementation must reject mismatches. Don't rely on the frontend "knowing" — the boundary is a server-side invariant. Future-proofs the seam for per-workspace authorization (13.G).
+
+**Applies to:** rust-core, ipc, safety
+
+### FB-0029: Modal scrim dismisses on click, not mousedown
+**Date:** 2026-04-25
+**Source:** review feedback (Phase 13.E hardening)
+
+**What was said:** The first cut of `RepoLinkModal` used `onMouseDown` on the scrim — a drag that started inside the dialog content and ended on the scrim would surprise-dismiss the modal mid-edit.
+
+**Synthesized rule:** Use `onClick` for scrim-dismiss on every modal. `click` only fires when mousedown and mouseup land on the same element, so a text-selection drag that crosses out of the dialog will not trigger dismissal. Pinned with a vitest case so this can't quietly regress.
+
+**Applies to:** ux, code (every modal in the app)
+
+### FB-0028: Frontend modals must trap Tab focus
+**Date:** 2026-04-25
+**Source:** review feedback (Phase 13.E hardening)
+
+**What was said:** `RepoLinkModal` had `aria-modal="true"` but Tab still escaped into the AppShell behind the scrim, breaking the `aria-modal` contract.
+
+**Synthesized rule:** Every modal that ships with `aria-modal="true"` must also implement a Tab/Shift-Tab focus trap. The "collect focusables → cycle on first/last" pattern in `RepoLinkModal.collectFocusable` is the canonical implementation; it skips `inert` and `aria-hidden` (jsdom-compatible — do not filter on `offsetParent`). Reuse / lift to a hook the next time we add a modal.
+
+**Applies to:** ux, code, a11y
+
+### FB-0027: Backend hardening — bound subprocesses, validate inputs, dedupe action commands
+**Date:** 2026-04-25
+**Source:** review feedback (Phase 13.E hardening)
+
+**What was said:** Three classes of bug surfaced in the initial 13.E build: (1) `gh pr create` was unbounded — a stalled network would hang the UI indefinitely; (2) branch names flowed straight into `git worktree add -b <name>` without validation, opening an argument-injection vector when a name starts with `-`; (3) rapid double-clicks on Request Merge would race two `gh pr create` calls instead of deduplicating.
+
+**Synthesized rule:** Three durable rules for every IPC handler that fans out to a slow side-effecting subprocess:
+
+1. **Bound the subprocess** with `tokio::time::timeout(Duration, …)`. Test-overridable via a process-global slot so tests run in milliseconds. On timeout, leave projected state untouched so the user can retry; never half-commit.
+2. **Validate every string** that becomes a command argument. Fail-closed at the IPC boundary on leading `-`, whitespace, control chars, and tool-specific metacharacters. Don't trust git to reject — git will, but error messages from "argument injection that happened to fail" are useless to the user.
+3. **Idempotent commands use an in-flight set** (`Mutex<HashSet<Key>>` + RAII drop-guard). Same shape applies to approval-grant in 13.G.
+
+**Applies to:** code, security, architecture
+
 ### FB-0026: Live dev-panel knobs are how Designer's surface register gets tuned
 **Date:** 2026-04-24
 **Source:** user direction (design loop)

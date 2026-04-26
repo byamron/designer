@@ -10,7 +10,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use designer_desktop::commands;
+use designer_desktop::commands_agents;
+use designer_desktop::commands_git;
+use designer_desktop::commands_local;
+use designer_desktop::commands_safety;
 use designer_desktop::core::AppCoreBoot;
+use designer_desktop::core_agents::{coalesce_window_from_env, spawn_message_coalescer};
 use designer_desktop::events::spawn_event_bridge;
 use designer_desktop::menu::{build_menu, MENU_ID_FEEDBACK, MENU_ID_NEW_PROJECT};
 use designer_desktop::settings::{ResolvedTheme, Settings};
@@ -67,21 +72,34 @@ fn main() {
     tauri::Builder::default()
         .manage(core_for_state)
         .invoke_handler(tauri::generate_handler![
-            commands::list_projects,
             commands::create_project,
-            commands::list_workspaces,
             commands::create_workspace,
-            commands::open_tab,
-            commands::spine,
-            commands::request_approval,
-            commands::resolve_approval,
-            commands::get_theme,
             commands::get_artifact,
+            commands::get_theme,
             commands::list_artifacts,
             commands::list_pinned_artifacts,
+            commands::list_projects,
+            commands::list_workspaces,
+            commands::open_tab,
+            commands::request_approval,
+            commands::resolve_approval,
             commands::reveal_in_finder,
             commands::set_theme,
+            commands::spine,
             commands::toggle_pin_artifact,
+            commands_agents::post_message,
+            commands_git::cmd_get_track,
+            commands_git::cmd_link_repo,
+            commands_git::cmd_list_tracks,
+            commands_git::cmd_request_merge,
+            commands_git::cmd_start_track,
+            commands_local::cmd_audit_artifact,
+            commands_local::cmd_recap_workspace,
+            commands_safety::cmd_get_cost_chip_preference,
+            commands_safety::cmd_get_cost_status,
+            commands_safety::cmd_get_keychain_status,
+            commands_safety::cmd_list_pending_approvals,
+            commands_safety::cmd_set_cost_chip_preference,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -95,6 +113,13 @@ fn main() {
             // task should be torn down and re-spawned.
             let core: tauri::State<'_, Arc<AppCore>> = app.state();
             spawn_event_bridge(handle.clone(), core.inner().clone());
+
+            // Phase 13.D: spawn the message coalescer. Subscribes to the
+            // orchestrator's broadcast channel and turns bursts of agent
+            // `MessagePosted` events into one `ArtifactCreated { kind:
+            // Message }` per (workspace, author_role) once idle. Window
+            // overridable via `DESIGNER_MESSAGE_COALESCE_MS` for tests.
+            spawn_message_coalescer(core.inner().clone(), coalesce_window_from_env());
 
             Ok(())
         })

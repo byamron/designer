@@ -58,6 +58,20 @@ Called out so no future feature request or customer demand silently relaxes them
 
 Security work is folded into existing phases rather than living as a parallel universe that can slip. Three explicit sub-phases gate the three launch milestones.
 
+### Phase 13.G — Safety surfaces + Keychain (landed 2026-04-25)
+
+Foundation that 13.H builds on — surfaces and credential paths, not enforcement primitives. Three constraints from this section are now real instead of aspirational:
+
+- **Approval gates run in the Rust core (Decision 22).** `InboxPermissionHandler` (in `crates/designer-claude`) replaces `AutoAcceptSafeTools` as the production permission handler via `ClaudeCodeOrchestrator::with_permission_handler()`. Every Claude permission prompt parks the agent on a `tokio::sync::oneshot` channel inside Rust; the only release path is an event-store-backed `cmd_resolve_approval`. A compromised webview cannot synthesize a grant — it can only call the IPC, which writes to the audit log first and the agent-wakeup second. Default timeout: 5 minutes (emits `ApprovalDenied{reason:"timeout"}` and tells the agent to deny). Boot-time orphan-approval sweep emits `ApprovalDenied{reason:"process_restart"}` so phantom rows don't surface after a restart.
+- **Keychain integration is read-only (Decision 26).** `apps/desktop/src-tauri` depends on `security-framework` (`[target.'cfg(target_os = "macos")']` only) for one operation — `get_generic_password(service, "")` against `Claude Code-credentials` (overridable via `DESIGNER_CLAUDE_KEYCHAIN_SERVICE` env var). The result is a presence check; the secret bytes are never read into Designer memory and never written back. Settings → Account renders a stable copy ("Connected via macOS Keychain — Designer never reads your token.") + a state dot. The "last verified" timestamp is process-local (`OnceLock<Mutex<Option<String>>>`), never persisted, never sent anywhere.
+- **Sandboxed previews remain intact (Decision 23).** This phase did not touch HTML preview rendering or the CSP builder; the changes are confined to event flow, IPC handlers, and a topbar chip. No new iframe sources, no new scripts, no relaxed `frame-ancestors`.
+
+Scope additions that 13.H must build on:
+
+- `record_scope_denial` emits both `ScopeDenied` (domain event) and an inline `comment` artifact anchored to the offending change. 13.H's pre-write enforcement should call this helper on every refused write so the user sees a clear, non-blocking surface explaining what the agent tried.
+- `PermissionRequest` gained an additive `workspace_id: Option<WorkspaceId>` field. The trait shape stayed frozen (per ADR 0002 §"PermissionHandler"). 13.D's stdio reader must populate this when it wires the handler — the inbox handler fails closed when it's `None` (denying is safer than silently dropping the prompt).
+- Cost chip is opt-in (Decision 34). The `cost_chip_enabled: bool` setting persists in `~/.designer/settings.json` and defaults to `false`. The chip subscribes to `cost_recorded` stream events so the topbar updates without explicit refresh.
+
 ### Phase 13.H — Safety enforcement (blocks GA)
 
 Everything required before any shipped build exists.

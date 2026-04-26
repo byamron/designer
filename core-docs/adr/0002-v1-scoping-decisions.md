@@ -45,6 +45,10 @@ Everything else (writes, arbitrary bash, publishes, deploys, merges) is **denied
 
 **Applies to:** 13.D (default), 13.G (replaces default).
 
+**Status (2026-04-25, PR #19):** 13.G ships the `InboxPermissionHandler` and `AppCore::boot` installs it on `ClaudeCodeOrchestrator` via `with_permission_handler`. `AutoAcceptSafeTools` stays the default for the mock-orchestrator path so existing tests don't have to wait on a never-arriving user resolve. The handler emits `ApprovalRequested` + `ArtifactCreated{kind:"approval"}`, parks the agent on a `oneshot` with a 5-minute deadline, and resolves via `cmd_resolve_approval` (single-writer per id; resolution events land on the workspace stream). See `core-docs/integration-notes.md` §13.G for operational detail.
+
+The `PermissionHandler` trait shape stays frozen as specified here. The struct it takes — `PermissionRequest` — gained one additive field, `workspace_id: Option<WorkspaceId>` with `#[serde(default)]`. `AutoAcceptSafeTools` ignores it; `InboxPermissionHandler` requires it (fails closed when `None`, emitting an `ApprovalDenied{reason:"missing_workspace"}` audit row). When 13.D wires the stdio reader against the swapped-in handler, that wiring must populate `workspace_id` per prompt — a missing value is a wiring bug, not a runtime fallback.
+
 ### D4 — Cost-chip color thresholds
 
 **v1:** topbar usage chip color ramps against known subscription thresholds (5-hour window, weekly compute-hour cap — per spec Decision 34):
@@ -57,6 +61,8 @@ Everything else (writes, arbitrary bash, publishes, deploys, merges) is **denied
 Thresholds read from the `rate_limit_event` payload Claude Code emits (`status: "allowed" | "approaching" | "exceeded"` plus `resetsAt` and `rateLimitType`). No Designer-side tracking; the chip reflects what Claude reports.
 
 **Applies to:** 13.G.
+
+**Status (2026-04-25, PR #19):** the chip ships in `packages/app/src/components/CostChip.tsx`, off by default per spec Decision 34. The 50/80% bands are computed on the frontend (`bandFor()`) so the chip updates per `cost_recorded` stream event without an extra IPC round-trip per band change. The 95% "critical + ambient" notice is **not** wired in 13.G — it depends on Claude's `rate_limit_event` shape that lands in 13.D's stdio reader (Phase 12.A captured the wire shape but no producer feeds it yet). When 13.D wires it, the chip can subscribe to `ClaudeSignal::RateLimit` via `ClaudeCodeOrchestrator::subscribe_signals` and add the >95% band. Until then the chip caps visually at the 80% red band. Color tokens use the existing Radix scale (`--success-9 / --warning-9 / --danger-9`) — no new role tokens were added; see `pattern-log.md` 2026-04-25 for the rationale.
 
 ## Consequences
 

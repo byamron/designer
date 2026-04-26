@@ -139,6 +139,61 @@ export interface OpenTabRequest {
   template: TabTemplate;
 }
 
+// ---- Agent wire (Phase 13.D) ----
+export interface PostMessageAttachment {
+  id: string;
+  name: string;
+  size: number;
+}
+
+export interface PostMessageRequest {
+  workspace_id: WorkspaceId;
+  text: string;
+  attachments: PostMessageAttachment[];
+}
+
+export interface PostMessageResponse {
+  artifact_id: ArtifactId;
+}
+
+// ---- Track + git wire (Phase 13.E) ----
+export type TrackId = string;
+
+export type TrackState =
+  | "active"
+  | "requesting_merge"
+  | "pr_open"
+  | "merged"
+  | "archived";
+
+export interface TrackSummary {
+  id: TrackId;
+  workspace_id: WorkspaceId;
+  branch: string;
+  worktree_path: string;
+  state: TrackState;
+  pr_number: number | null;
+  pr_url: string | null;
+  created_at: string;
+  completed_at: string | null;
+  archived_at: string | null;
+}
+
+export interface LinkRepoRequest {
+  workspace_id: WorkspaceId;
+  repo_path: string;
+}
+
+export interface StartTrackRequest {
+  workspace_id: WorkspaceId;
+  branch: string;
+  base?: string | null;
+}
+
+export interface RequestMergeRequest {
+  track_id: TrackId;
+}
+
 export interface StreamEvent {
   kind: string;
   stream_id: string;
@@ -149,3 +204,13 @@ export interface StreamEvent {
 }
 
 export type AttentionTier = "inline" | "ambient" | "notify" | "digest";
+
+// Phase 13.G safety surfaces — re-exported from `./client` for convenience
+// so `import type { KeychainStatus } from "../ipc/types"` works without
+// pulling in the runtime client module.
+export type {
+  CostChipPreferences,
+  CostStatus,
+  KeychainStatus,
+  PendingApproval,
+} from "./client";

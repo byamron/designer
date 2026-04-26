@@ -16,6 +16,7 @@
 //! denial until the inbox lands).
 
 use async_trait::async_trait;
+use designer_core::WorkspaceId;
 use serde::{Deserialize, Serialize};
 
 /// A single permission request from Claude. Claude's stdio protocol sends
@@ -24,6 +25,11 @@ use serde::{Deserialize, Serialize};
 /// inspect it. The exact stdio wire format is owned by 13.D (the track that
 /// reads from the subprocess); this struct is the orchestrator-level
 /// normalized view both 13.D and 13.G consume.
+///
+/// **Field stability.** The trait shape is frozen by ADR 0002 §"PermissionHandler"
+/// — `decide(req) -> PermissionDecision`. Adding additive fields to the
+/// request struct is allowed (old call sites that don't set them get the
+/// `Default` value); changing or removing fields is not.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRequest {
     /// Tool name as Claude reports it, e.g. `"Read"`, `"Bash"`, `"Write"`.
@@ -33,6 +39,14 @@ pub struct PermissionRequest {
     pub input: serde_json::Value,
     /// Short human-readable summary the handler can show in UI or log.
     pub summary: String,
+    /// Workspace the prompt belongs to, when the orchestrator can attribute
+    /// it. `None` when the call site is older than Phase 13.G's wiring (e.g.
+    /// the existing `AutoAcceptSafeTools` tests). The `InboxPermissionHandler`
+    /// requires a workspace to anchor the approval artifact; it denies the
+    /// request immediately when the field is `None`, so 13.D's stdio reader
+    /// must populate it before swapping the handler in.
+    #[serde(default)]
+    pub workspace_id: Option<WorkspaceId>,
 }
 
 /// Outcome the handler returns. `Accept` / `Deny` are sent straight back to
@@ -149,6 +163,7 @@ mod tests {
             tool: tool.to_string(),
             input,
             summary: format!("test {tool}"),
+            workspace_id: None,
         }
     }
 

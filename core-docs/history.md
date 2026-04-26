@@ -37,6 +37,332 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 13 integration meta-PR [#20] — D/E/F/G unified onto `phase-13-integration`
+**Date:** 2026-04-26
+**Branch:** phase-13-integration → main
+**Commits:** 4dd11c7 (D) → bc40343 (E) → 58b4861 (G) → 5a32418 (F) → 8c712d4 (post-review cleanup)
+**PR:** [#20](https://github.com/byamron/designer/pull/20) — MERGEABLE / CLEAN, all five CI checks green (rust test / clippy / fmt / frontend / claude-live integration)
+
+**What was done:**
+
+The four parallel Phase 13 tracks (D agent-wire, E track+git, G safety+keychain, F local-model surfaces) were merged in the documented integration order onto a single `phase-13-integration` branch. Conflicts resolved cleanly across the predicted hot-spots — `apps/desktop/src-tauri/src/main.rs::generate_handler!` (alphabetized handler list with all four tracks' commands interleaved), `apps/desktop/src-tauri/src/{core,ipc}.rs` (PR 19's `cmd_request_approval`/`cmd_resolve_approval` real implementations co-exist with PR 16's track commands), `crates/designer-{core,ipc}/` (re-exports merged: `author_roles + Track + TrackState + USER_AUTHOR_ROLE`), `packages/app/src/ipc/{client,types,mock}.ts` (one unified `IpcClient` interface with all 22 methods), `packages/app/src/blocks/blocks.tsx` (PrototypePreview import alongside ipc/StreamEvent imports), `core-docs/{plan,history,generation-log,roadmap,integration-notes}.md` (chronological merge of 13.D + 13.E + 13.G + 13.F entries side-by-side). PR 18's `FB-0027/0028` were renumbered to `FB-0030/0031` to avoid collision with PR 16's review-pass feedback entries. PR 18's tuple-form `IpcError` sites were migrated to PR 17's struct-form constructors (`invalid_request`, `not_found`, `unknown`).
+
+**Six-agent post-merge review:**
+
+After the integration commits landed, a parallel review pass ran six agents: staff engineer, staff UX designer, staff design engineer (the three perspectives the user asks for on every milestone), plus the simplify pass's reuse / quality / efficiency reviewers. Findings:
+
+- **Staff engineer** (`af5f93b352b883dd5`) — verdict "needs changes, blocking on C1 + C2." Identified four production wiring gaps inherent to the underlying PRs (not regressions from the merge): F1 `permission_handler.decide()` not routed in stdio reader, F2 `PermissionRequest::workspace_id` not populated, F3 `ClaudeSignal::Cost` broadcast into the void, F4 `core_git::check_track_status` bypasses the 13.F summary hook. Plus pre-existing `TabOpened` double-apply (synchronous + broadcast subscriber both fire). All four are tracked as Phase 13.H.
+- **Staff UX designer** (`a1756e45cd898c0b4`) — verdict "needs changes before merge." Three blockers: mock "Acknowledged: …" reply visible without a dev/mock indicator, ComposeDock loses attachments on send failure (only text restores), late-grant after timeout produces contradictory UI. Nine high-priority UX gaps including missing 5-min timeout copy on ApprovalBlock, generic repo-link error messages, color-blind accessibility on the cost-chip band. Filed as 13.H polish + Phase 15 a11y work.
+- **Staff design engineer** (`ac8d98fe32694a260`) — verdict "ready to merge with H1–H5 fixed." H1 (broken `--font-mono` token reference, fixed) was the only must-fix-before-merge. H2 RequestMergeButton needs stream subscription, H3 CostChip popover needs overflow guard, H4 AppDialog/RepoLinkModal scrim-dismiss disagreement, H5 two parallel modal implementations (RepoLinkModal duplicates AppDialog plumbing). Token discipline broadly clean.
+- **Reuse review** (`a2fea0cba52cb8536`) — top win: blanket `impl From<CoreError> for IpcError` collapses everything to `Unknown`, masking 7 sites that should be `not_found` / `invalid_request`. Fixed in 8c712d4. Mock IPC stub duplicated across 3 test files (filed as Phase 13.H+ helper extraction). `first_line_truncate` (Rust) vs `firstLineTruncate` (TS) drift on multibyte input.
+- **Quality review** (`ad20cd7b22b665498`) — top issues: stringly-typed author roles partially adopted (registry exists; only 13.F imports it). Fixed in 8c712d4 by expanding `author_roles` registry with `TEAM_LEAD / USER / SYSTEM` and migrating four production sites. `cmd_request_approval` is dead-but-shipped — kept deliberately as a security stub; documented in 13.G integration-notes.
+- **Efficiency review** (`aa4b46578c70a4a44`) — boot path runs four sequential full event-log scans (projector replay + cost replay + gate replay + orphan sweep). Filed as 13.H+ optimization. Coalescer ticks 33×/sec when idle. ApprovalBlock mounts one stream listener per block (N approval blocks = N listeners). All filed as follow-ups; none are correctness issues.
+
+**Post-review cleanup (commit 8c712d4):**
+
+Four low-risk wins applied to the integration branch:
+1. `impl From<CoreError> for IpcError` discriminates `Invariant → invalid_request`, `NotFound → not_found`, `InvalidId → invalid_request`. Removes 4 hand-rolled match blocks; fixes 7 silent error-downgrade sites.
+2. `.block__file` references `--type-family-mono` (the canonical token) instead of the undefined `--font-mono` (which was masked by the `monospace` fallback).
+3. `designer_core::author_roles` adds `TEAM_LEAD`, `USER`, `SYSTEM` constants. Production sites that hardcoded `"system".into()` (core_git PR + code-change emit, core_safety scope-deny comment, inbox_permission approval artifact) now route through the registry — `TRACK` for git-emitted, `SAFETY` for safety-emitted.
+4. Deleted no-op `__reset_inbox_handler_for_tests` stub the engineer review flagged as misleading; the docstring claimed it cleared the OnceCell but the body did nothing.
+
+**Frozen-contract compliance verified:**
+- `crates/designer-core/src/event.rs` event vocabulary unchanged.
+- `crates/designer-claude/src/permission.rs` `PermissionHandler` trait shape unchanged (PR 19's `workspace_id` field is additive on the request struct, not on the trait method signature).
+- `crates/designer-ipc/src/lib.rs` artifact DTOs unchanged. New non-artifact DTOs added per ADR 0003's "frozen surface is the artifact DTOs; new IPC commands grow non-artifact request/response shapes."
+
+**Quality gates (final, post-cleanup):**
+- `cargo fmt --all -- --check` ✅
+- `cargo clippy --workspace --all-targets -- -D warnings` ✅
+- `cargo test --workspace` ✅ (30 test groups, ~150+ tests)
+- `npx tsc --noEmit` ✅
+- `npx vitest run` ✅ (33/33 across 8 files)
+
+**Known follow-ups (filed as Phase 13.H — Phase 13 hardening pass):**
+
+F1, F2, F3, F4 (see `roadmap.md` Track 13.H). Plus the medium-priority items from the six reviews: mock IPC stub helper extraction, `IpcClient` interface split into thematic sub-interfaces, boot-path replay consolidation, `cmd_list_artifacts` summary projection, coalescer idle-wakeup elimination, `ApprovalBlock` subscription multiplexing, `RequestMergeButton` stream subscription, AppDialog scrim-dismiss alignment, ComposeDock attachment restoration on send failure, mock-orchestrator dev-only string indicator, `TabOpened` double-apply.
+
+**Lessons learned:**
+
+- The integration commit (`5a32418`) where conflicts get resolved is the most error-prone surface; the post-merge review pass is a real defense. Six agents in parallel surfaced four production wiring gaps that none of the per-PR reviews caught, because each per-PR reviewer didn't have the cross-cut visibility.
+- The "frozen contracts" convention (event.rs, PermissionHandler trait, artifact DTOs locked by 13.0) held across four parallel branches with zero shape conflicts. Worth keeping the convention for future parallel-fan-out phases.
+- Stale `.git/index.lock` from a parallel git operation in another worktree blocked the final commit and could not be cleared from the sandbox; required user intervention. Future automation should detect this and fail loudly rather than silently looping.
+
+### Phase 13.F — local-model surfaces (initial + post-review pass)
+**Date:** 2026-04-25
+**Branch:** 13f-local-model-surfaces
+**Commit:** [pending — see PR]
+
+**Review pass (2026-04-25 same-day):**
+
+- **Debounce-burst race fix.** First-pass `SummaryDebounce` cached only resolved values; a second caller arriving while the first was in flight saw no entry and dispatched its own helper call (call_count == 2 for a burst that should be 1). Fixed by tracking inflight slots (`watch::Sender<Option<String>>`) alongside resolved entries; concurrent callers join the same in-flight watch. Test `concurrent_burst_shares_one_helper_call` asserts call_count == 1 after a 100ms-apart burst over an 800ms helper.
+- **Eviction.** Added `SUMMARY_DEBOUNCE_MAX_ENTRIES = 1024` cap with opportunistic prune of expired `Resolved` entries on each `claim`. Inflight slots are never evicted (would error every awaiter). Test `debounce_cache_is_bounded_under_churn` exercises 1000 unique keys.
+- **`Weak<AppCore>` on the late-return spawn.** Previous code held `Arc<AppCore>` in the detached task — a slow helper would extend AppCore's lifetime past shutdown by the helper-call duration. Now uses `Arc::downgrade(self)` and bails when `upgrade()` returns None.
+- **Archived target rejection.** `Projector::artifact()` returns artifacts regardless of `archived_at`; the projector preserves history. The audit/recap policy ("don't audit something that's been archived") lives at the boundary now: `audit_artifact` returns `NotFound` when `target.archived_at.is_some()`, `recap_workspace` returns `Invariant` for archived/errored workspaces, and `emit_artifact_updated` short-circuits if the target was archived between append and helper return.
+- **Cross-workspace audit boundary.** `AuditArtifactRequest` now requires `expected_workspace_id`; `AppCore::audit_artifact(id, expected, claim)` validates `target.workspace_id == expected` and returns `Invariant` (mapped to `IpcError::InvalidRequest`) on mismatch. Future-proofs the seam for per-workspace authorization in 13.G.
+- **Author-role registry.** New module `designer_core::author_roles` exports `RECAP`, `AUDITOR`, `AGENT`, `TRACK`, `SAFETY`, `WORKSPACE_LEAD` constants. Replaces inline `"auditor"` / `"recap"` literals; downstream tracks should reuse to avoid drift.
+- **Local timezone for "Wednesday recap".** Added `local-offset` to the workspace `time` feature set; `weekday_label()` now uses `OffsetDateTime::now_local()` with UTC fallback when the host can't resolve a local offset (sandboxed CI envs).
+- **PrototypeBlock CSP regression fixed.** First-pass inline-HTML mode used `sandbox="allow-forms allow-pointer-lock"` — same as the lab demo, but without the lab's CSP `<meta>` wrapping. A `<form action="https://attacker">` could exfiltrate. Two defenses now: (1) `sandbox=""` (no permissions — blocks form submission entirely) and (2) `wrapInlineHtmlWithCsp()` injects a CSP `meta` tag with `form-action 'none'`, `script-src 'none'`, etc. New vitest `hardens against form-action XSS` asserts both defenses.
+- **`summary_provenance` deferred** to a pre-launch ADR. Adding the field non-breakingly is a new variant on the artifact event vocabulary (`ArtifactSummaryProvenanceSet`), which warrants its own decision record. The 12.B system-level helper-status indicator covers the global case for now.
+- **Wiring TODO.** Module docs for `core_local.rs` and ADR 0003 explicitly note that tracks D/E/G must route `code-change` through `append_artifact_with_summary_hook`; direct `store.append` bypasses the hook and breaks Decision 39's at-write-time guarantee. Search for `TODO(13.F-wiring)` during track-integration merges.
+
+Test coverage: 15 Rust unit tests (5 new this pass — concurrent burst, archived target, cross-workspace boundary, helper-down + long summary, eviction under churn) + 4 vitest cases (1 new — XSS via form-action).
+
+
+**What was done:**
+
+- New `AppCore::append_artifact_with_summary_hook(draft: ArtifactDraft)` seam in `apps/desktop/src-tauri/src/core_local.rs`. For `ArtifactKind::CodeChange` it calls `LocalOps::summarize_row` with a 500ms timeout; success replaces the supplied summary before the event lands, timeout/error/fallback uses a deterministic 140-char ellipsis-truncated fallback, and a detached task emits `ArtifactUpdated` if the helper eventually returns. Other artifact kinds bypass the hook and append verbatim.
+- Per-track debounce (`SummaryDebounce` field on `AppCore`) — `(workspace_id, author_role)` keys; within a 2-second window, a second `code-change` reuses the cached summary instead of round-tripping the helper.
+- `AppCore::recap_workspace(workspace_id)` — gathers non-report artifacts, calls `LocalOps::recap`, emits `ArtifactCreated { kind: "report", title: "<Weekday> recap", summary: <headline>, author_role: Some("recap") }` with markdown payload.
+- `AppCore::audit_artifact(artifact_id, claim)` — calls `LocalOps::audit_claim`, emits `ArtifactCreated { kind: "comment", title: "Audit: <claim>", summary: <verdict>, author_role: Some("auditor") }` in the target's workspace.
+- `commands_local::cmd_recap_workspace` and `commands_local::cmd_audit_artifact` Tauri shims; both registered alphabetically in `main.rs`'s `tauri::generate_handler!`.
+- `PrototypeBlock` now renders inline-HTML payloads via `PrototypePreview`. `PrototypePreview` was extended with a discriminated-union prop signature so `{ workspace }` (existing lab demo) and `{ inlineHtml, title? }` (new artifact path) coexist. The artifact path renders just the sandbox iframe (`sandbox="allow-forms allow-pointer-lock"`, no `allow-scripts`). `PrototypeBlock` change: 7 LOC.
+- ADR 0003 amended with the hook-seam contract.
+- 10 new Rust tests in `core_local::tests` (in-deadline path, late-return → ArtifactUpdated, helper-error fallback, debounce reuse, recap happy path + missing-workspace error, audit emission, fallback truncate, non-code-change bypass). 3 new vitest tests in `prototype-block.test.tsx` (inline HTML → sandboxed iframe, no payload → placeholder, hash payload → placeholder).
+- Quality gates: `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `tsc --noEmit`, `vitest run` — all green. 16 frontend tests, 100+ backend tests.
+
+**Why:**
+
+Phase 13.1 (PR #15) shipped the typed-artifact foundation but left the local-model emitters as TODOs. 13.F is the on-device-models track in the four-track Phase-13 fan-out: write-time summaries (spec Decision 39), morning recap, audit verdicts. Without it, every emitted artifact carries the producer's raw `summary` text, which means the rail/collapsed views see verbose-and-noisy strings that don't summarize the change.
+
+**Design decisions:**
+
+- **Option B for debounce** (each artifact gets the same batch summary; no event suppression). Justification: keeps the rail's edit count accurate, doesn't violate `ArtifactCreated` semantics (each batch IS its own artifact), and avoids a race window where a "merged" representation would have to be reconciled with downstream pin/unpin events. Only the helper round-trip is coalesced, not the events themselves.
+- **Hook seam, not store interceptor.** The seam is an `AppCore` method that tracks call instead of `store.append`; this keeps `EventStore` agnostic to LocalOps and replays remain bit-for-bit deterministic (the stored summary is whatever was written, never regenerated). Late-arriving `ArtifactUpdated` events also persist their summary verbatim — replay safety preserved.
+- **Helper-down short-circuits before the call.** Per integration-notes §12.B, `NullHelper::generate` returns a `[unavailable …]` marker that must not be rendered as user copy. The hook checks `helper_status.kind == Fallback` before dispatch and uses the deterministic truncation directly.
+- **Per-artifact provenance not added to the schema.** ADR 0003 froze the artifact event vocabulary; adding `summary_provenance: Option<String>` would be a breaking change. The existing system-level helper status (12.B's IPC) drives a global "On-device models unavailable" indicator. Per-artifact "this is a fallback summary" badges are a 13.G/UI follow-up if and when needed.
+- **`PrototypePreview` discriminated-union prop signature.** Extending PrototypePreview with an `inlineHtml` prop kept the integration to a single prop pass on the consumer side without expanding the lab-demo's responsibilities. The new path is strictly the sandbox primitive — no variant explorer, no annotation toggle.
+
+**Technical decisions:**
+
+- **`tokio::spawn` + `&mut handle` for the timeout race.** Lets us wait up to 500ms inside the append, then keep awaiting the same future from a detached task without re-running the helper call.
+- **`ArtifactDraft` packed-arg struct** introduced to keep the public seam below clippy's `too_many_arguments` ceiling (was 8 args, ceiling is 7) without scattering `#[allow(clippy::…)]` markers. Bonus: gives downstream tracks a typed "build this artifact" object that's symmetric with `EventPayload::ArtifactCreated`.
+- **`pub(crate)` on `helper_events`.** Tests in `core_local::tests` need to construct `AppCore` directly with a custom `FoundationHelper` (so they can control response timing). Promoting `helper_events` from private to `pub(crate)` was the minimum change; no public API impact.
+- **Recap entries filter out `report` artifacts.** Avoids feeding yesterday's recap into today's recap as input; report-of-reports is a pathological recursion.
+
+**Tradeoffs discussed:**
+
+- **Option A vs B for debounce.** Option A (merge artifacts into one) was rejected: violates "each semantic edit batch is an artifact" (Decision 39's premise) and complicates pin/unpin/archive on a coalesced artifact. Option B is the simpler invariant.
+- **CSP injection in `PrototypePreview`.** The lab demo wraps each variant's HTML in a CSP `meta` header. The 13.F path passes payload-as-srcdoc verbatim — the iframe's `sandbox` attribute (without `allow-scripts`) is the principal defense; CSP-meta would require either parsing-and-reinjecting the agent's HTML or wrapping it in a host document. Either option moves user code; the sandbox attribute alone meets the brief's "PrototypePreview already handles iframe sandboxing" framing.
+
+**Lessons learned:**
+
+- Tokio's `tokio::spawn` returning `JoinHandle<HelperResult<T>>` produces a triple-nested Result on `tokio::time::timeout(..., &mut handle)` — `Result<Result<HelperResult<T>, JoinError>, Elapsed>`. Clear branches on each layer keep the timeout path readable.
+- `cargo clippy`'s `too_many_arguments` lint fires on `>7` args. The artifact-creation seam naturally has 7 fields; adding any one (e.g., `causation_id`) would push past it. Packing into `ArtifactDraft` future-proofs the boundary.
+
+
+### Phase 13.D — agent wire
+**Date:** 2026-04-25
+**Branch:** 13d-agent-wire
+**Commit:** pending
+
+**What was done:**
+
+End-to-end user-prompt → agent-reply loop, against the ADR 0003 artifact foundation. New IPC command `cmd_post_message(workspace_id, text, attachments)` lands the user's draft as both a `MessagePosted` event and an `ArtifactCreated { kind: "message" }` artifact synchronously, then dispatches the body to `Orchestrator::post_message`. A new `OrchestratorEvent::ArtifactProduced` variant carries agent-emitted typed artifacts (today only `diagram` and `report` per the 13.D scope cap) without rerouting them through the persisted `MessagePosted` channel — the AppCore stays the single writer of `EventPayload::ArtifactCreated`.
+
+A boot-spawned message coalescer task subscribes to the orchestrator's broadcast channel, filters out user echoes, accumulates per-(workspace, author_role) bursts, and flushes one `ArtifactCreated { kind: "message" }` after 120 ms of idle (the partial-message coalescer deferred from 12.A; window overridable via `DESIGNER_MESSAGE_COALESCE_MS` for tests). `MockOrchestrator::post_message` no longer double-persists the user's text; instead it simulates a deterministic `Acknowledged: …` reply and emits `ArtifactProduced` when the prompt mentions "diagram" or "report", which is enough to exercise the full round-trip in the offline demo.
+
+`WorkspaceThread.onSend` now `await`s `ipcClient().postMessage`. The placeholder "wiring lands in Phase 13.D" notice is gone. On error the draft is restored into the compose dock and an alert banner surfaces the message so the user can edit and resend without retyping. The mock IPC client mirrors the Rust path closely enough that `vitest` can render the thread, click send, and assert the request shape.
+
+`PostMessageRequest`, `PostMessageAttachment`, and `PostMessageResponse` DTOs added to `designer-ipc`; matching TypeScript types in `packages/app/src/ipc/types.ts`. `ipc_agents.rs` holds the runtime-agnostic async handler; `commands_agents::post_message` is the thin Tauri shim, registered alphabetically in `main.rs`'s `generate_handler!`.
+
+**Why:**
+
+13.1 unified the workspace surface around `WorkspaceThread` but left the compose dock wired to a "draft cleared" notice. 12.A delivered the Claude Code subprocess primitive but the partial-message coalescer was deferred. 13.D closes both: the user can now type a message and watch an agent reply land inline. Without this, the unified thread is a read-only artifact viewer.
+
+**Design decisions:**
+
+- **User text persists synchronously.** `AppCore::post_message` appends both the `MessagePosted` event and the `ArtifactCreated` artifact before calling the orchestrator. If the subprocess is down, the user's text is durable — they see it in the thread, they can re-dispatch, they don't lose drafts to a flaky child.
+- **Lazy team spawn on first message.** Demo / fresh workspaces start without a team. The first user message lazy-spawns one (lead_role `team-lead`, no teammates). Future tracks can override the spawn payload by spawning a team explicitly before the first message.
+- **Coalescer drops user echoes.** `MockOrchestrator::post_message` re-broadcasts the user prompt as `OrchestratorEvent::MessagePosted` for parity with the real Claude flow (which re-emits assistant text via the stream translator). The coalescer matches `author_role == "user"` and drops the echo so the user doesn't see their text twice.
+- **Failed sends restore the draft.** ComposeDock clears its draft after `onSend` returns regardless of outcome. WorkspaceThread catches the failure, calls `composeRef.current?.setDraft(payload.text)` and refocuses, so the user can edit and resend without retyping.
+
+**Technical decisions:**
+
+- **Coalescer is two tasks, not one.** Recv task accumulates bodies under a `parking_lot::Mutex<HashMap>`; tick task polls every 30 ms and drains entries that have been idle for ≥ window. Single-task `tokio::select!` with a dynamic timer was rejected — bookkeeping for the next deadline doubled the code with no measurable latency win.
+- **`OrchestratorEvent::ArtifactProduced` is broadcast-only.** The real `ClaudeCodeOrchestrator`'s reader task persists `EventPayload::MessagePosted` via `event_to_payload`, but for `ArtifactProduced` we explicitly return `None` — AppCore's coalescer is the single writer for `EventPayload::ArtifactCreated`. Two writers would race the projector and produce duplicate artifacts.
+- **`spawn_message_coalescer` is a free function, not a method.** Per `CLAUDE.md` §"Parallel track conventions", new methods on `AppCore` go in `core_agents.rs`'s sibling `impl AppCore { … }` block, but the boot wiring lives in `main.rs::setup`. Free function accepts `Arc<AppCore>` so it composes naturally with both the production boot path and the test setup.
+- **Test override via env.** `DESIGNER_MESSAGE_COALESCE_MS` shrinks the 120 ms production window to 5 ms in tests. The round-trip test polls every 20 ms for the diagram artifact + the agent's coalesced reply with a 25-attempt cap (~500 ms ceiling).
+
+**Tradeoffs discussed:**
+
+- **Modify `MockOrchestrator::post_message` vs. introduce a new test surface.** Modified the mock — the existing semantics ("write the user's text as if the team echoed it") were a stand-in that doesn't match the real Claude flow. Switching the mock to broadcast-only (no persist) for the user message + simulate an agent reply is closer to the real path and lets the AppCore stay the single user-side persister. One existing test (`mock_assign_task_produces_create_and_complete`) still passes against the new behavior.
+- **Add `OrchestratorEvent::ArtifactProduced` vs. keyword-detect inside the coalescer.** Added the variant. Keyword detection in `core_agents.rs` would tightly couple the AppCore to the mock's keyword convention and force the same logic to be re-derived when real Claude tool-use shapes are observed. The variant gives the translator (or any future orchestrator) a clean emission target.
+- **Disable the send button while in-flight vs. let the empty-draft guard prevent double-dispatch.** Did the latter. ComposeDock clears its draft after `onSend` returns; the next send sees an empty draft and the dock's empty guard short-circuits. Disabling the button would require wiring a `disabled` prop through ComposeDock's controlled-component contract; not worth the surface change.
+
+**Lessons learned:**
+
+- **`#[serde(tag = "kind", …)]` collides with a field literally named `kind`.** Initially named the new `OrchestratorEvent::ArtifactProduced` field `kind`. The derive emitted "variant field name `kind` conflicts with internal tag" and refused to compile. Renamed to `artifact_kind` to mirror `EventPayload::ArtifactCreated`'s convention, which already worked around the same collision.
+- **Same serde rule blew up `IpcError`.** Newtype-tuple variants (`Unknown(String)`, `NotFound(String)`, …) on an internally-tagged enum (`#[serde(tag = "kind")]`) compile but fail at runtime with "cannot serialize tagged newtype variant containing a string". Latent bug — the existing crate had it since 13.0 — surfaced as soon as 13.D actually returned typed errors over the wire. Converted every variant to a struct form (named field) and added a `tests::ipc_error_serialization_shape_has_kind_tag` round-trip lock; the TS translator in `packages/app/src/ipc/error.ts` matches against the locked shape.
+- **DEFERRED transactions deadlock under concurrent writers in WAL mode, even with `busy_timeout`.** The 13.D coalescer is the first path with two concurrent SQLite writers (AppCore writes the user artifact while the coalescer's `emit_agent_artifact` writes a tool-call artifact). `conn.transaction()` defaults to DEFERRED, which acquires a read lock on the first SELECT and tries to upgrade to write at the first INSERT — and SQLite returns `SQLITE_LOCKED` (not `SQLITE_BUSY`) for that upgrade conflict, which `busy_timeout` does **not** retry. Switched the append path to `transaction_with_behavior(Immediate)` so the write lock is acquired at BEGIN and `busy_timeout=5000` handles the contention cleanly. Also added `PRAGMA busy_timeout=5000` to per-connection init so future write paths benefit.
+- **`stream_id` wire format was checked incorrectly.** `StreamId::Workspace(uuid)` serializes as `"workspace:<uuid>"` (Rust `Display` impl), but the WorkspaceThread refresh listener checked `event.stream_id === workspace.id` — it would only have matched the bare-uuid mock format. Production events would have flowed through the channel without ever triggering a refresh. Tightened the listener to match the production prefix and updated the mock to emit production-shaped stream_ids; added a vitest that dispatches a `workspace:<uuid>` artifact event and asserts a refresh fires.
+- **Frontend draft preservation is non-trivial.** ComposeDock clears its draft synchronously after `onSend` returns. To preserve on failure, the parent has to re-seed the draft via the imperative `setDraft` handle. Otherwise the user retypes a long prompt every time the orchestrator burps. Pair that with a synchronous `useRef` re-entry guard on `onSend` so two clicks within one microtask don't both dispatch (React state alone batches and would let both through).
+- **Cargo workspace tests can flake when one test sets `std::env::set_var` from inside a `#[tokio::test]`.** The first run of `cargo test --workspace` produced one transient failure on the unrelated `core::tests::open_tab_appends_and_projects`. Eight follow-up runs were clean. The likely cause is the projector's broadcast subscriber double-applying the `TabOpened` event under load — a pre-existing race documented in `core.rs` (synchronous `apply` + broadcast subscriber both fire). Out of scope for 13.D.
+
+**Followup fixes (in this same PR after the first review pass):**
+
+- **Order flipped to dispatch-first, persist-second.** Original implementation persisted the user artifact before dispatching to the orchestrator on the principle "drafts survive subprocess failure". That created a duplicate-on-retry pattern: dispatch fails → user artifact persisted → user retries → second user artifact for the same text. Flipped the order so the artifact lands only on successful dispatch; the frontend's draft restoration covers the "didn't lose my text" UX.
+- **`OrchestratorEvent::ArtifactProduced` is processed inline.** Originally `tokio::spawn`'d to keep the recv loop draining; that put a concurrent SQLite writer in flight against `AppCore::post_message`. Moved to inline `await` — tool-call burst rate is low enough that briefly blocking the recv loop is fine, and the broadcast channel buffers 256 events behind it.
+- **Coalescer holds `Weak<AppCore>`.** Tasks no longer keep the core alive past the caller's last `Arc`; tests can call `boot_test_core` repeatedly without leaking spawned tasks across runs.
+- **Length cap.** `cmd_post_message` rejects bodies > 64 KB with `IpcError::InvalidRequest` — caps a runaway paste before it hits the orchestrator or the projector.
+- **Attachments warn-and-drop.** Attachments accepted by the IPC are logged at WARN level so we notice if a flow starts depending on attachment delivery before the storage path exists. Tracked as `TODO(13.D-followup)`.
+- **`tool_use` / `tool_result` translator gap.** Marked `TODO(13.D-followup)` in `crates/designer-claude/src/stream.rs::translate_assistant`. Per "summarize by default, drill on demand," agent tool calls should at minimum emit `ArtifactProduced` summaries; the wiring lands per-tool as we observe Claude's tool-use shapes.
+
+### Phase 13.E — Track primitive + git wire (review-pass hardening)
+**Date:** 2026-04-25
+**Branch:** track-primitive-git-wire
+**Commit:** TBD
+
+**Hardening pass over the initial 13.E build, applied in the same PR:**
+
+- *Branch-name argument injection blocked.* `validate_branch` rejects names that start with `-` (would be parsed as a `git`/`gh` flag) or contain whitespace, control chars, or any of `~^:?*[\\\0`. Fail-closed at IPC, before the worktree directory is even created.
+- *gh subprocess timeout.* `request_merge` runs `gh pr create` under a 30-second timeout (test-overridable). On timeout the track stays `Active` so the user can retry; no ghost in-flight state.
+- *Idempotent `request_merge`.* In-memory inflight set keyed by `TrackId`. A double-click finds the second call, short-circuits, and returns a friendly invariant error instead of running `gh pr create` twice and getting "PR already exists" the second time.
+- *Robust gh URL parsing.* `gh pr create` interleaves push progress with the PR URL; `extract_pr_url` (in `designer-git`) plucks the last `https://…/pull/N` line. The earlier "trim whole stdout, hand to `gh pr view`" path was fragile.
+- *Per-repo serialization of `start_track`.* Per-repo async mutex means concurrent `start_track` calls on the same repo serialize cleanly — one succeeds with its worktree, the other gets a clean "branch already exists" error from git.
+- *Partial-init rollback.* If `seed_core_docs` or `commit_seed_docs` fails after `init_worktree` succeeded, the worktree is removed before the error propagates. Same for an event-store write failure on `TrackStarted`. The user can retry without a leaked checkout.
+- *Edit-batch signature now per-file.* The earlier coarse signature (file count + total +/-) collided when two distinct diffs touched the same paths with the same totals — the second batch was silently dropped. The new signature includes per-file `+a:-r` so redistributed edits across the same files survive.
+- *Bounded `batch_signatures` map.* Cleared opportunistically inside `check_track_status` when the track is `Merged` or `Archived`; `forget_track` exposed for explicit cleanup hooks.
+- *Symlink-resolved `repo_path`.* `link_repo` runs `fs::canonicalize` before validation and persistence, so two distinct user-facing paths that point at the same repo dedupe to one stored value.
+- *Domain comment corrected.* `TrackState::RequestingMerge` is now documented as reserved (not produced by replay today). Idempotence is enforced in-process via the inflight set rather than a state-machine transition; this matches the frozen event vocabulary.
+- *RepoLinkModal a11y.* Tab/Shift-Tab focus trap so keyboard users can't escape the modal into the AppShell behind the scrim. Scrim dismiss flipped from `onMouseDown` to `onClick` so a drag that starts inside the dialog and ends on the scrim no longer surprise-dismisses.
+
+**Tests added in this pass:**
+- `start_track_rejects_branches_with_leading_dash` — argument-injection guard.
+- `start_track_rejects_branch_with_whitespace` — secondary metachar guard.
+- `concurrent_start_track_same_branch_one_succeeds_one_fails_clean` — racing concurrent calls; exactly one track gets projected.
+- `start_track_rolls_back_worktree_when_seed_commit_fails` — verifies cleanup path called once and no `TrackStarted` was projected.
+- `request_merge_dedupes_concurrent_calls` — in-flight set rejects the second call.
+- `request_merge_times_out_on_stalled_gh` — timeout fires; track stays Active.
+- `request_merge_surfaces_gh_already_exists` and `_gh_auth_failure` — gh stderr makes it back to the IPC error.
+- `edit_batch_signature_distinguishes_same_total_different_distribution` — regression test for the silent-drop bug; would fail under the old coarse signature.
+- `link_repo_canonicalizes_symlinked_path` — symlink → canonical path stored.
+- `extracts_url_from_progress_decorated_stdout` / `_bare_url_stdout` / `returns_none_when_no_url_present` — `designer-git::extract_pr_url`.
+- `traps Tab focus inside the dialog` and `scrim dismiss uses click, not mousedown` — vitest, RepoLinkModal a11y.
+
+**Initial 13.E build (kept below):**
+
+**What was done:**
+
+*Domain.* `crates/designer-core/src/domain.rs` gained the `Track` aggregate (`id`, `workspace_id`, `branch`, `worktree_path`, `state`, `pr_number?`, `pr_url?`, `created_at`, `completed_at?`, `archived_at?`) and the `TrackState` enum (`Active → RequestingMerge → PrOpen → Merged → Archived`). Projection extended with `tracks: BTreeMap<TrackId, Track>` + `tracks_by_workspace: BTreeMap<WorkspaceId, Vec<TrackId>>`, projecting `TrackStarted / PullRequestOpened / TrackCompleted / TrackArchived` (event vocabulary frozen by 13.0; this PR adds the emitters and projection only).
+
+*GitOps.* `designer-git` got `validate_repo`, `init_worktree` (already present, used now), `commit_seed_docs` (skips no-op staged trees so re-seeds are clean), and `current_status` (committed + uncommitted diff vs base). `open_pr` switched to `gh pr create` followed by `gh pr view --json` so we get structured PR fields without parsing free-form output.
+
+*AppCore.* `core_git.rs` filled in. Five new methods: `link_repo`, `start_track`, `request_merge`, `list_tracks`, `get_track`, plus `check_track_status` for the edit-batch coalescer. `RealGitOps` is a process-singleton via `OnceLock`; tests override with `set_git_ops_for_tests`. Tests are serialized via a tokio mutex so the global-override pattern stays sound under parallel execution.
+
+*Edit-batch coalescing.* Explicit, on `check_track_status`. We diff the worktree against base, hash a stable signature (file count, +/- totals, sorted paths), compare against the per-track baseline, and emit one `ArtifactCreated { kind: "code-change", … }` only when the signature changes. Repeated checks with no diff produce no artifact. A 60-second timer was rejected because (a) wall-clock heuristics are flaky on suspended laptops and in tests, (b) timers create phantom artifacts when nothing changed, and (c) explicit-on-check matches the user mental model of "snapshot a moment of work."
+
+*IPC.* New DTOs in `designer-ipc`: `LinkRepoRequest`, `StartTrackRequest`, `RequestMergeRequest`, `TrackSummary`. New IPC handlers in `apps/desktop/src-tauri/src/ipc.rs` and Tauri commands in `commands_git.rs`: `cmd_link_repo`, `cmd_start_track`, `cmd_request_merge`, `cmd_list_tracks`, `cmd_get_track`. All five registered in `main.rs`'s `tauri::generate_handler![…]` (kept alphabetical).
+
+*Frontend.* New `RepoLinkModal` in `packages/app/src/components/`. Wired into `Onboarding` as the final-slide CTA (becomes "Link a repository" when a workspace exists) and into Settings → Account (replaces the static "GitHub: not connected" placeholder with a live, action-attached row). New `RequestMergeButton` in the workspace sidebar header — surfaces only when the active workspace has a mergeable track, runs `cmd_request_merge` on the most recent eligible track. IPC client/types/mock wired in `packages/app/src/ipc/{client,types,mock}.ts`. No new CSS tokens introduced; reuses `app-dialog*`, `btn`, `state-dot`, etc.
+
+*Tests.* Five backend tests in `core_git.rs`: track lifecycle round-trip (Started → PRopened → Completed → Archived), PR-open emitting a `pr` artifact, edit-batch coalescer (two distinct diffs → two artifacts; repeat → none), `link_repo` rejecting non-repo paths, `start_track` requiring a linked repo. Two designer-core integration tests: full track replay through the projector. Three vitest tests covering `RepoLinkModal` (happy path, invalid-path error, empty-input disabled state).
+
+**Why:**
+
+13.E unblocks the workspace-as-feature model in spec Decisions 29–30. Until this lands, "request merge" is a UI-only fiction: there's no Rust state to drive the chrome and no `gh pr create` plumbing. With the Track aggregate + emitters in place, every other 13.X track can hang work off a real, replayable lifecycle (track started → code change → PR open → merged → archived) instead of inventing a parallel surface.
+
+**Design decisions:**
+
+- **Repo-link surfaces.** Two surfaces: onboarding's final slide for first-run, Settings → Account for re-link. Onboarding-only would force users to dismiss → re-open the modal to re-link; Settings-only would bury the first-run path. Two surfaces, one component (`RepoLinkModal`) — same code, different triggers.
+- **Request Merge placement.** Lightest-touch option chosen: an icon button in the sidebar header next to the workspace name, surfacing only when a mergeable track exists. The track-rollup block-action surface was the alternative but would have required 13.E to dictate block UX, which ADR 0003 explicitly forbids. The header icon costs one `IconButton` and stays out of the thread.
+- **Repo path stored on workspace.** We re-purposed the existing `WorkspaceWorktreeAttached { workspace_id, path }` event to mean "this workspace is linked to repo at `path`." Track-level worktrees live on `Track.worktree_path`. Adding a new event variant was off the table per ADR 0003; this re-use is semantically close (the workspace's worktree IS the source repo from the track's perspective) and preserves replay compatibility.
+- **No new design tokens.** The repo-link modal reuses `app-dialog*`, `btn`, `quick-switcher__input`. The request-merge button reuses `IconButton`. All inline styles reference existing tokens (`var(--space-N)`, `var(--color-*)`, etc.) — no arbitrary px / hex / ms.
+
+**Technical decisions:**
+
+- **Track-id-derived worktree paths.** `<repo>/.designer/worktrees/<track-id>-<slug>`. Including the UUID guarantees no two concurrent `start_track` calls collide on a directory even when the slug matches. The slug is decorative — humans recognize it in `git worktree list` output, but uniqueness rides on the track id.
+- **Process-singleton GitOps.** `RealGitOps` is stateless; one instance is fine. A `OnceLock` lazily initializes it. Tests override via a separate `OnceLock<Mutex<Option<Arc<dyn GitOps>>>>` and a tokio-Mutex serializes parallel test runs. We did not push `Arc<dyn GitOps>` into `AppCore` because that would have required modifying `core.rs`, which ADR 0002 + the parallel-track conventions explicitly disallow during 13.D/E/F/G.
+- **`gh pr create` parsing.** The `--json` flag is rejected by `gh pr create`; we run `pr create` then `pr view --json` to get structured fields. One extra subprocess on the merge-request path — fine, the user is already waiting for GitHub.
+- **Edit-batch coalescer signature.** File count + total +/- + sorted paths joined by commas. Distinguishes "edited foo.rs" from "added foo.rs" only via +/- totals, which is correct: both are legitimate semantic batches. The signature is deliberately not a content hash — diffs evolve continuously and we want the coalescer to fire on each meaningful step, not on every keystroke.
+
+**Tradeoffs discussed:**
+
+- *60-second timer vs. explicit check.* Timer is "set it and forget it" but produces phantom artifacts and depends on wall-clock fidelity. Explicit check ("agent finished tool call → call cmd_status_check") is what 13.D will wire and matches how a thinking user models a code-change moment. Picked explicit; 13.D can layer a debounced auto-check on top if the explicit pattern feels too manual.
+- *Track owns repo path vs. project owns it.* Project already has `root_path` from `ProjectCreated`. Promoting "repo linked" to project level would mean every workspace in a project shares a repo, which is the common case but doesn't compose with the future spec Decision 32 ("Forking reserved") where forks may diverge. Workspace-level link keeps the option open without changing event shapes today.
+
+**Lessons learned:**
+
+- The serial-test pattern (tokio mutex around shared global state) keeps the test-only override layer simple. Worth keeping in mind the next time a track is tempted to thread an injectable through `AppCore` just to test it.
+
+### Phase 13.G — Safety surfaces + Keychain (SAFETY)
+**Date:** 2026-04-25
+**Branch:** safety-inbox-keychain
+**Commit:** [PR pending]
+
+**What was done:**
+
+Wired the four safety surfaces ADR 0003 reserved for 13.G — approval inbox, scope-denied path, cost chip, macOS Keychain status — and replaced the development `AutoAcceptSafeTools` permission handler with a real, production-default `InboxPermissionHandler`.
+
+Backend (Rust):
+- `crates/designer-claude/src/inbox_permission.rs` — `InboxPermissionHandler` parks each Claude permission prompt on a `tokio::sync::oneshot` per-request channel, emits `ApprovalRequested` and `ArtifactCreated{kind:"approval"}` so the request shows up inline in the workspace thread, and waits up to **5 minutes** for a user resolve. Timeouts emit `ApprovalDenied{reason:"timeout"}` and tell the agent to deny — agents never block forever. `PermissionRequest` gained an additive `workspace_id: Option<WorkspaceId>` field; the trait shape stayed frozen per ADR 0002.
+- `apps/desktop/src-tauri/src/core_safety.rs` — `AppCore` methods for `list_pending_approvals`, `resolve_approval_inbox`, `cost_status`, `keychain_status`, plus `record_scope_denial` (emits both `ScopeDenied` AND a `comment` artifact anchored to the offending change) and `sweep_orphan_approvals` (replay-safety sweep on boot — orphaned `ApprovalRequested` events become `ApprovalDenied{reason:"process_restart"}` so phantom rows don't pop the inbox after every restart).
+- `apps/desktop/src-tauri/src/commands_safety.rs` — five new `#[tauri::command]` handlers: `cmd_list_pending_approvals`, `cmd_get_cost_status`, `cmd_get_keychain_status`, `cmd_get_cost_chip_preference`, `cmd_set_cost_chip_preference`. Registered in `main.rs::generate_handler!` alphabetically.
+- `apps/desktop/src-tauri/src/ipc.rs` — replaced the "approvals are a Phase 13.G surface" stubs with real implementations that route through `AppCore::resolve_approval_inbox`. `cmd_request_approval` emits `ApprovalRequested` directly for parity with mock-orchestrator UI flows.
+- `apps/desktop/src-tauri/src/core.rs` — `AppCore::boot` now constructs the inbox handler, installs it as the production permission handler on `ClaudeCodeOrchestrator` via `with_permission_handler()`, and runs the orphan-approval sweep right after the projector replay.
+- `apps/desktop/src-tauri/Cargo.toml` — added `security-framework = { version = "2", default-features = false }` under `[target.'cfg(target_os = "macos")'.dependencies]`. MIT/Apache-2.0 dual-licensed.
+
+Frontend (React):
+- `packages/app/src/blocks/blocks.tsx` — `ApprovalBlock` Grant/Deny buttons now call `cmd_resolve_approval` with the approval id parsed from the artifact payload. Optimistic flip on click, projector becomes truth via subscription to `approval_granted`/`approval_denied` stream events. Resolved-state focus management: focus jumps to the resolution status div via `tabIndex={-1}` so SR users hear the new state and keyboard users don't lose place.
+- `packages/app/src/components/CostChip.tsx` — new topbar widget showing `$<spent> / $<cap>` with a colored band (50% green / 80% amber / >80% red, dimmed when no cap). Click expands a small popover with daily/weekly/per-track placeholder. Hidden by default; `COST_CHIP_PREFERENCE_EVENT` re-fetches when Settings flips the toggle.
+- `packages/app/src/layout/MainView.tsx` — mounts the chip on the right of `tabs-bar` (margin-left:auto pushes it past the new-tab button).
+- `packages/app/src/layout/SettingsPage.tsx` — new Preferences row "Show cost in topbar" backed by `cmd_set_cost_chip_preference`; new Account row "Keychain" rendering `cmd_get_keychain_status` with a stable copy + state dot. Both use `aria-live="polite"` so screen readers don't get re-announced on minor state churn.
+- `packages/app/src/styles/app.css` — `.cost-chip*`, `.cost-chip__popover*`, `.settings-page__keychain*` rules. All values reference existing tokens (`--space-*`, `--radius-button`, `--border-thin`, etc.) — no new hex/px values.
+- `apps/desktop/src-tauri/src/settings.rs` — `Settings.cost_chip_enabled: bool` (defaults to `false` per Decision 34).
+
+**Why:**
+
+Three decisions converged here. **Decision 22** says approval gates live in the Rust core, non-bypassable — a frontend XSS can't synthesize an approval. The inbox handler enforces this by parking the agent on a `oneshot` channel inside Rust; the only way to release it is an event-store-backed `cmd_resolve_approval`. **Decision 26** says we never touch Claude's OAuth tokens — the Keychain integration is read-only, never writes, never reads the secret contents (only confirms the credential is present so the user sees "connected"). **Decision 34** says the cost chip is opt-in; the toggle defaults to `false` so usage anxiety is a user choice, not a default.
+
+The replay-safety sweep is the staff-engineer review's biggest catch. Without it, every cold boot would surface every previously-pending approval as if they were live — but the Claude subprocess that requested them is gone, the agent isn't waiting, and a "Grant" click would resolve nothing. Sweeping orphans into `ApprovalDenied{reason:"process_restart"}` keeps the projector honest and the inbox clean.
+
+**Design decisions:**
+
+- **5-minute approval timeout.** Long enough for a real human round-trip (interrupted lunch, context switch); short enough that an agent doesn't appear permanently stalled when the user closed the laptop.
+- **Cost chip color bands at 50 / 80%.** Green at 0–50%, amber 50–80%, red >80% (matches ADR 0002 §D4 — 95% is the ambient-notice threshold, surfaced separately when wired). Dimmed dot when no cap is configured so the chip doesn't shout when there's nothing to alarm about.
+- **Approval payload as JSON, not free-text.** The `ApprovalBlock` parses `{ approval_id, tool, gate, summary, input }` so the UI can wire optimistic resolve + event-stream confirmation without a follow-up `cmd_get_artifact` round-trip. Free-text wouldn't carry the id deterministically.
+- **Keychain service name is overridable.** Env var `DESIGNER_CLAUDE_KEYCHAIN_SERVICE` overrides the `Claude Code-credentials` default — a future Claude release that changes the service name doesn't require a Designer patch.
+- **`PermissionRequest.workspace_id` defaults to `None`.** Additive field with a `serde(default)` so existing call sites (and `AutoAcceptSafeTools` tests) keep working. Inbox handler fails closed when `None` arrives — denying is safer than dropping the prompt.
+
+**Technical decisions:**
+
+- **`InboxPermissionHandler` lives in `designer-claude`, not `designer-safety`.** It's a `PermissionHandler` impl — the natural home is alongside the trait. Keeps `designer-safety` focused on `ApprovalGate`/`CostTracker`/`ScopeGuard` primitives that the handler uses.
+- **Process-global handler via `OnceCell`.** `AppCore` boots the handler before the orchestrator selects it; the IPC layer (`cmd_resolve_approval`) and the orchestrator (caller of `decide`) need to share the same instance. A circular `Arc<AppCore>` would be uglier than a once-set global keyed off the binary's lifetime.
+- **`cost_status` returns a flat DTO, not a nested enum.** Frontend reads `spent_dollars_cents`, `cap_dollars_cents`, `ratio` directly; the chip color band is computed in TS so updates don't require a round-trip per band change.
+- **`record_scope_denial` is on `AppCore`, not `ScopeGuard`.** The guard returns `Result<PathBuf, SafetyError>` with no event-store reference. A helper at the AppCore level can append both events transactionally and apply them to the projector synchronously.
+
+**Tradeoffs discussed:**
+
+- *Inbox handler global vs `AppCore` field.* Global wins because `ClaudeCodeOrchestrator` is built before `AppCore`'s `Arc` is constructed — wiring the handler into `AppCore`'s field would require a second pass to backfill the orchestrator. Global is hidden behind `install_inbox_handler` so the surface is small.
+- *Cost-chip data source: `cost_status` poll vs. `cost_recorded` stream subscription.* Both. Initial render polls; the chip subscribes to `cost_recorded` events and re-polls so it reflects per-turn cost without explicit refresh. Pure subscription would race the projector; pure polling would feel laggy.
+- *Approval artifact summary update on resolve.* Considered emitting `ArtifactUpdated` to flip the artifact's summary to "Granted"/"Denied" so the projector reflects status. Rejected — the block subscribes to `approval_granted`/`approval_denied` events directly and flips local state, which is faster and avoids the artifact's `version` churn.
+- *Keychain "last verified" timestamp.* Stored in a process-local `OnceLock<Mutex<Option<String>>>` cache, not persisted. A persisted timestamp could imply that we've verified the token contents (we haven't); this signal is "Designer last saw the credential exists." Cache survives within a session, resets on restart.
+
+**Lessons learned:**
+
+- `ApprovalId`'s `Display` includes the `apv_` prefix but `serde::Serialize` is `#[serde(transparent)]` (bare UUID). Tests asserting against the wire shape need `serde_json::to_value(&id)`, not `id.to_string()`. Updated docs in the tests so the next person doesn't trip.
+- `tokio::test` defaults to single-threaded. The racing-approvals test needed `flavor = "multi_thread"` plus sequencing the spawns around `wait_for_pending` so the first park's read happens before the second spawn races into the SQLite write lock.
+- `cargo fmt --check` only works from the workspace root, not from inside a crate dir — `cargo fmt --all -- --check` is the portable form.
+
+**Post-merge security review fixes (2026-04-25, same branch).**
+
+The launch-grade review caught seven issues across the 13.G surface; all fixed in the same branch before merge:
+
+- **Blocking — `cmd_request_approval` unauth injection.** The IPC was wired to call `store.append(ApprovalRequested)` from any frontend caller. Restored to an explicit error stub with a docstring explaining why: only the orchestrator's `InboxPermissionHandler` is a legitimate producer of approval requests; an XSS-escaped script could otherwise plant fake "Grant write access?" entries in the inbox.
+- **Blocking — orphan-sweep race.** `sweep_orphan_approvals` now holds a process-global `tokio::Mutex` for the whole sweep and re-reads the event log per write to catch any terminal event that landed between iterations. Two concurrent callers no longer double-write `process_restart` denials.
+- **High — cost replay.** `CostTracker::replay_from_store` walks every `CostRecorded` event into the in-memory map; `AppCore::boot` calls it after construction. Without this, the cap check silently allowed a workspace to double-spend across boots and the topbar chip read $0.00 until the next per-turn cost event. New regression test in `designer-safety::tests::cost_tracker_replay_reflects_historical_spend`.
+- **High — `gate.status` lies in production.** Inbox-routed resolutions wrote events directly to the store, bypassing `InMemoryApprovalGate.pending`. Added `gate.record_status` (in-memory only) + `gate.replay_from_store` (boot-time). The handler now takes an optional `Arc<dyn GateStatusSink>`; `AppCore::boot` wires a `GateSinkAdapter` so every resolve mirrors into the gate's map. The trait sink lives in `designer-claude`; the adapter lives in the desktop crate so `designer-safety` does not depend on `designer-claude` (preserves the natural layering).
+- **Medium — resolution events on the wrong stream.** `ApprovalGranted/Denied` were written to `StreamId::System` while `ApprovalRequested` went to `StreamId::Workspace(...)`. Workspace-scoped subscribers saw "still pending forever." `PendingEntry` now stores `workspace_id` alongside the `oneshot::Sender`; resolutions and timeouts write to the same workspace stream as the request. Test: `resolution_event_lands_on_workspace_stream`.
+- **Medium — workspace-id-missing path didn't audit.** Now emits `ApprovalDenied{reason:"missing_workspace"}` to System so a misconfigured Phase-13.D wiring surfaces in the audit feed instead of silently denying. Test: `missing_workspace_id_emits_audit_row`.
+- **Medium — `format_now` reimplemented `rfc3339`.** Replaced with `designer_core::rfc3339(OffsetDateTime::now_utc())` — the codebase's canonical helper. Drops 12 lines of duplicate logic.
+- **Medium — CSS hex literals + arbitrary `8px`.** The cost-chip and Keychain-status dot rules carried `#2f9e44 / #d97706 / #c92a2a` fallbacks and `8px` dimensions. Switched to `var(--success-9 / --warning-9 / --danger-9)` (already in `tokens.css` via Radix scales) and `var(--space-3)`. No invariant violations remain.
+- **Concurrency — pre-park resolve race.** `decide` now inserts into `pending` *before* emitting any event. If a resolve arrives before decide finishes parking, the entry is already there. Test asserts the observable invariant (entry visible in `pending_ids` before the request event lands in the store).
+- **Concurrency — two-click race.** Resolve atomically removes from `pending` *before* persisting the terminal event. A second resolve for the same id finds nothing in the map, returns `Ok(false)`, and writes no event. The audit log carries exactly one terminal event per approval. Test: `two_click_race_writes_only_one_terminal_event`.
+
+Six new tests cover the previously buggy paths (pre-park observation, two-click race, missing-ws audit, workspace-stream resolution, gate sink update, sweep + grant race), plus cost-replay-after-restart in both the bare tracker and through `AppCore::boot`. Frontend gained one test asserting Grant/Deny stay disabled when the artifact payload is missing the parsed `approval_id`. All quality gates clean.
+
+---
+
 ### Phase 13.1 — unified workspace thread + artifact foundation
 **Date:** 2026-04-24/25
 **Branch:** consolidate-tab-server

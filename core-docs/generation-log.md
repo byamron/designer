@@ -429,3 +429,101 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: 13/13 frontend pass; 6/6 backend pass
 - deviations: dev panel mounts in dev mode only — production build retains the user-chosen defaults baked into `:root` and `.dark-theme`
 - feedback: FB-0026 (dev-panel-driven design exploration is the canonical mechanism)
+
+
+## 2026-04-25T02:00:00Z — manual (phase 13.D agent wire)
+- prompt: "Phase 13.D — Agent wire. Wire WorkspaceThread.onSend end-to-end against the artifact foundation: cmd_post_message IPC, AppCore::post_message + 120ms message coalescer, agent-emitted diagram/report artifacts, frontend wiring with optimistic state and error recovery."
+- trigger: manual (skill not invoked; backend-heavy track that touches one frontend surface — the existing WorkspaceThread)
+- archetype-reused: none (no new layout — extends ComposeDock's onSend contract and the WorkspaceThread send/notice region)
+- components-reused: WorkspaceThread, ComposeDock (used `setDraft` + `focus` imperative handle for failure-restore), `workspace-thread__notice` slot
+- components-new: none
+- primitives: none (frontend change is one render path inside WorkspaceThread; no new layout primitives needed)
+- tokens: existing — `workspace-thread__notice` styling unchanged from 13.1
+- invariants: not run (no new UI surfaces; existing surfaces unchanged)
+- typecheck: clean (`npx tsc --noEmit`)
+- tests: vitest 15/15 (added `workspace-thread.test.tsx` with 2 cases — postMessage call shape + empty-draft guard); cargo `--workspace` clean (added round-trip + empty-text tests under `ipc_agents::tests`)
+- deviations: none
+- feedback: pending
+
+
+## 2026-04-25T10:15:00Z — manual (phase 13.D review-fix pass)
+- prompt: "Address review feedback: stream_id bug, failed-send duplicate artifacts, ComposeDock concurrent-send race, typed IpcError translator, length cap on text, cancellable coalescer, attachments-dropped warning, tool_use translator gap. Add the 7 valuable tests called out in the review."
+- trigger: manual (review-driven follow-up on the same 13.D PR)
+- archetype-reused: none
+- components-reused: WorkspaceThread (added `useRef` re-entry guard, draft-restore on failure, typed-error translation), ComposeDock (used existing `setDraft`/`focus` imperative handle for failure recovery — no internal change)
+- components-new: `packages/app/src/ipc/error.ts::describeIpcError` — typed IpcError → user-copy translator
+- primitives: none
+- tokens: existing — `workspace-thread__notice` reused for `role="alert"` error banner
+- invariants: not run (UI surface unchanged from prior 13.D entry)
+- typecheck: clean (`npx tsc --noEmit`)
+- tests: vitest 18/18 (added `restores_draft_on_failure`, `ignores_concurrent_sends`, `refreshes_on_production_stream_id`); cargo workspace clean — new tests: `coalescer_drops_user_echoes`, `coalescer_separates_keys`, `post_message_no_artifact_on_dispatch_failure`, `event_to_payload_artifact_produced_is_broadcast_only`, `ipc_error_serialization_shape_has_kind_tag`, `rejects_oversized_text`, `busy_timeout_is_5_seconds_on_pool_connections`. Foundation fix: `SqliteEventStore::append` now uses `transaction_with_behavior(Immediate)` + `PRAGMA busy_timeout=5000` (DEFERRED transactions deadlock under concurrent writers in WAL mode with `SQLITE_LOCKED`, which `busy_timeout` can't retry).
+- deviations: none
+- feedback: pending — pattern-log gained four entries (IpcError struct variants, draft-restore via imperative handle, sync useRef re-entry guard, IMMEDIATE transactions on SQLite append, `kind` field collision with serde tag)
+
+## 2026-04-25T01:55:00Z — manual (Phase 13.E — track + git wire)
+- prompt: "Build Phase 13.E — Track primitive + git wire."
+- trigger: manual (Mini procedure followed; no UI generation skill fired since changes are minimal action affordances over existing components)
+- archetype-reused: app-dialog (existing dialog scrim + frame from 13.1)
+- components-reused: IconButton, AppDialog conventions, app-dialog__head/body/section, btn / btn[data-variant=primary], quick-switcher__input, state-dot
+- components-new: RepoLinkModal (action-attached form modal — accepts a repo path, validates via cmd_link_repo, confirms or surfaces error)
+- primitives: (none new — inline composition continues per pattern-log "Mini primitives deferred")
+- tokens: --space-1..5, --color-foreground, --color-muted, --color-danger, --type-caption-size, --type-caption-leading, --type-body-size (no new tokens introduced)
+- invariants: 6/6 expected (vitest + tsc clean)
+- typecheck: clean (npx tsc --noEmit)
+- tests: 16/16 frontend pass (3 new RepoLinkModal cases); cargo test --workspace green; cargo clippy + fmt clean
+- deviations: none — all touched surfaces already used token-driven CSS; new component reuses the existing app-dialog__* classes
+- feedback: pending
+
+## 2026-04-25T10:05:00Z — manual (Phase 13.E review-pass hardening)
+- prompt: "Address review issues: state machine, branch injection, subprocess timeout, idempotence, gh URL parse, concurrent start_track race, signature collisions, partial-init rollback, batch_signatures unbounded, no symlink resolution, modal focus trap, scrim onClick."
+- trigger: manual (security + a11y review pass; no UI generation skill fired — fixes were targeted at existing components)
+- archetype-reused: app-dialog (unchanged shell)
+- components-reused: RepoLinkModal (focus trap + scrim semantics tightened in place; no visual changes)
+- components-new: []
+- primitives: none
+- tokens: no new tokens; same set as the initial 13.E build
+- invariants: 6/6 expected (frontend tsc + vitest clean)
+- typecheck: clean
+- tests: 18/18 vitest pass (2 new RepoLinkModal cases — focus trap, scrim onClick); 32 desktop + 7 core + 3 git url tests pass; cargo clippy + fmt clean
+- deviations: none
+- feedback: FB-0027 (bound subprocesses, validate inputs, dedupe action commands), FB-0028 (modals trap Tab focus), FB-0029 (scrim dismiss on click, not mousedown)
+
+## 2026-04-25T09:06:45Z — manual (Phase 13.G)
+- prompt: "Phase 13.G — Safety surfaces + Keychain. Wire approval inbox, cost chip, scope-denied flow, macOS Keychain integration."
+- trigger: manual (skill not invoked; backend-heavy track. UI changes scoped to ApprovalBlock wiring + new CostChip + Settings rows.)
+- archetype-reused: none (CostChip is a custom topbar widget; Keychain row reuses existing SettingsRow archetype)
+- components-reused: ApprovalBlock, BlockHeader, SegmentedToggle, SettingsRow, MainView (tabs-bar)
+- components-new: CostChip (topbar widget + popover), KeychainStatusReadout (Settings → Account row), CostChipToggle (Settings → Preferences row)
+- primitives: none (consistent with 13.1 — primitives migration tracked in plan.md Phase 15)
+- tokens: --space-1..3, --space-8, --color-content-surface, --color-border-soft, --color-border, --color-foreground, --color-muted, --color-background, --success-9, --warning-9, --danger-9, --radius-button, --radius-card, --border-thin, --type-family-mono, --type-caption-size, --type-body-size, --layer-overlay, --elevation-overlay, --motion-enter
+- invariants: not run (no arbitrary px / hex remain; status colors route through `--success-9 / --warning-9 / --danger-9` from `packages/ui/styles/tokens.css`; the cost-chip and Keychain-status dot dimensions use `var(--space-3)` rather than `8px`; existing invariants pass under workspace check)
+- typecheck: clean
+- tests: 19/19 frontend pass (added 6 in `safety.test.tsx`); cargo test workspace clean — `designer-claude::inbox_permission` 10 tests (5 added: pre-park observation, two-click race, missing-ws audit, workspace-stream resolution, gate-sink update); `designer-safety::tests::gates` 6 tests (2 added: cost replay reflects historical spend, gate replay reflects historical resolutions); `designer-desktop::core_safety` 8 tests (2 added: sweep skips approvals with terminal events, cost_status reflects spend across AppCore::boot)
+- deviations: none. The initial pass shipped `var(--color-success, var(--accent-9, #2f9e44))` fallback chains because the role tokens aren't defined; the post-review pass switched to the Radix scale tokens already in `tokens.css` (`--success-9 / --warning-9 / --danger-9`) and replaced the `8px` dot dimension with `--space-3`. No new design-language tokens were added; no `elicit-design-language` amendment is required.
+- feedback: pending
+## 2026-04-25T02:00:00Z — manual (Phase 13.F — Local-model surfaces)
+- prompt: "Phase 13.F — Local-model surfaces. Wire the on-device Foundation Models helper into write-time semantic summaries, Home recap, audit verdicts, and the prototype renderer."
+- trigger: manual (back-end track; the only frontend touch is the PrototypeBlock renderer)
+- archetype-reused: existing iframe-sandbox pattern from `packages/app/src/lab/PrototypePreview.tsx`
+- components-reused: PrototypeBlock (kept under 30 LOC of changes), PrototypePreview (extended with optional `inlineHtml` prop; existing `{ workspace }` callers unchanged)
+- components-new: none
+- primitives: (none — backend-led track)
+- tokens: no new tokens. The block iframe reuses `.prototype-frame` from the lab.
+- invariants: 16/16 frontend tests pass; tsc clean.
+- backend: cargo test --workspace green (10 new core_local tests + existing 100+); cargo clippy --workspace --all-targets -- -D warnings clean; cargo fmt --check clean.
+- deviations: PrototypePreview gained a discriminated-union prop signature so the existing lab demo path stays a workspace-driven variant explorer while the new artifact path is a pure inline-HTML iframe. The component is exclusively the sandbox primitive in 13.F mode — no annotation layer, no variant explorer.
+- feedback: pending
+
+
+## 2026-04-25T10:15:00Z — manual (Phase 13.F — review pass)
+- prompt: Reviewer flagged: PrototypeBlock CSP regression, debounce-burst race (concurrent calls each spawn their own helper), cross-workspace audit boundary missing, archived-target audit/recap silently succeeds, author-role registry missing, UTC tz, no eviction, late-return holds Arc<Self>, and a wiring TODO for tracks emitting code-change directly. Plus add 6 specific tests.
+- trigger: manual (review feedback addressed in same branch as PR #18)
+- archetype-reused: existing iframe-sandbox pattern + the established `watch::channel` pattern from 12.B's helper supervisor
+- components-reused: PrototypeBlock (CSP injection is a 1-prop add to PrototypePreview's existing `inlineHtml` form; 0 LOC delta in PrototypeBlock itself)
+- components-new: none
+- primitives: (none — same backend-track scope)
+- tokens: no new tokens. Sandbox+CSP injection lives entirely in `wrapInlineHtmlWithCsp` next to the existing `INLINE_HTML_CSP` constant in PrototypePreview.tsx (parity with the lab demo's CSP shape).
+- backend: cargo test --workspace green (5 new tests, 32 lib tests in designer-desktop, was 27); cargo clippy --workspace --all-targets -- -D warnings clean; cargo fmt --check clean.
+- frontend: tsc clean; vitest 17 passed (was 16). New `hardens against form-action XSS` case asserts `sandbox=""` and CSP `form-action 'none'` are both present.
+- deviations: `summary_provenance` recommended deferred to a pre-launch ADR rather than fixing in-band. The artifact event vocabulary is frozen by ADR 0003; adding the field non-breakingly requires a new variant `ArtifactSummaryProvenanceSet` which warrants its own decision record. Documented in plan.md, ADR 0003, and an explicit deferral note. Tracked: open the ADR before any user-visible build.
+- feedback: FB-0027 (cross-workspace boundaries belong on the IPC, not in-memory), FB-0028 (cache in-flight separately from resolved — concurrent callers must share one round-trip)

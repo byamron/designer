@@ -1,6 +1,6 @@
 use designer_core::{
     Actor, ArtifactId, ArtifactKind, EventPayload, EventStore, PayloadRef, ProjectId, Projection,
-    Projector, SqliteEventStore, StreamId, StreamOptions, WorkspaceId,
+    Projector, SqliteEventStore, StreamId, StreamOptions, TrackId, TrackState, WorkspaceId,
 };
 use std::path::PathBuf;
 
@@ -214,6 +214,91 @@ async fn artifact_lifecycle_projects_through_pin_unpin_archive() {
 }
 
 #[tokio::test]
+async fn track_lifecycle_projects_through_pr_open_complete_archive() {
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let projector = Projector::new();
+    let workspace_id = WorkspaceId::new();
+    let track_id = TrackId::new();
+    let stream = StreamId::Workspace(workspace_id);
+
+    // Started
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::TrackStarted {
+                track_id,
+                workspace_id,
+                worktree_path: PathBuf::from("/tmp/repo/.designer/worktrees/feature-a"),
+                branch: "feature/a".into(),
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    let track = projector.track(track_id).expect("track created");
+    assert_eq!(track.state, TrackState::Active);
+    assert_eq!(projector.tracks_in(workspace_id).len(), 1);
+
+    // PR opened
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::PullRequestOpened {
+                track_id,
+                pr_number: 42,
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    let track = projector.track(track_id).unwrap();
+    assert_eq!(track.state, TrackState::PrOpen);
+    assert_eq!(track.pr_number, Some(42));
+
+    // Completed
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::system(),
+            EventPayload::TrackCompleted { track_id },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    assert_eq!(projector.track(track_id).unwrap().state, TrackState::Merged);
+
+    // Archived
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::system(),
+            EventPayload::TrackArchived { track_id },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    assert_eq!(
+        projector.track(track_id).unwrap().state,
+        TrackState::Archived
+    );
+
+    // Replay produces identical state.
+    let all = store.read_all(StreamOptions::default()).await.unwrap();
+    let replayed = Projector::new();
+    replayed.replay(&all);
+    let replayed_track = replayed.track(track_id).unwrap();
+    assert_eq!(replayed_track.state, TrackState::Archived);
+    assert_eq!(replayed_track.pr_number, Some(42));
+    assert_eq!(replayed.tracks_in(workspace_id).len(), 1);
+}
+
+#[tokio::test]
 async fn payload_ref_inline_vs_hash_serialize_distinctly() {
     let inline = PayloadRef::inline("short");
     let hash = PayloadRef::Hash {
@@ -227,4 +312,10 @@ async fn payload_ref_inline_vs_hash_serialize_distinctly() {
     assert!(hash_json.contains("\"size\":50000"));
     let round: PayloadRef = serde_json::from_str(&inline_json).unwrap();
     assert!(round.is_inline());
+}
+
+#[tokio::test]
+async fn busy_timeout_is_5_seconds_on_pool_connections() {
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    assert_eq!(store.busy_timeout_ms().unwrap(), 5000);
 }

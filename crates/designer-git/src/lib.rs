@@ -52,6 +52,22 @@ pub struct DiffEntry {
     pub removed: usize,
 }
 
+/// Worktree status — files modified since the last `cmd_status_check`. Used by
+/// the edit-batch coalescer in `core_git.rs` to summarize a code-change
+/// artifact.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Status {
+    pub files: Vec<DiffEntry>,
+    pub added_total: usize,
+    pub removed_total: usize,
+}
+
+impl Status {
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequest {
     pub number: u64,
@@ -79,6 +95,25 @@ pub trait GitOps: Send + Sync {
         body: &str,
         base: &str,
     ) -> GitResult<PullRequest>;
+
+    /// Validate that `path` is the root (or inside) a Git working tree. Used
+    /// by `cmd_link_repo` so the user gets an early, friendly error before
+    /// any worktree creation runs.
+    async fn validate_repo(&self, path: &Path) -> GitResult<()>;
+
+    /// Commit the seeded `core-docs/*.md` files in a fresh worktree. The
+    /// worktree is brand-new, so a no-op (no staged changes) is allowed —
+    /// returns `Ok(None)` in that case so callers can no-op cleanly.
+    async fn commit_seed_docs(
+        &self,
+        worktree_path: &Path,
+        message: &str,
+    ) -> GitResult<Option<String>>;
+
+    /// Status of the worktree relative to the base branch — committed +
+    /// uncommitted changes summarized as a list of files. The edit-batch
+    /// coalescer uses this to emit a `code-change` artifact summary.
+    async fn current_status(&self, worktree_path: &Path, base: &str) -> GitResult<Status>;
 }
 
 pub struct RealGitOps;
@@ -205,31 +240,131 @@ impl GitOps for RealGitOps {
         body: &str,
         base: &str,
     ) -> GitResult<PullRequest> {
-        let out = run(
+        // `gh pr create` prints a mix of progress lines (push status,
+        // remote tracking) followed by the PR URL on its own line. We
+        // pluck the last `https://…/pull/N` line and hand that to
+        // `gh pr view --json`. Treating the whole stdout as the URL —
+        // an earlier version of this code — broke whenever gh emitted
+        // any progress output at all.
+        let create = run(
             repo,
             "gh",
             &[
-                "pr",
-                "create",
-                "--title",
-                title,
-                "--body",
-                body,
-                "--base",
-                base,
-                "--json",
-                "number,url,title",
+                "pr", "create", "--title", title, "--body", body, "--base", base,
             ],
         )
         .await?;
-        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let stdout_create = String::from_utf8_lossy(&create.stdout).to_string();
+        let url = extract_pr_url(&stdout_create).ok_or_else(|| GitError::GhFailed {
+            command: "pr create".into(),
+            status: 0,
+            stderr: format!("no PR URL found in stdout: {stdout_create}"),
+        })?;
+        let view = run(
+            repo,
+            "gh",
+            &["pr", "view", &url, "--json", "number,url,title"],
+        )
+        .await?;
+        let stdout = String::from_utf8_lossy(&view.stdout).to_string();
         let parsed: PullRequest =
             serde_json::from_str(&stdout).map_err(|e| GitError::GhFailed {
-                command: "pr create".into(),
+                command: "pr view".into(),
                 status: 0,
                 stderr: format!("parse json: {e}; raw: {stdout}"),
             })?;
         Ok(parsed)
+    }
+
+    async fn validate_repo(&self, path: &Path) -> GitResult<()> {
+        if !path.exists() {
+            return Err(GitError::NotARepo(path.to_path_buf()));
+        }
+        let out = run(path, "git", &["rev-parse", "--is-inside-work-tree"])
+            .await
+            .map_err(|_| GitError::NotARepo(path.to_path_buf()))?;
+        let txt = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if txt != "true" {
+            return Err(GitError::NotARepo(path.to_path_buf()));
+        }
+        Ok(())
+    }
+
+    async fn commit_seed_docs(
+        &self,
+        worktree_path: &Path,
+        message: &str,
+    ) -> GitResult<Option<String>> {
+        // Stage everything new under the worktree. A fresh `init_worktree`
+        // produces a clean tree, so the only changes here are the
+        // `core-docs/*.md` files the caller just wrote.
+        run(worktree_path, "git", &["add", "-A"]).await?;
+        // `git diff --cached --quiet` exits non-zero when there are staged
+        // changes, zero when the index is clean. Probe before committing so
+        // we don't fail on a no-op (the caller may have skipped seeding when
+        // `core-docs/` already existed in the base tree).
+        let mut probe = Command::new("git");
+        probe.current_dir(worktree_path);
+        probe.args(["diff", "--cached", "--quiet"]);
+        let probe_status = probe.status().await?;
+        if probe_status.success() {
+            return Ok(None);
+        }
+        run(worktree_path, "git", &["commit", "-m", message]).await?;
+        let head = run(worktree_path, "git", &["rev-parse", "HEAD"]).await?;
+        Ok(Some(
+            String::from_utf8_lossy(&head.stdout).trim().to_string(),
+        ))
+    }
+
+    async fn current_status(&self, worktree_path: &Path, base: &str) -> GitResult<Status> {
+        // Includes both committed-on-branch and uncommitted changes vs. the
+        // base ref so the coalescer's summary matches the "what changed
+        // since this track started" mental model.
+        let out = run(
+            worktree_path,
+            "git",
+            &["diff", "--numstat", &format!("{base}...HEAD")],
+        )
+        .await?;
+        let mut files = Vec::new();
+        let mut added_total = 0usize;
+        let mut removed_total = 0usize;
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let mut parts = line.split('\t');
+            let added: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            let removed: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            if let Some(path) = parts.next() {
+                files.push(DiffEntry {
+                    path: PathBuf::from(path),
+                    added,
+                    removed,
+                });
+                added_total += added;
+                removed_total += removed;
+            }
+        }
+        // Plus uncommitted changes in the worktree.
+        let dirty = run(worktree_path, "git", &["diff", "--numstat"]).await?;
+        for line in String::from_utf8_lossy(&dirty.stdout).lines() {
+            let mut parts = line.split('\t');
+            let added: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            let removed: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            if let Some(path) = parts.next() {
+                files.push(DiffEntry {
+                    path: PathBuf::from(path),
+                    added,
+                    removed,
+                });
+                added_total += added;
+                removed_total += removed;
+            }
+        }
+        Ok(Status {
+            files,
+            added_total,
+            removed_total,
+        })
     }
 }
 
@@ -275,4 +410,47 @@ pub async fn recent_overlap(
         }
     }
     Ok(overlaps)
+}
+
+/// Pluck the PR URL from `gh pr create` stdout. `gh` interleaves push /
+/// remote-tracking progress output with the URL line, so we scan for the
+/// last token that looks like a GitHub PR URL.
+pub fn extract_pr_url(stdout: &str) -> Option<String> {
+    stdout
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| {
+            (line.starts_with("https://") || line.starts_with("http://")) && line.contains("/pull/")
+        })
+        .map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::extract_pr_url;
+
+    #[test]
+    fn extracts_url_from_progress_decorated_stdout() {
+        let stdout = "remote: \nremote: Create a pull request for 'foo'\n\
+            https://github.com/owner/repo/pull/42\n";
+        assert_eq!(
+            extract_pr_url(stdout).as_deref(),
+            Some("https://github.com/owner/repo/pull/42")
+        );
+    }
+
+    #[test]
+    fn extracts_url_from_bare_url_stdout() {
+        assert_eq!(
+            extract_pr_url("https://github.com/x/y/pull/9\n").as_deref(),
+            Some("https://github.com/x/y/pull/9")
+        );
+    }
+
+    #[test]
+    fn returns_none_when_no_url_present() {
+        assert!(extract_pr_url("ok\nfine\n").is_none());
+        assert!(extract_pr_url("").is_none());
+    }
 }
