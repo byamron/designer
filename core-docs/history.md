@@ -94,6 +94,83 @@ A boot-spawned message coalescer task subscribes to the orchestrator's broadcast
 - **Attachments warn-and-drop.** Attachments accepted by the IPC are logged at WARN level so we notice if a flow starts depending on attachment delivery before the storage path exists. Tracked as `TODO(13.D-followup)`.
 - **`tool_use` / `tool_result` translator gap.** Marked `TODO(13.D-followup)` in `crates/designer-claude/src/stream.rs::translate_assistant`. Per "summarize by default, drill on demand," agent tool calls should at minimum emit `ArtifactProduced` summaries; the wiring lands per-tool as we observe Claude's tool-use shapes.
 
+### Phase 13.E — Track primitive + git wire (review-pass hardening)
+**Date:** 2026-04-25
+**Branch:** track-primitive-git-wire
+**Commit:** TBD
+
+**Hardening pass over the initial 13.E build, applied in the same PR:**
+
+- *Branch-name argument injection blocked.* `validate_branch` rejects names that start with `-` (would be parsed as a `git`/`gh` flag) or contain whitespace, control chars, or any of `~^:?*[\\\0`. Fail-closed at IPC, before the worktree directory is even created.
+- *gh subprocess timeout.* `request_merge` runs `gh pr create` under a 30-second timeout (test-overridable). On timeout the track stays `Active` so the user can retry; no ghost in-flight state.
+- *Idempotent `request_merge`.* In-memory inflight set keyed by `TrackId`. A double-click finds the second call, short-circuits, and returns a friendly invariant error instead of running `gh pr create` twice and getting "PR already exists" the second time.
+- *Robust gh URL parsing.* `gh pr create` interleaves push progress with the PR URL; `extract_pr_url` (in `designer-git`) plucks the last `https://…/pull/N` line. The earlier "trim whole stdout, hand to `gh pr view`" path was fragile.
+- *Per-repo serialization of `start_track`.* Per-repo async mutex means concurrent `start_track` calls on the same repo serialize cleanly — one succeeds with its worktree, the other gets a clean "branch already exists" error from git.
+- *Partial-init rollback.* If `seed_core_docs` or `commit_seed_docs` fails after `init_worktree` succeeded, the worktree is removed before the error propagates. Same for an event-store write failure on `TrackStarted`. The user can retry without a leaked checkout.
+- *Edit-batch signature now per-file.* The earlier coarse signature (file count + total +/-) collided when two distinct diffs touched the same paths with the same totals — the second batch was silently dropped. The new signature includes per-file `+a:-r` so redistributed edits across the same files survive.
+- *Bounded `batch_signatures` map.* Cleared opportunistically inside `check_track_status` when the track is `Merged` or `Archived`; `forget_track` exposed for explicit cleanup hooks.
+- *Symlink-resolved `repo_path`.* `link_repo` runs `fs::canonicalize` before validation and persistence, so two distinct user-facing paths that point at the same repo dedupe to one stored value.
+- *Domain comment corrected.* `TrackState::RequestingMerge` is now documented as reserved (not produced by replay today). Idempotence is enforced in-process via the inflight set rather than a state-machine transition; this matches the frozen event vocabulary.
+- *RepoLinkModal a11y.* Tab/Shift-Tab focus trap so keyboard users can't escape the modal into the AppShell behind the scrim. Scrim dismiss flipped from `onMouseDown` to `onClick` so a drag that starts inside the dialog and ends on the scrim no longer surprise-dismisses.
+
+**Tests added in this pass:**
+- `start_track_rejects_branches_with_leading_dash` — argument-injection guard.
+- `start_track_rejects_branch_with_whitespace` — secondary metachar guard.
+- `concurrent_start_track_same_branch_one_succeeds_one_fails_clean` — racing concurrent calls; exactly one track gets projected.
+- `start_track_rolls_back_worktree_when_seed_commit_fails` — verifies cleanup path called once and no `TrackStarted` was projected.
+- `request_merge_dedupes_concurrent_calls` — in-flight set rejects the second call.
+- `request_merge_times_out_on_stalled_gh` — timeout fires; track stays Active.
+- `request_merge_surfaces_gh_already_exists` and `_gh_auth_failure` — gh stderr makes it back to the IPC error.
+- `edit_batch_signature_distinguishes_same_total_different_distribution` — regression test for the silent-drop bug; would fail under the old coarse signature.
+- `link_repo_canonicalizes_symlinked_path` — symlink → canonical path stored.
+- `extracts_url_from_progress_decorated_stdout` / `_bare_url_stdout` / `returns_none_when_no_url_present` — `designer-git::extract_pr_url`.
+- `traps Tab focus inside the dialog` and `scrim dismiss uses click, not mousedown` — vitest, RepoLinkModal a11y.
+
+**Initial 13.E build (kept below):**
+
+**What was done:**
+
+*Domain.* `crates/designer-core/src/domain.rs` gained the `Track` aggregate (`id`, `workspace_id`, `branch`, `worktree_path`, `state`, `pr_number?`, `pr_url?`, `created_at`, `completed_at?`, `archived_at?`) and the `TrackState` enum (`Active → RequestingMerge → PrOpen → Merged → Archived`). Projection extended with `tracks: BTreeMap<TrackId, Track>` + `tracks_by_workspace: BTreeMap<WorkspaceId, Vec<TrackId>>`, projecting `TrackStarted / PullRequestOpened / TrackCompleted / TrackArchived` (event vocabulary frozen by 13.0; this PR adds the emitters and projection only).
+
+*GitOps.* `designer-git` got `validate_repo`, `init_worktree` (already present, used now), `commit_seed_docs` (skips no-op staged trees so re-seeds are clean), and `current_status` (committed + uncommitted diff vs base). `open_pr` switched to `gh pr create` followed by `gh pr view --json` so we get structured PR fields without parsing free-form output.
+
+*AppCore.* `core_git.rs` filled in. Five new methods: `link_repo`, `start_track`, `request_merge`, `list_tracks`, `get_track`, plus `check_track_status` for the edit-batch coalescer. `RealGitOps` is a process-singleton via `OnceLock`; tests override with `set_git_ops_for_tests`. Tests are serialized via a tokio mutex so the global-override pattern stays sound under parallel execution.
+
+*Edit-batch coalescing.* Explicit, on `check_track_status`. We diff the worktree against base, hash a stable signature (file count, +/- totals, sorted paths), compare against the per-track baseline, and emit one `ArtifactCreated { kind: "code-change", … }` only when the signature changes. Repeated checks with no diff produce no artifact. A 60-second timer was rejected because (a) wall-clock heuristics are flaky on suspended laptops and in tests, (b) timers create phantom artifacts when nothing changed, and (c) explicit-on-check matches the user mental model of "snapshot a moment of work."
+
+*IPC.* New DTOs in `designer-ipc`: `LinkRepoRequest`, `StartTrackRequest`, `RequestMergeRequest`, `TrackSummary`. New IPC handlers in `apps/desktop/src-tauri/src/ipc.rs` and Tauri commands in `commands_git.rs`: `cmd_link_repo`, `cmd_start_track`, `cmd_request_merge`, `cmd_list_tracks`, `cmd_get_track`. All five registered in `main.rs`'s `tauri::generate_handler![…]` (kept alphabetical).
+
+*Frontend.* New `RepoLinkModal` in `packages/app/src/components/`. Wired into `Onboarding` as the final-slide CTA (becomes "Link a repository" when a workspace exists) and into Settings → Account (replaces the static "GitHub: not connected" placeholder with a live, action-attached row). New `RequestMergeButton` in the workspace sidebar header — surfaces only when the active workspace has a mergeable track, runs `cmd_request_merge` on the most recent eligible track. IPC client/types/mock wired in `packages/app/src/ipc/{client,types,mock}.ts`. No new CSS tokens introduced; reuses `app-dialog*`, `btn`, `state-dot`, etc.
+
+*Tests.* Five backend tests in `core_git.rs`: track lifecycle round-trip (Started → PRopened → Completed → Archived), PR-open emitting a `pr` artifact, edit-batch coalescer (two distinct diffs → two artifacts; repeat → none), `link_repo` rejecting non-repo paths, `start_track` requiring a linked repo. Two designer-core integration tests: full track replay through the projector. Three vitest tests covering `RepoLinkModal` (happy path, invalid-path error, empty-input disabled state).
+
+**Why:**
+
+13.E unblocks the workspace-as-feature model in spec Decisions 29–30. Until this lands, "request merge" is a UI-only fiction: there's no Rust state to drive the chrome and no `gh pr create` plumbing. With the Track aggregate + emitters in place, every other 13.X track can hang work off a real, replayable lifecycle (track started → code change → PR open → merged → archived) instead of inventing a parallel surface.
+
+**Design decisions:**
+
+- **Repo-link surfaces.** Two surfaces: onboarding's final slide for first-run, Settings → Account for re-link. Onboarding-only would force users to dismiss → re-open the modal to re-link; Settings-only would bury the first-run path. Two surfaces, one component (`RepoLinkModal`) — same code, different triggers.
+- **Request Merge placement.** Lightest-touch option chosen: an icon button in the sidebar header next to the workspace name, surfacing only when a mergeable track exists. The track-rollup block-action surface was the alternative but would have required 13.E to dictate block UX, which ADR 0003 explicitly forbids. The header icon costs one `IconButton` and stays out of the thread.
+- **Repo path stored on workspace.** We re-purposed the existing `WorkspaceWorktreeAttached { workspace_id, path }` event to mean "this workspace is linked to repo at `path`." Track-level worktrees live on `Track.worktree_path`. Adding a new event variant was off the table per ADR 0003; this re-use is semantically close (the workspace's worktree IS the source repo from the track's perspective) and preserves replay compatibility.
+- **No new design tokens.** The repo-link modal reuses `app-dialog*`, `btn`, `quick-switcher__input`. The request-merge button reuses `IconButton`. All inline styles reference existing tokens (`var(--space-N)`, `var(--color-*)`, etc.) — no arbitrary px / hex / ms.
+
+**Technical decisions:**
+
+- **Track-id-derived worktree paths.** `<repo>/.designer/worktrees/<track-id>-<slug>`. Including the UUID guarantees no two concurrent `start_track` calls collide on a directory even when the slug matches. The slug is decorative — humans recognize it in `git worktree list` output, but uniqueness rides on the track id.
+- **Process-singleton GitOps.** `RealGitOps` is stateless; one instance is fine. A `OnceLock` lazily initializes it. Tests override via a separate `OnceLock<Mutex<Option<Arc<dyn GitOps>>>>` and a tokio-Mutex serializes parallel test runs. We did not push `Arc<dyn GitOps>` into `AppCore` because that would have required modifying `core.rs`, which ADR 0002 + the parallel-track conventions explicitly disallow during 13.D/E/F/G.
+- **`gh pr create` parsing.** The `--json` flag is rejected by `gh pr create`; we run `pr create` then `pr view --json` to get structured fields. One extra subprocess on the merge-request path — fine, the user is already waiting for GitHub.
+- **Edit-batch coalescer signature.** File count + total +/- + sorted paths joined by commas. Distinguishes "edited foo.rs" from "added foo.rs" only via +/- totals, which is correct: both are legitimate semantic batches. The signature is deliberately not a content hash — diffs evolve continuously and we want the coalescer to fire on each meaningful step, not on every keystroke.
+
+**Tradeoffs discussed:**
+
+- *60-second timer vs. explicit check.* Timer is "set it and forget it" but produces phantom artifacts and depends on wall-clock fidelity. Explicit check ("agent finished tool call → call cmd_status_check") is what 13.D will wire and matches how a thinking user models a code-change moment. Picked explicit; 13.D can layer a debounced auto-check on top if the explicit pattern feels too manual.
+- *Track owns repo path vs. project owns it.* Project already has `root_path` from `ProjectCreated`. Promoting "repo linked" to project level would mean every workspace in a project shares a repo, which is the common case but doesn't compose with the future spec Decision 32 ("Forking reserved") where forks may diverge. Workspace-level link keeps the option open without changing event shapes today.
+
+**Lessons learned:**
+
+- The serial-test pattern (tokio mutex around shared global state) keeps the test-only override layer simple. Worth keeping in mind the next time a track is tempted to thread an injectable through `AppCore` just to test it.
+
 ---
 
 ### Phase 13.1 — unified workspace thread + artifact foundation

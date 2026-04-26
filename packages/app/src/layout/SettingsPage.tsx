@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import { closeDialog } from "../store/app";
+import { closeDialog, useAppState } from "../store/app";
+import { useDataState } from "../store/data";
 import { SegmentedToggle } from "../components/SegmentedToggle";
+import { RepoLinkModal } from "../components/RepoLinkModal";
+import { emptyArray } from "../util/empty";
+import type { Workspace, WorkspaceSummary } from "../ipc/types";
 import {
   getThemeMode,
   setThemeMode,
@@ -119,6 +123,22 @@ function AppearanceSection() {
 }
 
 function AccountSection() {
+  const activeProjectId = useAppState((s) => s.activeProject);
+  const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
+  const summaries = useDataState<WorkspaceSummary[]>((s) =>
+    activeProjectId ? s.workspaces[activeProjectId] ?? emptyArray() : emptyArray(),
+  );
+  const targetWorkspace: Workspace | null = useMemo(() => {
+    if (!summaries.length) return null;
+    if (activeWorkspaceId) {
+      const match = summaries.find((s) => s.workspace.id === activeWorkspaceId);
+      if (match) return match.workspace;
+    }
+    return summaries[0].workspace;
+  }, [summaries, activeWorkspaceId]);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const linkedPath = targetWorkspace?.worktree_path ?? null;
+
   return (
     <>
       <SettingsSectionHeader
@@ -128,9 +148,39 @@ function AccountSection() {
       <SettingsRow label="Claude Code" description="Signed in via the local CLI.">
         <span className="settings-page__meta">signed in on this machine</span>
       </SettingsRow>
-      <SettingsRow label="GitHub" description="Used for repo + PR workflows.">
-        <span className="settings-page__meta">not connected</span>
+      <SettingsRow
+        label="Repository"
+        description={
+          targetWorkspace
+            ? `Linked to the active workspace "${targetWorkspace.name}".`
+            : "Open a workspace to link a repository."
+        }
+      >
+        {linkedPath ? (
+          <span className="settings-page__meta">{linkedPath}</span>
+        ) : (
+          <span className="settings-page__meta">not linked</span>
+        )}
+        {targetWorkspace && (
+          <button
+            type="button"
+            className="btn"
+            data-variant="primary"
+            style={{ marginLeft: "var(--space-2)" }}
+            onClick={() => setLinkOpen(true)}
+          >
+            {linkedPath ? "Re-link" : "Link"}
+          </button>
+        )}
       </SettingsRow>
+      {targetWorkspace && (
+        <RepoLinkModal
+          workspaceId={targetWorkspace.id}
+          initialPath={linkedPath ?? ""}
+          open={linkOpen}
+          onClose={() => setLinkOpen(false)}
+        />
+      )}
     </>
   );
 }

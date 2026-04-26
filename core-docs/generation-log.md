@@ -459,3 +459,31 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: vitest 18/18 (added `restores_draft_on_failure`, `ignores_concurrent_sends`, `refreshes_on_production_stream_id`); cargo workspace clean — new tests: `coalescer_drops_user_echoes`, `coalescer_separates_keys`, `post_message_no_artifact_on_dispatch_failure`, `event_to_payload_artifact_produced_is_broadcast_only`, `ipc_error_serialization_shape_has_kind_tag`, `rejects_oversized_text`, `busy_timeout_is_5_seconds_on_pool_connections`. Foundation fix: `SqliteEventStore::append` now uses `transaction_with_behavior(Immediate)` + `PRAGMA busy_timeout=5000` (DEFERRED transactions deadlock under concurrent writers in WAL mode with `SQLITE_LOCKED`, which `busy_timeout` can't retry).
 - deviations: none
 - feedback: pending — pattern-log gained four entries (IpcError struct variants, draft-restore via imperative handle, sync useRef re-entry guard, IMMEDIATE transactions on SQLite append, `kind` field collision with serde tag)
+
+## 2026-04-25T01:55:00Z — manual (Phase 13.E — track + git wire)
+- prompt: "Build Phase 13.E — Track primitive + git wire."
+- trigger: manual (Mini procedure followed; no UI generation skill fired since changes are minimal action affordances over existing components)
+- archetype-reused: app-dialog (existing dialog scrim + frame from 13.1)
+- components-reused: IconButton, AppDialog conventions, app-dialog__head/body/section, btn / btn[data-variant=primary], quick-switcher__input, state-dot
+- components-new: RepoLinkModal (action-attached form modal — accepts a repo path, validates via cmd_link_repo, confirms or surfaces error)
+- primitives: (none new — inline composition continues per pattern-log "Mini primitives deferred")
+- tokens: --space-1..5, --color-foreground, --color-muted, --color-danger, --type-caption-size, --type-caption-leading, --type-body-size (no new tokens introduced)
+- invariants: 6/6 expected (vitest + tsc clean)
+- typecheck: clean (npx tsc --noEmit)
+- tests: 16/16 frontend pass (3 new RepoLinkModal cases); cargo test --workspace green; cargo clippy + fmt clean
+- deviations: none — all touched surfaces already used token-driven CSS; new component reuses the existing app-dialog__* classes
+- feedback: pending
+
+## 2026-04-25T10:05:00Z — manual (Phase 13.E review-pass hardening)
+- prompt: "Address review issues: state machine, branch injection, subprocess timeout, idempotence, gh URL parse, concurrent start_track race, signature collisions, partial-init rollback, batch_signatures unbounded, no symlink resolution, modal focus trap, scrim onClick."
+- trigger: manual (security + a11y review pass; no UI generation skill fired — fixes were targeted at existing components)
+- archetype-reused: app-dialog (unchanged shell)
+- components-reused: RepoLinkModal (focus trap + scrim semantics tightened in place; no visual changes)
+- components-new: []
+- primitives: none
+- tokens: no new tokens; same set as the initial 13.E build
+- invariants: 6/6 expected (frontend tsc + vitest clean)
+- typecheck: clean
+- tests: 18/18 vitest pass (2 new RepoLinkModal cases — focus trap, scrim onClick); 32 desktop + 7 core + 3 git url tests pass; cargo clippy + fmt clean
+- deviations: none
+- feedback: FB-0027 (bound subprocesses, validate inputs, dedupe action commands), FB-0028 (modals trap Tab focus), FB-0029 (scrim dismiss on click, not mousedown)

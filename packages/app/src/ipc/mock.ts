@@ -9,6 +9,7 @@ import type {
   ArtifactSummary,
   CreateProjectRequest,
   CreateWorkspaceRequest,
+  LinkRepoRequest,
   OpenTabRequest,
   PayloadRef,
   PostMessageRequest,
@@ -16,11 +17,16 @@ import type {
   Project,
   ProjectId,
   ProjectSummary,
+  RequestMergeRequest,
   SpineRow,
+  StartTrackRequest,
   StreamEvent,
   Tab,
   TabId,
   TabTemplate,
+  TrackId,
+  TrackState,
+  TrackSummary,
   Workspace,
   WorkspaceId,
   WorkspaceSummary,
@@ -56,6 +62,12 @@ export interface MockCore {
   postMessage(req: PostMessageRequest): PostMessageResponse;
   /** Test surface: every postMessage call captured for assertion. */
   postedMessages(): PostMessageRequest[];
+  // Phase 13.E
+  linkRepo(req: LinkRepoRequest): void;
+  startTrack(req: StartTrackRequest): TrackId;
+  requestMerge(req: RequestMergeRequest): number;
+  listTracks(workspaceId: WorkspaceId): TrackSummary[];
+  getTrack(id: TrackId): TrackSummary;
 }
 
 interface MockArtifact extends ArtifactSummary {
@@ -73,6 +85,7 @@ function now(): string {
 export function createMockCore(): MockCore {
   const projects: Project[] = [];
   const workspaces: Workspace[] = [];
+  const tracks: TrackSummary[] = [];
   const listeners = new Set<Listener>();
   const approvals: Approval[] = [];
   const postedMessages: PostMessageRequest[] = [];
@@ -488,6 +501,79 @@ export function createMockCore(): MockCore {
     },
     postedMessages() {
       return [...postedMessages];
+    },
+    linkRepo(req) {
+      const w = workspaces.find((w) => w.id === req.workspace_id);
+      if (!w) throw new Error(`workspace not found: ${req.workspace_id}`);
+      if (!req.repo_path || req.repo_path.trim().length === 0) {
+        throw new Error("repo_path must not be empty");
+      }
+      // Mock validation: any path that doesn't start with `/` is invalid.
+      if (!req.repo_path.startsWith("/")) {
+        throw new Error(`not a git repository: ${req.repo_path}`);
+      }
+      w.worktree_path = req.repo_path;
+      emit({
+        kind: "workspace_worktree_attached",
+        stream_id: w.id,
+        timestamp: now(),
+        summary: `Linked ${req.repo_path}`,
+      });
+    },
+    startTrack(req) {
+      const w = workspaces.find((w) => w.id === req.workspace_id);
+      if (!w) throw new Error(`workspace not found: ${req.workspace_id}`);
+      if (!w.worktree_path) {
+        throw new Error(`repo not linked: ${req.workspace_id}`);
+      }
+      const id = uuid();
+      const ts = now();
+      const track: TrackSummary = {
+        id,
+        workspace_id: w.id,
+        branch: req.branch,
+        worktree_path: `${w.worktree_path}/.designer/worktrees/${id}-${req.branch}`,
+        state: "active" as TrackState,
+        pr_number: null,
+        pr_url: null,
+        created_at: ts,
+        completed_at: null,
+        archived_at: null,
+      };
+      tracks.push(track);
+      emit({
+        kind: "track_started",
+        stream_id: w.id,
+        timestamp: ts,
+        summary: `Track started on ${req.branch}`,
+      });
+      return id;
+    },
+    requestMerge(req) {
+      const t = tracks.find((t) => t.id === req.track_id);
+      if (!t) throw new Error(`track not found: ${req.track_id}`);
+      if (t.state !== "active" && t.state !== "requesting_merge") {
+        throw new Error(`track ${t.id} is not in a mergeable state (${t.state})`);
+      }
+      const number = 100 + tracks.indexOf(t);
+      t.pr_number = number;
+      t.pr_url = `https://github.com/example/designer/pull/${number}`;
+      t.state = "pr_open";
+      emit({
+        kind: "pull_request_opened",
+        stream_id: t.workspace_id,
+        timestamp: now(),
+        summary: `PR #${number} opened`,
+      });
+      return number;
+    },
+    listTracks(workspaceId) {
+      return tracks.filter((t) => t.workspace_id === workspaceId);
+    },
+    getTrack(id) {
+      const t = tracks.find((t) => t.id === id);
+      if (!t) throw new Error(`track not found: ${id}`);
+      return t;
     },
   };
 }

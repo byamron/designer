@@ -895,6 +895,7 @@ dependencies = [
  "designer-audit",
  "designer-claude",
  "designer-core",
+ "designer-git",
  "designer-ipc",
  "designer-local-models",
  "designer-safety",

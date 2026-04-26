@@ -6,7 +6,7 @@
 
 use designer_core::{
     Artifact, ArtifactId, ArtifactKind, Autonomy, PayloadRef, Project, ProjectId, TabTemplate,
-    Workspace, WorkspaceId, WorkspaceState,
+    Track, TrackId, TrackState, Workspace, WorkspaceId, WorkspaceState,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -194,6 +194,59 @@ pub struct PostMessageAttachment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostMessageResponse {
     pub artifact_id: ArtifactId,
+}
+
+// ---- Track + git wire (Phase 13.E) ---------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkRepoRequest {
+    pub workspace_id: WorkspaceId,
+    pub repo_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartTrackRequest {
+    pub workspace_id: WorkspaceId,
+    pub branch: String,
+    /// Defaults to the workspace's `base_branch` when `None`.
+    #[serde(default)]
+    pub base: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestMergeRequest {
+    pub track_id: TrackId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackSummary {
+    pub id: TrackId,
+    pub workspace_id: WorkspaceId,
+    pub branch: String,
+    pub worktree_path: PathBuf,
+    pub state: TrackState,
+    pub pr_number: Option<u64>,
+    pub pr_url: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub archived_at: Option<String>,
+}
+
+impl From<Track> for TrackSummary {
+    fn from(t: Track) -> Self {
+        TrackSummary {
+            id: t.id,
+            workspace_id: t.workspace_id,
+            branch: t.branch,
+            worktree_path: t.worktree_path,
+            state: t.state,
+            pr_number: t.pr_number,
+            pr_url: t.pr_url,
+            created_at: t.created_at.to_string(),
+            completed_at: t.completed_at.map(|t| t.to_string()),
+            archived_at: t.archived_at.map(|t| t.to_string()),
+        }
+    }
 }
 
 // ---- Settings ------------------------------------------------------------

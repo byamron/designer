@@ -156,6 +156,44 @@ export interface PostMessageResponse {
   artifact_id: ArtifactId;
 }
 
+// ---- Track + git wire (Phase 13.E) ----
+export type TrackId = string;
+
+export type TrackState =
+  | "active"
+  | "requesting_merge"
+  | "pr_open"
+  | "merged"
+  | "archived";
+
+export interface TrackSummary {
+  id: TrackId;
+  workspace_id: WorkspaceId;
+  branch: string;
+  worktree_path: string;
+  state: TrackState;
+  pr_number: number | null;
+  pr_url: string | null;
+  created_at: string;
+  completed_at: string | null;
+  archived_at: string | null;
+}
+
+export interface LinkRepoRequest {
+  workspace_id: WorkspaceId;
+  repo_path: string;
+}
+
+export interface StartTrackRequest {
+  workspace_id: WorkspaceId;
+  branch: string;
+  base?: string | null;
+}
+
+export interface RequestMergeRequest {
+  track_id: TrackId;
+}
+
 export interface StreamEvent {
   kind: string;
   stream_id: string;

@@ -2,6 +2,7 @@ import {
   ChevronLeft,
   ChevronRight,
   GitBranch,
+  GitPullRequest,
   PanelLeftClose,
   PanelRightClose,
   Plus,
@@ -52,3 +53,4 @@ export const IconChevronLeft = wrap(ChevronLeft, 16);
 export const IconChevronRight = wrap(ChevronRight, 16);
 export const IconCollapseLeft = wrap(PanelLeftClose, 16);
 export const IconCollapseRight = wrap(PanelRightClose, 16);
+export const IconPullRequest = wrap(GitPullRequest, 14);

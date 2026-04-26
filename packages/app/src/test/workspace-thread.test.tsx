@@ -47,6 +47,19 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
       togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
       postMessage: (req) => Promise.resolve(mock.postMessage(req)),
+      linkRepo: (req) =>
+        new Promise((resolve, reject) => {
+          try {
+            mock.linkRepo(req);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        }),
+      startTrack: (req) => Promise.resolve(mock.startTrack(req)),
+      requestMerge: (req) => Promise.resolve(mock.requestMerge(req)),
+      listTracks: (ws) => Promise.resolve(mock.listTracks(ws)),
+      getTrack: (id) => Promise.resolve(mock.getTrack(id)),
     });
   });
 

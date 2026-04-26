@@ -1,6 +1,6 @@
 //! Domain aggregates. Projections derive these by replaying events.
 
-use crate::ids::{ArtifactId, ProjectId, TabId, WorkspaceId};
+use crate::ids::{ArtifactId, ProjectId, TabId, TrackId, WorkspaceId};
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -202,4 +202,45 @@ impl PayloadRef {
     pub fn is_inline(&self) -> bool {
         matches!(self, PayloadRef::Inline { .. })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Track primitive (Phase 13.E — spec Decisions 29–30)
+// ---------------------------------------------------------------------------
+
+/// A track inside a workspace: one worktree + one branch + one agent team +
+/// one PR series. Derived from the `TrackStarted / TrackCompleted /
+/// PullRequestOpened / TrackArchived` events the projector replays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Track {
+    pub id: TrackId,
+    pub workspace_id: WorkspaceId,
+    pub branch: String,
+    pub worktree_path: PathBuf,
+    pub state: TrackState,
+    pub pr_number: Option<u64>,
+    pub pr_url: Option<String>,
+    pub created_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
+    pub archived_at: Option<Timestamp>,
+}
+
+/// Track lifecycle. The projected (replayable) state machine is
+/// `Active → PrOpen → Merged → Archived`. `RequestingMerge` is reserved
+/// for a future event-sourced flag (it's not produced by replay today)
+/// and currently exists only as a transient frontend hint while the user
+/// is mid-`gh pr create`. Designer enforces idempotence of merge requests
+/// in-process via an in-memory in-flight set in `core_git.rs`, so two
+/// concurrent calls cannot both reach `gh`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackState {
+    Active,
+    /// Reserved — not emitted by replay today. See `core_git.rs` for the
+    /// in-memory idempotence machinery used during the live `gh pr create`
+    /// window.
+    RequestingMerge,
+    PrOpen,
+    Merged,
+    Archived,
 }
