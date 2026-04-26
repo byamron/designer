@@ -101,6 +101,7 @@ mod tests {
                 lead_role: "team-lead".into(),
                 teammates: vec![],
                 env: Default::default(),
+                cwd: None,
             })
             .await
             .unwrap();

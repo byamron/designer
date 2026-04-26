@@ -88,12 +88,22 @@ impl AppCore {
             Ok(()) => {}
             Err(OrchestratorError::TeamNotFound(_)) => {
                 let team_name = format!("workspace-{workspace_id}");
+                // Spawn in the project's repo root so the workspace lead's
+                // tools resolve against the user's code, not Designer's
+                // own cwd. Track-scoped spawns will override with the
+                // worktree path once the track UI lands.
+                let cwd = self
+                    .projector
+                    .workspace(workspace_id)
+                    .and_then(|ws| self.projector.project(ws.project_id))
+                    .map(|p| p.root_path);
                 let spec = TeamSpec {
                     workspace_id,
                     team_name,
                     lead_role: "team-lead".into(),
                     teammates: vec![],
                     env: Default::default(),
+                    cwd,
                 };
                 if let Err(e) = self.orchestrator.spawn_team(spec).await {
                     warn!(error = %e, %workspace_id, "lazy spawn_team failed");
@@ -250,7 +260,7 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
     // Receive task: accumulates bodies into the per-key pending state. We
     // never flush from this side — the tick task owns flush — to avoid
     // racing two writers against the same key.
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(ev) => match ev {
@@ -319,7 +329,7 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
 
     // Flush task: walks pending state every COALESCE_TICK, flushing entries
     // that have been idle for >= window.
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut ticker = interval(COALESCE_TICK);
         loop {
             ticker.tick().await;
@@ -460,6 +470,7 @@ mod tests {
                 lead_role: "team-lead".into(),
                 teammates: vec![],
                 env: Default::default(),
+                cwd: None,
             })
             .await
             .unwrap();
