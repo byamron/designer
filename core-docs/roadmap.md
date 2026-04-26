@@ -553,6 +553,10 @@ Without this, no real Claude tool use works.
 | `crates/designer-claude/tests/permission_prompt_translator.rs` | Three fixture-based round-trip tests (translate fixture → assert variant fields). |
 | `crates/designer-claude/src/claude_code.rs` (test module) | `stdio_permission_prompt_routes_to_decide`: synthetic Claude stdout, assert `decide` called once with expected tool/input, assert writer's stdin receives the encoded response. |
 
+**Critical implementation note:** `decide()` must be spawned (not awaited inline) on the reader-task. The handler can park for up to 5 minutes; awaiting inline would block the stream-json reader and stall every other event from Claude during that window (text replies, rate-limit signals, idle notifications). The reader's loop must keep draining `BufRead::read_line()` while the approval is pending. Pattern: `tokio::spawn(async move { let decision = handler.decide(req).await; let reply = encode(decision); stdin_tx.send(reply).await; })`. The `stdin_tx` is `mpsc::Sender<Vec<u8>>` (already exists at `claude_code.rs:98`, cloneable).
+
+**Note on F2 site:** there is currently no production constructor of `PermissionRequest` (only test fixtures at `permission.rs:162` and `inbox_permission.rs:386`). F2 is "make sure F1's new construction site populates `workspace_id`" rather than "fix an existing line." Plumb `spec.workspace_id` from the per-team handle (`claude_code.rs:380-410`) through to the reader's spawn closure.
+
 Acceptance: `cargo test -p designer-claude --test permission_prompt_translator` and `cargo test -p designer-claude claude_code::tests::stdio_permission_prompt_routes_to_decide` green.
 
 #### F2 — Populate `PermissionRequest::workspace_id` *(trivial, ~5 min — folds into F1's PR)*
@@ -582,7 +586,9 @@ Without this, the cost chip reads `$0.00` forever and the cap check silently all
 
 | File | Change |
 |---|---|
-| `apps/desktop/src-tauri/src/core.rs::AppCore::boot` | After orchestrator construction, call `orchestrator.subscribe_signals()` (already exists on the trait). Spawn a `tokio::task` that loops `recv()` and on `ClaudeSignal::Cost { workspace_id, total_cost_usd }` calls `core.cost.record(workspace_id, total_cost_usd, …)` and writes `EventPayload::CostRecorded` via `store.append`. Use `Weak<AppCore>` to avoid lifetime-extending the core. |
+| `crates/designer-claude/src/orchestrator.rs` | `subscribe_signals()` currently lives on the concrete `ClaudeCodeOrchestrator` (line 169) but **not** on the `Orchestrator` trait. Add `fn subscribe_signals(&self) -> broadcast::Receiver<ClaudeSignal>` to the trait with a default impl returning a never-firing receiver, so `MockOrchestrator` doesn't have to plumb a real signal channel for tests that don't need it. |
+| `crates/designer-claude/src/mock.rs` | Override the default with a real `signal_tx` field so the F3 test can inject `ClaudeSignal::Cost`. ~10 LOC. |
+| `apps/desktop/src-tauri/src/core.rs::AppCore::boot` | After orchestrator construction, call `orchestrator.subscribe_signals()` and spawn a `tokio::task` holding `Weak<AppCore>` that loops `recv()` and on `ClaudeSignal::Cost { workspace_id, total_cost_usd }` calls `core.cost.record(workspace_id, total_cost_usd, …)` and writes `EventPayload::CostRecorded` via `store.append`. The `Weak` upgrade gracefully terminates the task when the core drops. |
 | `crates/designer-safety/tests/gates.rs` (or new `crates/designer-safety/tests/cost_subscriber.rs`) | `signal_subscriber_records_to_store`: boot `AppCore` with a `MockOrchestrator` that exposes a manual `signal_tx`; broadcast `ClaudeSignal::Cost { workspace_id, total_cost_usd: 0.42 }`; poll `cost_status(workspace_id).spent_dollars_cents == 42`; assert `CostRecorded` event in store. |
 
 Acceptance: cost chip increments in the topbar after each agent turn that emits a `result/success` line.
