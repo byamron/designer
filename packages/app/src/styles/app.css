@@ -101,6 +101,10 @@
    * These are re-exposable behind the SurfaceDevPanel if we need to tune
    * again (the panel is the canonical runtime knob for this surface register). */
   --surface-gutter: calc(var(--space-3) * 1.5);
+  /* Reserved top inset for the macOS traffic-light overlay (titleBarStyle:
+   * Overlay). 32px = --space-6 — enough that the lights are vertically
+   * centered against the strip's first icon. */
+  --app-titlebar-height: var(--space-6);
   /* Tabs float at the same elevation as the main content surface — same
    * fill (--color-content-surface), same shadow register, separated by a
    * real gap so they read as sibling rectangles rather than a merged
@@ -227,8 +231,14 @@
 html,
 body,
 #app {
-  height: 100%;
+  /* Fixed-viewport macOS app: the root never scrolls; specific panels own
+   * their own overflow:auto. Without `position: fixed; inset: 0`, body
+   * scroll defaults like a web page and the whole app drifts under the
+   * mouse wheel. */
+  position: fixed;
+  inset: 0;
   margin: 0;
+  overflow: hidden;
   background: var(--color-background);
   color: var(--color-foreground);
   font-family: var(--type-family-sans);
@@ -240,6 +250,22 @@ body,
 
 /* --- shell -------------------------------------------------------------- */
 
+/* Titlebar zone — full-width drag strip covering the macOS traffic-light
+ * inset (titleBarStyle: Overlay paints content from y=0). The whole
+ * top is `data-tauri-drag-region` so the user can grab anywhere up
+ * here to move the window. Transparent so the underlying surface
+ * shows through; no chrome. Sits below modal scrims (which use
+ * --layer-modal = 100) so dialogs cover it correctly. */
+.app-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--app-titlebar-height);
+  z-index: var(--layer-titlebar);
+  background: transparent;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: auto auto 1fr auto;
@@ -248,6 +274,9 @@ body,
   width: 100%;
   min-width: 0;
   min-height: 0;
+  /* Reserve the top inset for the titlebar zone so panels start below it
+   * and don't render under the traffic lights. */
+  padding-top: var(--app-titlebar-height);
 }
 
 .app-shell[data-strip="hidden"] {
@@ -274,15 +303,6 @@ body,
   align-items: center;
   gap: var(--space-3);
   min-width: var(--space-8);
-}
-
-/* Drag spacer: tall enough to clear macOS traffic lights (~28px) so they
-   sit centered above the strip's first icon instead of overlapping. On web
-   builds this is just empty space; Tauri makes it a drag region. */
-.app-strip-drag {
-  width: 100%;
-  height: var(--space-6);
-  flex: 0 0 auto;
 }
 
 /* Sidebars render on --color-background — they ARE the page surface.

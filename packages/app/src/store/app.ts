@@ -9,7 +9,7 @@ import {
 } from "../util/persisted";
 
 export type PaletteDensity = "bounded" | "open";
-export type AppDialog = "settings" | "help" | null;
+export type AppDialog = "settings" | "help" | "create-project" | null;
 
 export const PANE_MIN_WIDTH = 180;
 export const PANE_MAX_WIDTH = 480;
@@ -196,3 +196,10 @@ export const openDialog = (dialog: AppDialog) =>
 
 export const closeDialog = () =>
   appStore.set((s) => (s.dialog === null ? s : { ...s, dialog: null }));
+
+export const openCreateProject = () => openDialog("create-project");
+
+export const closeCreateProject = () =>
+  appStore.set((s) =>
+    s.dialog === "create-project" ? { ...s, dialog: null } : s,
+  );
