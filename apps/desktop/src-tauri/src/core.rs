@@ -91,34 +91,58 @@ impl AppConfig {
 /// Resolution order:
 ///   1. `DESIGNER_CLAUDE_BINARY` env override (absolute path).
 ///   2. Common install locations.
-///   3. `bash -lc 'command -v claude'` — runs a login shell so the user's
-///      `~/.zshrc` / `.profile` PATH is honored. Worth ~50ms at boot once.
+///   3. `$SHELL -lc 'command -v claude'` — runs the user's actual login
+///      shell so PATH set in `.zshrc` (default on macOS) is honored.
+///      `bash -l` would only read `.profile`/`.bash_profile`, missing the
+///      zsh-only paths that nvm / asdf / bun / yarn typically add.
 ///   4. `None` — fall back to bare `"claude"`. Will fail if not on PATH;
 ///      the boot preflight in `main.rs` surfaces the error to the user.
 fn resolve_claude_binary_path(home: &Path) -> Option<PathBuf> {
     if let Ok(override_path) = std::env::var("DESIGNER_CLAUDE_BINARY") {
-        let p = PathBuf::from(override_path);
+        let p = PathBuf::from(&override_path);
         if p.is_absolute() && p.is_file() {
             info!(path = %p.display(), "claude path from DESIGNER_CLAUDE_BINARY");
             return Some(p);
         }
+        warn!(
+            override_path = %override_path,
+            "DESIGNER_CLAUDE_BINARY set but path is not an absolute file; ignoring override and falling back"
+        );
     }
 
-    let candidates: [PathBuf; 5] = [
-        home.join(".npm-global/bin/claude"),
-        home.join(".local/bin/claude"),
-        PathBuf::from("/opt/homebrew/bin/claude"),
-        PathBuf::from("/usr/local/bin/claude"),
-        PathBuf::from("/usr/bin/claude"),
+    // Skip path-based candidates if HOME isn't set — relative `.`-rooted
+    // paths would silently miss against launchd's `/` cwd.
+    if home != Path::new(".") {
+        let home_candidates: [PathBuf; 6] = [
+            home.join(".npm-global/bin/claude"),
+            home.join(".bun/bin/claude"),
+            home.join(".yarn/bin/claude"),
+            home.join(".asdf/shims/claude"),
+            home.join(".local/bin/claude"),
+            home.join(".cargo/bin/claude"),
+        ];
+        for p in &home_candidates {
+            if p.is_file() {
+                info!(path = %p.display(), "claude path resolved from common location");
+                return Some(p.clone());
+            }
+        }
+    }
+    let system_candidates: [&str; 3] = [
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+        "/usr/bin/claude",
     ];
-    for p in &candidates {
-        if p.is_file() {
-            info!(path = %p.display(), "claude path resolved from common location");
-            return Some(p.clone());
+    for p in &system_candidates {
+        let path = PathBuf::from(p);
+        if path.is_file() {
+            info!(path = p, "claude path resolved from common location");
+            return Some(path);
         }
     }
 
-    if let Ok(out) = std::process::Command::new("bash")
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    if let Ok(out) = std::process::Command::new(&shell)
         .args(["-lc", "command -v claude"])
         .output()
     {
@@ -127,7 +151,7 @@ fn resolve_claude_binary_path(home: &Path) -> Option<PathBuf> {
             if !s.is_empty() {
                 let p = PathBuf::from(&s);
                 if p.is_absolute() && p.is_file() {
-                    info!(path = %s, "claude path resolved via login shell");
+                    info!(path = %s, shell = %shell, "claude path resolved via login shell");
                     return Some(p);
                 }
             }

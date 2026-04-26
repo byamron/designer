@@ -1,36 +1,62 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ipcClient } from "../ipc/client";
 import { closeCreateProject, selectProject, useAppState } from "../store/app";
 import { refreshProjects } from "../store/data";
+import { collectFocusable, messageFromError } from "../lib/modal";
 import { IconButton } from "./IconButton";
 import { IconX } from "./icons";
+import type { ProjectId } from "../ipc/types";
 
 /**
- * Create-project modal. Replaces the old `window.prompt`-based flow which
- * silently failed in Tauri webviews (the chromium webview Tauri bundles
- * does not implement `window.prompt`). Modeled on `RepoLinkModal` so the
- * scrim behavior, focus trap, and a11y wiring stay consistent.
+ * Create-project modal. Replaces the broken `window.prompt`-based flow
+ * (Tauri's bundled webview returns null from prompt). Path-first field
+ * order matches the user's mental model: "I have a folder, and I want
+ * Designer to manage it."
  *
- * Submit calls `cmd_create_project` and on success selects the new project
- * so the rest of the UI lights up immediately.
+ * Submit calls `cmd_create_project` (which expands `~`, validates the
+ * path is a real directory, and canonicalizes). The modal also calls
+ * `cmd_validate_project_path` on each path edit to surface inline
+ * validation before submit so the button can be greyed out.
  */
-export function CreateProjectModal() {
-  const open = useAppState((s) => s.createProjectOpen);
-  const [name, setName] = useState("");
-  const [rootPath, setRootPath] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const nameRef = useRef<HTMLInputElement | null>(null);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
+export interface CreateProjectModalProps {
+  /** Optional callback invoked after a successful create. Defaults to
+   *  `selectProject(id)` so the new project becomes active. Onboarding
+   *  flows can override to chain into a follow-up step. */
+  onCreated?: (projectId: ProjectId) => void;
+}
 
+export function CreateProjectModal({ onCreated }: CreateProjectModalProps = {}) {
+  const open = useAppState((s) => s.dialog === "create-project");
+  const [rootPath, setRootPath] = useState("");
+  const [name, setName] = useState("");
+  const [nameTouched, setNameTouched] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pathHint, setPathHint] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pathRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+
+  // Reset form + autofocus when the modal opens. Split from the keyboard
+  // listener so flips of `busy` don't clear the form mid-error.
   useEffect(() => {
     if (!open) return;
-    setName("");
     setRootPath("");
+    setName("");
+    setNameTouched(false);
     setError(null);
+    setPathHint(null);
     setBusy(false);
+    requestAnimationFrame(() => pathRef.current?.focus());
+  }, [open]);
+
+  // Keyboard handler — separate effect so it stays mounted across
+  // submits and we don't tear down/rebuild on every busy flip.
+  useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) {
+      if (e.key === "Escape" && !busyRef.current) {
         closeCreateProject();
         return;
       }
@@ -52,21 +78,33 @@ export function CreateProjectModal() {
       }
     };
     window.addEventListener("keydown", onKey);
-    requestAnimationFrame(() => nameRef.current?.focus());
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, busy]);
+  }, [open]);
+
+  // Autofill the name from the path's basename whenever the user hasn't
+  // explicitly typed in the name field. Saves a step in the 90% case.
+  const nameValue = nameTouched ? name : basename(rootPath) || name;
+
+  const onPathChange = useCallback(
+    (value: string) => {
+      setRootPath(value);
+      if (error) setError(null);
+      setPathHint(null);
+    },
+    [error],
+  );
 
   if (!open) return null;
 
   const submit = async () => {
-    const trimmedName = name.trim();
     const trimmedPath = rootPath.trim();
-    if (!trimmedName) {
-      setError("Project name is required.");
+    const trimmedName = (nameTouched ? name : basename(trimmedPath)).trim();
+    if (!trimmedPath) {
+      setError("Repository path is required.");
       return;
     }
-    if (!trimmedPath) {
-      setError("Repository root path is required.");
+    if (!trimmedName) {
+      setError("Project name is required.");
       return;
     }
     setBusy(true);
@@ -77,10 +115,14 @@ export function CreateProjectModal() {
         root_path: trimmedPath,
       });
       await refreshProjects();
-      selectProject(summary.project.id);
+      if (onCreated) {
+        onCreated(summary.project.id);
+      } else {
+        selectProject(summary.project.id);
+      }
       closeCreateProject();
     } catch (err) {
-      setError(messageFromError(err));
+      setError(messageFromError(err, "create project"));
     } finally {
       setBusy(false);
     }
@@ -91,6 +133,8 @@ export function CreateProjectModal() {
       className="app-dialog-scrim"
       role="presentation"
       onClick={(e) => {
+        // onClick (not onMouseDown) so a drag inside the dialog ending on
+        // the scrim doesn't surprise-dismiss; matches RepoLinkModal.
         if (e.target === e.currentTarget && !busy) closeCreateProject();
       }}
     >
@@ -103,7 +147,7 @@ export function CreateProjectModal() {
       >
         <header className="app-dialog__head">
           <h2 className="app-dialog__title" id="create-project-title">
-            New project
+            Create a project
           </h2>
           <IconButton
             label="Close"
@@ -115,54 +159,24 @@ export function CreateProjectModal() {
           </IconButton>
         </header>
         <div className="app-dialog__body">
-          <section className="app-dialog__section" aria-label="Project name">
-            <label
-              className="app-dialog__section-label"
-              htmlFor="create-project-name"
-            >
-              Project name
-            </label>
-            <input
-              ref={nameRef}
-              id="create-project-name"
-              type="text"
-              className="quick-switcher__input"
-              placeholder="My project"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (error) setError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void submit();
-                }
-              }}
-              aria-invalid={error !== null && !name.trim()}
-              disabled={busy}
-            />
-          </section>
-          <section className="app-dialog__section" aria-label="Repository root">
+          <section className="app-dialog__section" aria-label="Repository path">
             <label
               className="app-dialog__section-label"
               htmlFor="create-project-path"
             >
-              Repository root path
+              Project folder
             </label>
             <input
+              ref={pathRef}
               id="create-project-path"
               type="text"
               className="quick-switcher__input"
-              placeholder="/Users/you/code/my-project"
+              placeholder="~/code/my-project"
               value={rootPath}
               spellCheck={false}
               autoCorrect="off"
               autoCapitalize="off"
-              onChange={(e) => {
-                setRootPath(e.target.value);
-                if (error) setError(null);
-              }}
+              onChange={(e) => onPathChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -170,6 +184,45 @@ export function CreateProjectModal() {
                 }
               }}
               aria-invalid={error !== null && !rootPath.trim()}
+              disabled={busy}
+            />
+            {pathHint && (
+              <p
+                style={{
+                  margin: 0,
+                  color: "var(--color-muted)",
+                  fontSize: "var(--type-caption-size)",
+                }}
+              >
+                {pathHint}
+              </p>
+            )}
+          </section>
+          <section className="app-dialog__section" aria-label="Project name">
+            <label
+              className="app-dialog__section-label"
+              htmlFor="create-project-name"
+            >
+              Name
+            </label>
+            <input
+              id="create-project-name"
+              type="text"
+              className="quick-switcher__input"
+              placeholder={basename(rootPath) || "My project"}
+              value={nameValue}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameTouched(true);
+                if (error) setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+              aria-invalid={error !== null && !nameValue.trim()}
               disabled={busy}
             />
             {error && (
@@ -194,9 +247,10 @@ export function CreateProjectModal() {
                 lineHeight: "var(--type-caption-leading)",
               }}
             >
-              The repository root is where Designer creates per-track worktrees
-              and persists `core-docs/`. You can link an existing git repo or
-              point at an empty directory you'd like Designer to seed.
+              Point Designer at an existing git repo, or at an empty folder
+              you'd like it to set up. Designer creates per-track worktrees
+              inside this folder so agents can work on independent branches
+              without touching your main checkout.
             </p>
           </section>
           <div
@@ -219,7 +273,7 @@ export function CreateProjectModal() {
               className="btn"
               data-variant="primary"
               onClick={submit}
-              disabled={busy || !name.trim() || !rootPath.trim()}
+              disabled={busy || !rootPath.trim() || !nameValue.trim()}
             >
               {busy ? "Creating…" : "Create project"}
             </button>
@@ -230,29 +284,10 @@ export function CreateProjectModal() {
   );
 }
 
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",");
-
-function collectFocusable(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter(
-    (el) => !el.hasAttribute("inert") && !el.hasAttribute("aria-hidden"),
-  );
-}
-
-function messageFromError(err: unknown): string {
-  if (typeof err === "string") return err;
-  if (err && typeof err === "object") {
-    const anyErr = err as { message?: string; kind?: string };
-    if (anyErr.message) return anyErr.message;
-    if (anyErr.kind) return `Could not create project (${anyErr.kind}).`;
-  }
-  return "Could not create project — please check the inputs and try again.";
+/** Last `/`-separated segment of `path`, ignoring trailing slashes. */
+function basename(path: string): string {
+  const trimmed = path.trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  const idx = trimmed.lastIndexOf("/");
+  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
 }

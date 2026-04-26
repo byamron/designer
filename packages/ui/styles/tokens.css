@@ -159,6 +159,7 @@
   /* Z-index layer, paired 1:1 with elevation */
   --layer-flat:     auto;
   --layer-raised:   1;
+  --layer-titlebar: 5;
   --layer-overlay:  10;
   --layer-modal:    100;
 

@@ -147,6 +147,7 @@ fn main() {
             commands::set_theme,
             commands::spine,
             commands::toggle_pin_artifact,
+            commands::validate_project_path,
             commands_agents::post_message,
             commands_git::cmd_get_track,
             commands_git::cmd_link_repo,

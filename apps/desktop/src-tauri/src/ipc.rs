@@ -19,14 +19,69 @@ pub async fn cmd_create_project(
     if req.name.trim().is_empty() {
         return Err(IpcError::invalid_request("name must not be empty"));
     }
+    // Expand `~` and validate the path on the way in. Without this, a user
+    // typing `~/code/foo` (or a stale path) gets a project that "succeeds"
+    // but every subsequent git/worktree op explodes with confusing errors.
+    let resolved = expand_and_validate_dir(&req.root_path.to_string_lossy())
+        .map_err(IpcError::invalid_request)?;
     let project = core
-        .create_project(req.name, req.root_path)
+        .create_project(req.name, resolved)
         .await
         .map_err(IpcError::from)?;
     Ok(ProjectSummary {
         project,
         workspace_count: 0,
     })
+}
+
+/// Inline-validation IPC for the create-project / link-repo modals so the
+/// UI can grey out the submit button before the user clicks. Returns the
+/// canonical absolute path on success, or a typed error reason. Does NOT
+/// mutate state — pure check.
+pub async fn cmd_validate_project_path(
+    _core: &Arc<AppCore>,
+    path: String,
+) -> Result<String, IpcError> {
+    let resolved = expand_and_validate_dir(&path).map_err(IpcError::invalid_request)?;
+    Ok(resolved.to_string_lossy().into_owned())
+}
+
+/// Expand `~` to `$HOME` and return the canonical absolute path if it
+/// exists and is a directory. Otherwise return a user-facing reason
+/// suitable for an `IpcError::InvalidRequest` message.
+fn expand_and_validate_dir(input: &str) -> Result<std::path::PathBuf, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Path is required.".into());
+    }
+    let expanded = expand_tilde(trimmed);
+    let path = std::path::Path::new(&expanded);
+    if !path.is_absolute() {
+        return Err(format!(
+            "Path must be absolute (got `{}`). Tip: drag-drop a folder from Finder, or paste an absolute path like `/Users/you/code/project`.",
+            trimmed
+        ));
+    }
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", path.display()));
+    }
+    if !path.is_dir() {
+        return Err(format!("Path is not a directory: {}", path.display()));
+    }
+    // Canonicalize to resolve symlinks + normalize. Failure shouldn't
+    // block; fall back to the expanded form.
+    Ok(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()))
+}
+
+fn expand_tilde(input: &str) -> String {
+    if let Some(rest) = input.strip_prefix('~') {
+        if rest.is_empty() || rest.starts_with('/') {
+            if let Ok(home) = std::env::var("HOME") {
+                return format!("{home}{rest}");
+            }
+        }
+    }
+    input.to_string()
 }
 
 pub async fn cmd_list_projects(core: &Arc<AppCore>) -> Result<Vec<ProjectSummary>, IpcError> {

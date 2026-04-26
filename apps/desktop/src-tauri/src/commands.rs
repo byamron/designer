@@ -31,6 +31,14 @@ pub async fn create_project(
 }
 
 #[tauri::command]
+pub async fn validate_project_path(
+    core: State<'_, Arc<AppCore>>,
+    path: String,
+) -> Result<String, IpcError> {
+    ipc::cmd_validate_project_path(&core, path).await
+}
+
+#[tauri::command]
 pub async fn list_workspaces(
     core: State<'_, Arc<AppCore>>,
     project_id: ProjectId,

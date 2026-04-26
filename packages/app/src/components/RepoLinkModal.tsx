@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ipcClient } from "../ipc/client";
+import { collectFocusable, messageFromError } from "../lib/modal";
 import { IconButton } from "./IconButton";
 import { IconX } from "./icons";
 import type { WorkspaceId } from "../ipc/types";
@@ -91,7 +92,7 @@ export function RepoLinkModal({
       onLinked?.(trimmed);
       onClose();
     } catch (err) {
-      setError(messageFromError(err));
+      setError(messageFromError(err, "link repository"));
     } finally {
       setBusy(false);
     }
@@ -216,32 +217,3 @@ export function RepoLinkModal({
   );
 }
 
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",");
-
-function collectFocusable(container: HTMLElement): HTMLElement[] {
-  // We don't filter by offsetParent here because jsdom always reports
-  // offsetParent === null, which would empty the focus ring under tests.
-  // The real-DOM cases we'd want to filter (display:none, hidden) are
-  // either disabled (already excluded) or aria-hidden (rare for buttons
-  // inside an open modal); leaving them in is safe.
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter((el) => !el.hasAttribute("inert") && !el.hasAttribute("aria-hidden"));
-}
-
-function messageFromError(err: unknown): string {
-  if (typeof err === "string") return err;
-  if (err && typeof err === "object") {
-    const anyErr = err as { message?: string; kind?: string };
-    if (anyErr.message) return anyErr.message;
-    if (anyErr.kind) return `Could not link repository (${anyErr.kind}).`;
-  }
-  return "Could not link repository — please check the path and try again.";
-}
