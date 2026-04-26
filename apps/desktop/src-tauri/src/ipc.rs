@@ -102,25 +102,46 @@ pub async fn cmd_helper_status(core: &Arc<AppCore>) -> HelperStatusResponse {
     helper_status_to_response(status, health)
 }
 
-/// Approval flow is wired in Phase 13.G. Until then, `cmd_request_approval` and
-/// `cmd_resolve_approval` return an explicit error so the frontend can detect
-/// "not yet wired" and render a degraded state rather than silently dropping.
+/// Approval flow (Phase 13.G).
+///
+/// **Why `cmd_request_approval` errors out instead of forwarding to the
+/// store.** The IPC surface is callable from the webview, including from
+/// any future XSS-escaped script. If we let the frontend forge
+/// `ApprovalRequested` events, an attacker could plant a fake "Grant
+/// write access?" entry in the inbox, wait for the user to click Grant,
+/// and have the *next* real agent prompt inherit that granted state via
+/// a coincidental id collision (or simply pollute the audit log). The
+/// only legitimate producer of approval requests is the
+/// `InboxPermissionHandler` invoked by the orchestrator on a real Claude
+/// permission prompt. So this IPC stays an error stub — the legacy wire
+/// name is preserved only because the `IpcClient` interface still
+/// declares `requestApproval` for mock-orchestrator dev flows that
+/// haven't been refactored.
 pub async fn cmd_request_approval(
     _core: &Arc<AppCore>,
     _workspace_id: WorkspaceId,
     _gate: String,
     _summary: String,
 ) -> Result<String, IpcError> {
-    Err(IpcError::unknown("approvals are a Phase 13.G surface"))
+    Err(IpcError::unknown(
+        "cmd_request_approval is internal; agents request approvals via the orchestrator's \
+         InboxPermissionHandler. The frontend cannot forge approvals.",
+    ))
 }
 
 pub async fn cmd_resolve_approval(
-    _core: &Arc<AppCore>,
-    _id: String,
-    _granted: bool,
-    _reason: Option<String>,
+    core: &Arc<AppCore>,
+    id: String,
+    granted: bool,
+    reason: Option<String>,
 ) -> Result<(), IpcError> {
-    Err(IpcError::unknown("approvals are a Phase 13.G surface"))
+    use std::str::FromStr;
+    let approval_id = designer_core::ApprovalId::from_str(&id)
+        .map_err(|e| IpcError::invalid_request(format!("approval id: {e}")))?;
+    core.resolve_approval_inbox(approval_id, granted, reason)
+        .await
+        .map_err(IpcError::from)?;
+    Ok(())
 }
 
 // ---- Artifacts (Phase 13.1) ----------------------------------------------

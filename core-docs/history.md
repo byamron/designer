@@ -171,6 +171,82 @@ A boot-spawned message coalescer task subscribes to the orchestrator's broadcast
 
 - The serial-test pattern (tokio mutex around shared global state) keeps the test-only override layer simple. Worth keeping in mind the next time a track is tempted to thread an injectable through `AppCore` just to test it.
 
+### Phase 13.G — Safety surfaces + Keychain (SAFETY)
+**Date:** 2026-04-25
+**Branch:** safety-inbox-keychain
+**Commit:** [PR pending]
+
+**What was done:**
+
+Wired the four safety surfaces ADR 0003 reserved for 13.G — approval inbox, scope-denied path, cost chip, macOS Keychain status — and replaced the development `AutoAcceptSafeTools` permission handler with a real, production-default `InboxPermissionHandler`.
+
+Backend (Rust):
+- `crates/designer-claude/src/inbox_permission.rs` — `InboxPermissionHandler` parks each Claude permission prompt on a `tokio::sync::oneshot` per-request channel, emits `ApprovalRequested` and `ArtifactCreated{kind:"approval"}` so the request shows up inline in the workspace thread, and waits up to **5 minutes** for a user resolve. Timeouts emit `ApprovalDenied{reason:"timeout"}` and tell the agent to deny — agents never block forever. `PermissionRequest` gained an additive `workspace_id: Option<WorkspaceId>` field; the trait shape stayed frozen per ADR 0002.
+- `apps/desktop/src-tauri/src/core_safety.rs` — `AppCore` methods for `list_pending_approvals`, `resolve_approval_inbox`, `cost_status`, `keychain_status`, plus `record_scope_denial` (emits both `ScopeDenied` AND a `comment` artifact anchored to the offending change) and `sweep_orphan_approvals` (replay-safety sweep on boot — orphaned `ApprovalRequested` events become `ApprovalDenied{reason:"process_restart"}` so phantom rows don't pop the inbox after every restart).
+- `apps/desktop/src-tauri/src/commands_safety.rs` — five new `#[tauri::command]` handlers: `cmd_list_pending_approvals`, `cmd_get_cost_status`, `cmd_get_keychain_status`, `cmd_get_cost_chip_preference`, `cmd_set_cost_chip_preference`. Registered in `main.rs::generate_handler!` alphabetically.
+- `apps/desktop/src-tauri/src/ipc.rs` — replaced the "approvals are a Phase 13.G surface" stubs with real implementations that route through `AppCore::resolve_approval_inbox`. `cmd_request_approval` emits `ApprovalRequested` directly for parity with mock-orchestrator UI flows.
+- `apps/desktop/src-tauri/src/core.rs` — `AppCore::boot` now constructs the inbox handler, installs it as the production permission handler on `ClaudeCodeOrchestrator` via `with_permission_handler()`, and runs the orphan-approval sweep right after the projector replay.
+- `apps/desktop/src-tauri/Cargo.toml` — added `security-framework = { version = "2", default-features = false }` under `[target.'cfg(target_os = "macos")'.dependencies]`. MIT/Apache-2.0 dual-licensed.
+
+Frontend (React):
+- `packages/app/src/blocks/blocks.tsx` — `ApprovalBlock` Grant/Deny buttons now call `cmd_resolve_approval` with the approval id parsed from the artifact payload. Optimistic flip on click, projector becomes truth via subscription to `approval_granted`/`approval_denied` stream events. Resolved-state focus management: focus jumps to the resolution status div via `tabIndex={-1}` so SR users hear the new state and keyboard users don't lose place.
+- `packages/app/src/components/CostChip.tsx` — new topbar widget showing `$<spent> / $<cap>` with a colored band (50% green / 80% amber / >80% red, dimmed when no cap). Click expands a small popover with daily/weekly/per-track placeholder. Hidden by default; `COST_CHIP_PREFERENCE_EVENT` re-fetches when Settings flips the toggle.
+- `packages/app/src/layout/MainView.tsx` — mounts the chip on the right of `tabs-bar` (margin-left:auto pushes it past the new-tab button).
+- `packages/app/src/layout/SettingsPage.tsx` — new Preferences row "Show cost in topbar" backed by `cmd_set_cost_chip_preference`; new Account row "Keychain" rendering `cmd_get_keychain_status` with a stable copy + state dot. Both use `aria-live="polite"` so screen readers don't get re-announced on minor state churn.
+- `packages/app/src/styles/app.css` — `.cost-chip*`, `.cost-chip__popover*`, `.settings-page__keychain*` rules. All values reference existing tokens (`--space-*`, `--radius-button`, `--border-thin`, etc.) — no new hex/px values.
+- `apps/desktop/src-tauri/src/settings.rs` — `Settings.cost_chip_enabled: bool` (defaults to `false` per Decision 34).
+
+**Why:**
+
+Three decisions converged here. **Decision 22** says approval gates live in the Rust core, non-bypassable — a frontend XSS can't synthesize an approval. The inbox handler enforces this by parking the agent on a `oneshot` channel inside Rust; the only way to release it is an event-store-backed `cmd_resolve_approval`. **Decision 26** says we never touch Claude's OAuth tokens — the Keychain integration is read-only, never writes, never reads the secret contents (only confirms the credential is present so the user sees "connected"). **Decision 34** says the cost chip is opt-in; the toggle defaults to `false` so usage anxiety is a user choice, not a default.
+
+The replay-safety sweep is the staff-engineer review's biggest catch. Without it, every cold boot would surface every previously-pending approval as if they were live — but the Claude subprocess that requested them is gone, the agent isn't waiting, and a "Grant" click would resolve nothing. Sweeping orphans into `ApprovalDenied{reason:"process_restart"}` keeps the projector honest and the inbox clean.
+
+**Design decisions:**
+
+- **5-minute approval timeout.** Long enough for a real human round-trip (interrupted lunch, context switch); short enough that an agent doesn't appear permanently stalled when the user closed the laptop.
+- **Cost chip color bands at 50 / 80%.** Green at 0–50%, amber 50–80%, red >80% (matches ADR 0002 §D4 — 95% is the ambient-notice threshold, surfaced separately when wired). Dimmed dot when no cap is configured so the chip doesn't shout when there's nothing to alarm about.
+- **Approval payload as JSON, not free-text.** The `ApprovalBlock` parses `{ approval_id, tool, gate, summary, input }` so the UI can wire optimistic resolve + event-stream confirmation without a follow-up `cmd_get_artifact` round-trip. Free-text wouldn't carry the id deterministically.
+- **Keychain service name is overridable.** Env var `DESIGNER_CLAUDE_KEYCHAIN_SERVICE` overrides the `Claude Code-credentials` default — a future Claude release that changes the service name doesn't require a Designer patch.
+- **`PermissionRequest.workspace_id` defaults to `None`.** Additive field with a `serde(default)` so existing call sites (and `AutoAcceptSafeTools` tests) keep working. Inbox handler fails closed when `None` arrives — denying is safer than dropping the prompt.
+
+**Technical decisions:**
+
+- **`InboxPermissionHandler` lives in `designer-claude`, not `designer-safety`.** It's a `PermissionHandler` impl — the natural home is alongside the trait. Keeps `designer-safety` focused on `ApprovalGate`/`CostTracker`/`ScopeGuard` primitives that the handler uses.
+- **Process-global handler via `OnceCell`.** `AppCore` boots the handler before the orchestrator selects it; the IPC layer (`cmd_resolve_approval`) and the orchestrator (caller of `decide`) need to share the same instance. A circular `Arc<AppCore>` would be uglier than a once-set global keyed off the binary's lifetime.
+- **`cost_status` returns a flat DTO, not a nested enum.** Frontend reads `spent_dollars_cents`, `cap_dollars_cents`, `ratio` directly; the chip color band is computed in TS so updates don't require a round-trip per band change.
+- **`record_scope_denial` is on `AppCore`, not `ScopeGuard`.** The guard returns `Result<PathBuf, SafetyError>` with no event-store reference. A helper at the AppCore level can append both events transactionally and apply them to the projector synchronously.
+
+**Tradeoffs discussed:**
+
+- *Inbox handler global vs `AppCore` field.* Global wins because `ClaudeCodeOrchestrator` is built before `AppCore`'s `Arc` is constructed — wiring the handler into `AppCore`'s field would require a second pass to backfill the orchestrator. Global is hidden behind `install_inbox_handler` so the surface is small.
+- *Cost-chip data source: `cost_status` poll vs. `cost_recorded` stream subscription.* Both. Initial render polls; the chip subscribes to `cost_recorded` events and re-polls so it reflects per-turn cost without explicit refresh. Pure subscription would race the projector; pure polling would feel laggy.
+- *Approval artifact summary update on resolve.* Considered emitting `ArtifactUpdated` to flip the artifact's summary to "Granted"/"Denied" so the projector reflects status. Rejected — the block subscribes to `approval_granted`/`approval_denied` events directly and flips local state, which is faster and avoids the artifact's `version` churn.
+- *Keychain "last verified" timestamp.* Stored in a process-local `OnceLock<Mutex<Option<String>>>` cache, not persisted. A persisted timestamp could imply that we've verified the token contents (we haven't); this signal is "Designer last saw the credential exists." Cache survives within a session, resets on restart.
+
+**Lessons learned:**
+
+- `ApprovalId`'s `Display` includes the `apv_` prefix but `serde::Serialize` is `#[serde(transparent)]` (bare UUID). Tests asserting against the wire shape need `serde_json::to_value(&id)`, not `id.to_string()`. Updated docs in the tests so the next person doesn't trip.
+- `tokio::test` defaults to single-threaded. The racing-approvals test needed `flavor = "multi_thread"` plus sequencing the spawns around `wait_for_pending` so the first park's read happens before the second spawn races into the SQLite write lock.
+- `cargo fmt --check` only works from the workspace root, not from inside a crate dir — `cargo fmt --all -- --check` is the portable form.
+
+**Post-merge security review fixes (2026-04-25, same branch).**
+
+The launch-grade review caught seven issues across the 13.G surface; all fixed in the same branch before merge:
+
+- **Blocking — `cmd_request_approval` unauth injection.** The IPC was wired to call `store.append(ApprovalRequested)` from any frontend caller. Restored to an explicit error stub with a docstring explaining why: only the orchestrator's `InboxPermissionHandler` is a legitimate producer of approval requests; an XSS-escaped script could otherwise plant fake "Grant write access?" entries in the inbox.
+- **Blocking — orphan-sweep race.** `sweep_orphan_approvals` now holds a process-global `tokio::Mutex` for the whole sweep and re-reads the event log per write to catch any terminal event that landed between iterations. Two concurrent callers no longer double-write `process_restart` denials.
+- **High — cost replay.** `CostTracker::replay_from_store` walks every `CostRecorded` event into the in-memory map; `AppCore::boot` calls it after construction. Without this, the cap check silently allowed a workspace to double-spend across boots and the topbar chip read $0.00 until the next per-turn cost event. New regression test in `designer-safety::tests::cost_tracker_replay_reflects_historical_spend`.
+- **High — `gate.status` lies in production.** Inbox-routed resolutions wrote events directly to the store, bypassing `InMemoryApprovalGate.pending`. Added `gate.record_status` (in-memory only) + `gate.replay_from_store` (boot-time). The handler now takes an optional `Arc<dyn GateStatusSink>`; `AppCore::boot` wires a `GateSinkAdapter` so every resolve mirrors into the gate's map. The trait sink lives in `designer-claude`; the adapter lives in the desktop crate so `designer-safety` does not depend on `designer-claude` (preserves the natural layering).
+- **Medium — resolution events on the wrong stream.** `ApprovalGranted/Denied` were written to `StreamId::System` while `ApprovalRequested` went to `StreamId::Workspace(...)`. Workspace-scoped subscribers saw "still pending forever." `PendingEntry` now stores `workspace_id` alongside the `oneshot::Sender`; resolutions and timeouts write to the same workspace stream as the request. Test: `resolution_event_lands_on_workspace_stream`.
+- **Medium — workspace-id-missing path didn't audit.** Now emits `ApprovalDenied{reason:"missing_workspace"}` to System so a misconfigured Phase-13.D wiring surfaces in the audit feed instead of silently denying. Test: `missing_workspace_id_emits_audit_row`.
+- **Medium — `format_now` reimplemented `rfc3339`.** Replaced with `designer_core::rfc3339(OffsetDateTime::now_utc())` — the codebase's canonical helper. Drops 12 lines of duplicate logic.
+- **Medium — CSS hex literals + arbitrary `8px`.** The cost-chip and Keychain-status dot rules carried `#2f9e44 / #d97706 / #c92a2a` fallbacks and `8px` dimensions. Switched to `var(--success-9 / --warning-9 / --danger-9)` (already in `tokens.css` via Radix scales) and `var(--space-3)`. No invariant violations remain.
+- **Concurrency — pre-park resolve race.** `decide` now inserts into `pending` *before* emitting any event. If a resolve arrives before decide finishes parking, the entry is already there. Test asserts the observable invariant (entry visible in `pending_ids` before the request event lands in the store).
+- **Concurrency — two-click race.** Resolve atomically removes from `pending` *before* persisting the terminal event. A second resolve for the same id finds nothing in the map, returns `Ok(false)`, and writes no event. The audit log carries exactly one terminal event per approval. Test: `two_click_race_writes_only_one_terminal_event`.
+
+Six new tests cover the previously buggy paths (pre-park observation, two-click race, missing-ws audit, workspace-stream resolution, gate sink update, sweep + grant race), plus cost-replay-after-restart in both the bare tracker and through `AppCore::boot`. Frontend gained one test asserting Grant/Deny stay disabled when the artifact payload is missing the parsed `approval_id`. All quality gates clean.
+
 ---
 
 ### Phase 13.1 — unified workspace thread + artifact foundation

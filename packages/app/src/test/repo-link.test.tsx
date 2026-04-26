@@ -43,6 +43,24 @@ function makeClient() {
     requestMerge: (req) => Promise.resolve(core.requestMerge(req)),
     listTracks: (ws) => Promise.resolve(core.listTracks(ws)),
     getTrack: (id) => Promise.resolve(core.getTrack(id)),
+    listPendingApprovals: () => Promise.resolve([]),
+    getCostStatus: (workspaceId) =>
+      Promise.resolve({
+        workspace_id: workspaceId,
+        spent_dollars_cents: 0,
+        cap_dollars_cents: null,
+        spent_tokens: 0,
+        cap_tokens: null,
+        ratio: null,
+      }),
+    getKeychainStatus: () =>
+      Promise.resolve({
+        state: "connected" as const,
+        last_verified: null,
+        message: "stub",
+      }),
+    getCostChipPreference: () => Promise.resolve({ enabled: false }),
+    setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
   });
   const project = core.listProjects()[0];
   const workspace = core.listWorkspaces(project.project.id)[0];

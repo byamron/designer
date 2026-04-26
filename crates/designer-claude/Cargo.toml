@@ -23,6 +23,7 @@ notify.workspace = true
 notify-debouncer-mini.workspace = true
 uuid.workspace = true
 parking_lot.workspace = true
+dashmap.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

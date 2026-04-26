@@ -5,7 +5,9 @@
 
 use crate::SafetyError;
 use dashmap::DashMap;
-use designer_core::{Actor, EventEnvelope, EventPayload, EventStore, StreamId, WorkspaceId};
+use designer_core::{
+    Actor, EventEnvelope, EventPayload, EventStore, StreamId, StreamOptions, WorkspaceId,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -82,6 +84,40 @@ impl<S: EventStore> CostTracker<S> {
             .get(&workspace_id)
             .map(|c| *c)
             .unwrap_or(self.default_cap)
+    }
+
+    /// Replay every `CostRecorded` event in the store into the in-memory
+    /// usage map. Without this, `usage()` and `cost_status()` return zero
+    /// after a process restart even though the historical spend is still in
+    /// the event log — the cap check would silently allow a workspace to
+    /// double-spend its budget across boots. Called from `AppCore::boot`
+    /// right after construction so the first `cost_status` IPC reflects
+    /// reality.
+    ///
+    /// Idempotent: rebuilds the map from scratch on every call. Cheap on
+    /// startup (one full read), not intended to be called frequently.
+    pub async fn replay_from_store(&self) -> std::result::Result<(), SafetyError> {
+        let events = self
+            .store
+            .read_all(StreamOptions::default())
+            .await
+            .map_err(SafetyError::Core)?;
+        self.usage.clear();
+        for env in &events {
+            if let EventPayload::CostRecorded {
+                workspace_id,
+                tokens_input,
+                tokens_output,
+                dollars_cents,
+            } = &env.payload
+            {
+                let mut entry = self.usage.entry(*workspace_id).or_default();
+                entry.tokens_input = entry.tokens_input.saturating_add(*tokens_input);
+                entry.tokens_output = entry.tokens_output.saturating_add(*tokens_output);
+                entry.dollars_cents = entry.dollars_cents.saturating_add(*dollars_cents);
+            }
+        }
+        Ok(())
     }
 
     /// Read-before-write: project new total, check cap, then append + update.

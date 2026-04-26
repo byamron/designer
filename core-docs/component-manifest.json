@@ -147,13 +147,13 @@
     {
       "name": "BlockRenderers",
       "path": "packages/app/src/blocks/blocks.tsx",
-      "purpose": "Twelve typed-artifact renderers registered against the block registry (`packages/app/src/blocks/registry.ts`) on import of `packages/app/src/blocks/index.ts`. Real-data renderers: Message, Spec, CodeChange, Pr, Approval, Comment, TaskList. Stub renderers (title + summary) for Phase 13.D/E/F/G to fill in: Report, Prototype, Diagram, Variant, TrackRollup. GenericBlock is the fallback for unknown kinds. Every block is an <article> with BlockHeader (kind badge, title, author, expand/pin actions). All visual decisions route through tokens — no inline styles.",
+      "purpose": "Twelve typed-artifact renderers registered against the block registry (`packages/app/src/blocks/registry.ts`) on import of `packages/app/src/blocks/index.ts`. Real-data renderers: Message, Spec, CodeChange, Pr, Approval, Comment, TaskList. Stub renderers (title + summary) for Phase 13.D/E/F to fill in: Report, Prototype, Diagram, Variant, TrackRollup. GenericBlock is the fallback for unknown kinds. ApprovalBlock (Phase 13.G) parses the inline JSON payload for `approval_id`, calls `cmd_resolve_approval` on Grant/Deny with optimistic flip + projector truth via `approval_granted/denied` stream subscription. Buttons disabled when payload lacks a parsable id. Every block is an <article> with BlockHeader (kind badge, title, author, expand/pin actions). All visual decisions route through tokens — no inline styles.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "type-body-size", "type-body-leading", "type-caption-size", "weight-medium", "color-foreground", "color-muted", "color-surface-raised", "color-surface-sunken", "color-surface-hover", "color-border", "color-accent", "border-thin", "radius-card", "radius-button", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color", "line-height-body"],
       "css_prefix": "block__ block--",
-      "last_updated": "2026-04-24"
+      "last_updated": "2026-04-25"
     },
     {
       "name": "ComposeDock",
@@ -335,6 +335,38 @@
       "primitives_used": [],
       "tokens_referenced": ["space-1"],
       "last_updated": "2026-04-21"
+    },
+    {
+      "name": "CostChip",
+      "path": "packages/app/src/components/CostChip.tsx",
+      "purpose": "Phase 13.G workspace topbar widget. Shows `<spent> / <cap>` with a colored band (50% green / 80% amber / >80% red, dimmed when no cap). Click expands a popover with daily / weekly / per-track breakdown (week + per-track placeholders defer to a follow-up). Hidden by default per spec Decision 34; the COST_CHIP_PREFERENCE_EVENT custom event triggers a re-fetch when Settings flips the toggle. Subscribes to the `cost_recorded` stream event so the chip updates per turn without explicit refresh.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-8", "color-content-surface", "color-border-soft", "color-border", "color-foreground", "color-muted", "color-background", "success-9", "warning-9", "danger-9", "radius-button", "radius-card", "border-thin", "type-family-mono", "type-caption-size", "type-body-size", "layer-overlay", "elevation-overlay", "motion-enter"],
+      "css_prefix": "cost-chip__ cost-chip--",
+      "last_updated": "2026-04-25"
+    },
+    {
+      "name": "KeychainStatusReadout",
+      "path": "packages/app/src/layout/SettingsPage.tsx",
+      "purpose": "Phase 13.G Settings → Account row. Polls `cmd_get_keychain_status` once on mount and renders a stable copy + state dot (connected / disconnected / unsupported_os). `aria-live='polite'` so screen readers don't get re-announced on minor state churn. Decision 26 — the readout never reads or writes the secret bytes, only confirms the credential's presence in the macOS Keychain.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "color-muted", "success-9", "warning-9", "type-caption-size"],
+      "css_prefix": "settings-page__keychain",
+      "last_updated": "2026-04-25"
+    },
+    {
+      "name": "CostChipToggle",
+      "path": "packages/app/src/layout/SettingsPage.tsx",
+      "purpose": "Phase 13.G Settings → Preferences row. Reuses SegmentedToggle for an Off / On chooser bound to `cmd_set_cost_chip_preference` (persists `cost_chip_enabled` in `~/.designer/settings.json`). Dispatches the `COST_CHIP_PREFERENCE_EVENT` custom event after writing so the topbar `CostChip` re-renders without a full reload.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "color-muted", "type-caption-size"],
+      "last_updated": "2026-04-25"
     }
   ]
 }

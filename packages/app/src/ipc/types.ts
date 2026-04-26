@@ -204,3 +204,13 @@ export interface StreamEvent {
 }
 
 export type AttentionTier = "inline" | "ambient" | "notify" | "digest";
+
+// Phase 13.G safety surfaces — re-exported from `./client` for convenience
+// so `import type { KeychainStatus } from "../ipc/types"` works without
+// pulling in the runtime client module.
+export type {
+  CostChipPreferences,
+  CostStatus,
+  KeychainStatus,
+  PendingApproval,
+} from "./client";

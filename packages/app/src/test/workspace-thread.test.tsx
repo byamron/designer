@@ -60,6 +60,24 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       requestMerge: (req) => Promise.resolve(mock.requestMerge(req)),
       listTracks: (ws) => Promise.resolve(mock.listTracks(ws)),
       getTrack: (id) => Promise.resolve(mock.getTrack(id)),
+      listPendingApprovals: () => Promise.resolve([]),
+      getCostStatus: (workspaceId) =>
+        Promise.resolve({
+          workspace_id: workspaceId,
+          spent_dollars_cents: 0,
+          cap_dollars_cents: null,
+          spent_tokens: 0,
+          cap_tokens: null,
+          ratio: null,
+        }),
+      getKeychainStatus: () =>
+        Promise.resolve({
+          state: "connected" as const,
+          last_verified: null,
+          message: "stub",
+        }),
+      getCostChipPreference: () => Promise.resolve({ enabled: false }),
+      setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
     });
   });
 

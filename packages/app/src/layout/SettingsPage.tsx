@@ -12,6 +12,9 @@ import {
   subscribeTheme,
   type ThemeMode,
 } from "../theme";
+import { ipcClient } from "../ipc/client";
+import type { KeychainStatus } from "../ipc/types";
+import { COST_CHIP_PREFERENCE_EVENT } from "../components/CostChip";
 
 /**
  * Settings as a full-screen page — replaces the entire AppShell while
@@ -149,6 +152,12 @@ function AccountSection() {
         <span className="settings-page__meta">signed in on this machine</span>
       </SettingsRow>
       <SettingsRow
+        label="Keychain"
+        description="Read-only check that Claude Code's macOS Keychain credential is reachable. Designer never reads or writes your token."
+      >
+        <KeychainStatusReadout />
+      </SettingsRow>
+      <SettingsRow
         label="Repository"
         description={
           targetWorkspace
@@ -185,6 +194,42 @@ function AccountSection() {
   );
 }
 
+function KeychainStatusReadout() {
+  const [status, setStatus] = useState<KeychainStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    ipcClient()
+      .getKeychainStatus()
+      .then((s) => {
+        if (!cancelled) setStatus(s);
+      })
+      .catch(() => {
+        if (!cancelled) setStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!status) {
+    return <span className="settings-page__meta">checking…</span>;
+  }
+  // Stable copy regardless of state — screen readers won't be re-announced
+  // on minor state churn. The status itself is a token, not displayed copy.
+  const dotClass = `settings-page__keychain-dot settings-page__keychain-dot--${status.state}`;
+  return (
+    <span
+      className="settings-page__keychain"
+      role="status"
+      aria-live="polite"
+      data-state={status.state}
+    >
+      <span className={dotClass} aria-hidden="true" />
+      <span className="settings-page__meta">{status.message}</span>
+    </span>
+  );
+}
+
 function ModelsSection() {
   return (
     <>
@@ -212,7 +257,59 @@ function PreferencesSection() {
       <SettingsRow label="Default autonomy" description="Suggest-only, act-on-approval, or scheduled autonomy.">
         <span className="settings-page__meta">suggest</span>
       </SettingsRow>
+      <SettingsRow
+        label="Show cost in topbar"
+        description="Adds a chip to the workspace topbar showing spend against the cap. Off by default — turn on if you want spend visible at all times."
+      >
+        <CostChipToggle />
+      </SettingsRow>
     </>
+  );
+}
+
+function CostChipToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    ipcClient()
+      .getCostChipPreference()
+      .then((p) => {
+        if (!cancelled) setEnabled(p.enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (enabled === null) return <span className="settings-page__meta">checking…</span>;
+
+  const choose = async (next: "off" | "on") => {
+    const desired = next === "on";
+    setEnabled(desired);
+    try {
+      const pref = await ipcClient().setCostChipPreference(desired);
+      window.dispatchEvent(
+        new CustomEvent(COST_CHIP_PREFERENCE_EVENT, { detail: pref }),
+      );
+    } catch {
+      // Roll back on failure so the UI doesn't lie about persisted state.
+      setEnabled(!desired);
+    }
+  };
+
+  return (
+    <SegmentedToggle<"off" | "on">
+      ariaLabel="Show cost in topbar"
+      value={enabled ? "on" : "off"}
+      onChange={(v) => void choose(v)}
+      options={[
+        { value: "off", label: "Off", tooltip: "Hide the cost chip" },
+        { value: "on", label: "On", tooltip: "Show spend vs cap" },
+      ]}
+    />
   );
 }
 

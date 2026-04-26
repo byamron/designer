@@ -56,6 +56,41 @@ export interface IpcClient {
   requestMerge(req: RequestMergeRequest): Promise<number>;
   listTracks(workspaceId: WorkspaceId): Promise<TrackSummary[]>;
   getTrack(id: TrackId): Promise<TrackSummary>;
+  // Safety surfaces (Phase 13.G)
+  listPendingApprovals(workspaceId?: WorkspaceId): Promise<PendingApproval[]>;
+  getCostStatus(workspaceId: WorkspaceId): Promise<CostStatus>;
+  getKeychainStatus(): Promise<KeychainStatus>;
+  getCostChipPreference(): Promise<CostChipPreferences>;
+  setCostChipPreference(enabled: boolean): Promise<CostChipPreferences>;
+}
+
+// ---- Phase 13.G safety DTOs -----------------------------------------------
+export interface PendingApproval {
+  approval_id: string;
+  workspace_id: WorkspaceId;
+  artifact_id: ArtifactId;
+  gate: string;
+  summary: string;
+  created_at: string;
+}
+
+export interface CostStatus {
+  workspace_id: WorkspaceId;
+  spent_dollars_cents: number;
+  cap_dollars_cents: number | null;
+  spent_tokens: number;
+  cap_tokens: number | null;
+  ratio: number | null;
+}
+
+export interface KeychainStatus {
+  state: "connected" | "disconnected" | "unsupported_os";
+  last_verified: string | null;
+  message: string;
+}
+
+export interface CostChipPreferences {
+  enabled: boolean;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -120,6 +155,23 @@ class TauriIpcClient implements IpcClient {
   }
   getTrack(id: TrackId) {
     return invoke<TrackSummary>("cmd_get_track", { trackId: id });
+  }
+  listPendingApprovals(workspaceId?: WorkspaceId) {
+    return invoke<PendingApproval[]>("cmd_list_pending_approvals", {
+      workspaceId: workspaceId ?? null,
+    });
+  }
+  getCostStatus(workspaceId: WorkspaceId) {
+    return invoke<CostStatus>("cmd_get_cost_status", { workspaceId });
+  }
+  getKeychainStatus() {
+    return invoke<KeychainStatus>("cmd_get_keychain_status");
+  }
+  getCostChipPreference() {
+    return invoke<CostChipPreferences>("cmd_get_cost_chip_preference");
+  }
+  setCostChipPreference(enabled: boolean) {
+    return invoke<CostChipPreferences>("cmd_set_cost_chip_preference", { enabled });
   }
 }
 
@@ -186,6 +238,45 @@ class MockIpcClient implements IpcClient {
   }
   getTrack(id: TrackId) {
     return Promise.resolve(this.core.getTrack(id));
+  }
+  listPendingApprovals(workspaceId?: WorkspaceId) {
+    const all = this.core.approvals().filter((a) => a.status === "pending");
+    const rows: PendingApproval[] = all
+      .filter((a) => !workspaceId || a.workspaceId === workspaceId)
+      .map((a) => ({
+        approval_id: a.id,
+        workspace_id: a.workspaceId,
+        artifact_id: a.id,
+        gate: a.gate,
+        summary: a.summary,
+        created_at: new Date().toISOString(),
+      }));
+    return Promise.resolve(rows);
+  }
+  getCostStatus(workspaceId: WorkspaceId) {
+    // Mock: pretend usage is 12% of a $10 cap so the chip renders a
+    // realistic shape during local dev.
+    return Promise.resolve<CostStatus>({
+      workspace_id: workspaceId,
+      spent_dollars_cents: 120,
+      cap_dollars_cents: 1000,
+      spent_tokens: 8_500,
+      cap_tokens: 100_000,
+      ratio: 0.12,
+    });
+  }
+  getKeychainStatus() {
+    return Promise.resolve<KeychainStatus>({
+      state: "connected",
+      last_verified: new Date().toISOString(),
+      message: "Connected via macOS Keychain — Designer never reads your token.",
+    });
+  }
+  getCostChipPreference() {
+    return Promise.resolve<CostChipPreferences>({ enabled: false });
+  }
+  setCostChipPreference(enabled: boolean) {
+    return Promise.resolve<CostChipPreferences>({ enabled });
   }
 }
 

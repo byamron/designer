@@ -58,6 +58,11 @@ pub struct Settings {
     pub theme: ThemeChoice,
     #[serde(default = "default_version")]
     pub version: u32,
+    /// Show the cost chip in the workspace topbar. Off by default per
+    /// spec Decision 34 — the chip is opt-in so usage anxiety is a user
+    /// choice, not a default.
+    #[serde(default)]
+    pub cost_chip_enabled: bool,
 }
 
 fn default_version() -> u32 {
@@ -69,6 +74,7 @@ impl Default for Settings {
         Settings {
             theme: ThemeChoice::default(),
             version: 1,
+            cost_chip_enabled: false,
         }
     }
 }

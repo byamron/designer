@@ -537,3 +537,63 @@ Stream-event refresh listener: Rust's `StreamId::Workspace(uuid)` Display impl p
 The default `conn.transaction()` in rusqlite is DEFERRED: acquires a read lock on the first SELECT, tries to upgrade to write at the first INSERT. Two concurrent DEFERRED transactions both hold read locks; both try to upgrade; one wins and the other gets `SQLITE_LOCKED` — and `SQLITE_LOCKED` is **not** retryable by `busy_timeout` (only `SQLITE_BUSY` is). Pre-13.D no path had two concurrent writers, so the bug was latent. 13.D's coalescer + `AppCore::post_message` are the first concurrent-writer pair.
 
 Switched the append path in `crates/designer-core/src/store.rs` to `transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)` — acquires the write lock at BEGIN, so the second writer gets `SQLITE_BUSY` and `busy_timeout=5000` retries cleanly. Also added `PRAGMA busy_timeout=5000` to per-connection init in both `open()` and `open_in_memory()`. The verifier `SqliteEventStore::busy_timeout_ms()` is `#[doc(hidden)]` and exists only so the regression test (`tests/store.rs::busy_timeout_is_5_seconds_on_pool_connections`) can confirm the pool's `with_init` closure is being honored.
+
+## §13.G — Safety surfaces + Keychain
+
+Operational notes for the surfaces shipped in PR #19. See `pattern-log.md` 2026-04-25 entries for the *why* on each architectural choice; this section captures the *what* a future contributor needs to know to operate or extend the surfaces.
+
+### `InboxPermissionHandler`: 5-minute approval timeout, single-writer per id
+
+The production permission handler parks every Claude prompt on a `tokio::sync::oneshot` keyed by a fresh `ApprovalId`. Default deadline is `APPROVAL_TIMEOUT = 5 * 60s`; tunable via `InboxPermissionHandler::with_timeout(store, duration)` for tests, but the production builder (`InboxPermissionHandler::new`) always uses 5 minutes. When the timeout fires the handler atomically removes the parked entry, writes `ApprovalDenied{reason:"timeout"}` to the **workspace stream** (matching where the original `ApprovalRequested` landed), and returns `PermissionDecision::Deny{reason:"timeout"}` so the agent gets a clean "no" rather than a hang. Stable token strings — `inbox_permission::TIMEOUT_REASON`, `MISSING_WORKSPACE_REASON`, `PROCESS_RESTART_REASON` — are exported so audit queries can pattern-match without parsing free text.
+
+Single-writer guarantee: `resolve(approval_id, granted, reason)` removes from `pending` first, writes the event second. If the entry is gone (already resolved, two clicks in 50ms, raced timeout), it returns `Ok(false)` and writes nothing. The audit log carries exactly one terminal event per approval id, ever. Same invariant holds in the timeout branch — if `resolve` raced ahead, the timeout writes nothing.
+
+Pre-park reorder: `decide` inserts the entry into `pending` *before* emitting the `ApprovalRequested` and `ArtifactCreated` events. Otherwise a frontend that parses the artifact's `approval_id` and calls `cmd_resolve_approval` immediately could win the race against the parking and silently no-op (the handler would then block until the 5-min timeout). The reorder closes the window.
+
+Workspace-id-missing path: when `req.workspace_id` is `None` (a wiring bug — Phase 13.D's stdio reader hasn't populated the field), the handler emits `ApprovalDenied{reason:"missing_workspace"}` to `StreamId::System` so the operator sees the bug in the audit feed instead of just the agent log, then returns `Deny`.
+
+### `cmd_request_approval` is intentionally an error stub
+
+The Tauri command exists for backwards-wire-compatibility only. It returns `IpcError::Unknown("cmd_request_approval is internal; agents request approvals via the orchestrator's InboxPermissionHandler. The frontend cannot forge approvals.")`. Do not reintroduce a frontend-callable approval-request producer — see the `pattern-log.md` 2026-04-25 entry for the security rationale (XSS-injection risk from a forgeable IPC). Mock UI flows construct dummy approvals via the in-process `MockCore::requestApproval` in `packages/app/src/ipc/mock.ts`; that code path never touches the real store.
+
+### Keychain status: read-only, configurable service name
+
+`apps/desktop/src-tauri/src/core_safety.rs::keychain::query_claude_credential` calls `security_framework::passwords::get_generic_password(service, "")` to surface "is Claude Code's OAuth credential reachable?" — a presence check, never a contents read. Default service is `Claude Code-credentials` (Claude Code 2.1.117 default). Override at runtime via `DESIGNER_CLAUDE_KEYCHAIN_SERVICE` env var for non-default Claude installs or for a future Claude release that renames its credential.
+
+Designer never *writes* to the Keychain in 13.G — Decision 26 prohibits it. A separate Keychain item for the HMAC chain key lands in 13.H; that one will be Designer-owned (`com.designer.event-chain` or similar), distinct from Claude's credential.
+
+The `last_verified` timestamp is process-local — stored in `OnceLock<Mutex<Option<String>>>`, never persisted. A persisted timestamp could imply that we've validated the token contents (we haven't); the field's only meaning is "Designer last saw the credential exists in this session". Cache resets on restart.
+
+Compliance nit (deferred): the `_secret` binding from `get_generic_password` is dropped immediately, but the underlying allocation is not zeroized before drop — `SecKeychainItemFreeContent` would do that. Not critical (we never bind the value to a longer-lived variable), but worth tracking if/when Phase 13.H or 17.T touches secret handling more invasively.
+
+### `GateStatusSink` keeps `gate.status(id)` truthful
+
+`InMemoryApprovalGate.pending` is bypassed by inbox-routed resolutions (the handler writes events directly to the store, not through `gate.grant`/`gate.deny`). To keep the trait-surface honest for any consumer holding `Arc<dyn ApprovalGate>`, `InboxPermissionHandler` accepts an optional `Arc<dyn GateStatusSink>` builder-style:
+
+```rust
+let inbox_handler = Arc::new(
+    InboxPermissionHandler::new(store.clone()).with_gate_sink(gate_sink),
+);
+```
+
+The gate sink interface is one method, `record_status(id, granted)`. The desktop binary wires it via `core_safety::GateSinkAdapter`, which holds an `Arc<InMemoryApprovalGate<…>>` and calls `gate.record_status(id, status)` after each resolve. The trait lives in `designer-claude` (where the handler is) and the adapter lives in the desktop crate (where both crates are in scope) so `designer-safety` does not depend on `designer-claude` — preserves the natural layering.
+
+Boot-time `gate.replay_from_store()` walks every `ApprovalRequested/Granted/Denied` in the store and rebuilds the in-memory map so post-restart `gate.status(id)` is truthful for events that were never re-resolved.
+
+### Cost chip: off by default, persisted in `settings.json`
+
+`cost_chip_enabled: bool` is a sidecar setting in `~/.designer/settings.json`. Defaults to `false` per spec Decision 34. Toggle in Settings → Preferences calls `cmd_set_cost_chip_preference(enabled)`; the IPC writes the setting and returns the new state. The frontend dispatches a `COST_CHIP_PREFERENCE_EVENT` custom event after the IPC returns so the topbar `CostChip` re-fetches without a full reload. A stream-event subscription on `cost_recorded` keeps the chip current per turn.
+
+`CostTracker::replay_from_store` runs in `AppCore::boot` after construction. Without it, `cost_status` returns `$0.00` after every restart and the cap check silently allows a workspace to double-spend its budget. Test: `cost_status_reflects_historical_spend_after_restart` in `core_safety::tests`.
+
+Color band thresholds (50% green / 80% amber / >80% red) are computed on the frontend in `CostChip.tsx::bandFor` — keeps the chip responsive without a round-trip per band change. The band names map to `[data-band]` attributes on `.cost-chip`; CSS in `app.css` switches the dot color via `var(--success-9 / --warning-9 / --danger-9)` (no role tokens added; see `pattern-log.md`).
+
+### Orphan sweep: serialized + per-iteration recheck
+
+`AppCore::sweep_orphan_approvals` runs once at boot (after replay, before the projector task is the only writer) and processes orphan `ApprovalRequested` events whose request subprocess is gone. Wrapped in a process-global `tokio::Mutex` (`core_safety::sweep_lock()`) so two callers can't double-write denials. Each iteration re-reads the event log via `find_first_orphan` so any terminal event that snuck in between iterations (real user grant racing the sweep, another writer) is honored — the sweep skips and moves on. Test: `sweep_does_not_double_resolve_after_grant_lands` in `core_safety::tests`.
+
+Sweep is `O(n²)` log reads in the pathological case (n orphans). Acceptable because (a) sweep runs once per boot, (b) typical n is 0–2 in practice, (c) the event log is local SQLite — reads are cheap.
+
+### `PermissionRequest.workspace_id` is additive
+
+The trait shape (`async fn decide(req: PermissionRequest) -> PermissionDecision`) is frozen per ADR 0002 §"PermissionHandler". The struct gained one additive field — `workspace_id: Option<WorkspaceId>` with `#[serde(default)]` — so the inbox handler can route the artifact to the right workspace stream. `AutoAcceptSafeTools` and existing tests pass `None`; only the `InboxPermissionHandler` reads it. When 13.D wires the stdio reader against the swapped-in handler, that wiring must populate `workspace_id` per prompt — the inbox handler fails closed when it's `None` (denying is safer than dropping the prompt silently).

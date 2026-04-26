@@ -487,3 +487,17 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - tests: 18/18 vitest pass (2 new RepoLinkModal cases — focus trap, scrim onClick); 32 desktop + 7 core + 3 git url tests pass; cargo clippy + fmt clean
 - deviations: none
 - feedback: FB-0027 (bound subprocesses, validate inputs, dedupe action commands), FB-0028 (modals trap Tab focus), FB-0029 (scrim dismiss on click, not mousedown)
+
+## 2026-04-25T09:06:45Z — manual (Phase 13.G)
+- prompt: "Phase 13.G — Safety surfaces + Keychain. Wire approval inbox, cost chip, scope-denied flow, macOS Keychain integration."
+- trigger: manual (skill not invoked; backend-heavy track. UI changes scoped to ApprovalBlock wiring + new CostChip + Settings rows.)
+- archetype-reused: none (CostChip is a custom topbar widget; Keychain row reuses existing SettingsRow archetype)
+- components-reused: ApprovalBlock, BlockHeader, SegmentedToggle, SettingsRow, MainView (tabs-bar)
+- components-new: CostChip (topbar widget + popover), KeychainStatusReadout (Settings → Account row), CostChipToggle (Settings → Preferences row)
+- primitives: none (consistent with 13.1 — primitives migration tracked in plan.md Phase 15)
+- tokens: --space-1..3, --space-8, --color-content-surface, --color-border-soft, --color-border, --color-foreground, --color-muted, --color-background, --success-9, --warning-9, --danger-9, --radius-button, --radius-card, --border-thin, --type-family-mono, --type-caption-size, --type-body-size, --layer-overlay, --elevation-overlay, --motion-enter
+- invariants: not run (no arbitrary px / hex remain; status colors route through `--success-9 / --warning-9 / --danger-9` from `packages/ui/styles/tokens.css`; the cost-chip and Keychain-status dot dimensions use `var(--space-3)` rather than `8px`; existing invariants pass under workspace check)
+- typecheck: clean
+- tests: 19/19 frontend pass (added 6 in `safety.test.tsx`); cargo test workspace clean — `designer-claude::inbox_permission` 10 tests (5 added: pre-park observation, two-click race, missing-ws audit, workspace-stream resolution, gate-sink update); `designer-safety::tests::gates` 6 tests (2 added: cost replay reflects historical spend, gate replay reflects historical resolutions); `designer-desktop::core_safety` 8 tests (2 added: sweep skips approvals with terminal events, cost_status reflects spend across AppCore::boot)
+- deviations: none. The initial pass shipped `var(--color-success, var(--accent-9, #2f9e44))` fallback chains because the role tokens aren't defined; the post-review pass switched to the Radix scale tokens already in `tokens.css` (`--success-9 / --warning-9 / --danger-9`) and replaced the `8px` dot dimension with `--space-3`. No new design-language tokens were added; no `elicit-design-language` amendment is required.
+- feedback: pending

@@ -5,7 +5,10 @@
 
 use async_trait::async_trait;
 use designer_audit::{AuditLog, SqliteAuditLog};
-use designer_claude::{ClaudeCodeOptions, ClaudeCodeOrchestrator, MockOrchestrator, Orchestrator};
+use designer_claude::{
+    ClaudeCodeOptions, ClaudeCodeOrchestrator, InboxPermissionHandler, MockOrchestrator,
+    Orchestrator,
+};
 use designer_core::{
     Actor, Artifact, ArtifactId, EventPayload, EventStore, ProjectId, Projection, Projector,
     SqliteEventStore, StreamId, StreamOptions, Tab, TabId, TabTemplate, Workspace, WorkspaceId,
@@ -205,18 +208,47 @@ impl AppCoreBoot for AppCore {
         let history = store.read_all(StreamOptions::default()).await?;
         projector.replay(&history);
 
-        let orchestrator: Arc<dyn Orchestrator> = if config.use_mock_orchestrator {
-            Arc::new(MockOrchestrator::new(store.clone()))
-        } else {
-            Arc::new(ClaudeCodeOrchestrator::new(
-                store.clone(),
-                config.claude_options.clone(),
-            ))
-        };
-
         let audit: Arc<dyn AuditLog> = Arc::new(SqliteAuditLog::new(store.clone()));
         let gate = Arc::new(InMemoryApprovalGate::new(store.clone()));
         let cost = CostTracker::new(store.clone(), config.default_cost_cap);
+        // Replay historical CostRecorded events into the tracker's in-memory
+        // map. Without this, the cap check silently allows a workspace to
+        // double-spend after a restart and the topbar chip reads $0.00
+        // until the next CostRecorded event lands.
+        if let Err(err) = cost.replay_from_store().await {
+            warn!(error = %err, "cost-tracker replay failed; usage will start at zero");
+        }
+        // Replay historical ApprovalRequested/Granted/Denied events into the
+        // gate so `gate.status(id)` is truthful for legacy gate consumers
+        // post-restart. The inbox handler is the production source of
+        // truth, but the gate stays the trait surface other crates can hold
+        // an `Arc<dyn ApprovalGate>` against.
+        if let Err(err) = gate.replay_from_store().await {
+            warn!(error = %err, "approval-gate replay failed; gate.status may lie until next request");
+        }
+
+        // Phase 13.G installs the inbox permission handler as the production
+        // default; AutoAcceptSafeTools remains the test/mock-orchestrator
+        // default so existing tests don't have to wait on a (never-arriving)
+        // user resolve. The handler is a process-global so the IPC layer
+        // (`cmd_resolve_approval`) and the orchestrator (caller of `decide`)
+        // share a single instance. The gate adapter keeps `gate.status(id)`
+        // truthful by mirroring inbox-routed resolutions into the gate's
+        // in-memory map.
+        let gate_sink: Arc<dyn designer_claude::GateStatusSink> =
+            Arc::new(crate::core_safety::GateSinkAdapter::new(gate.clone()));
+        let inbox_handler =
+            Arc::new(InboxPermissionHandler::new(store.clone()).with_gate_sink(gate_sink));
+        let inbox_handler = crate::core_safety::install_inbox_handler(inbox_handler);
+
+        let orchestrator: Arc<dyn Orchestrator> = if config.use_mock_orchestrator {
+            Arc::new(MockOrchestrator::new(store.clone()))
+        } else {
+            Arc::new(
+                ClaudeCodeOrchestrator::new(store.clone(), config.claude_options.clone())
+                    .with_permission_handler(inbox_handler.clone()),
+            )
+        };
 
         let (helper, helper_status, helper_events) = select_helper(&config).await;
         let local_ops: Arc<dyn LocalOps> = Arc::new(FoundationLocalOps::new(helper.clone()));
@@ -235,6 +267,16 @@ impl AppCoreBoot for AppCore {
             helper_events,
         });
         core.spawn_projector_task();
+        // Replay safety (Phase 13.G): every `ApprovalRequested` event
+        // without a matching grant/deny resolves to a process-restart
+        // denial so the inbox doesn't surface phantom rows for sessions
+        // whose subprocess is gone. Failure is logged but non-fatal —
+        // boot must still succeed.
+        match core.sweep_orphan_approvals().await {
+            Ok(0) => {}
+            Ok(n) => info!(orphans = n, "swept orphan approvals on boot"),
+            Err(err) => warn!(error = %err, "orphan-approval sweep failed"),
+        }
         info!("app core booted");
         Ok(core)
     }

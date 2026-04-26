@@ -1,6 +1,8 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { BlockProps } from "./registry";
 import { humanizeKind } from "../util/humanize";
+import { ipcClient } from "../ipc/client";
+import type { StreamEvent } from "../ipc/types";
 
 /**
  * Block renderers — each artifact kind gets a classed component. Visual
@@ -185,15 +187,78 @@ export function PrBlock({ artifact, isPinned, onTogglePin, payload }: BlockProps
 // ApprovalBlock — grant/deny action surface.
 // ---------------------------------------------------------------------------
 
-export function ApprovalBlock({ artifact, isPinned, onTogglePin }: BlockProps) {
-  const [resolution, setResolution] = useState<"pending" | "granted" | "denied">(
-    "pending",
-  );
+type ApprovalResolution = "pending" | "granted" | "denied";
+
+interface ApprovalPayload {
+  approval_id?: string;
+  tool?: string;
+  gate?: string;
+  reason?: string;
+}
+
+function parseApprovalPayload(body: string): ApprovalPayload {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === "object") return parsed as ApprovalPayload;
+  } catch {
+    /* fall through — pre-13.G payloads were free-text */
+  }
+  return {};
+}
+
+export function ApprovalBlock({ artifact, payload, isPinned, onTogglePin }: BlockProps) {
+  const inline =
+    payload?.kind === "inline" ? parseApprovalPayload(payload.body) : {};
+  const approvalId = inline.approval_id ?? null;
+  const [resolution, setResolution] = useState<ApprovalResolution>("pending");
+  const [busy, setBusy] = useState(false);
+  // After resolve, focus the resolution status so screen readers and
+  // keyboard users land on the new state instead of nowhere.
+  const resolvedRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (resolution !== "pending") {
+      resolvedRef.current?.focus();
+    }
+  }, [resolution]);
+
+  // Subscribe to the event stream — projector becomes truth. If the block
+  // mounts after a `cmd_resolve_approval` round-trip lands (e.g. the user
+  // reloads), we still flip to the resolved state via the event.
+  useEffect(() => {
+    if (!approvalId) return;
+    const unsubscribe = ipcClient().stream((ev: StreamEvent) => {
+      if (ev.kind !== "approval_granted" && ev.kind !== "approval_denied") return;
+      const evApprovalId = (ev.payload as { approval_id?: string } | undefined)?.approval_id;
+      if (evApprovalId !== approvalId) return;
+      setResolution(ev.kind === "approval_granted" ? "granted" : "denied");
+      setBusy(false);
+    });
+    return unsubscribe;
+  }, [approvalId]);
+
+  const resolve = async (granted: boolean) => {
+    if (busy || !approvalId) return;
+    // Optimistic flip — the event-stream listener above will confirm or
+    // (in the unlikely case of a server-side reject) re-set on a follow-up.
+    const optimistic: ApprovalResolution = granted ? "granted" : "denied";
+    setResolution(optimistic);
+    setBusy(true);
+    try {
+      await ipcClient().resolveApproval(approvalId, granted);
+    } catch {
+      // Rolling back the optimistic state surfaces the failure clearly;
+      // the user can retry. The block stays interactive.
+      setResolution("pending");
+      setBusy(false);
+    }
+  };
+
   return (
     <article
       className="block block--approval"
       data-state={resolution}
       aria-label={`Approval: ${artifact.title}`}
+      aria-busy={busy || undefined}
     >
       <BlockHeader
         title={artifact.title}
@@ -209,20 +274,27 @@ export function ApprovalBlock({ artifact, isPinned, onTogglePin }: BlockProps) {
           <button
             type="button"
             className="block__approval-btn block__approval-btn--grant"
-            onClick={() => setResolution("granted")}
+            onClick={() => void resolve(true)}
+            disabled={busy || !approvalId}
           >
             Grant
           </button>
           <button
             type="button"
             className="block__approval-btn block__approval-btn--deny"
-            onClick={() => setResolution("denied")}
+            onClick={() => void resolve(false)}
+            disabled={busy || !approvalId}
           >
             Deny
           </button>
         </div>
       ) : (
-        <div className="block__approval-resolved" role="status">
+        <div
+          ref={resolvedRef}
+          tabIndex={-1}
+          className="block__approval-resolved"
+          role="status"
+        >
           {resolution}
         </div>
       )}

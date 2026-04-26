@@ -13,6 +13,7 @@
 //! domain.
 
 mod claude_code;
+mod inbox_permission;
 mod mock;
 mod orchestrator;
 mod permission;
@@ -20,6 +21,10 @@ mod stream;
 mod watcher;
 
 pub use claude_code::{ClaudeCodeOptions, ClaudeCodeOrchestrator};
+pub use inbox_permission::{
+    GateStatusSink, InboxPermissionHandler, APPROVAL_TIMEOUT, MISSING_WORKSPACE_REASON,
+    PROCESS_RESTART_REASON, TIMEOUT_REASON,
+};
 pub use mock::MockOrchestrator;
 pub use orchestrator::{
     Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult, TaskAssignment,

@@ -12,6 +12,7 @@
 use designer_desktop::commands;
 use designer_desktop::commands_agents;
 use designer_desktop::commands_git;
+use designer_desktop::commands_safety;
 use designer_desktop::core::AppCoreBoot;
 use designer_desktop::core_agents::{coalesce_window_from_env, spawn_message_coalescer};
 use designer_desktop::events::spawn_event_bridge;
@@ -91,6 +92,11 @@ fn main() {
             commands_git::cmd_list_tracks,
             commands_git::cmd_request_merge,
             commands_git::cmd_start_track,
+            commands_safety::cmd_get_cost_chip_preference,
+            commands_safety::cmd_get_cost_status,
+            commands_safety::cmd_get_keychain_status,
+            commands_safety::cmd_list_pending_approvals,
+            commands_safety::cmd_set_cost_chip_preference,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
