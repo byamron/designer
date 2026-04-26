@@ -5,16 +5,13 @@ import { QuickSwitcher } from "./layout/QuickSwitcher";
 import { SettingsPage } from "./layout/SettingsPage";
 import { Onboarding } from "./components/Onboarding";
 import { AppDialog } from "./components/AppDialog";
+import { CreateProjectModal } from "./components/CreateProjectModal";
 import { SurfaceDevPanel } from "./components/SurfaceDevPanel";
-import {
-  bootData,
-  dataStore,
-  promptCreateProject,
-  useDataState,
-} from "./store/data";
+import { bootData, dataStore, useDataState } from "./store/data";
 import {
   appStore,
   closeDialog,
+  openCreateProject,
   openDialog,
   selectProject,
   toggleProjectStrip,
@@ -70,10 +67,7 @@ export function App() {
   useEffect(() => {
     if (!isTauri()) return;
     return listen<void>("designer://menu/new-project", () => {
-      void (async () => {
-        const id = await promptCreateProject();
-        if (id) selectProject(id);
-      })();
+      openCreateProject();
     });
   }, []);
 
@@ -105,6 +99,7 @@ export function App() {
       {settingsOpen ? <SettingsPage /> : <AppShell />}
       <QuickSwitcher />
       <AppDialog />
+      <CreateProjectModal />
       <Onboarding />
       {import.meta.env.MODE === "development" && <SurfaceDevPanel />}
       {import.meta.env.MODE === "development" && <Agentation />}

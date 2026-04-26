@@ -20,7 +20,7 @@ use designer_local_models::{
 };
 use designer_safety::{usd_to_cents, CostCap, CostTracker, CostUsage, InMemoryApprovalGate};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -59,6 +59,11 @@ impl AppConfig {
         // installation. Keeps multi-tool dogfooding sane.
         let claude_options = ClaudeCodeOptions {
             claude_home: Some(data_dir.join("claude-home")),
+            // macOS apps launched from Finder/Dock don't inherit the shell
+            // PATH — `claude` (typically in `~/.npm-global/bin`) won't be
+            // found via bare `Command::new("claude")`. Resolve to an
+            // absolute path at boot so the spawn just works.
+            binary_path: resolve_claude_binary_path(&home),
             ..ClaudeCodeOptions::default()
         };
         Self {
@@ -75,6 +80,62 @@ impl AppConfig {
             helper_binary_path,
         }
     }
+}
+
+/// Resolve the `claude` CLI to an absolute path. macOS .app launches
+/// inherit a minimal `PATH` from launchd, so the shell paths where `claude`
+/// commonly lives (`~/.npm-global/bin`, `/opt/homebrew/bin`, `~/.local/bin`)
+/// aren't on PATH. Without this, `Command::new("claude")` fails with ENOENT
+/// the moment the user sends their first message.
+///
+/// Resolution order:
+///   1. `DESIGNER_CLAUDE_BINARY` env override (absolute path).
+///   2. Common install locations.
+///   3. `bash -lc 'command -v claude'` — runs a login shell so the user's
+///      `~/.zshrc` / `.profile` PATH is honored. Worth ~50ms at boot once.
+///   4. `None` — fall back to bare `"claude"`. Will fail if not on PATH;
+///      the boot preflight in `main.rs` surfaces the error to the user.
+fn resolve_claude_binary_path(home: &Path) -> Option<PathBuf> {
+    if let Ok(override_path) = std::env::var("DESIGNER_CLAUDE_BINARY") {
+        let p = PathBuf::from(override_path);
+        if p.is_absolute() && p.is_file() {
+            info!(path = %p.display(), "claude path from DESIGNER_CLAUDE_BINARY");
+            return Some(p);
+        }
+    }
+
+    let candidates: [PathBuf; 5] = [
+        home.join(".npm-global/bin/claude"),
+        home.join(".local/bin/claude"),
+        PathBuf::from("/opt/homebrew/bin/claude"),
+        PathBuf::from("/usr/local/bin/claude"),
+        PathBuf::from("/usr/bin/claude"),
+    ];
+    for p in &candidates {
+        if p.is_file() {
+            info!(path = %p.display(), "claude path resolved from common location");
+            return Some(p.clone());
+        }
+    }
+
+    if let Ok(out) = std::process::Command::new("bash")
+        .args(["-lc", "command -v claude"])
+        .output()
+    {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() {
+                let p = PathBuf::from(&s);
+                if p.is_absolute() && p.is_file() {
+                    info!(path = %s, "claude path resolved via login shell");
+                    return Some(p);
+                }
+            }
+        }
+    }
+
+    warn!("could not resolve claude binary; falling back to bare `claude` (will likely fail)");
+    None
 }
 
 /// Resolve the default helper binary path without spawning anything. See

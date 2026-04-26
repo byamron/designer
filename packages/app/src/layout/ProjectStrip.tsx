@@ -1,6 +1,11 @@
 import { Cog, HelpCircle } from "lucide-react";
-import { openDialog, selectProject, useAppState } from "../store/app";
-import { promptCreateProject, useDataState } from "../store/data";
+import {
+  openCreateProject,
+  openDialog,
+  selectProject,
+  useAppState,
+} from "../store/app";
+import { useDataState } from "../store/data";
 import { Tooltip } from "../components/Tooltip";
 import { IconButton } from "../components/IconButton";
 import { IconPlus } from "../components/icons";
@@ -20,17 +25,10 @@ export function ProjectStrip() {
   const projects = useDataState((s) => s.projects);
   const workspacesByProject = useDataState((s) => s.workspaces);
 
-  const onCreate = async () => {
-    const id = await promptCreateProject();
-    if (id) selectProject(id);
-  };
+  const onCreate = () => openCreateProject();
 
   return (
     <nav className="app-strip" aria-label="Projects">
-      {/* Drag spacer — clears the macOS traffic-light inset (titleBarStyle:
-          Overlay) and gives the user a grip area for window moves. Tauri
-          picks up the attribute at runtime; no effect in the web build. */}
-      <div className="app-strip-drag" data-tauri-drag-region />
       {projects.map((p) => {
         const initials = p.project.name
           .split(/\s+/)

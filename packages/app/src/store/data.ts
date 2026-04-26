@@ -67,21 +67,6 @@ export async function refreshProjects() {
   dataStore.set((s) => ({ ...s, projects }));
 }
 
-/**
- * Prompt the user for project details and create one. Shared by the `+` icon
- * in the project strip and the File > New Project… menu item so both paths
- * stay in sync. Returns the created project id, or null if the user cancelled.
- */
-export async function promptCreateProject(): Promise<string | null> {
-  const name = window.prompt("New project name?")?.trim();
-  if (!name) return null;
-  const root = window.prompt("Repo root path?", "~/code/")?.trim();
-  if (!root) return null;
-  const summary = await ipcClient().createProject({ name, root_path: root });
-  await refreshProjects();
-  return summary.project.id;
-}
-
 export async function refreshWorkspaces(projectId: ProjectId) {
   const rows = await ipcClient().listWorkspaces(projectId);
   dataStore.set((s) => ({

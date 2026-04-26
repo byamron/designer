@@ -227,8 +227,14 @@
 html,
 body,
 #app {
-  height: 100%;
+  /* Fixed-viewport macOS app: the root never scrolls; specific panels own
+   * their own overflow:auto. Without `position: fixed; inset: 0`, body
+   * scroll defaults like a web page and the whole app drifts under the
+   * mouse wheel. */
+  position: fixed;
+  inset: 0;
   margin: 0;
+  overflow: hidden;
   background: var(--color-background);
   color: var(--color-foreground);
   font-family: var(--type-family-sans);
@@ -240,6 +246,22 @@ body,
 
 /* --- shell -------------------------------------------------------------- */
 
+/* Titlebar zone — full-width drag strip covering the macOS traffic-light
+ * inset (titleBarStyle: Overlay paints content from y=0). The whole
+ * top is `data-tauri-drag-region` so the user can grab anywhere up
+ * here to move the window. Transparent so the underlying surface
+ * shows through; no chrome. */
+.app-titlebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--app-titlebar-height, 32px);
+  z-index: 100;
+  background: transparent;
+  pointer-events: auto;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: auto auto 1fr auto;
@@ -248,6 +270,12 @@ body,
   width: 100%;
   min-width: 0;
   min-height: 0;
+  /* Reserve the top inset for the titlebar zone so panels start below it
+   * and don't render under the traffic lights. The strip's own
+   * `app-strip-drag` (32px) on the left side already pushes content
+   * down inside the strip, but main / sidebar / spine need the same
+   * inset applied at the shell level. */
+  padding-top: var(--app-titlebar-height, 32px);
 }
 
 .app-shell[data-strip="hidden"] {

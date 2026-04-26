@@ -65,6 +65,11 @@ export interface AppState {
   sidebarWidth: number;
   spineWidth: number;
   dialog: AppDialog;
+  /* Open state for the create-project modal. Bool because it's a one-shot
+   * surface — when open, the modal collects name + repo path; when it
+   * closes (cancel or submit) it returns to false. Tauri webviews do
+   * not support `window.prompt`, so a modal is mandatory. */
+  createProjectOpen: boolean;
   /* Optimistic autonomy per project. The real mutation will land in Phase
    * 13 via IPC; in the meantime this makes the HomeTabA Autonomy control
    * feel responsive instead of being a false affordance. When IPC lands
@@ -86,6 +91,7 @@ export const appStore = createStore<AppState>({
   sidebarWidth: sidebarWidthStore.read(),
   spineWidth: spineWidthStore.read(),
   dialog: null,
+  createProjectOpen: false,
   autonomyOverrides: {},
 });
 
@@ -196,3 +202,13 @@ export const openDialog = (dialog: AppDialog) =>
 
 export const closeDialog = () =>
   appStore.set((s) => (s.dialog === null ? s : { ...s, dialog: null }));
+
+export const openCreateProject = () =>
+  appStore.set((s) =>
+    s.createProjectOpen ? s : { ...s, createProjectOpen: true },
+  );
+
+export const closeCreateProject = () =>
+  appStore.set((s) =>
+    s.createProjectOpen ? { ...s, createProjectOpen: false } : s,
+  );
