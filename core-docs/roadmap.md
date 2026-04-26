@@ -661,6 +661,25 @@ The app is genuinely runnable end-to-end against real Claude Code. Open issues b
 
 ---
 
+### Track 13.J — Phase 13.H follow-ups *(non-blocking; surfaced by the six-perspective review of PR #22)*
+
+**Why a separate track:** the 13.H review pass surfaced two classes of follow-up — small structural / test cleanups that are out-of-scope for the wiring PR but worth a discrete pass, plus heavier UX items that belong in the Phase 15 polish bucket (see `Phase 15.J` below). 13.J collects the structural items so they don't get lost. None block dogfooding.
+
+**Steps (each ~half-day, batchable into one PR):**
+
+- **F5+1 — Tool-use → tool-result correlation.** Stateful translator field that maps `tool_use_id` to the originating `Report` artifact id; on the next user-turn's `tool_result`, emit `ArtifactUpdated` with the result's summary so the "Read CLAUDE.md" card gains a result line in place. ~50 LOC; flagged in `stream.rs::translate_assistant` as `TODO(13.H+1)`.
+- **ADR addendum on `ClaudeSignal` trait leak.** `Orchestrator::subscribe_signals()` returns `broadcast::Receiver<ClaudeSignal>`, baking a Claude-specific type into the abstract trait. Add an addendum to ADR 0002 (or a new short ADR) deciding: (a) keep the leak, accept the rename when a second orchestrator lands, or (b) introduce `OrchestratorSignal` as a neutral enum (`Cost { workspace_id, total_cost_usd }` + `RateLimit(Value)`) with `ClaudeSignal = OrchestratorSignal` as a type alias. Lock the choice before a second orchestrator (Cursor, local Ollama) lands.
+- **Live `permission_prompt_round_trip` test.** Gated by `--features claude_live` on the self-hosted runner. Single user message → tool prompt → grant → tool result round-trip against real `claude` 2.1.119+. Confirms the response wire shape (`subtype: "success"`, nested `response.response.behavior`) hasn't drifted. Probe-captured fixtures + the in-app dogfood walk are the current proxies.
+- **`spawn_cost_subscriber` ↔ `build_event_bridge` unification.** Both are `tokio::spawn` + `loop { rx.recv() match Ok / Lagged(continue or warn) / Closed(break) }` over a `broadcast::Receiver`. Extract `forward_broadcast<T>(rx, handler: impl FnMut(T))` so the `Lagged`/`Closed` arms aren't duplicated. ~10 LOC saved; lives in `core.rs`.
+- **F4 test reuse `boot_with_helper_status`.** The 13.J test inlined ~50 LOC of `AppCore` construction (mock orchestrator + audit + gate + cost + counting `LocalOps` + Live helper status) that already exists in `core_local::tests::boot_with_helper_status`. Expose that helper as `pub(crate)` so cross-module tests reuse one builder. Pairs well with extracting a `pub(crate) mod test_support` for the shared mocks (`CountingOps`, `CountingHandler`, `RecordingHandler`).
+- **`run_reader_loop` context struct.** 9-arg signature with `#[allow(clippy::too_many_arguments)]`. Bundle the immutable per-team context (`workspace_id`, `team_name`, `lead_role`, `permission_handler`, `store`, channels) into `ReaderLoopCtx` and pass `(reader, ctx)`. The clippy allow goes away and the call site reads cleaner.
+- **Bounded translator state.** `ClaudeStreamTranslator::tasks` and `agents` HashMaps grow monotonically over a long-lived session. Add an LRU cap (~1k each) so a multi-day session can't OOM the translator. Pre-existing; flagged by efficiency review.
+- **Cost-replay bulk-update.** `CostTracker::replay_from_store` calls `usage.entry().or_default()` per cost event, locking a DashMap shard N times. Bulk-update once at the end of replay. Boot-only path; non-urgent but trivial.
+
+**Done when:** all eight items merged; `cargo test --workspace --features claude_live` includes the round-trip on the self-hosted runner; ADR 0002 carries the trait-leak decision.
+
+---
+
 ## Phase 14 — Sync transport *(parallel with Phase 13 or 15)* (gap G10)
 
 **Goal:** take the event stream peer-to-peer without a server.
@@ -689,6 +708,7 @@ The app is genuinely runnable end-to-end against real Claude Code. Open issues b
 - **Auto-grow chat textarea (G16).** Replace the `minHeight` + overflow approach in `PlanTab` with a content-height reflow.
 - **Event-log incrementalization.** `AppCore::sync_projector_from_log` is full-replay; once logs cross ~10k events it should incrementalize against the projector's last-seen sequence per stream.
 - **15.H — Inline commenting & element annotation (G21).** Let the user reply to a specific span of an agent message in Plan, and to a specific element in Design, without typing a new whole-thread reply. See detail below.
+- **15.J — Real-Claude UX polish.** UX-heavy follow-ups surfaced by the PR #22 review pass; first-real-Claude session smoothness. See detail below.
 
 ### Phase 15.H — Inline commenting & element annotation *(detail)*
 
@@ -716,6 +736,25 @@ The app is genuinely runnable end-to-end against real Claude Code. Open issues b
 - How does resume handle unsent comment drafts? Spec decision needed: persist in event store as `CommentDrafted`, or keep purely in-memory and lose on resume.
 
 **Done when:** on Plan, the user can hover any agent paragraph, leave 2–5 anchored replies, and send them as one batch that the agent receives with each reply tied to its quoted span; on Design, the user can drop 2+ element pins on a prototype and send them together, and the agent responds to each pin in context. Activity spine reflects the batch as a single `MessagePosted` with multiple anchors, not one event per comment.
+
+### Phase 15.J — Real-Claude UX polish *(detail)*
+
+**Why:** the PR #22 review pass (six perspectives) identified a set of UX gaps in the F1–F5 user-facing surfaces — the inbox approval row, the inline tool-use cards, the cost chip, and the code-change rail. None block dogfooding (the flow technically works), but every one of them violates one of CLAUDE.md's principles ("summarize by default, drill on demand", "manager not engineer", "suggest, do not act") in a way a non-engineer manager will feel on first run. Bundle them into one polish PR after dogfood signal lands so we can prioritize by what surfaces friction first.
+
+**Items (each independent; ranked by likely friction):**
+
+- **Tool-use card visual demotion.** Today every `tool_use` block emits a full-bordered `Report` card; a 9-tool turn = 9 cards with the same visual weight as a `Spec` artifact. Demote to borderless, single-line, monospace path, indented under the agent narration paragraph that produced them. CSS-only; branch on `data-author-role="agent"` + a new `data-tool-use="true"` data attr (set in the renderer when the title matches the verb-first pattern). Stretch: projector-side coalesce of consecutive same-author tool_use cards into a `track-rollup`-style "9 actions" group.
+- **`ApprovalBlock` drill-down.** `InboxPermissionHandler` packs full tool input into the request artifact's payload; `ApprovalBlock` reads only `summary` today. Render a tool-specific preview: file path on a dedicated row + content/diff `<pre>` (truncated to ~10 lines, "Show full" disclosure) for Write/Edit; full command in monospace + `description` if present for Bash. Title becomes "Claude wants to write to /tmp/x.txt" (constructed in `inbox_permission.rs`), not "Approval: Write".
+- **Approval-resolved label fix.** Today `ApprovalBlock` resolved state renders the literal lowercase `granted` / `denied`. Three issues to fix together: (a) human copy ("Allowed by you" / "Denied by you" / "Denied (timed out)"); (b) timeout-deny vs user-deny visual differentiation (subscribe to `approval_denied` events with their `reason`); (c) drop the opacity-0.5 styling for `denied` — it reads as "old/dim", not "rejected" — and use a `--color-danger` border instead.
+- **Approval block "Working…" busy state.** Between approve and the agent's next narration there's a 2–10s gap that reads as frozen UI. Add a `role="status"` "Working…" line under the resolved state until the next `MessagePosted` from `team-lead` lands. Frontend-only; subscribe to the same stream the block already listens to.
+- **Cost chip a11y glyph.** `cost-chip__dot` encodes the band (ok / warn / danger) only via color. Add a glyph variant: dot for ok, half-fill for warn, exclamation for danger. The `data-band` attribute already differentiates; CSS-only.
+- **Cost chip cap-warn popover.** Crossing into `warn` (>80% of cap) just turns the dot. Add a one-time popover hint on first cross ("approaching cap — agents will stop at $X if cap is set"). Today the popover is open-on-click only.
+- **Cost chip first-enable onboarding.** Hidden by default per spec Decision 34; appears suddenly on settings toggle. Add a one-line tip on first enable so the chip's meaning is explained before its first increment.
+- **Code-change rail late-summary cross-fade.** The hook writes a fallback summary then later emits `ArtifactUpdated` with the LLM line. `CodeChangeBlock` re-renders reactively, which reads as a flash. Add a `motion-cross-fade` transition on `.block__summary` (token already exists) honoring `prefers-reduced-motion`. ~10 LOC of CSS.
+- **`ArtifactKind::Report` semantic disambiguation.** `Report` is now used for two different things: workspace recap output (`recap_workspace`) and tool-use evidence cards (F5). The renderer is currently a stub; when it gets a real recap-style design, the routing needs to disambiguate on `author_role` (`recap` vs `agent`) or title prefix. File a `pattern-log.md` entry locking the disambiguation rule before the recap renderer ships, so we don't re-litigate the artifact-kind boundary.
+- **Confirm `--disallowedTools AskUserQuestion` UX.** The orchestrator forces the agent to ask clarifying questions through the message channel rather than a separate AskUserQuestion surface. Capture this as a feedback entry in `feedback.md` so the choice is explicit; revisit if a real session shows the agent struggling without the AUQ tool.
+
+**Done when:** a first-time user running the dogfood loop (read CLAUDE.md → tool prompt → grant → write → cost increment) sees coherent, principle-respecting visuals at every step — no card overload, every approval shows the *what*, the cost chip has a non-color band signal, late summaries cross-fade rather than flash. Acceptance is per-item; pair with the Phase 16 install QA checklist.
 
 ---
 

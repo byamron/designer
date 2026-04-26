@@ -123,7 +123,7 @@ With all five items shipped, `cargo tauri dev` against the real `claude` CLI run
 
 ### Phase 15 — Hardening + polish *(parallel with 13 or 14)*
 
-Six independent items:
+Independent items, picked by what dogfooding surfaces first:
 
 - [ ] Mini primitives migration (`Box`, `Stack`, `Cluster`, `Sidebar`) for AppShell / HomeTab / ActivitySpine / WorkspaceSidebar.
 - [ ] `correlation_id` / `causation_id` wiring for derived events.
@@ -131,6 +131,20 @@ Six independent items:
 - [ ] Dark-mode visual-regression harness (Playwright + screenshot diffing).
 - [ ] Auto-grow chat textarea.
 - [ ] `AppCore::sync_projector_from_log` incrementalization (last-seen sequence per stream).
+- [ ] **15.J — Real-Claude UX polish.** Tool-use card visual demotion, ApprovalBlock drill-down + resolved-label fix + busy state, cost chip a11y glyph + cap-warn popover + first-enable tip, code-change rail cross-fade, `ArtifactKind::Report` disambiguation, AskUserQuestion choice as feedback entry. Detail in `roadmap.md` § 15.J.
+
+### Track 13.J — Phase 13.H follow-ups *(non-blocking; structural cleanups + ADR + live test)*
+
+Surfaced by the PR #22 six-perspective review. Each ~half-day, batchable into one PR:
+
+- [ ] **F5+1** — tool_use_id → tool_result correlation; emit `ArtifactUpdated` on the original "Read X" card with the result's summary (~50 LOC stateful pass; flagged as `TODO(13.H+1)` in `stream.rs`).
+- [ ] **ADR addendum** — decide whether `Orchestrator::subscribe_signals` keeps `ClaudeSignal` or factors a neutral `OrchestratorSignal` enum. Lock before a second orchestrator (Cursor, Ollama) lands.
+- [ ] **Live `permission_prompt_round_trip` test** — gated by `--features claude_live` on the self-hosted runner; confirms the response wire shape against real `claude`.
+- [ ] **`spawn_cost_subscriber` ↔ `build_event_bridge` unify** — extract `forward_broadcast<T>(rx, handler)` so the `Lagged`/`Closed` arms aren't duplicated.
+- [ ] **F4 test reuse** — expose `core_local::tests::boot_with_helper_status` as `pub(crate)` and a shared `mod test_support` for `CountingHandler`/`CountingOps`.
+- [ ] **`run_reader_loop` context struct** — bundle the 9 args into `ReaderLoopCtx`, drop `#[allow(clippy::too_many_arguments)]`.
+- [ ] **Bounded translator state** — LRU cap (~1k) on `ClaudeStreamTranslator::tasks`/`agents` HashMaps so multi-day sessions can't grow them unboundedly.
+- [ ] **`CostTracker::replay_from_store` bulk-update** — collapse N shard-locks into one bulk projection at end of replay.
 
 ### Phase 13.H — Safety enforcement *(after 13.G; GA gate; detail in `security.md`)*
 
