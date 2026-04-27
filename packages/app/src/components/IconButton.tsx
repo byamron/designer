@@ -35,6 +35,7 @@ export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButt
         ref={ref}
         type={rest.type ?? "button"}
         className={classes}
+        data-component="IconButton"
         aria-label={label}
         {...(pressed !== undefined ? { "aria-pressed": pressed } : {})}
       >

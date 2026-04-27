@@ -12,9 +12,12 @@ export function AppShell() {
   const sidebarVisible = useAppState((s) => s.sidebarVisible);
   const spineVisible = useAppState((s) => s.spineVisible);
 
+  // data-component drives Track 13.K Friction smart-snap;
+  // pattern-log.md captures the convention.
   return (
     <div
       className="app-shell"
+      data-component="AppShell"
       data-strip={stripVisible ? "visible" : "hidden"}
       data-sidebar={sidebarVisible ? "visible" : "hidden"}
       data-spine={spineVisible ? "visible" : "hidden"}

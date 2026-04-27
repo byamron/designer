@@ -63,7 +63,7 @@ export function SettingsPage() {
   }, []);
 
   return (
-    <div className="settings-page" role="region" aria-label="Settings">
+    <div className="settings-page" data-component="SettingsPage" role="region" aria-label="Settings">
       <header className="settings-page__topbar">
         <button
           type="button"

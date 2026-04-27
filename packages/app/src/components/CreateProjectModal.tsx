@@ -141,6 +141,7 @@ export function CreateProjectModal({ onCreated }: CreateProjectModalProps = {}) 
   return (
     <div
       className="app-dialog-scrim"
+      data-component="CreateProjectModal"
       role="presentation"
       onClick={(e) => {
         // onClick (not onMouseDown) so a drag inside the dialog ending on

@@ -185,6 +185,7 @@ function TooltipSurface({
       id={id}
       role="tooltip"
       className="tooltip"
+      data-component="Tooltip"
       data-side={resolved}
       style={style}
     >

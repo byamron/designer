@@ -28,6 +28,7 @@ export function AppDialog() {
   return (
     <div
       className="app-dialog-scrim"
+      data-component="AppDialog"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeDialog();

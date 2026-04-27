@@ -95,6 +95,7 @@ export const ComposeDock = forwardRef<
   return (
     <form
       className="compose"
+      data-component="ComposeDock"
       data-dragging={dragging}
       aria-label="Send a message"
       onSubmit={(e) => {

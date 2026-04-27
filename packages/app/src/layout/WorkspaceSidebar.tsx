@@ -52,6 +52,7 @@ export function WorkspaceSidebar() {
   return (
     <aside
       className="app-sidebar"
+      data-component="WorkspaceSidebar"
       aria-label="Workspaces"
       style={{ width: sidebarWidth }}
     >
@@ -215,7 +216,7 @@ function WorkspaceRow({
   active: boolean;
 }) {
   return (
-    <li>
+    <li data-component="WorkspaceRow">
       <button
         type="button"
         className="workspace-row"

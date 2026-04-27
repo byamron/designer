@@ -69,6 +69,7 @@ export function PrototypePreview(props: PrototypePreviewProps) {
       <iframe
         title={props.title ?? "Prototype"}
         className="prototype-frame"
+        data-component="PrototypePreview"
         sandbox=""
         srcDoc={wrapInlineHtmlWithCsp(props.inlineHtml)}
       />
@@ -84,7 +85,7 @@ function PrototypePreviewLab({ workspace }: { workspace: Workspace }) {
   const html = useMemo(() => buildVariant(variant, workspace.name), [variant, workspace.name]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+    <div data-component="PrototypePreview" style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
       <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
         <VariantExplorer selected={variant} onSelect={setVariant} />
         <div style={{ flex: 1 }} />
