@@ -1274,12 +1274,9 @@ mod tests {
         use std::sync::atomic::Ordering;
 
         let _g = test_lock().lock().await;
-        let (counting_ops, counter) = CountingOps::new();
-        let local_ops: Arc<dyn LocalOps> = counting_ops;
+        let counting_ops = Arc::new(CountingOps::default());
+        let local_ops: Arc<dyn LocalOps> = counting_ops.clone();
         let null_helper: Arc<dyn FoundationHelper> = Arc::new(NullHelper::default());
-        // Live status so `append_code_change_with_hook` actually invokes
-        // `summarize_row` instead of short-circuiting to the deterministic
-        // truncation path.
         let core = boot_with_local_ops(null_helper, local_ops, HelperStatusKind::Live).await;
 
         // One status snapshot → one CodeChange emit. The 2-second per-track
@@ -1311,7 +1308,7 @@ mod tests {
         // ever drops back to a direct `store.append` that bypasses the
         // hook seam, this counter stays at zero.
         assert_eq!(
-            counter.load(Ordering::SeqCst),
+            counting_ops.summarize_calls.load(Ordering::SeqCst),
             1,
             "summary hook should fire once per check_track_status emit"
         );

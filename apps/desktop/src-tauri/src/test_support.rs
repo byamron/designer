@@ -1,10 +1,5 @@
-//! Shared test mocks for the desktop crate. Cross-module tests rely on a
-//! single source of truth for these doubles so refactors can rename a method
-//! once and not chase inline copies through every `tests` module.
-//!
-//! Today this hosts the counting `LocalOps` mock; future mocks (counting
-//! `PermissionHandler`, fake `Updater`, etc.) belong here too rather than as
-//! per-test inlines.
+//! Shared test mocks for the desktop crate. Cross-module tests reach for
+//! these doubles instead of redefining inline copies in every `tests` module.
 
 use async_trait::async_trait;
 use designer_local_models::{
@@ -12,26 +7,14 @@ use designer_local_models::{
     LocalOps, RecapInput, RecapOutput, RowSummarizeInput, RowSummarizeOutput,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 /// Counting `LocalOps` mock: every helper method is a no-op except
-/// `summarize_row`, which increments a shared counter so callers can assert
+/// `summarize_row`, which increments `summarize_calls` so callers can assert
 /// "exactly N helper round-trips for this code path." Returns a fixed
 /// `"summary line"` string so artifact-level assertions can match on it.
+#[derive(Default)]
 pub(crate) struct CountingOps {
-    pub summarize_calls: Arc<AtomicUsize>,
-    pub summary_line: String,
-}
-
-impl CountingOps {
-    pub fn new() -> (Arc<Self>, Arc<AtomicUsize>) {
-        let counter = Arc::new(AtomicUsize::new(0));
-        let ops = Arc::new(Self {
-            summarize_calls: counter.clone(),
-            summary_line: "summary line".into(),
-        });
-        (ops, counter)
-    }
+    pub summarize_calls: AtomicUsize,
 }
 
 #[async_trait]
@@ -57,7 +40,7 @@ impl LocalOps for CountingOps {
     async fn summarize_row(&self, _input: RowSummarizeInput) -> HelperResult<RowSummarizeOutput> {
         self.summarize_calls.fetch_add(1, Ordering::SeqCst);
         Ok(RowSummarizeOutput {
-            line: self.summary_line.clone(),
+            line: "summary line".into(),
         })
     }
 }
