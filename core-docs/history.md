@@ -74,6 +74,38 @@ Surfaced by the PR #22 six-perspective review of Phase 13.H (`roadmap.md` § Tra
 
 ---
 
+### `data-component` annotation prereq for Track 13.K Friction — PR #29
+**Date:** 2026-04-26
+**Branch:** friction-anchors
+**Commit:** 5a78fee
+
+**What was done:**
+Added `data-component="<ComponentName>"` to the topmost rendered DOM element of every top-level React component in `packages/app/src/{layout,components,blocks,lab}/` — ~25 sites covering `AppShell`, `ProjectStrip`, `WorkspaceSidebar` + the inline `WorkspaceRow`, `MainView` (all three return paths), `ActivitySpine`, `TabLayout`, `QuickSwitcher`, `SettingsPage`, `ComposeDock`, `RepoLinkModal`, `CreateProjectModal`, `AppDialog`, `Onboarding`, `IconButton`, `Tooltip` (on `TooltipSurface`), `PrototypePreview` (both render branches), and all ten block renderers (`BlockHeader`, `MessageBlock`, `SpecBlock`, `CodeChangeBlock`, `PrBlock`, `ApprovalBlock`, `ReportBlock`, `PrototypeBlock`, `DiagramBlock`, `CommentBlock`). Documented the convention in `pattern-log.md`; left an inline pointer comment in `AppShell.tsx`.
+
+**Why:**
+Track 13.K's Friction smart-snap selection mode walks up from a click target to the nearest `data-component` ancestor and uses that name as the anchor identifier. Without these attributes, anchors fall back to brittle structural CSS paths that rot the moment the markup shifts. This is a Lane 1 prereq listed in `plan.md` § Lane 1.
+
+**Design decisions:**
+- Anchor name = component name (PascalCase). Human-readable in friction reports and debugging surfaces; survives className refactors because we own the names.
+- Annotated the topmost rendered DOM element per component, not the click target. Friction's resolver walks UP from the click, so any ancestor placement works — but topmost is the convention so a future reader doesn't have to guess where the attribute lives.
+- `BlockHeader` carries its own `data-component` separate from the parent block. Click on a header element resolves to `BlockHeader` (more specific); click elsewhere in the block resolves to the block name. Gives Friction a stable header sub-anchor without ambiguity.
+- `Tooltip` is annotated on the floating popup (`TooltipSurface`), not the cloned trigger. The Tooltip component owns no DOM around the trigger — it uses `cloneElement` — so the popup is the only DOM Tooltip can claim. Trigger clicks resolve to whatever child carries `data-component` (typically `IconButton`), which is the right anchor.
+
+**Technical decisions:**
+- Pure attribute additions; zero rendering, styling, or behavior changes.
+- No CSS selectors target `[data-component]` anywhere in the repo (verified via grep across `packages/`), so the additions can't accidentally hit a style rule.
+- No registry/HOC abstraction. ~25 inline string literals matching the component name is the lightest possible pattern; introducing a `withDataComponent(Component, name)` HOC would add indirection for no payoff.
+- Annotation grouped *first* among `data-*` attributes on every site that has multiple — anchor identity ranks above semantic state attrs by convention.
+
+**Tradeoffs discussed:**
+- `MainView` ends up with three separate `<main className="app-main" data-component="MainView" ...>` openings (one per branch in the function). Reviewer flagged the duplication; weighed an early-return pattern or a `<MainShell>` wrapper. Deferred — the three branches render genuinely different children, the chrome is one short line, and a wrapper is a future refactor when a 4th branch lands.
+- `WorkspaceRow` annotated on its `<li>` rather than the inner `<button>` (which carries the `workspace-row` className and click handler). Both placements resolve correctly because the walk goes button → li. Kept on `<li>` per the "topmost rendered DOM element" convention.
+
+**Lessons learned:**
+- A multi-perspective review (staff engineer / UX / design engineer) plus three concurrent simplify reviewers produced no required changes — the task spec was tight enough that the implementation was unambiguous. Worth replicating for future small-but-load-bearing prep PRs.
+
+---
+
 ### First-run polish — PR #24 + review pass (PR #25-equivalent commits)
 **Date:** 2026-04-26
 **Branch:** fix-first-run
