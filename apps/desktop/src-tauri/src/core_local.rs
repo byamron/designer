@@ -716,7 +716,7 @@ fn format_audit_rationale(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::core::{AppConfig, HelperStatus, HelperStatusKind};
     use async_trait::async_trait;
@@ -783,12 +783,24 @@ mod tests {
     /// summary hook actually invokes the helper. (Fallback status would short-
     /// circuit to the deterministic truncation path before we ever reach
     /// `LocalOps::summarize_row`.)
-    async fn boot_with_helper(helper: Arc<dyn FoundationHelper>) -> Arc<AppCore> {
+    pub(crate) async fn boot_with_helper(helper: Arc<dyn FoundationHelper>) -> Arc<AppCore> {
         boot_with_helper_status(helper, HelperStatusKind::Live).await
     }
 
-    async fn boot_with_helper_status(
+    pub(crate) async fn boot_with_helper_status(
         helper: Arc<dyn FoundationHelper>,
+        kind: HelperStatusKind,
+    ) -> Arc<AppCore> {
+        let local_ops: Arc<dyn LocalOps> = Arc::new(FoundationLocalOps::new(helper.clone()));
+        boot_with_local_ops(helper, local_ops, kind).await
+    }
+
+    /// Like `boot_with_helper_status` but lets the caller swap in a custom
+    /// `LocalOps` implementation — useful for cross-module tests that want to
+    /// count `summarize_row` calls without owning the helper plumbing.
+    pub(crate) async fn boot_with_local_ops(
+        helper: Arc<dyn FoundationHelper>,
+        local_ops: Arc<dyn LocalOps>,
         kind: HelperStatusKind,
     ) -> Arc<AppCore> {
         let dir = tempdir().unwrap();
@@ -814,7 +826,6 @@ mod tests {
         let gate = Arc::new(InMemoryApprovalGate::new(store.clone()));
         let cost = CostTracker::new(store.clone(), config.default_cost_cap);
 
-        let local_ops: Arc<dyn LocalOps> = Arc::new(FoundationLocalOps::new(helper.clone()));
         let helper_status = HelperStatus {
             kind,
             fallback_reason: match kind {

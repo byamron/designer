@@ -37,6 +37,44 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Track 13.J — `test_support` module for shared mocks (PR #32)
+**Date:** 2026-04-26
+**Branch:** test-support-module
+**Commit:** 5764377
+**PR:** [#32](https://github.com/byamron/designer/pull/32)
+
+**What was done:**
+
+PR #22's six-perspective review flagged that `core_git::tests::check_track_status_routes_through_summary_hook` (the F4 test) inlined ~80 LOC of `AppCore` construction that already exists in `core_local::tests::boot_with_helper_status`, plus a one-off inline `CountingOps` mock with obvious reuse value. This consolidates both:
+
+- `core_local::tests` is now `pub(crate)` and exposes `boot_with_helper`, `boot_with_helper_status`, and a new `boot_with_local_ops(helper, local_ops, kind)` variant for tests that need a custom `LocalOps` without the helper-derived plumbing.
+- `apps/desktop/src-tauri/src/test_support.rs` (new, cfg-test) hosts the `CountingOps` mock — a `LocalOps` implementation whose only non-trivial method is `summarize_row`, which increments an `AtomicUsize` so callers can lock in "exactly N helper round-trips for this code path."
+- The F4 test was rewritten to use both. `core_git.rs` shrunk by ~83 LOC.
+
+**Why:**
+
+The F4 test was the only counted-LocalOps caller in the desktop crate, but the inline mock + AppCore boot meant that any future cross-module test asserting "the hook routed through `summarize_row`" would re-roll both. Extracting them now (while there is exactly one caller) keeps the cleanup small and avoids a bigger refactor when the second caller arrives.
+
+**Design decisions:**
+
+- **`test_support` lives in the desktop crate, not in a workspace-shared crate.** The mocks here are tied to the crate's `AppCore` shape; cross-crate sharing would require a public test-doubles crate, which is overkill for a single counter mock.
+
+**Technical decisions:**
+
+- **Three boot helpers, not one.** `boot_with_helper` (Live, helper-derived ops) is the default for the existing `core_local::tests` callers; `boot_with_helper_status` parameterizes status; `boot_with_local_ops` lets the F4 test inject a custom `LocalOps` without rebuilding the helper plumbing. Each is a thin wrapper — collapsing them would break ~20 existing call sites for no readability gain.
+- **`mod tests` is `pub(crate)`, not the helpers in a sibling `pub(crate) mod test_helpers`.** Items inside still need their own `pub(crate)` to be reachable, so the surface increase is exactly the three boot fns plus `tests`'s name. Both shapes work; this one is one line of code change.
+- **`CountingHandler` was *not* moved.** It lives in `crates/designer-claude/src/claude_code.rs` (a different crate) and is referenced only from that file. The roadmap mentioned it as a candidate, but the audit found no actual duplication.
+
+**Tradeoffs discussed:**
+
+- **Collapsing `boot_with_helper_status` and `boot_with_local_ops` into a single function.** Rejected — would force every existing `boot_with_helper_status` caller to construct `FoundationLocalOps::new(helper.clone())` themselves. The two-function shape keeps existing callers terse and the new caller explicit.
+
+**Lessons learned:**
+
+- The simplify pass after the initial implementation surfaced three real wins (drop a speculative future-mocks doc-comment, simplify `CountingOps::new()` from `(Arc<Self>, Arc<AtomicUsize>)` to `Arc<CountingOps::default()>`, drop the now-redundant "Live status so..." comment) and one false positive (a claim that `std::mem::forget(dir)` had been removed — it had not). Worth running the three-agent review on test-only refactors, not just production code.
+
+---
+
 ### Track 13.J 1.C — `CostTracker::replay_from_store` bulk-update
 **Date:** 2026-04-26
 **Branch:** cost-tracker-bulk-replay
