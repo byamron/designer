@@ -37,6 +37,43 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Track 13.J 1.C — `CostTracker::replay_from_store` bulk-update
+**Date:** 2026-04-26
+**Branch:** cost-tracker-bulk-replay
+**Commit:** 50168bd
+**PR:** [#30](https://github.com/byamron/designer/pull/30)
+
+**What was done:**
+
+`CostTracker::replay_from_store` now folds every `CostRecorded` event into a local `HashMap<WorkspaceId, CostUsage>` accumulator and bulk-publishes to the shared `DashMap` in one pass. Previously the loop called `self.usage.entry(...)` per event, locking a DashMap shard each time — N shard-acquisitions when 1 sufficed. Behavior is identical: the map is still cleared before publish, the saturating-add arithmetic is unchanged, and the function remains idempotent on repeat calls.
+
+Added `cost::tests::replay_matches_old_path`: a 100-event fixture across 5 interleaved workspaces (plus a non-cost `AuditEntry` mixed in to exercise the filter) is replayed by both the new bulk path and a reference implementation of the prior per-event path; per-workspace `usage(ws)` must match exactly.
+
+**Why:**
+
+Surfaced by the PR #22 six-perspective review of Phase 13.H (`roadmap.md` § Track 13.J). Boot-only path, so not urgent, but trivial to fix and the optimization tightens the concurrency window during replay (clear+publish is a small interval; the old per-event path mutated shared state for the entire scan).
+
+**Design decisions:**
+
+- None — pure backend optimization with zero UI / IPC / event-shape surface.
+
+**Technical decisions:**
+
+- Clear-then-bulk-insert (vs. swap-the-whole-DashMap): the `Arc<DashMap>` is shared with cloned trackers, so we can't replace the inner allocation. Mutating in place is the only correct option.
+- Skipped `HashMap::with_capacity(...)` pre-allocation: the efficiency reviewer suggested `events.len() / 5` as a heuristic, but introducing a magic ratio on a boot-only path costs more clarity than it saves cycles. At most ~log₂(N) rehashes on boot.
+- Test reference impl deliberately re-states the old per-event `DashMap.entry()` logic verbatim — it's the equivalence anchor, not copy-paste. Comment in the test mod calls this out.
+
+**Tradeoffs discussed:**
+
+- Pre-allocation guess vs. unhinted growth — went with unhinted; see above.
+- Comment in `replay_from_store` body referencing the equivalence test name (`tests::replay_matches_old_path`): borderline narration but kept because it documents *why* the rewrite is safe to read at a glance.
+
+**Lessons learned:**
+
+- Three-agent /simplify pass (reuse / quality / efficiency) on a 100-LOC change took ~30 seconds and confirmed the patch was already clean. Cheap insurance.
+
+---
+
 ### First-run polish — PR #24 + review pass (PR #25-equivalent commits)
 **Date:** 2026-04-26
 **Branch:** fix-first-run
