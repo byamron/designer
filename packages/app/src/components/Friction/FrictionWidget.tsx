@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Image as ImageIcon, Trash2, X } from "lucide-react";
+import { Image as ImageIcon, Trash2, X } from "lucide-react";
 import {
   cancelFrictionEditing,
   clearFriction,
@@ -14,12 +14,11 @@ import {
 
 const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? "0.1.0";
 
-type ToastKind = "filed" | "local" | "failed" | null;
+type ToastKind = "local" | "failed";
 
 interface ToastState {
   kind: ToastKind;
   message: string;
-  url?: string;
 }
 
 interface ScreenshotState {
@@ -32,21 +31,23 @@ interface ScreenshotState {
 /**
  * Track 13.K FrictionWidget — pinned input surface.
  *
- * Four screenshot inputs (priority order, all ship in v1):
- *   1. Paste from clipboard (⌘V — primary)
- *   2. "Capture this view" — Tauri webview.capture (or canvas fallback)
- *   3. Drag-and-drop a file from Finder
- *   4. Click the drag-zone to open the OS file picker
+ * Three working screenshot inputs in v1 (paste / drop / file picker).
+ * Auto-capture (Tauri `webview.capture()`) is a follow-up — when the
+ * SelectionOverlay grows that wiring it'll set `frictionAutoCapture` in
+ * the store and this widget will adopt it automatically.
  *
- * Submit is blocked unless the body is non-empty AND at least one of
- * {screenshot, anchor with descriptor} is present (per spec).
+ * Closes on ESC; bails out (back to "selecting") on Cancel so the user
+ * can re-anchor without re-arming. Hidden when a modal scrim is open
+ * (friction is inert in those states per spec).
  */
 export function FrictionWidget() {
   const mode = useAppState((s) => s.frictionMode);
+  const dialog = useAppState((s) => s.dialog);
   const anchor = useAppState((s) => s.frictionAnchor);
   const autoCapture = useAppState((s) => s.frictionAutoCapture);
   const workspaceId = useAppState((s) => s.activeWorkspace);
   const projectId = useAppState((s) => s.activeProject);
+  const visible = mode === "editing" && anchor !== null && dialog === null;
 
   const [body, setBody] = useState("");
   const [fileToGithub, setFileToGithub] = useState(true);
@@ -54,26 +55,49 @@ export function FrictionWidget() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [screenshot, setScreenshot] = useState<ScreenshotState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const widgetRef = useRef<HTMLDivElement>(null);
 
-  // Reset on enter/exit of editing mode so re-anchoring always sees a
-  // fresh widget; previous text from a different anchor would be misleading.
+  const screenshotRef = useRef<ScreenshotState | null>(null);
+  useEffect(() => {
+    screenshotRef.current = screenshot;
+  }, [screenshot]);
+  // Final cleanup — runs once on unmount. Without this, leaving the widget
+  // mounted while React tears the tree down (route swap, hot reload) leaks
+  // the object-URL for the previewed PNG.
+  useEffect(() => {
+    return () => {
+      const cur = screenshotRef.current;
+      if (cur) URL.revokeObjectURL(cur.previewUrl);
+    };
+  }, []);
+
+  const adoptScreenshot = useCallback(
+    (bytes: Uint8Array, filename: string, source: ScreenshotState["source"]) => {
+      setScreenshot((prev) => {
+        if (prev) URL.revokeObjectURL(prev.previewUrl);
+        // The inner `Uint8Array(bytes)` forces an ArrayBuffer backing —
+        // TS rejects the bare `Uint8Array` because its buffer could be
+        // SharedArrayBuffer-typed, which `Blob` doesn't accept.
+        const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
+        return {
+          bytes,
+          filename,
+          previewUrl: URL.createObjectURL(blob),
+          source,
+        };
+      });
+    },
+    [],
+  );
+
+  // Reset on enter/exit of editing mode so re-anchoring sees a fresh widget;
+  // previous text from a different anchor would mislead.
   useEffect(() => {
     if (mode === "editing") {
       setBody("");
       setSubmitting(false);
       setToast(null);
       if (autoCapture) {
-        // The store's autoCapture wins as the initial screenshot source —
-        // it was taken at click-time, before the widget mounted.
-        const blob = new Blob([new Uint8Array(autoCapture.bytes)], { type: "image/png" });
-        const url = URL.createObjectURL(blob);
-        setScreenshot({
-          bytes: autoCapture.bytes,
-          filename: autoCapture.filename,
-          previewUrl: url,
-          source: "auto",
-        });
+        adoptScreenshot(autoCapture.bytes, autoCapture.filename, "auto");
       } else {
         setScreenshot(null);
       }
@@ -83,17 +107,16 @@ export function FrictionWidget() {
         return null;
       });
     }
-    // We intentionally only re-run on mode change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [mode, autoCapture, adoptScreenshot]);
 
   // Position the widget near the anchor with simple collision-avoidance:
-  // prefer below-right of the anchor; if that overflows, flip to above.
+  // prefer right of the anchor; if that overflows, flip to left. Falls
+  // back to a fixed corner if the anchor is no longer in the DOM.
   const widgetStyle = useMemo<React.CSSProperties>(() => {
     if (!anchor) return {};
     const el = resolveAnchor(anchor);
     if (!el) return { right: 24, bottom: 84 };
-    const rect = (el as Element).getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
     const widget = { width: 360, height: 320 };
     let left = rect.right + 12;
     let top = rect.top;
@@ -108,7 +131,7 @@ export function FrictionWidget() {
 
   // Paste handler — clipboard image becomes the screenshot.
   useEffect(() => {
-    if (mode !== "editing") return;
+    if (!visible) return;
     const onPaste = async (e: ClipboardEvent) => {
       const items = Array.from(e.clipboardData?.items ?? []);
       const imageItem = items.find((it) => it.type.startsWith("image/"));
@@ -121,12 +144,11 @@ export function FrictionWidget() {
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [visible, adoptScreenshot]);
 
   // ESC exits the widget (back to selecting; user can re-anchor).
   useEffect(() => {
-    if (mode !== "editing") return;
+    if (!visible) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -135,19 +157,7 @@ export function FrictionWidget() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode]);
-
-  const adoptScreenshot = useCallback(
-    (bytes: Uint8Array, filename: string, source: ScreenshotState["source"]) => {
-      setScreenshot((prev) => {
-        if (prev) URL.revokeObjectURL(prev.previewUrl);
-        const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
-        const url = URL.createObjectURL(blob);
-        return { bytes, filename, previewUrl: url, source };
-      });
-    },
-    [],
-  );
+  }, [visible]);
 
   const onPickFile = useCallback(
     async (file: File | null | undefined) => {
@@ -169,22 +179,6 @@ export function FrictionWidget() {
     [adoptScreenshot],
   );
 
-  const onCaptureView = useCallback(async () => {
-    // Tauri webview.capture isn't a stable cross-platform API in v2; we
-    // grab a screenshot of the anchored element via canvas if html2canvas
-    // is on the page (dev/dogfood). Otherwise we hint the user to paste.
-    const el = anchor ? resolveAnchor(anchor) : null;
-    if (!el) {
-      setToast({ kind: "failed", message: "Couldn't capture — element no longer on screen." });
-      return;
-    }
-    // No html2canvas at runtime — leave the user a clear next step.
-    setToast({
-      kind: "failed",
-      message: "Auto-capture not available; paste with ⌘V or drop a file.",
-    });
-  }, [anchor]);
-
   const canSubmit =
     body.trim().length > 0 && (screenshot !== null || anchor !== null) && !submitting;
 
@@ -203,17 +197,13 @@ export function FrictionWidget() {
         file_to_github: fileToGithub,
         route,
       });
-      if (fileToGithub) {
-        setToast({
-          kind: "local",
-          message: `Filing #${resp.friction_id.slice(-6)} — check Settings → Activity for status.`,
-        });
-      } else {
-        setToast({
-          kind: "local",
-          message: "Saved locally. File from Settings → Activity → Friction.",
-        });
-      }
+      const tail = resp.friction_id.slice(-6);
+      setToast({
+        kind: "local",
+        message: fileToGithub
+          ? `Filing #${tail} — track in Settings → Activity → Friction.`
+          : "Saved locally. File from Settings → Activity → Friction.",
+      });
       // Close the widget after a beat so the user reads the toast.
       setTimeout(clearFriction, 1400);
     } catch (err) {
@@ -223,14 +213,13 @@ export function FrictionWidget() {
     }
   }, [anchor, body, canSubmit, fileToGithub, projectId, screenshot, workspaceId]);
 
-  if (mode !== "editing" || !anchor) return null;
+  if (!visible || !anchor) return null;
 
   const title = synthesizeTitle(anchor, body);
   const descriptor = anchorDescriptor(anchor);
 
   return (
     <div
-      ref={widgetRef}
       className="friction-widget"
       data-component="FrictionWidget"
       style={widgetStyle}
@@ -298,15 +287,6 @@ export function FrictionWidget() {
           style={{ display: "none" }}
           onChange={(e) => onPickFile(e.target.files?.[0])}
         />
-        <button
-          type="button"
-          className="friction-widget__shot-capture"
-          onClick={onCaptureView}
-          title="Capture the anchored element"
-        >
-          <Camera size={14} strokeWidth={1.6} />
-          <span>Capture</span>
-        </button>
       </div>
 
       <div className="friction-widget__chips" aria-hidden="true">
@@ -354,4 +334,3 @@ export function FrictionWidget() {
     </div>
   );
 }
-

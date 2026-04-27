@@ -3641,7 +3641,7 @@ kbd {
 }
 
 .friction-button[data-armed="true"] {
-  color: var(--color-accent-foreground);
+  color: var(--color-background);
   background: var(--color-accent);
   border-color: var(--color-accent);
   transform: scale(1.04);
@@ -3658,7 +3658,7 @@ kbd {
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   background: var(--color-accent);
-  color: var(--color-accent-foreground);
+  color: var(--color-background);
   border-radius: var(--radius-pill);
   box-shadow: var(--elevation-raised);
   font-size: var(--type-body-size);
@@ -3694,8 +3694,8 @@ kbd {
   pointer-events: none;
   z-index: var(--layer-overlay);
   border-radius: var(--radius-button);
-  transition: left var(--motion-fast), top var(--motion-fast),
-    width var(--motion-fast), height var(--motion-fast);
+  transition: left var(--motion-interactive), top var(--motion-interactive),
+    width var(--motion-interactive), height var(--motion-interactive);
 }
 
 .friction-overlay--snapped {
@@ -3863,20 +3863,6 @@ kbd {
   cursor: pointer;
 }
 
-.friction-widget__shot-capture {
-  appearance: none;
-  background: transparent;
-  border: var(--border-thin) solid var(--color-border);
-  color: var(--color-foreground);
-  border-radius: var(--radius-button);
-  padding: var(--space-1) var(--space-2);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--type-caption-size);
-  cursor: pointer;
-}
-
 .friction-widget__chips {
   display: flex;
   flex-wrap: wrap;
@@ -3910,7 +3896,7 @@ kbd {
 }
 
 .friction-widget__toast[data-kind="failed"] {
-  background: color-mix(in srgb, var(--color-danger, #c44) 14%, var(--color-surface-raised));
+  background: color-mix(in srgb, var(--danger-9) 14%, var(--color-surface-raised));
 }
 
 .friction-widget__actions {
@@ -3955,7 +3941,7 @@ kbd {
 }
 
 .friction-triage__state[data-state="failed"] {
-  color: var(--color-danger, #c44);
+  color: var(--danger-9);
 }
 
 .friction-triage__actions {

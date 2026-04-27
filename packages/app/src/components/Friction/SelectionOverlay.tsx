@@ -7,127 +7,128 @@ import {
   useAppState,
 } from "../../store/app";
 
+interface HoverState {
+  /** The atomic element under the pointer. Anchored when Alt is held. */
+  atom: Element;
+  /** Snap target — closest ancestor with `data-component`/role/etc. May === atom. */
+  snap: Element;
+  atomRect: DOMRect;
+  snapRect: DOMRect;
+  descriptor: string;
+  snapText: string | null;
+}
+
+const SELF_SELECTOR =
+  ".friction-overlay, .friction-widget, .friction-button, .friction-banner";
+
 /**
- * Track 13.K SelectionOverlay — armed state visual + smart-snap.
+ * Track 13.K SelectionOverlay — armed-state visual + smart-snap.
  *
- * Renders nothing when `frictionMode !== "selecting"`. Mount/unmount on
- * armed-state transitions so the global pointer/key listeners aren't paying
- * cost in the steady state.
+ * Renders nothing when `frictionMode !== "selecting"`. Bails when a modal
+ * scrim is open (`appStore.dialog !== null`) — friction is inert in those
+ * states per spec.
  *
- * Three-exit policy (locked by spec):
- *   1. ESC — toggle off via `clearFriction`.
- *   2. Click the FrictionButton again — handled by FrictionButton itself.
- *   3. Click outside any anchorable element with a 600ms grace period —
- *      grace gives the user a beat to drift over the target without
- *      losing the armed state on a stray click.
+ * Three-exit policy (locked):
+ *   1. ESC.
+ *   2. Click the FrictionButton again.
+ *   3. Click outside any anchorable element after a 600ms grace period from
+ *      arming time. The grace gives the user a beat to drift over a target
+ *      without losing the armed state on a stray click.
  *
- * Smart snap: hover any element, walk up to the nearest `data-component`
- * (or `role="row"|"button"|"dialog"`) ancestor and outline that. Hold Alt
- * to override and anchor to the exact hovered node.
+ * Smart-snap walks ancestors to the closest `data-component` / `role="row"|
+ * "button"` / `<button>` / `<dialog>`. Hold Alt to override and anchor to
+ * the exact hovered node.
  */
 export function SelectionOverlay() {
   const mode = useAppState((s) => s.frictionMode);
-  const armed = mode === "selecting";
-  const [hover, setHover] = useState<{
-    target: DOMRect;
-    snapped: DOMRect;
-    descriptor: string;
-    snapText: string | null;
-  } | null>(null);
+  const dialog = useAppState((s) => s.dialog);
+  const armed = mode === "selecting" && dialog === null;
+  const [hover, setHover] = useState<HoverState | null>(null);
   const altHeldRef = useRef(false);
+  const armedAtRef = useRef<number>(0);
 
-  const updateHoverFromPoint = useCallback(
-    (clientX: number, clientY: number) => {
-      const atom = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-      if (!atom) {
-        setHover(null);
-        return;
-      }
-      // Skip our own UI so the overlay never tries to anchor to itself.
-      if (atom.closest(".friction-overlay, .friction-widget, .friction-button, .friction-banner")) {
-        setHover(null);
-        return;
-      }
-      const snap = snapTarget(atom);
-      const useAtom = altHeldRef.current || !snap;
-      const target = useAtom ? atom : (snap as HTMLElement);
-      const targetRect = target.getBoundingClientRect();
-      const snappedRect = (snap ?? target).getBoundingClientRect();
-      const descriptor =
-        (snap as HTMLElement | null)?.getAttribute?.("data-component") ??
-        (snap as HTMLElement | null)?.getAttribute?.("role") ??
-        atom.tagName.toLowerCase();
-      const snapText = ((snap as HTMLElement | null)?.innerText ?? "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 60);
-      setHover({
-        target: targetRect,
-        snapped: snappedRect,
-        descriptor,
-        snapText: snapText.length > 0 ? snapText : null,
-      });
-    },
-    [],
-  );
-
-  // Capture screenshot of the snapped element BEFORE the widget covers it.
-  // We use html2canvas only if available; otherwise auto-capture is null
-  // and the user can paste/upload manually. Tauri's `webview.capture()`
-  // would be the production path — wired in commands_friction once the
-  // platform plugin is added; for now this path stays empty.
-  const finalizeAnchor = useCallback(() => {
+  const finalize = useCallback(() => {
     if (!hover) return;
-    const point = {
-      x: hover.target.left + hover.target.width / 2,
-      y: hover.target.top + hover.target.height / 2,
-    };
-    const el = document.elementFromPoint(point.x, point.y) as HTMLElement | null;
-    if (!el) return;
-    const target = altHeldRef.current ? el : (snapTarget(el) ?? el);
+    const target = altHeldRef.current ? hover.atom : hover.snap;
     const route = window.location.hash || window.location.pathname || "/";
-    const anchor = anchorFromElement(target, route);
-    setFrictionAnchor(anchor, null);
+    setFrictionAnchor(anchorFromElement(target, route), null);
   }, [hover]);
 
+  // Reset armed-at timestamp + clear stale hover whenever arming flips on.
   useEffect(() => {
-    if (!armed) {
+    if (armed) {
+      armedAtRef.current = Date.now();
+    } else {
       setHover(null);
-      return;
     }
-    let pending: number | null = null;
-    let lastOutside = 0;
+  }, [armed]);
+
+  useEffect(() => {
+    if (!armed) return;
+    let pendingFrame: number | null = null;
+
+    let lastAtom: Element | null = null;
+    let lastSnap: Element | null = null;
+
     const onMove = (e: PointerEvent) => {
       altHeldRef.current = e.altKey;
-      if (pending !== null) cancelAnimationFrame(pending);
-      pending = requestAnimationFrame(() => {
-        updateHoverFromPoint(e.clientX, e.clientY);
-        pending = null;
-      });
-    };
-    const onClick = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest(".friction-button, .friction-overlay, .friction-banner")) {
-        return; // let the button toggle off, banner ignore clicks
-      }
-      const atom = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-      if (!atom) return;
-      const snap = snapTarget(atom);
-      // No anchorable element — start the 600ms grace timer to dismiss.
-      if (!snap && !altHeldRef.current) {
-        const now = Date.now();
-        if (now - lastOutside > 600) {
-          lastOutside = now;
+      if (pendingFrame !== null) cancelAnimationFrame(pendingFrame);
+      pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = null;
+        const atom = document.elementFromPoint(e.clientX, e.clientY);
+        if (!atom || (atom as Element).closest?.(SELF_SELECTOR)) {
+          if (lastAtom !== null || lastSnap !== null) {
+            lastAtom = null;
+            lastSnap = null;
+            setHover(null);
+          }
           return;
         }
-        clearFriction();
+        const snap = snapTarget(atom) ?? atom;
+        if (atom === lastAtom && snap === lastSnap) return;
+        lastAtom = atom;
+        lastSnap = snap;
+        const descriptor =
+          (snap as HTMLElement).getAttribute?.("data-component") ??
+          (snap as HTMLElement).getAttribute?.("role") ??
+          atom.tagName.toLowerCase();
+        const snapText = ((snap as HTMLElement).innerText ?? "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 60);
+        setHover({
+          atom,
+          snap,
+          atomRect: atom.getBoundingClientRect(),
+          snapRect: snap.getBoundingClientRect(),
+          descriptor,
+          snapText: snapText.length > 0 ? snapText : null,
+        });
+      });
+    };
+
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest(SELF_SELECTOR)) {
+        // Let the FrictionButton/banner-cancel button handle their own clicks.
+        return;
+      }
+      const atom = document.elementFromPoint(e.clientX, e.clientY);
+      const snap = atom ? snapTarget(atom) : null;
+      // Clicks outside any anchorable element dismiss after grace.
+      const sinceArmed = Date.now() - armedAtRef.current;
+      if (!snap && !altHeldRef.current) {
+        if (sinceArmed > 600) {
+          clearFriction();
+        }
         return;
       }
       e.preventDefault();
       e.stopPropagation();
-      finalizeAnchor();
+      finalize();
     };
-    const onKey = (e: KeyboardEvent) => {
+
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         clearFriction();
@@ -138,18 +139,19 @@ export function SelectionOverlay() {
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === "Alt") altHeldRef.current = false;
     };
+
     document.addEventListener("pointermove", onMove);
     document.addEventListener("click", onClick, true);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup", onKeyUp);
     return () => {
-      if (pending !== null) cancelAnimationFrame(pending);
+      if (pendingFrame !== null) cancelAnimationFrame(pendingFrame);
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("click", onClick, true);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
     };
-  }, [armed, updateHoverFromPoint, finalizeAnchor]);
+  }, [armed, finalize]);
 
   if (!armed) return null;
 
@@ -177,27 +179,27 @@ export function SelectionOverlay() {
             className="friction-overlay friction-overlay--snapped"
             aria-hidden="true"
             style={{
-              left: hover.snapped.left - 2,
-              top: hover.snapped.top - 2,
-              width: hover.snapped.width + 4,
-              height: hover.snapped.height + 4,
+              left: hover.snapRect.left - 2,
+              top: hover.snapRect.top - 2,
+              width: hover.snapRect.width + 4,
+              height: hover.snapRect.height + 4,
             }}
           />
           <div
             className="friction-overlay friction-overlay--atom"
             aria-hidden="true"
             style={{
-              left: hover.target.left - 1,
-              top: hover.target.top - 1,
-              width: hover.target.width + 2,
-              height: hover.target.height + 2,
+              left: hover.atomRect.left - 1,
+              top: hover.atomRect.top - 1,
+              width: hover.atomRect.width + 2,
+              height: hover.atomRect.height + 2,
             }}
           />
           <div
             className="friction-overlay__tooltip"
             style={{
-              left: Math.min(hover.snapped.left + 4, window.innerWidth - 320),
-              top: Math.max(hover.snapped.top - 32, 8),
+              left: Math.min(hover.snapRect.left + 4, window.innerWidth - 320),
+              top: Math.max(hover.snapRect.top - 32, 8),
             }}
           >
             <span className="friction-overlay__descriptor">{hover.descriptor}</span>

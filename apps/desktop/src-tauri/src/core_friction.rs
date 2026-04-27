@@ -254,14 +254,20 @@ fn records_dir(data_dir: &Path) -> PathBuf {
 }
 
 /// Downscale a PNG to `SCREENSHOT_MAX_WIDTH` if wider; otherwise return the
-/// bytes unchanged. Errors out as `GistRejected` so the user sees an
-/// actionable failure if the input isn't a decodable PNG.
+/// bytes unchanged. Reads only the PNG header to decide — full decode
+/// (~50–200ms on a typical screenshot) only runs when an actual resize is
+/// needed. Errors surface as `GistRejected` so the user sees an actionable
+/// failure if the input isn't a decodable PNG.
 fn maybe_downscale(bytes: &[u8]) -> Result<Vec<u8>, GhError> {
-    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
-        .map_err(|e| GhError::GistRejected(format!("not a decodable PNG: {e}")))?;
-    if img.width() <= SCREENSHOT_MAX_WIDTH {
+    let dims =
+        image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png)
+            .into_dimensions()
+            .map_err(|e| GhError::GistRejected(format!("not a decodable PNG: {e}")))?;
+    if dims.0 <= SCREENSHOT_MAX_WIDTH {
         return Ok(bytes.to_vec());
     }
+    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+        .map_err(|e| GhError::GistRejected(format!("png decode failed: {e}")))?;
     let scaled = img.resize(
         SCREENSHOT_MAX_WIDTH,
         u32::MAX,
@@ -346,7 +352,7 @@ impl AppCore {
     /// task so the user's submit returns in <100ms regardless of network.
     pub async fn report_friction(
         &self,
-        req: ReportFrictionRequest,
+        mut req: ReportFrictionRequest,
     ) -> Result<ReportFrictionResponse, IpcError> {
         if req.body.trim().is_empty() {
             return Err(IpcError::invalid_request("body must not be empty"));
@@ -364,25 +370,33 @@ impl AppCore {
         let title = synthesize_title(&req.anchor, &req.body);
         let app_version = env!("CARGO_PKG_VERSION").to_string();
 
-        // Persist the screenshot as content-addressed PNG.
-        let screenshot_ref = if let Some(bytes) = req.screenshot_data.as_ref() {
-            let mut hasher = Sha256::new();
-            hasher.update(bytes);
-            let sha = hex::encode(hasher.finalize());
+        // Hashing + writing run on `spawn_blocking` so a multi-MB screenshot
+        // doesn't pause the tokio worker for 50–200ms. Path is content-
+        // addressed so an unconditional overwrite is harmless (same bytes
+        // → same path).
+        let screenshot_ref = if let Some(bytes) = req.screenshot_data.take() {
             let dir = screenshots_dir(&self.config.data_dir);
-            std::fs::create_dir_all(&dir)
-                .map_err(|e| IpcError::unknown(format!("screenshots dir: {e}")))?;
-            let path = dir.join(format!("{sha}.png"));
-            if !path.exists() {
-                std::fs::write(&path, bytes)
-                    .map_err(|e| IpcError::unknown(format!("screenshot write: {e}")))?;
-            }
-            Some(ScreenshotRef::Local { path, sha256: sha })
+            let written =
+                tokio::task::spawn_blocking(move || -> std::io::Result<(PathBuf, String)> {
+                    let mut hasher = Sha256::new();
+                    hasher.update(&bytes);
+                    let sha = hex::encode(hasher.finalize());
+                    std::fs::create_dir_all(&dir)?;
+                    let path = dir.join(format!("{sha}.png"));
+                    std::fs::write(&path, &bytes)?;
+                    Ok((path, sha))
+                })
+                .await
+                .map_err(|e| IpcError::unknown(format!("screenshot task: {e}")))?
+                .map_err(|e| IpcError::unknown(format!("screenshot write: {e}")))?;
+            Some(ScreenshotRef::Local {
+                path: written.0,
+                sha256: written.1,
+            })
         } else {
             None
         };
 
-        // Markdown record path: `~/.designer/friction/<unix-ms>-<slug>.md`.
         let slug = slugify(&req.body);
         let record_path =
             records_dir(&self.config.data_dir).join(format!("{}-{slug}.md", now_ms()));
@@ -400,7 +414,6 @@ impl AppCore {
         })
         .map_err(|e| IpcError::unknown(format!("record write: {e}")))?;
 
-        // Emit `FrictionReported` synchronously.
         let stream = stream_for(&req);
         let env = self
             .store
@@ -426,91 +439,22 @@ impl AppCore {
             .map_err(IpcError::from)?;
         self.projector.apply(&env);
 
-        // Spawn the async filer if requested.
         if req.file_to_github {
-            let store = self.store.clone();
-            let runner = self.gh_runner();
-            let stream = stream_for(&req);
-            let screenshot_path = screenshot_ref.as_ref().and_then(|r| match r {
-                ScreenshotRef::Local { path, .. } => Some(path.clone()),
-                ScreenshotRef::Gist { .. } => None,
-            });
-            let screenshot_sha = screenshot_ref.as_ref().map(|r| match r {
-                ScreenshotRef::Local { sha256, .. } | ScreenshotRef::Gist { sha256, .. } => {
-                    sha256.clone()
-                }
-            });
-            let body = req.body.clone();
-            let anchor = req.anchor.clone();
-            let route = req.route.clone();
-            let record_path_for_task = record_path.clone();
-            tokio::spawn(async move {
-                let outcome = file_to_github(
-                    runner.as_ref(),
-                    screenshot_path.as_deref(),
-                    screenshot_sha.as_deref(),
-                    &title,
-                    &body,
-                    &anchor,
-                    &route,
-                    &app_version,
-                )
-                .await;
-                match outcome {
-                    Ok(GhOutcome {
-                        issue_url,
-                        gist_ref,
-                    }) => {
-                        // Best-effort update of the local record — failure
-                        // to rewrite the markdown is logged but not
-                        // surfaced to the user (the event log is the
-                        // source of truth).
-                        let _ = write_record(WriteRecordArgs {
-                            path: &record_path_for_task,
-                            friction_id,
-                            title: &title,
-                            body: &body,
-                            anchor: &anchor,
-                            route: &route,
-                            app_version: &app_version,
-                            claude_version: None,
-                            screenshot_ref: &gist_ref,
-                            github_issue_url: Some(&issue_url),
-                        });
-                        if let Err(err) = store
-                            .append(
-                                stream,
-                                None,
-                                Actor::system(),
-                                EventPayload::FrictionLinked {
-                                    friction_id,
-                                    github_issue_url: issue_url,
-                                },
-                            )
-                            .await
-                        {
-                            warn!(error = %err, "FrictionLinked append failed");
-                        }
-                    }
-                    Err(err) => {
-                        let kind = (&err).into();
-                        if let Err(err) = store
-                            .append(
-                                stream,
-                                None,
-                                Actor::system(),
-                                EventPayload::FrictionFileFailed {
-                                    friction_id,
-                                    error_kind: kind,
-                                },
-                            )
-                            .await
-                        {
-                            warn!(error = %err, "FrictionFileFailed append failed");
-                        }
-                    }
-                }
-            });
+            let snapshot = FrictionReportSnapshot {
+                anchor: req.anchor.clone(),
+                body: req.body.clone(),
+                screenshot_ref: screenshot_ref.clone(),
+                route: req.route.clone(),
+                app_version: app_version.clone(),
+            };
+            spawn_filer(
+                self.store.clone(),
+                self.gh_runner(),
+                stream_for(&req),
+                friction_id,
+                snapshot,
+                Some(record_path.clone()),
+            );
         }
 
         Ok(ReportFrictionResponse {
@@ -531,11 +475,10 @@ impl AppCore {
     }
 
     /// Mark a friction record resolved (local-only). Does not close the
-    /// GitHub issue.
+    /// GitHub issue — that's an explicit action the user takes from the
+    /// issue link.
     pub async fn resolve_friction(&self, id: FrictionId) -> Result<(), IpcError> {
-        // Find the originating stream so the resolution lands on the same
-        // log as the report.
-        let stream = self.find_friction_stream(id).await?;
+        let (stream, _, _) = self.locate_friction(id).await?;
         let env = self
             .store
             .append(
@@ -552,62 +495,20 @@ impl AppCore {
 
     /// Retry a previously-failed (or local-only) entry against `gh`.
     pub async fn retry_file_friction(&self, id: FrictionId) -> Result<(), IpcError> {
-        let entries = self.list_friction().await?;
-        let entry = entries
-            .into_iter()
-            .find(|e| e.friction_id == id)
-            .ok_or_else(|| IpcError::not_found(id.to_string()))?;
-        if matches!(entry.state, FrictionState::Filed | FrictionState::Resolved) {
+        let (stream, snapshot, state) = self.locate_friction(id).await?;
+        if matches!(state, FrictionState::Filed | FrictionState::Resolved) {
             return Err(IpcError::invalid_request(
                 "entry already filed or resolved; nothing to retry",
             ));
         }
-        // Re-read the original FrictionReported to recover the bits we
-        // need (anchor, body, screenshot path).
-        let report = self.find_friction_report(id).await?;
-        let runner = self.gh_runner();
-        let stream = self.find_friction_stream(id).await?;
-        let store = self.store.clone();
-        let screenshot_path = match &report.screenshot_ref {
-            Some(ScreenshotRef::Local { path, .. }) => Some(path.clone()),
-            Some(ScreenshotRef::Gist { .. }) | None => None,
-        };
-        let screenshot_sha = report.screenshot_ref.as_ref().map(|r| match r {
-            ScreenshotRef::Local { sha256, .. } | ScreenshotRef::Gist { sha256, .. } => {
-                sha256.clone()
-            }
-        });
-        let title = synthesize_title(&report.anchor, &report.body);
-        let body = report.body.clone();
-        let anchor = report.anchor.clone();
-        let route = report.route.clone();
-        let app_version = report.app_version.clone();
-        tokio::spawn(async move {
-            let outcome = file_to_github(
-                runner.as_ref(),
-                screenshot_path.as_deref(),
-                screenshot_sha.as_deref(),
-                &title,
-                &body,
-                &anchor,
-                &route,
-                &app_version,
-            )
-            .await;
-            let payload = match outcome {
-                Ok(GhOutcome { issue_url, .. }) => EventPayload::FrictionLinked {
-                    friction_id: id,
-                    github_issue_url: issue_url,
-                },
-                Err(err) => EventPayload::FrictionFileFailed {
-                    friction_id: id,
-                    error_kind: (&err).into(),
-                },
-            };
-            if let Err(err) = store.append(stream, None, Actor::system(), payload).await {
-                warn!(error = %err, "retry friction append failed");
-            }
-        });
+        spawn_filer(
+            self.store.clone(),
+            self.gh_runner(),
+            stream,
+            id,
+            snapshot,
+            None,
+        );
         Ok(())
     }
 
@@ -619,61 +520,67 @@ impl AppCore {
             .unwrap_or_else(|| Arc::new(RealGhRunner) as Arc<dyn GhRunner>)
     }
 
-    /// Locate the originating stream for an existing `friction_id`. Used by
-    /// resolve + retry so they don't have to take a `workspace_id` arg.
-    async fn find_friction_stream(&self, id: FrictionId) -> Result<StreamId, IpcError> {
-        let events = self
-            .store
-            .read_all(StreamOptions::default())
-            .await
-            .map_err(IpcError::from)?;
-        for env in events.into_iter().rev() {
-            if let EventPayload::FrictionReported { friction_id, .. } = &env.payload {
-                if *friction_id == id {
-                    return Ok(env.stream);
-                }
-            }
-        }
-        Err(IpcError::not_found(id.to_string()))
-    }
-
-    async fn find_friction_report(
+    /// Single-pass scan of the event log for a friction id. Returns the
+    /// originating stream, the report snapshot, and the current projected
+    /// state. Replaces the previous three independent `read_all` calls
+    /// (`list_friction` + `find_friction_report` + `find_friction_stream`)
+    /// for the resolve/retry paths — multi-MB event logs were being
+    /// re-read three times per click.
+    async fn locate_friction(
         &self,
         id: FrictionId,
-    ) -> Result<FrictionReportSnapshot, IpcError> {
+    ) -> Result<(StreamId, FrictionReportSnapshot, FrictionState), IpcError> {
         let events = self
             .store
             .read_all(StreamOptions::default())
             .await
             .map_err(IpcError::from)?;
-        for env in events.into_iter().rev() {
-            if let EventPayload::FrictionReported {
-                friction_id,
-                anchor,
-                body,
-                screenshot_ref,
-                route,
-                app_version,
-                ..
-            } = &env.payload
-            {
-                if *friction_id == id {
-                    return Ok(FrictionReportSnapshot {
-                        anchor: anchor.clone(),
-                        body: body.clone(),
-                        screenshot_ref: screenshot_ref.clone(),
-                        route: route.clone(),
-                        app_version: app_version.clone(),
-                    });
+        let mut origin: Option<(StreamId, FrictionReportSnapshot)> = None;
+        let mut state = FrictionState::LocalOnly;
+        for env in events.iter() {
+            match &env.payload {
+                EventPayload::FrictionReported {
+                    friction_id,
+                    anchor,
+                    body,
+                    screenshot_ref,
+                    route,
+                    app_version,
+                    ..
+                } if *friction_id == id => {
+                    origin = Some((
+                        env.stream.clone(),
+                        FrictionReportSnapshot {
+                            anchor: anchor.clone(),
+                            body: body.clone(),
+                            screenshot_ref: screenshot_ref.clone(),
+                            route: route.clone(),
+                            app_version: app_version.clone(),
+                        },
+                    ));
                 }
+                EventPayload::FrictionLinked { friction_id, .. } if *friction_id == id => {
+                    state = FrictionState::Filed;
+                }
+                EventPayload::FrictionFileFailed { friction_id, .. }
+                    if *friction_id == id
+                        && !matches!(state, FrictionState::Filed | FrictionState::Resolved) =>
+                {
+                    state = FrictionState::Failed;
+                }
+                EventPayload::FrictionResolved { friction_id } if *friction_id == id => {
+                    state = FrictionState::Resolved;
+                }
+                _ => {}
             }
         }
-        Err(IpcError::not_found(id.to_string()))
+        let (stream, snapshot) = origin.ok_or_else(|| IpcError::not_found(id.to_string()))?;
+        Ok((stream, snapshot, state))
     }
 }
 
-/// Snapshot of the bits needed to retry filing — kept private to this
-/// module because the public surface is the typed events.
+/// Snapshot of the bits needed to file (or refile) a friction record
+/// against `gh`. Built from `FrictionReported`, never sent over IPC.
 struct FrictionReportSnapshot {
     anchor: Anchor,
     body: String,
@@ -687,21 +594,72 @@ struct GhOutcome {
     gist_ref: Option<ScreenshotRef>,
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Background tokio task: run `gh gist create` (with optional downscale)
+/// then `gh issue create`. On success emits `FrictionLinked` and rewrites
+/// the local markdown record (when present); on failure emits
+/// `FrictionFileFailed`. Shared by both the initial submit and the
+/// triage-page retry path.
+fn spawn_filer(
+    store: Arc<designer_core::SqliteEventStore>,
+    runner: Arc<dyn GhRunner>,
+    stream: StreamId,
+    friction_id: FrictionId,
+    snapshot: FrictionReportSnapshot,
+    record_path: Option<PathBuf>,
+) {
+    tokio::spawn(async move {
+        let title = synthesize_title(&snapshot.anchor, &snapshot.body);
+        let outcome = file_to_github(runner.as_ref(), &title, &snapshot).await;
+        let payload = match outcome {
+            Ok(GhOutcome {
+                issue_url,
+                gist_ref,
+            }) => {
+                if let Some(path) = record_path.as_deref() {
+                    // Best-effort markdown rewrite — the event log is the
+                    // source of truth, so a failed rewrite is logged but
+                    // doesn't fail the submit.
+                    let _ = write_record(WriteRecordArgs {
+                        path,
+                        friction_id,
+                        title: &title,
+                        body: &snapshot.body,
+                        anchor: &snapshot.anchor,
+                        route: &snapshot.route,
+                        app_version: &snapshot.app_version,
+                        claude_version: None,
+                        screenshot_ref: &gist_ref,
+                        github_issue_url: Some(&issue_url),
+                    });
+                }
+                EventPayload::FrictionLinked {
+                    friction_id,
+                    github_issue_url: issue_url,
+                }
+            }
+            Err(err) => EventPayload::FrictionFileFailed {
+                friction_id,
+                error_kind: (&err).into(),
+            },
+        };
+        if let Err(err) = store.append(stream, None, Actor::system(), payload).await {
+            warn!(error = %err, "friction filer append failed");
+        }
+    });
+}
+
 async fn file_to_github(
     runner: &dyn GhRunner,
-    screenshot_path: Option<&Path>,
-    screenshot_sha: Option<&str>,
     title: &str,
-    body: &str,
-    anchor: &Anchor,
-    route: &str,
-    app_version: &str,
+    snap: &FrictionReportSnapshot,
 ) -> Result<GhOutcome, GhError> {
-    // 1. Downscale the screenshot if present.
     let mut tmp_holder: Option<tempfile::NamedTempFile> = None;
     let mut gist_ref: Option<ScreenshotRef> = None;
-    let upload_path: Option<PathBuf> = if let Some(src) = screenshot_path {
+    let upload_path: Option<PathBuf> = if let Some(src) = snap
+        .screenshot_ref
+        .as_ref()
+        .and_then(ScreenshotRef::local_path)
+    {
         let original =
             std::fs::read(src).map_err(|e| GhError::Other(format!("read screenshot: {e}")))?;
         let downscaled = maybe_downscale(&original)?;
@@ -723,44 +681,36 @@ async fn file_to_github(
         None
     };
 
-    // 2. Create the gist (if a screenshot exists). Atomicity: capture URL
-    // first; failures here surface as `GistRejected` and skip issue create.
-    let mut markdown_body = render_issue_body(title, body, anchor, route, app_version, None);
+    // Atomicity: capture gist URL before issue create. If issue create
+    // fails the gist is orphaned — accepted per spec.
+    let mut markdown_body = render_issue_body(title, snap, None);
     if let Some(path) = upload_path.as_deref() {
         let gist_url = runner.create_gist(path).await?;
-        if let Some(sha) = screenshot_sha {
+        if let Some(sha) = snap.screenshot_ref.as_ref().map(ScreenshotRef::sha256) {
             gist_ref = Some(ScreenshotRef::Gist {
                 url: gist_url.clone(),
                 sha256: sha.to_string(),
             });
         }
-        markdown_body = render_issue_body(title, body, anchor, route, app_version, Some(&gist_url));
+        markdown_body = render_issue_body(title, snap, Some(&gist_url));
     }
 
-    // 3. Create the issue.
     let issue_url = runner.create_issue(title, &markdown_body).await?;
-    drop(tmp_holder); // explicit cleanup
+    drop(tmp_holder);
     Ok(GhOutcome {
         issue_url,
         gist_ref,
     })
 }
 
-fn render_issue_body(
-    title: &str,
-    body: &str,
-    anchor: &Anchor,
-    route: &str,
-    app_version: &str,
-    gist_url: Option<&str>,
-) -> String {
+fn render_issue_body(title: &str, snap: &FrictionReportSnapshot, gist_url: Option<&str>) -> String {
     let mut s = String::new();
     s.push_str(&format!("# {title}\n\n"));
-    s.push_str(body);
+    s.push_str(&snap.body);
     s.push_str("\n\n---\n\n");
-    s.push_str(&format!("- anchor: `{}`\n", anchor.descriptor()));
-    s.push_str(&format!("- route: `{route}`\n"));
-    s.push_str(&format!("- app_version: `{app_version}`\n"));
+    s.push_str(&format!("- anchor: `{}`\n", snap.anchor.descriptor()));
+    s.push_str(&format!("- route: `{}`\n", snap.route));
+    s.push_str(&format!("- app_version: `{}`\n", snap.app_version));
     if let Some(url) = gist_url {
         s.push_str(&format!("- screenshot (secret gist): {url}\n"));
     }
@@ -832,7 +782,7 @@ where
                     if !matches!(e.state, FrictionState::Filed | FrictionState::Resolved) {
                         e.state = FrictionState::Failed;
                     }
-                    e.error = Some(format!("{error_kind:?}"));
+                    e.error = Some(error_kind.to_string());
                 }
             }
             EventPayload::FrictionResolved { friction_id } => {
@@ -871,35 +821,33 @@ mod tests {
 
     struct RecordingRunner {
         calls: AtomicUsize,
-        gist_url: String,
-        issue_url: String,
+        /// `Some` returns this URL on success; `None` returns `GhError::Offline`.
+        gist_url: Option<String>,
+        issue_url: Option<String>,
         last_gist_path: parking_lot::Mutex<Option<PathBuf>>,
         last_issue_title: parking_lot::Mutex<Option<String>>,
         last_issue_body: parking_lot::Mutex<Option<String>>,
-        gist_should_fail: bool,
     }
 
     impl RecordingRunner {
         fn ok() -> Arc<Self> {
             Arc::new(Self {
                 calls: AtomicUsize::new(0),
-                gist_url: "https://gist.github.com/byamron/abc".into(),
-                issue_url: "https://github.com/byamron/designer/issues/42".into(),
+                gist_url: Some("https://gist.github.com/byamron/abc".into()),
+                issue_url: Some("https://github.com/byamron/designer/issues/42".into()),
                 last_gist_path: parking_lot::Mutex::new(None),
                 last_issue_title: parking_lot::Mutex::new(None),
                 last_issue_body: parking_lot::Mutex::new(None),
-                gist_should_fail: false,
             })
         }
         fn offline() -> Arc<Self> {
             Arc::new(Self {
                 calls: AtomicUsize::new(0),
-                gist_url: String::new(),
-                issue_url: String::new(),
+                gist_url: None,
+                issue_url: None,
                 last_gist_path: parking_lot::Mutex::new(None),
                 last_issue_title: parking_lot::Mutex::new(None),
                 last_issue_body: parking_lot::Mutex::new(None),
-                gist_should_fail: true,
             })
         }
     }
@@ -909,16 +857,17 @@ mod tests {
         async fn create_gist(&self, screenshot_path: &Path) -> Result<String, GhError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             *self.last_gist_path.lock() = Some(screenshot_path.to_path_buf());
-            if self.gist_should_fail {
-                return Err(GhError::Offline("connection refused".into()));
-            }
-            Ok(self.gist_url.clone())
+            self.gist_url
+                .clone()
+                .ok_or_else(|| GhError::Offline("connection refused".into()))
         }
         async fn create_issue(&self, title: &str, body: &str) -> Result<String, GhError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             *self.last_issue_title.lock() = Some(title.into());
             *self.last_issue_body.lock() = Some(body.into());
-            Ok(self.issue_url.clone())
+            self.issue_url
+                .clone()
+                .ok_or_else(|| GhError::Other("issue create suppressed".into()))
         }
     }
 

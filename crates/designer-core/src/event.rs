@@ -292,6 +292,24 @@ pub enum ScreenshotRef {
     Gist { url: String, sha256: String },
 }
 
+impl ScreenshotRef {
+    /// Local PNG path if the screenshot is still on disk; `None` once the
+    /// ref has been promoted to a gist (the gist task drops local copies
+    /// per the spec's content-addressed dedupe rule).
+    pub fn local_path(&self) -> Option<&std::path::Path> {
+        match self {
+            ScreenshotRef::Local { path, .. } => Some(path.as_path()),
+            ScreenshotRef::Gist { .. } => None,
+        }
+    }
+
+    pub fn sha256(&self) -> &str {
+        match self {
+            ScreenshotRef::Local { sha256, .. } | ScreenshotRef::Gist { sha256, .. } => sha256,
+        }
+    }
+}
+
 /// Why a `FrictionFileFailed` was emitted. Kept narrow on purpose so the
 /// triage view can render an actionable hint per kind without a free-text
 /// match. `gh` stderr is logged to the audit trail but not stored on the
@@ -311,6 +329,28 @@ pub enum FrictionFileError {
     IssueCreateFailed { detail: String },
     /// Anything else. `detail` is for diagnostics only — don't pattern-match.
     Other { detail: String },
+}
+
+impl std::fmt::Display for FrictionFileError {
+    /// User-facing message rendered into the triage view. Each kind maps
+    /// to an actionable hint. `Debug` would surface struct-syntax noise
+    /// (`GistRejected { detail: "..." }`) — don't use it for the triage row.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FrictionFileError::GhMissing => write!(f, "gh CLI missing — install GitHub CLI."),
+            FrictionFileError::GhNotAuthed => {
+                write!(f, "gh not authenticated — run `gh auth login`.")
+            }
+            FrictionFileError::NetworkOffline => write!(f, "Network offline — retry when online."),
+            FrictionFileError::GistRejected { detail } => {
+                write!(f, "Gist upload rejected: {detail}")
+            }
+            FrictionFileError::IssueCreateFailed { detail } => {
+                write!(f, "Gist landed but issue create failed: {detail}")
+            }
+            FrictionFileError::Other { detail } => write!(f, "{detail}"),
+        }
+    }
 }
 
 /// Cheap discriminant for pattern matching in indices + projections.

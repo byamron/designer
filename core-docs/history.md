@@ -37,6 +37,61 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Track 13.K — Friction (internal feedback capture) — PR #34
+**Date:** 2026-04-27
+**Branch:** friction-capture
+**Commits:** f9d7590 (initial), 3a352cb (review pass), <rebase squash>
+**PR:** [#34](https://github.com/byamron/designer/pull/34)
+
+**What was done:**
+
+Shipped the in-app friction-capture surface so dogfood signal goes from "this affordance feels wrong" to a markdown record + GitHub issue in <5s. Surfaces:
+
+- Bottom-right floating `FrictionButton` (⌘⇧F shortcut, armed-state visual). Bottom-right is now permanently reserved for capture; the dev-only `SurfaceDevPanel` was relocated to bottom-left as part of this work.
+- `SelectionOverlay` with smart-snap (walks ancestors to nearest `data-component` / `role="row"|"button"` / `<dialog>`); Alt overrides snap; ESC + click-outside (600ms grace from arming) + button-toggle exits; armed-state banner pinned to viewport top.
+- Anchored `FrictionWidget` with three working screenshot inputs (paste / drop / file picker) + auto-context chips + file-to-GitHub checkbox.
+- Backend pipeline: synchronous markdown record (`~/.designer/friction/<unix-ms>-<slug>.md`) + content-addressed PNG (`<sha256>.png`) → `FrictionReported` event → background `gh gist create --secret` (PNG-header probe avoids decoding screenshots that don't need downscaling) → `gh issue create --label friction` → `FrictionLinked` (or `FrictionFileFailed`).
+- Settings → Activity → Friction triage page: lists entries with state, per-entry actions (open issue, file-on-github, mark resolved). Mark-resolved is local-only — does NOT close the GitHub issue.
+
+Locked contracts: shared `Anchor` enum (`crates/designer-core/src/anchor.rs` + `packages/app/src/lib/anchor.ts`) frozen for reuse by 15.H inline comments and 21.A1 finding evidence; `EventPayload` gained `FrictionReported` / `FrictionLinked` / `FrictionFileFailed` / `FrictionResolved` per the ADR 0002 addendum (commit c03f650). Built on top of PR #29's `data-component` annotations on top-level React components, which give the smart-snap a stable anchor identity instead of structural CSS paths.
+
+**Why:**
+
+Designer just landed in `/Applications` for daily-driver use (PR #24). The user's friction with the app is the single most valuable input signal for everything that follows — every Phase 15.J polish item, the Phase 15.K onboarding pass, even the Phase 21 learning layer's training data. **Without an in-app capture, friction goes unrecorded.** Forge-style end-of-session retros are too coarse for the kind of "this button is in the wrong place" / "this affordance isn't discoverable" signal we need.
+
+**Design decisions:**
+
+- **Bottom-right reserved for Friction, dev panel goes bottom-left.** Capture affordances live where the user's muscle memory expects them (Forge / Linear / Vercel all put screenshot-to-issue bottom-right). One-line CSS change to `.surface-dev-panel`. Pattern-log records the rule.
+- **Three-exit policy for selection mode** (ESC, click button again, click outside with 600ms grace). The grace gives the user a beat to drift over a target without losing armed state on a stray click.
+- **Smart-snap with Alt override.** Hovering shows a thin atom outline + a thicker snap outline; the snap target is the closest component-rooted ancestor. Alt holds anchor at the exact pointer node so the user can capture sub-component bits.
+- **Settings IA: Activity → Friction.** Reserved a top-level "Activity" section so 21.A1's "Designer noticed" finding list is a sibling. Pattern-log locks the IA so 21.A1's agent doesn't invent a different home.
+- **Dropped the broken "Capture this view" button.** Tauri 2's `webview.capture()` isn't wired in v1; the button only showed a failure toast — a dead affordance. Three working inputs (paste / drop / file picker) cover v1; auto-capture is a follow-up when SelectionOverlay grows the wiring.
+- **Local-only path stays useful offline.** If `gh` is missing/not-authed/offline, the user still gets a markdown record + content-addressed screenshot on disk, plus a triage-page row with a Retry button.
+
+**Technical decisions:**
+
+- **`Anchor` wire format: kebab-case tag + camelCase fields.** Frozen by `#[serde(rename_all = "kebab-case", rename_all_fields = "camelCase")]` on the Rust enum and a wire-format pinning test (`dom_element_serializes_with_camel_case_fields`). The TS mirror sends `{kind: "dom-element", selectorPath: "...", ...}`; without the field rename the frontend's first submit would have silently rejected on the Rust deserialize. Caught in the three-perspective review pass before merge.
+- **`large_enum_variant` allow on `EventPayload`.** `FrictionReported` carries an Anchor + screenshot ref + provenance fields and is by far the heaviest variant. Boxing it would shrink steady-state event memory ~5×, but friction events are user-driven (≪1/min) — the per-`EventEnvelope` size cost is amortized across the steady-state cheap variants.
+- **`spawn_filer` shared by submit + retry.** The async pipeline (downscale → gist → issue → emit Linked or FileFailed → rewrite markdown) is identical for both paths; one helper, one place to fix bugs in the future.
+- **`locate_friction` single-pass scan.** Replaces three independent `read_all` calls in the resolve / retry path. With multi-MB `events.db`, the previous code was reading the entire log three times per click.
+- **`spawn_blocking` for SHA + screenshot write.** Hashing a 5MB PNG + hitting the FS would pause the tokio worker for 50–200ms. Now off the runtime.
+- **PNG header-only dimension probe.** Full decode (~50–200ms) only runs when the screenshot actually needs a resize.
+- **`FrictionFileError` Display impl.** Earlier draft used `format!("{error_kind:?}")` for the triage row's error message; that surfaced struct-syntax noise (`GistRejected { detail: "..." }`) to the user. Display impl maps each kind to an actionable hint.
+
+**Tradeoffs discussed:**
+
+- **`Array.from(Uint8Array)` for the IPC bridge.** Tauri 2's default JSON IPC can't deserialize a `Uint8Array` directly into `Vec<u8>` — it serializes as `{0: 13, 1: 22, ...}` (an object), not `[13, 22, ...]` (an array). The materialization cost is real but bounded by the 25MB `SCREENSHOT_BYTE_CAP`. Switching to base64 or a binary IPC channel is a follow-up if friction screenshots get bigger.
+- **Auto-capture deferred.** Tauri 2 has webview-capture in beta but the path is unstable across platforms; rather than ship a half-working button we deferred to v2 and made the three available inputs prominent in the empty-state copy.
+- **Inline toast vs subscribed-to-event toast.** Spec wanted "Filed as #N" once `FrictionLinked` lands. The widget closes 1.4s after submit; the user has to check Settings → Activity to confirm filing. A v2 toast manager that subscribes to the stream would close the loop. Acceptable v1 trade.
+
+**Lessons learned:**
+
+- **Always cross-check serde rename behavior between Rust and TS sides.** `#[serde(rename_all = "kebab-case")]` on a tagged enum only renames variant names, not field names inside struct variants. The TypeScript spec used `messageId` / `selectorPath` (camelCase); Rust defaulted to `message_id` / `selector_path` (snake_case). The wire format would have broken on the first real submit. The fix (`rename_all_fields = "camelCase"`) is one line, but adding a test that pins the exact JSON shape with field names is the durable defense.
+- **Match-based projection: use `if guard` not nested `if`.** Clippy caught a nested `if` inside a match arm during the review pass — collapsed into a guard expression on the arm itself. Cleaner and matches the rest of the codebase's pattern.
+- **Hidden affordances (capture button) hurt more than no affordance.** Showing a Capture button that produces a failure toast every time taught the user the button doesn't work. Better to omit and surface the three working inputs explicitly.
+
+---
+
 ### Track 13.J 1.C — `CostTracker::replay_from_store` bulk-update
 **Date:** 2026-04-26
 **Branch:** cost-tracker-bulk-replay

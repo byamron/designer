@@ -13,8 +13,19 @@ use serde::{Deserialize, Serialize};
 
 /// Where in the product a piece of evidence is anchored. Each variant carries
 /// the minimum stable bytes a future replay needs to re-locate the surface.
+///
+/// Wire format is locked: variant tags are kebab-case (`dom-element`,
+/// `message-span`) and field names are camelCase (`selectorPath`,
+/// `messageId`). The TypeScript mirror in `packages/app/src/lib/anchor.ts`
+/// asserts the same shape; the test `dom_element_serializes_with_camel_case_fields`
+/// pins the wire format so a Rust-side rename can't silently break the
+/// frontend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum Anchor {
     /// A span inside an existing `MessagePosted`/`ArtifactCreated` message.
     /// The `quote` is verbatim text so a stale `char_range` can be re-found
@@ -163,19 +174,44 @@ mod tests {
         assert_eq!(only_route.descriptor(), "/r");
     }
 
-    /// Serialization tag uses kebab-case (matches the TypeScript shape's
-    /// `kind: "dom-element"`). If we ever flip to snake_case the JS side
-    /// breaks silently — pin the wire format with a fixture string.
+    /// Wire-format pin: variant tag is kebab-case, field names are
+    /// camelCase. The TypeScript mirror sends `{kind, selectorPath, ...}`;
+    /// if Rust ever flips to snake_case, the frontend's friction submit
+    /// fails to deserialize without any compile-time signal. Lock both
+    /// sides of the contract here.
     #[test]
-    fn dom_element_serializes_with_kebab_case_tag() {
+    fn dom_element_serializes_with_camel_case_fields() {
         let a = Anchor::DomElement {
             selector_path: "main".into(),
             route: "/r".into(),
-            component: None,
-            stable_id: None,
-            text_snippet: None,
+            component: Some("WorkspaceSidebar".into()),
+            stable_id: Some("ws_1".into()),
+            text_snippet: Some("snip".into()),
         };
         let v = serde_json::to_value(&a).unwrap();
         assert_eq!(v.get("kind").and_then(|k| k.as_str()), Some("dom-element"));
+        assert_eq!(v.get("selectorPath").and_then(|k| k.as_str()), Some("main"));
+        assert!(v.get("selector_path").is_none());
+        assert_eq!(v.get("stableId").and_then(|k| k.as_str()), Some("ws_1"));
+        assert_eq!(v.get("textSnippet").and_then(|k| k.as_str()), Some("snip"));
+    }
+
+    /// Frontend sends `messageId`, `charRange`. Verify Rust accepts them.
+    #[test]
+    fn message_span_round_trips_camel_case_input() {
+        let json = r#"{"kind":"message-span","messageId":"msg_1","quote":"x","charRange":[1,2]}"#;
+        let a: Anchor = serde_json::from_str(json).expect("deserialize");
+        match a {
+            Anchor::MessageSpan {
+                message_id,
+                quote,
+                char_range,
+            } => {
+                assert_eq!(message_id, "msg_1");
+                assert_eq!(quote, "x");
+                assert_eq!(char_range, Some((1, 2)));
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
     }
 }
