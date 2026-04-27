@@ -3038,19 +3038,18 @@ kbd {
 }
 
 /* --- surface dev panel (dev-only floating tuner) ---------------------- */
-/* Fixed to the bottom-right corner. Collapsed to a round handle when the
- * panel is closed; expands upward with two range sliders (compose fill
- * and surface sand) that write CSS custom properties onto :root. Hotkey
+/* Track 13.K reserves bottom-right for the Friction button. The dev panel
+ * lives bottom-left now; pattern-log.md documents the reservation. Hotkey
  * ⌘. toggles. Never shipped in production — App.tsx gates on MODE. */
 
 .surface-dev-panel {
   position: fixed;
-  right: var(--space-4);
+  left: var(--space-4);
   bottom: var(--space-4);
   z-index: var(--layer-overlay);
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: var(--space-2);
   pointer-events: none;
 }
@@ -3602,6 +3601,370 @@ kbd {
   margin: var(--space-3) 0;
   background: var(--color-surface-raised);
   border-radius: var(--radius-button);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  text-align: center;
+}
+
+/* --- Track 13.K Friction ---------------------------------------------- */
+/* Bottom-right floating button + selection overlay + pinned widget +
+ * armed-state banner. Pattern-log notes the corner reservation rule. */
+
+.friction-button {
+  position: fixed;
+  right: var(--space-4);
+  bottom: max(var(--space-4), env(safe-area-inset-bottom, 0px));
+  z-index: var(--layer-overlay);
+  width: var(--target-md);
+  height: var(--target-md);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--elevation-raised);
+  transition: color var(--motion-interactive), background var(--motion-interactive),
+    transform var(--motion-interactive);
+}
+
+.friction-button:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.friction-button:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.friction-button[data-armed="true"] {
+  color: var(--color-accent-foreground);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  transform: scale(1.04);
+}
+
+.friction-banner {
+  position: fixed;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--layer-overlay);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--elevation-raised);
+  font-size: var(--type-body-size);
+  pointer-events: auto;
+}
+
+.friction-banner__title {
+  font-weight: var(--weight-medium);
+}
+
+.friction-banner__hint {
+  opacity: 0.85;
+  font-size: var(--type-caption-size);
+}
+
+.friction-banner__cancel {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid currentColor;
+  color: inherit;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-button);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+}
+
+.friction-banner__cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.friction-overlay {
+  position: fixed;
+  pointer-events: none;
+  z-index: var(--layer-overlay);
+  border-radius: var(--radius-button);
+  transition: left var(--motion-fast), top var(--motion-fast),
+    width var(--motion-fast), height var(--motion-fast);
+}
+
+.friction-overlay--snapped {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.friction-overlay--atom {
+  outline: 1px dashed color-mix(in srgb, var(--color-accent) 60%, transparent);
+}
+
+.friction-overlay__tooltip {
+  position: fixed;
+  z-index: var(--layer-overlay);
+  pointer-events: none;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  font-size: var(--type-caption-size);
+  max-width: 320px;
+  box-shadow: var(--elevation-raised);
+}
+
+.friction-overlay__descriptor {
+  font-family: var(--type-family-mono);
+  font-weight: var(--weight-medium);
+}
+
+.friction-overlay__snippet {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friction-widget {
+  position: fixed;
+  z-index: var(--layer-overlay);
+  width: 360px;
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-raised);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.friction-widget__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.friction-widget__title {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friction-widget__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-button);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.friction-widget__close:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.friction-widget__body {
+  width: 100%;
+  resize: vertical;
+  min-height: calc(var(--space-4) * 4);
+  padding: var(--space-2);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  color: var(--color-foreground);
+  font-family: inherit;
+  font-size: var(--type-body-size);
+}
+
+.friction-widget__body:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.friction-widget__screenshot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.friction-widget__shot-empty {
+  flex: 1;
+  appearance: none;
+  background: var(--color-surface-raised);
+  border: var(--border-thin) dashed var(--color-border);
+  border-radius: var(--radius-button);
+  padding: var(--space-2);
+  color: var(--color-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+}
+
+.friction-widget__shot-empty:hover {
+  color: var(--color-foreground);
+  border-color: var(--color-foreground);
+}
+
+.friction-widget__shot-preview {
+  flex: 1;
+  position: relative;
+  border-radius: var(--radius-button);
+  overflow: hidden;
+  border: var(--border-thin) solid var(--color-border);
+  max-height: 96px;
+}
+
+.friction-widget__shot-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.friction-widget__shot-clear {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  appearance: none;
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-muted);
+  border-radius: var(--radius-button);
+  width: var(--target-sm);
+  height: var(--target-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.friction-widget__shot-capture {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-foreground);
+  border-radius: var(--radius-button);
+  padding: var(--space-1) var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+}
+
+.friction-widget__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.friction-widget__chip {
+  background: var(--color-surface-raised);
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-pill);
+}
+
+.friction-widget__filebox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+  cursor: pointer;
+}
+
+.friction-widget__toast {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-button);
+  font-size: var(--type-caption-size);
+  background: var(--color-surface-raised);
+  color: var(--color-foreground);
+}
+
+.friction-widget__toast[data-kind="failed"] {
+  background: color-mix(in srgb, var(--color-danger, #c44) 14%, var(--color-surface-raised));
+}
+
+.friction-widget__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* Settings → Activity → Friction triage table */
+
+.friction-triage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.friction-triage__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+}
+
+.friction-triage__title {
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friction-triage__meta {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.friction-triage__state {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+}
+
+.friction-triage__state[data-state="failed"] {
+  color: var(--color-danger, #c44);
+}
+
+.friction-triage__actions {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.friction-triage__empty {
+  padding: var(--space-3);
   color: var(--color-muted);
   font-size: var(--type-caption-size);
   text-align: center;

@@ -11,6 +11,7 @@
 
 use designer_desktop::commands;
 use designer_desktop::commands_agents;
+use designer_desktop::commands_friction;
 use designer_desktop::commands_git;
 use designer_desktop::commands_local;
 use designer_desktop::commands_safety;
@@ -155,6 +156,10 @@ fn main() {
             commands::toggle_pin_artifact,
             commands::validate_project_path,
             commands_agents::post_message,
+            commands_friction::cmd_list_friction,
+            commands_friction::cmd_report_friction,
+            commands_friction::cmd_resolve_friction,
+            commands_friction::cmd_retry_file_friction,
             commands_git::cmd_get_track,
             commands_git::cmd_link_repo,
             commands_git::cmd_list_tracks,

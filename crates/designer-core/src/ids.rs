@@ -72,6 +72,11 @@ id_type!(TrackId, "trk");
 // renderer registry matches on (kind, version) and looks up the artifact
 // payload via `cmd_get_artifact(artifact_id)`.
 id_type!(ArtifactId, "art");
+// Track 13.K — Friction (internal feedback capture). One id per submitted
+// friction record; survives across `FrictionReported` → `FrictionLinked` /
+// `FrictionFileFailed` / `FrictionResolved` so the triage view can project
+// status by `friction_id` without re-reading the markdown record.
+id_type!(FrictionId, "frc");
 
 /// A stream is the logical append-only log for a given aggregate. Every event
 /// belongs to exactly one stream; streams are replayed to build projections.

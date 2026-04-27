@@ -1,6 +1,7 @@
 // App-level state: current project, current workspace, open tab per workspace.
 import { createStore, useStore } from "./index";
 import type { Autonomy, ProjectId, TabId, WorkspaceId } from "../ipc/types";
+import type { Anchor } from "../lib/anchor";
 import {
   persisted,
   stringDecoder,
@@ -10,6 +11,21 @@ import {
 
 export type PaletteDensity = "bounded" | "open";
 export type AppDialog = "settings" | "help" | "create-project" | null;
+
+// Track 13.K — Friction selection state machine. Locked by spec; the three
+// states are "off" (idle), "selecting" (armed, hovering for an anchor), and
+// "editing" (anchor captured, widget visible).
+export type FrictionMode = "off" | "selecting" | "editing";
+
+/**
+ * Optional auto-captured screenshot for the friction widget. Captured at
+ * click-anchor time (BEFORE the widget overlays the element) so the
+ * "screenshot of the thing being reported" doesn't include the widget.
+ */
+export interface FrictionAutoCapture {
+  bytes: Uint8Array;
+  filename: string;
+}
 
 export const PANE_MIN_WIDTH = 180;
 export const PANE_MAX_WIDTH = 480;
@@ -70,6 +86,10 @@ export interface AppState {
    * feel responsive instead of being a false affordance. When IPC lands
    * we swap the reader to prefer the server value. */
   autonomyOverrides: Record<ProjectId, Autonomy>;
+  // Track 13.K — Friction.
+  frictionMode: FrictionMode;
+  frictionAnchor: Anchor | null;
+  frictionAutoCapture: FrictionAutoCapture | null;
 }
 
 export const appStore = createStore<AppState>({
@@ -87,6 +107,9 @@ export const appStore = createStore<AppState>({
   spineWidth: spineWidthStore.read(),
   dialog: null,
   autonomyOverrides: {},
+  frictionMode: "off",
+  frictionAnchor: null,
+  frictionAutoCapture: null,
 });
 
 export const useAppState = <U,>(selector: (s: AppState) => U) =>
@@ -202,4 +225,64 @@ export const openCreateProject = () => openDialog("create-project");
 export const closeCreateProject = () =>
   appStore.set((s) =>
     s.dialog === "create-project" ? { ...s, dialog: null } : s,
+  );
+
+// ---- Track 13.K Friction actions ----------------------------------------
+
+/** Toggle the selection-mode state machine. ⌘⇧F or the floating button. */
+export const toggleFrictionSelecting = () => {
+  appStore.set((s) => {
+    // Inert when any modal scrim is open — prevents the user from arming
+    // selection mode while a settings page or dialog covers the viewport.
+    if (s.dialog !== null) return s;
+    if (s.frictionMode === "off") {
+      return { ...s, frictionMode: "selecting", frictionAnchor: null };
+    }
+    // From "selecting" or "editing" → off. Submit/cancel use explicit
+    // setters (`setFrictionAnchor` / `clearFriction`).
+    return {
+      ...s,
+      frictionMode: "off",
+      frictionAnchor: null,
+      frictionAutoCapture: null,
+    };
+  });
+};
+
+/** Anchor captured. Optionally bundle an auto-screenshot taken at click time. */
+export const setFrictionAnchor = (
+  anchor: Anchor,
+  autoCapture: FrictionAutoCapture | null = null,
+) =>
+  appStore.set((s) => ({
+    ...s,
+    frictionMode: "editing",
+    frictionAnchor: anchor,
+    frictionAutoCapture: autoCapture,
+  }));
+
+/** Cancel out of the widget but stay armed (user often re-anchors). */
+export const cancelFrictionEditing = () =>
+  appStore.set((s) =>
+    s.frictionMode === "editing"
+      ? {
+          ...s,
+          frictionMode: "selecting",
+          frictionAnchor: null,
+          frictionAutoCapture: null,
+        }
+      : s,
+  );
+
+/** Fully clear friction state — submit success, ESC from editing, etc. */
+export const clearFriction = () =>
+  appStore.set((s) =>
+    s.frictionMode === "off" && s.frictionAnchor === null
+      ? s
+      : {
+          ...s,
+          frictionMode: "off",
+          frictionAnchor: null,
+          frictionAutoCapture: null,
+        },
   );

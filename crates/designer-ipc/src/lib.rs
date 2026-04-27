@@ -5,8 +5,8 @@
 //! becomes painful).
 
 use designer_core::{
-    Artifact, ArtifactId, ArtifactKind, Autonomy, PayloadRef, Project, ProjectId, TabTemplate,
-    Track, TrackId, TrackState, Workspace, WorkspaceId, WorkspaceState,
+    Anchor, Artifact, ArtifactId, ArtifactKind, Autonomy, FrictionId, PayloadRef, Project,
+    ProjectId, TabTemplate, Track, TrackId, TrackState, Workspace, WorkspaceId, WorkspaceState,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -35,6 +35,12 @@ pub enum IpcError {
     CostCapExceeded { message: String },
     #[error("scope denied: {path}")]
     ScopeDenied { path: String },
+    /// Track 13.K — an out-of-process tool we shell out to (today: `gh` for
+    /// gist + issue create) failed. The frontend renders a toast pointing
+    /// the user at Settings → Activity → Friction to retry once they've
+    /// fixed the underlying cause (offline / not authed / tool missing).
+    #[error("{tool} failed: {message}")]
+    ExternalToolFailed { tool: String, message: String },
 }
 
 impl IpcError {
@@ -66,6 +72,12 @@ impl IpcError {
     }
     pub fn scope_denied(path: impl Into<String>) -> Self {
         IpcError::ScopeDenied { path: path.into() }
+    }
+    pub fn external_tool_failed(tool: impl Into<String>, message: impl Into<String>) -> Self {
+        IpcError::ExternalToolFailed {
+            tool: tool.into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -292,6 +304,77 @@ pub enum SpineAltitude {
     Workspace,
     Agent,
     Artifact,
+}
+
+// ---- Friction (Track 13.K) ------------------------------------------------
+
+/// Request body for `cmd_report_friction`. The screenshot is bundled inline
+/// as raw bytes — Tauri serializes `Vec<u8>` efficiently and screenshots
+/// are ≤ a few MB after the frontend's pre-shrink. The backend writes the
+/// bytes to `~/.designer/friction/screenshots/<sha256>.png` (content-addressed
+/// — identical screenshots dedupe).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportFrictionRequest {
+    pub anchor: Anchor,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screenshot_data: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screenshot_filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<WorkspaceId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<ProjectId>,
+    pub file_to_github: bool,
+    /// Active route at submit time (for the markdown record + replay).
+    pub route: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportFrictionResponse {
+    pub friction_id: FrictionId,
+    pub local_path: PathBuf,
+}
+
+/// State a friction record is in *right now* — derived by projecting all
+/// `Friction*` events for a given `friction_id`. Triage view sorts by
+/// state band (failed → local-only → linked → resolved) so unhandled work
+/// surfaces first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrictionState {
+    /// `FrictionReported` only — `gh` not attempted (file_to_github=false)
+    /// or attempt is in flight.
+    LocalOnly,
+    /// `FrictionLinked` landed; `github_issue_url` populated.
+    Filed,
+    /// `FrictionFileFailed` was the last terminal event. User can retry
+    /// from Settings → Activity → Friction.
+    Failed,
+    /// `FrictionResolved` was emitted (local-only resolution; does NOT
+    /// close the GitHub issue).
+    Resolved,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrictionEntry {
+    pub friction_id: FrictionId,
+    pub workspace_id: Option<WorkspaceId>,
+    pub project_id: Option<ProjectId>,
+    pub created_at: String,
+    pub body: String,
+    pub route: String,
+    /// Synthesized title (descriptor + first 60 chars of body).
+    pub title: String,
+    /// User-facing descriptor of the anchor (component name / route /
+    /// file path). Pre-rendered server-side so the triage view doesn't
+    /// have to re-implement the synthesis.
+    pub anchor_descriptor: String,
+    pub state: FrictionState,
+    pub github_issue_url: Option<String>,
+    pub error: Option<String>,
+    pub screenshot_path: Option<PathBuf>,
+    pub local_path: PathBuf,
 }
 
 // ---- Event subscription --------------------------------------------------

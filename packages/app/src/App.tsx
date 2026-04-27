@@ -8,6 +8,9 @@ import { AppDialog } from "./components/AppDialog";
 import { CreateProjectModal } from "./components/CreateProjectModal";
 import { SurfaceDevPanel } from "./components/SurfaceDevPanel";
 import { Titlebar } from "./components/Titlebar";
+import { FrictionButton } from "./components/Friction/FrictionButton";
+import { SelectionOverlay } from "./components/Friction/SelectionOverlay";
+import { FrictionWidget } from "./components/Friction/FrictionWidget";
 import { bootData, dataStore, useDataState } from "./store/data";
 import {
   appStore,
@@ -89,6 +92,12 @@ export function App() {
           <AppDialog />
           <CreateProjectModal />
           <Onboarding />
+          {/* Track 13.K — Friction. Bottom-right is reserved for the
+              FrictionButton; the dev panel was relocated to bottom-left
+              as part of this work. */}
+          <FrictionButton />
+          <SelectionOverlay />
+          <FrictionWidget />
           {isDev && <SurfaceDevPanel />}
           {isDev && <Agentation />}
         </>

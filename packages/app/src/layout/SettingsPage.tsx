@@ -13,7 +13,7 @@ import {
   type ThemeMode,
 } from "../theme";
 import { ipcClient } from "../ipc/client";
-import type { KeychainStatus } from "../ipc/types";
+import type { FrictionEntry, KeychainStatus } from "../ipc/types";
 import { COST_CHIP_PREFERENCE_EVENT } from "../components/CostChip";
 
 /**
@@ -26,7 +26,12 @@ import { COST_CHIP_PREFERENCE_EVENT } from "../components/CostChip";
  * to the workspace.
  */
 
-type SettingsSection = "appearance" | "account" | "models" | "preferences";
+type SettingsSection =
+  | "appearance"
+  | "account"
+  | "models"
+  | "preferences"
+  | "activity-friction";
 
 const SECTIONS: { id: SettingsSection; label: string; description: string }[] = [
   {
@@ -48,6 +53,14 @@ const SECTIONS: { id: SettingsSection; label: string; description: string }[] = 
     id: "preferences",
     label: "Preferences",
     description: "Autonomy, notifications, and keybindings.",
+  },
+  {
+    // Track 13.K — locks the Activity IA section. 21.A1 will land
+    // "Designer noticed" as a sibling here. Don't reshuffle without
+    // updating both specs + pattern-log.md.
+    id: "activity-friction",
+    label: "Activity · Friction",
+    description: "Captured friction reports and their triage state.",
   },
 ];
 
@@ -101,6 +114,7 @@ export function SettingsPage() {
             {active === "account" && <AccountSection />}
             {active === "models" && <ModelsSection />}
             {active === "preferences" && <PreferencesSection />}
+            {active === "activity-friction" && <FrictionTriageSection />}
           </div>
         </main>
       </div>
@@ -367,5 +381,109 @@ function ThemePicker() {
         { value: "dark", label: "Dark", tooltip: "Force dark mode" },
       ]}
     />
+  );
+}
+
+function FrictionTriageSection() {
+  const [entries, setEntries] = useState<FrictionEntry[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const refresh = async () => {
+    try {
+      const list = await ipcClient().listFriction();
+      setEntries(list);
+    } catch {
+      setEntries([]);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  return (
+    <>
+      <SettingsSectionHeader
+        label="Friction"
+        description="Internal feedback captured via the bottom-right button or ⌘⇧F. Filed entries link to GitHub issues; local-only entries can be filed later."
+      />
+      <div className="friction-triage">
+        {entries === null ? (
+          <div className="friction-triage__empty">Loading…</div>
+        ) : entries.length === 0 ? (
+          <div className="friction-triage__empty">
+            No friction captured yet. Press ⌘⇧F to start.
+          </div>
+        ) : (
+          entries.map((e) => (
+            <div className="friction-triage__row" key={e.friction_id}>
+              <div>
+                <div className="friction-triage__title" title={e.title}>
+                  {e.title || e.body}
+                </div>
+                <div className="friction-triage__meta">
+                  <span className="friction-triage__state" data-state={e.state}>
+                    {e.state.replace("_", " ")}
+                  </span>
+                  {" · "}
+                  {new Date(e.created_at).toLocaleString()}
+                  {" · "}
+                  {e.anchor_descriptor}
+                  {e.error ? ` · ${e.error}` : ""}
+                </div>
+              </div>
+              <div className="friction-triage__actions">
+                {e.github_issue_url && (
+                  <a
+                    className="btn"
+                    href={e.github_issue_url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    Open
+                  </a>
+                )}
+                {e.state !== "filed" && e.state !== "resolved" && (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busyId === e.friction_id}
+                    onClick={async () => {
+                      setBusyId(e.friction_id);
+                      try {
+                        await ipcClient().retryFileFriction(e.friction_id);
+                        await refresh();
+                      } finally {
+                        setBusyId(null);
+                      }
+                    }}
+                  >
+                    File on GitHub
+                  </button>
+                )}
+                {e.state !== "resolved" && (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busyId === e.friction_id}
+                    onClick={async () => {
+                      setBusyId(e.friction_id);
+                      try {
+                        await ipcClient().resolveFriction(e.friction_id);
+                        await refresh();
+                      } finally {
+                        setBusyId(null);
+                      }
+                    }}
+                  >
+                    Mark resolved
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </>
   );
 }

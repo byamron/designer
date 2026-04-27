@@ -203,6 +203,46 @@ export interface StreamEvent {
   payload?: unknown;
 }
 
+// ---- Friction (Track 13.K) ----
+
+import type { Anchor } from "../lib/anchor";
+
+export type FrictionId = string;
+
+export type FrictionState = "local_only" | "filed" | "failed" | "resolved";
+
+export interface ReportFrictionRequest {
+  anchor: Anchor;
+  body: string;
+  screenshot_data?: number[] | null;
+  screenshot_filename?: string | null;
+  workspace_id?: WorkspaceId | null;
+  project_id?: ProjectId | null;
+  file_to_github: boolean;
+  route: string;
+}
+
+export interface ReportFrictionResponse {
+  friction_id: FrictionId;
+  local_path: string;
+}
+
+export interface FrictionEntry {
+  friction_id: FrictionId;
+  workspace_id: WorkspaceId | null;
+  project_id: ProjectId | null;
+  created_at: string;
+  body: string;
+  route: string;
+  title: string;
+  anchor_descriptor: string;
+  state: FrictionState;
+  github_issue_url: string | null;
+  error: string | null;
+  screenshot_path: string | null;
+  local_path: string;
+}
+
 export type AttentionTier = "inline" | "ambient" | "notify" | "digest";
 
 // Phase 13.G safety surfaces — re-exported from `./client` for convenience
