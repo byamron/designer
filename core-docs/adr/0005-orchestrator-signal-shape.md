@@ -70,15 +70,19 @@ There is no design upside: the trait already only carries `Cost` + opaque `RateL
 - **Trait shape is frozen by this ADR.** Adding a third variant (e.g., `RateLimit` becoming a typed enum) or changing the cost variant's fields requires a new ADR. Variants are additive — old consumers ignore variants they don't match (matches the additive-`EventPayload` exception in ADR 0002's 2026-04-26 addendum, applied to a different surface).
 - **`serde_json::Value` payload is orchestrator-defined.** Each orchestrator's documentation must spell out its `RateLimit` inner shape. Consumers (the cost chip today) treat it as Claude-shaped until a second producer arrives; at that point, route by the orchestrator that emitted it (the receiver knows which orchestrator it subscribed to).
 - **No behavioral change.** This is a docs-and-rename refactor. No event-shape changes, no IPC changes, no test churn beyond an `import` adjustment if a follow-up wants to use the new name explicitly.
+- **Serde wire format unchanged.** The enum derives `Serialize, Deserialize` for symmetry with the other orchestrator types, but the signal stream is in-process `tokio::sync::broadcast` only — never persisted, never crossed over IPC. Even if a future consumer serializes one, variant names and field names are unchanged, so the wire shape is byte-identical to today's `ClaudeSignal`.
+- **Frontend / TS surface unaffected.** A grep across `apps/desktop/src-tauri/src/`, `packages/app/src/`, and the IPC DTO crate confirms `ClaudeSignal` never crosses the Rust↔TS boundary. The cost chip subscribes to `EventPayload::CostRecorded` (the persisted projection), not the signal directly.
 
 ## Implementation note
 
 This ADR is docs-only. The follow-up implementation PR (also under Track 13.J) is mechanical:
 
-1. Move the `enum` definition from `claude_code.rs` to `orchestrator.rs` and rename to `OrchestratorSignal`.
-2. Update the trait method's return type.
-3. Re-export `ClaudeSignal` as `pub type ClaudeSignal = OrchestratorSignal;` from `claude_code.rs` so `crates/designer-claude/src/lib.rs`'s public re-export keeps working.
-4. Verify `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --check` are green.
+1. Move the `enum` definition from `claude_code.rs` to `orchestrator.rs` and rename to `OrchestratorSignal`. Move the `use` of `WorkspaceId` along with it (the type is already in scope in `orchestrator.rs`).
+2. Update the trait method's return type to `broadcast::Receiver<OrchestratorSignal>`. The default-impl body is unchanged.
+3. Add `pub type ClaudeSignal = OrchestratorSignal;` to `claude_code.rs` so the existing `pub use claude_code::{ ..., ClaudeSignal };` re-export in `crates/designer-claude/src/lib.rs` keeps working unchanged.
+4. Add `OrchestratorSignal` to the `pub use orchestrator::{...}` line in `lib.rs` so new consumers can import the canonical name without going through the alias.
+5. Internal references in `claude_code.rs` (the `signal_tx` field type, the `signal_tx.send(ClaudeSignal::Cost { .. })` call sites, the test-module `ClaudeSignal::Cost { .. }` match) compile unchanged under the alias — no edits required there. Same for `mock.rs`, `core.rs`, and any `#[test]` that already imports `ClaudeSignal`.
+6. Verify `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --check` are green.
 
 ## References
 
