@@ -33,41 +33,65 @@ Plus: `--app-titlebar-height` and `--layer-titlebar` defined as design tokens, `
 
 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
 
-## Parallel-agent execution lanes *(2026-04-26 reorder)*
+## Parallel-agent execution lanes *(2026-04-26 reorder; revised after 3-perspective review of PR #25)*
 
-Pick from these top-down. Lane 1 starts immediately; Lanes 2–3 run alongside; Lane 4 needs the user in the loop; Lane 5 is deferred until earlier lanes signal them ready.
+Lane 0 is a 30-minute prereq that unblocks Lane 1. Lane 1 items run in parallel with no merge contention (pre-picked by file ownership). Lane 2 is pure parallel after 21.A1 lands. Lane 3 has an explicit dogfood-signal gate. Lane 4 needs the user in the loop. Lane 5 is deferred.
 
-### Lane 1 — IMMEDIATE *(start today; one agent picks each)*
+**Source-of-truth rule:** these lanes are the **priority view**. The "Active Work Items" section below is the **canonical task list** per phase. When they disagree, the lanes win — update Active Work Items to match.
 
-- **[P0] Phase 13.K — Friction (internal feedback capture).** Floating bottom-right button → element-anchored hover/select → message + drag-drop screenshot → auto-creates GitHub issue. ~1–2 days. **Highest leverage: every friction the user feels during dogfooding becomes captured signal that feeds 15.J / 15.K / 21 prioritization.** See `roadmap.md` § Track 13.K for the full spec.
-- **Phase 21.A1 — Learning layer foundation.** New `crates/designer-learn/` with `SessionAnalysisInput` builder + `Detector` trait + `Finding` struct + Settings → "Designer noticed" listing surface. Blocks the parallel detector squad. ~1 day.
-- **Track 13.J — first 4 cleanups in parallel.** Pick four 13.J items (e.g. F5+1 correlation, ADR addendum, `forward_broadcast` unify, ReaderLoopCtx). Four agents, four branches, four merges. Each ~half-day.
+### Lane 0 — PREREQ *(30 minutes; one agent; blocks Lane 1's 13.K + 21.A1)*
 
-### Lane 2 — PARALLEL *(spin up alongside Lane 1; no contention)*
+- **ADR addendum: additive `EventPayload` extensions.** Append to `core-docs/adr/0002-v1-scoping-decisions.md` (or land a new ADR 0004). Without this, Friction (`FrictionReported`) and 21.A1 (`FindingRecorded`) race to extend the frozen vocabulary. See `roadmap.md` § Lane 0 for the exact addendum text.
 
-- **Phase 21.A2 — Detector squad.** Once 21.A1 lands, spin up one agent per detector. Recommended top-of-list: `repeated_correction`, `approval_always_granted`, `scope_false_positive`, `cost_hot_streak`, then the rest. Each is a self-contained file under `crates/designer-learn/src/detectors/<name>.rs` with its own fixture. **The user's dogfood sessions become training-quality signal as detectors land.** See `roadmap.md` § Phase 21.A.
-- **Phase 14 — Sync transport.** Independent of UI. WebRTC pairing + 6-digit code + two-process integration test. ~5–7 days for a single agent.
-- **Phase 16.S — Supply-chain CI** *(the audits, not the signing)*. `cargo audit`, `cargo deny`, SBOM, lockfile-lint as CI gates. ~1–2 days for one agent.
-- **Track 13.J — remaining cleanups.** Pick up the rest of the 13.J list as Lane 1 agents finish.
+### Lane 1 — IMMEDIATE *(start after Lane 0 lands; agents in parallel; pre-picked by file ownership to avoid collision)*
 
-### Lane 3 — DOGFOOD-DRIVEN *(driven by what 13.K's Friction inbox surfaces)*
+- **[P0] Track 13.K — Friction.** Locked spec in `roadmap.md` § Track 13.K (Anchor enum + Event variants + IPC shape + Settings IA). ~3 days. **Highest leverage; gates Lane 3.** One agent.
+- **Phase 21.A1 — Learning layer foundation.** Locked spec in `roadmap.md` § Phase 21.A (Detector trait + Finding shape + CONTRIBUTING.md as deliverable). ~3 days (re-estimated from initial 1d). Blocks 21.A2. One agent.
+- **Lane 1 prereq: `data-component` annotation.** Audit and add `data-component` attrs to top ~30 components if missing. Friction's smart-snap selection mode depends on it. ~half-day. One agent. Touches React component files only — zero collision with backend agents.
+- **Track 13.J cleanups — pre-picked non-conflicting quartet** (each different file; safe to run all four in parallel):
+  - **1.A** ADR addendum on `Orchestrator::subscribe_signals` trait leak. *(docs only — `core-docs/adr/`)*
+  - **1.B** `forward_broadcast<T>(rx, handler)` extraction. *(`apps/desktop/src-tauri/src/core.rs` only)*
+  - **1.C** `CostTracker::replay_from_store` bulk-update. *(`crates/designer-safety/src/cost.rs` only)*
+  - **1.D** F4 test reuse — expose `core_local::tests::boot_with_helper_status` as `pub(crate)`. *(`apps/desktop/src-tauri/src/core_local.rs` test module only)*
+  - **NOTE:** `F5+1 correlation`, `bounded translator state`, and `ReaderLoopCtx` all touch `crates/designer-claude/src/stream.rs` or its callers. **Serialize them** in Lane 2 in this order: F5+1 → bounded translator state → ReaderLoopCtx. The `permission_prompt_round_trip` live test follows after ReaderLoopCtx so the test surface doesn't have to be rewritten.
 
-- **Phase 15.J — Real-Claude UX polish items.** Each item is a small focused fix. Triage from the Friction inbox; spin one agent per high-priority item per week. Detail in `roadmap.md` § 15.J.
-- **Phase 15.K — Onboarding & first-run.** One agent in isolation. ~3–5 days. Surface design informed by Lane 1's 13.K findings (which onboarding moments friction-flagged most).
+### Lane 2 — PARALLEL *(after 21.A1 + Lane 1 agents land their cleanups; no contention)*
+
+- **Phase 21.A2 — Detector squad.** Spin up one agent per detector. CONTRIBUTING.md (from 21.A1) locks the shapes. Recommended order — Designer-unique first since they exploit Designer's event-store advantage over Forge's plugin position:
+  - `repeated_correction` (fastest signal — corrections are loud)
+  - `approval_always_granted` *(uses `ApprovalRequested` events)*
+  - `scope_false_positive` *(uses `ScopeDenied` events)*
+  - `cost_hot_streak` *(uses `CostRecorded` events)*
+  - Rest of the 10 in any order.
+- **Track 13.J — remaining serialized cleanups.** F5+1 → bounded translator state → ReaderLoopCtx → live `permission_prompt_round_trip`. One agent at a time, in this order, all touching `stream.rs` family.
+- **Phase 16.S — Supply-chain CI** *(the audits only, not the signing)*. `cargo audit`, `cargo deny`, SBOM (CycloneDX via `cyclonedx-cargo`), `npm audit --production`, `lockfile-lint` as CI gates. ~2.5–3 days (re-estimated from initial 1–2d; SBOM workflow + severity-threshold policy add a day). Document the severity policy: PRs block on `RUSTSEC` HIGH/CRITICAL, warn on MEDIUM/LOW. One agent.
+
+### Lane 3 — DOGFOOD-DRIVEN *(blocked on dogfood signal)*
+
+- **Phase 15.J — Real-Claude UX polish items.** **GATE: Friction inbox has ≥10 entries spanning ≥3 distinct surfaces** before any 15.J item is picked. Without dogfood signal, 15.J becomes spec-author intuition (which is what the lane reorder is supposed to prevent). One agent per item, triaged from inbox.
+- **(stretch) Mac-convention shortcut audit.** Survey existing `metaKey` handlers (`App.tsx`, `MainView.tsx`, `ComposeDock.tsx`, `SurfaceDevPanel.tsx`); reconcile with Mac HIG; document the project shortcut map in `pattern-log.md`. Add `⌘K` global as project-switcher palette. One agent.
 
 ### Lane 4 — SINGLE-TRACK *(user in the loop; not agent-parallel)*
 
-- **Phase 13.I — Safety enforcement.** GA gate (cannot ship public release without). Coherent design surface — Touch ID, scope canonicalization, HMAC chain — that needs careful review-loop. ~15–20 days. Detail in `security.md`.
-- **Phase 16.R — Signed DMG.** Needs the user's Apple Developer cert + secrets. Single sequential pipeline. ~2–3 days. The user already has the cert; once Friction is filed enough findings that 15.J is winding down, this is the natural next.
+- **Phase 15.K — Onboarding & first-run.** Moved here from Lane 3 — onboarding is what the *next* user sees; the current user's friction inbox can't speak for them. Needs design judgment in the loop. One agent + you for review. ~3–5 days. Detail in `roadmap.md` § Phase 15.K.
+- **Phase 13.I — Safety enforcement.** GA gate. Coherent design surface (Touch ID + scope canonicalization + HMAC chain + secrets scanner + binary pinning). ~18–25 days (re-estimated from 15–20; lower-bound only if Touch ID gets thin first-cut and HMAC ships without external anchor). Detail in `security.md`.
+- **Phase 16.R — Signed DMG.** Apple Developer cert + signing secrets. ~2–3 days. User already has the cert.
 
-### Lane 5 — DEFERRED *(post-DMG; not actionable yet)*
+### Lane 5 — DEFERRED *(not actionable yet)*
 
+- **Phase 14 — Sync transport.** Demoted from Lane 2 after review: 5–7 day estimate is optimistic (re-est 8–12d for `str0m` + ICE + pairing UI + QR lib choice + `OfflineQueue.drain` + integration test). More importantly, building WebRTC pairing infra before Phase 18 mobile is unblocked is exactly the pre-dogfood speculation the reorder is supposed to prevent. **Promote to Lane 2 only when Phase 18 mobile work begins.**
 - Phase 17 — Team-tier trust *(needs real users + procurement signal)*
 - Phase 18 — Mobile *(gates on Phase 14 sync transport landing)*
 - Phase 19 — Workspace scales up *(driven by signal that you actually need parallel tracks per workspace)*
 - Phase 20 — Parallel-work coordination *(needs Phase 19 primitives + real "we tried to coordinate N tracks by hand" pain)*
 - Phase 21 — Phase B (LocalOps synthesis + quality gate; needs 13.F real-binary validation on AI-capable Mac first)
-- Phase 21 — Project-side proposal-acceptance UI (after Phase B and after enough A-tier findings have accumulated to design the surface against real data)
+- Phase 21 — Project-side proposal-acceptance UI *(after Phase B + enough A-tier findings to design against real data)*
+
+### Coordination notes for parallel agents
+
+- **One PR per agent.** Each agent works on a feature branch. PRs land in declared order (1.A → 1.B → 1.C → 1.D for Track 13.J quartet); later PRs rebase on earlier merges; if conflicts arise, the later PR's agent re-runs locally before push.
+- **No two agents touch the same file** without explicit serialization. The Lane 1 + Lane 2 split above enforces this for the known cases; new work that touches `stream.rs` / `core.rs` / `claude_code.rs` must follow the same rule.
+- **Frozen contracts:** event vocabulary, `PermissionHandler` trait, IPC artifact DTOs, `Anchor` enum (locked by Track 13.K), `Detector` trait (locked by Phase 21.A1). Adding new variants is fine per the Lane 0 ADR; modifying existing ones requires a new ADR.
 
 ## Handoff Notes
 
