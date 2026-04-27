@@ -528,25 +528,43 @@ pub fn fallback_reason_from_probe_error(e: &HelperError) -> FallbackReason {
     }
 }
 
+/// Drive a `broadcast::Receiver<T>` to completion on a tokio task, invoking
+/// `handler` per event. Lagged warns (with the dropped count) so silent
+/// back-pressure is observable in support bundles; Closed exits cleanly.
+/// Sync handler — async work belongs in a `tokio::spawn` inside the closure.
+fn forward_broadcast<T, F>(mut rx: broadcast::Receiver<T>, mut handler: F)
+where
+    T: Clone + Send + 'static,
+    F: FnMut(T) + Send + 'static,
+{
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(ev) => handler(ev),
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    warn!(
+                        skipped,
+                        event_type = std::any::type_name::<T>(),
+                        "forward_broadcast: receiver lagged; events dropped"
+                    );
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
 /// Turn a `broadcast::Receiver` from the supervisor into a `broadcast::Sender`
 /// that AppCore can hand out fresh receivers from. We could expose the
 /// supervisor's own `Sender` directly, but that leaks the helper's internal
 /// channel and ties AppCore to `SwiftFoundationHelper` instead of
 /// `Arc<dyn FoundationHelper>`. The forwarding task costs one tokio spawn
 /// per AppCore boot, which is negligible.
-fn build_event_bridge(mut rx: broadcast::Receiver<HelperEvent>) -> broadcast::Sender<HelperEvent> {
+fn build_event_bridge(rx: broadcast::Receiver<HelperEvent>) -> broadcast::Sender<HelperEvent> {
     let (tx, _) = broadcast::channel(32);
     let tx_clone = tx.clone();
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(ev) => {
-                    let _ = tx_clone.send(ev);
-                }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => break,
-            }
-        }
+    forward_broadcast(rx, move |ev| {
+        let _ = tx_clone.send(ev);
     });
     tx
 }
@@ -554,59 +572,51 @@ fn build_event_bridge(mut rx: broadcast::Receiver<HelperEvent>) -> broadcast::Se
 /// Listen on the orchestrator's `ClaudeSignal` broadcast and route every
 /// `Cost` signal through [`CostTracker::record`] (which appends
 /// `EventPayload::CostRecorded` and updates the in-memory usage map). Holds a
-/// `Weak<AppCore>` so the task terminates when the core drops — no leaked
-/// tokio task across boots.
-fn spawn_cost_subscriber(
-    weak: std::sync::Weak<AppCore>,
-    mut rx: broadcast::Receiver<ClaudeSignal>,
-) {
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(ClaudeSignal::Cost {
-                    workspace_id,
-                    total_cost_usd,
-                }) => {
-                    let Some(core) = weak.upgrade() else {
-                        break;
-                    };
-                    if !total_cost_usd.is_finite() || total_cost_usd <= 0.0 {
-                        // Anomaly on Anthropic's side or a future zero-cost
-                        // result — log so support bundles surface it, then
-                        // skip the DB write since there's nothing to project.
-                        warn!(
-                            workspace = %workspace_id,
-                            total_cost_usd,
-                            "cost subscriber: non-positive or non-finite cost; skipping"
-                        );
-                        continue;
-                    }
-                    let usage = CostUsage {
-                        tokens_input: 0,
-                        tokens_output: 0,
-                        dollars_cents: usd_to_cents(total_cost_usd),
-                    };
-                    if let Err(err) = core.cost.record(workspace_id, usage, Actor::system()).await {
-                        warn!(
-                            workspace = %workspace_id,
-                            cents = usage.dollars_cents,
-                            error = %err,
-                            "cost subscriber: record failed"
-                        );
-                    }
-                }
-                Ok(ClaudeSignal::RateLimit(_)) => {}
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    // Buffer overflowed; cost lag means totals understate
-                    // actual spend. Surface so cap drift isn't silent.
-                    warn!(
-                        skipped,
-                        "cost subscriber: broadcast lagged; cost totals may be understated"
-                    );
-                }
-                Err(broadcast::error::RecvError::Closed) => break,
-            }
+/// `Weak<AppCore>` so the task short-circuits once the core drops — the
+/// orchestrator (and its broadcast sender) are owned by AppCore, so the
+/// underlying channel will close on the next iteration anyway.
+fn spawn_cost_subscriber(weak: std::sync::Weak<AppCore>, rx: broadcast::Receiver<ClaudeSignal>) {
+    forward_broadcast(rx, move |signal| {
+        let ClaudeSignal::Cost {
+            workspace_id,
+            total_cost_usd,
+        } = signal
+        else {
+            return;
+        };
+        let Some(core) = weak.upgrade() else {
+            return;
+        };
+        if !total_cost_usd.is_finite() || total_cost_usd <= 0.0 {
+            // Anomaly on Anthropic's side or a future zero-cost result —
+            // log so support bundles surface it, then skip the DB write
+            // since there's nothing to project.
+            warn!(
+                workspace = %workspace_id,
+                total_cost_usd,
+                "cost subscriber: non-positive or non-finite cost; skipping"
+            );
+            return;
         }
+        let usage = CostUsage {
+            tokens_input: 0,
+            tokens_output: 0,
+            dollars_cents: usd_to_cents(total_cost_usd),
+        };
+        // `record` is async; spawn so the broadcast loop keeps draining
+        // signals while the DB append is in flight. `CostTracker` is
+        // DashMap-backed and uses saturating_add per entry, so concurrent
+        // records on the same workspace remain correct.
+        tokio::spawn(async move {
+            if let Err(err) = core.cost.record(workspace_id, usage, Actor::system()).await {
+                warn!(
+                    workspace = %workspace_id,
+                    cents = usage.dollars_cents,
+                    error = %err,
+                    "cost subscriber: record failed"
+                );
+            }
+        });
     });
 }
 
