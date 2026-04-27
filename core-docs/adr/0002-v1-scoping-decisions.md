@@ -82,3 +82,23 @@ Thresholds read from the `rate_limit_event` payload Claude Code emits (`status: 
 - `core-docs/spec.md` Decisions 3, 19, 30–35.
 - `core-docs/adr/0001-claude-runtime-primitive.md` — first ADR (Claude runtime primitive).
 - `core-docs/roadmap.md` Phase 13.0, 13.D, 13.E, 13.F, 13.G, 18, 19.
+
+## Addendum (2026-04-26): additive `EventPayload` extensions
+
+The "Frozen contracts" convention in `CLAUDE.md` (Parallel track conventions) forbids extending event shapes without a new ADR. This addendum carves out a narrow exception so that Track 13.K (Friction) and Phase 21.A1 (learning layer) can extend the event vocabulary in parallel without racing to coordinate.
+
+**Additive variants are non-breaking and permitted** when all of the following hold:
+
+- (a) No existing `EventPayload` variant is modified or removed.
+- (b) The new variant is documented inline in `crates/designer-core/src/event.rs` (doc comment on the variant naming the producing track / phase).
+- (c) All production projector arms over `EventPayload` include a `_ => {}` default. Verified at landing against `crates/designer-core/src/projection.rs` and any sibling projector that matches on `EventPayload` (currently `apps/desktop/src-tauri/src/core_safety.rs`; `designer-audit` and `designer-claude` use `matches!` predicates and are unaffected).
+- (d) Old `events.db` files written before the variant exists replay correctly. Proof: pattern-match arms can't fail on a variant that never appears in the stream — replay sees only the variants that existed when each event was written.
+
+Modifying or removing an existing variant — including changing field names, types, or required-ness — still requires an `EventEnvelope.version` bump and a migration plan. That path is unchanged.
+
+**First consumers of this exception:**
+
+- Track 13.K (Friction): `FrictionReported`, `FrictionLinked`, `FrictionFileFailed`, `FrictionResolved`.
+- Phase 21.A1 (learning layer): `FindingRecorded`, `FindingSignaled`.
+
+**Applies to:** any track or phase adding new `EventPayload` variants. Pre-existing tracks (13.D / E / F / G) inherited the freeze and remain governed by it for modifications.
