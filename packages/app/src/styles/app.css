@@ -203,6 +203,16 @@
   --color-accent: var(--accent-10);
 }
 
+/* --- booting state ------------------------------------------------------ */
+
+.app-booting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: var(--color-muted);
+}
+
 /* --- skip link ---------------------------------------------------------- */
 /* Visually hidden until focused; WCAG 2.4.1 bypass-blocks pattern. */
 
@@ -264,6 +274,11 @@ body,
   height: var(--app-titlebar-height);
   z-index: var(--layer-titlebar);
   background: transparent;
+  /* `user-select: none` stops a click-drag from starting a text selection
+   * instead of a window drag. */
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
 }
 
 .app-shell {
@@ -297,7 +312,12 @@ body,
   grid-area: strip;
   background: var(--color-surface-flat);
   border-right: var(--border-thin) solid var(--color-border);
-  padding: var(--space-2) var(--space-2) var(--space-3) var(--space-2);
+  /* Vertical padding matches the sidebar / spine (`var(--space-4)` =
+   * 16px) so the first project icon (or the "+") aligns horizontally
+   * with the "Pick a project" / "Workspace activity" titles in the
+   * neighboring rails. The rest of the rail's content rhythm (gap +
+   * spacer) is unchanged. */
+  padding: var(--space-4) var(--space-2);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -432,11 +452,6 @@ body,
 
 .strip-icon-btn {
   color: var(--color-muted);
-}
-
-.strip-icon-btn:hover:not([disabled]) {
-  color: var(--color-foreground);
-  background: var(--color-surface-overlay);
 }
 
 .app-strip__spacer {
@@ -623,6 +638,13 @@ body,
 .main-empty__body {
   margin: 0;
   max-width: calc(var(--space-8) * 6);
+}
+
+.main-empty__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 /* --- sidebar workspace row (single line) --- */
@@ -2487,7 +2509,13 @@ kbd {
 
 .btn-icon:hover:not([disabled]) {
   color: var(--color-foreground);
-  background: var(--color-surface-raised);
+  /* Single hover fill across every icon button — strip "+" / "?" /
+   * gear, sidebar collapse, modal close. Previously the close button
+   * landed on `--color-surface-raised`, one tier lighter than the
+   * `--color-surface-overlay` the strip overrides used; the visible
+   * mismatch read as two different button systems. One token, one
+   * register. */
+  background: var(--color-surface-overlay);
 }
 
 .btn-icon[aria-pressed="true"] {
@@ -2553,8 +2581,12 @@ kbd {
 }
 
 @keyframes tooltip-in {
-  from { opacity: 0; transform: var(--tooltip-from, translate(-50%, -100%)) scale(0.96); }
-  to { opacity: 1; }
+  /* Positioning is owned by absolute left/top coordinates set on the
+   * inline style (TooltipSurface clamps to viewport). Animation is a
+   * pure scale + opacity in-place — no translate, since translate would
+   * fight the clamp and cause the tooltip to drift on enter. */
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2699,6 +2731,28 @@ kbd {
   letter-spacing: 0.04em;
 }
 
+/* Inline row for the path input + Finder picker button. Input flexes,
+ * button hugs its label. Same gap rhythm as the dialog's body so the
+ * row doesn't feel like a separate region. */
+.create-project__path-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.create-project__path-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.create-project__browse {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .app-dialog__row {
   display: flex;
   align-items: center;
@@ -2764,7 +2818,12 @@ kbd {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
+  /* Top padding clears the macOS traffic-light overlay (32px reserved
+   * by --app-titlebar-height) plus the topbar's own --space-3 vertical
+   * rhythm. The titlebar surface stays edge-to-edge so the inset reads
+   * as part of the topbar, not a transparent page-color strip. */
+  padding: calc(var(--app-titlebar-height) + var(--space-3)) var(--space-4)
+    var(--space-3);
   border-bottom: var(--border-thin) solid var(--color-border);
   background: var(--color-surface-flat);
   min-height: var(--target-md);

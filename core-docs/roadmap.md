@@ -938,7 +938,15 @@ The user can `⌘⇧F`, hover any UI element (with snap to component), paste a s
 
 ### Phase 15.K — Onboarding & first-run *(detail)*
 
-**Why:** when the user wipes `~/.designer/` (intentionally — fresh start — or unintentionally — first install), the current welcome slab dismisses into a strip with no projects, no workspaces, and a small `+` icon as the only affordance. The user has to discover that `+` opens a modal that asks for a path. There's no claude-auth verification, no github-auth verification, no "your first project" hero. Filed during the PR #24 review as the largest UX gap once first-run actually works.
+**Why:** when the user wipes `~/.designer/` (intentionally — fresh start — or unintentionally — first install), the current welcome slab dismisses into a strip with no projects, no workspaces, and a small `+` icon as the only affordance. The user has to discover that `+` opens a modal that asks for a path. There's no claude-auth verification, no github-auth verification, no "your first project" hero. Filed during the PR #24 review as the largest UX gap once first-run actually works. The first real `/Applications` launch (2026-04-26, post-PR #24) confirmed: the empty state is a dead-end for new users — nothing tells them "the strip + button is how you start." PR #26 patched the symptom with a CTA on the empty surface; this phase lands the underlying flow.
+
+**Goals (the principles 15.K is judged against):**
+
+1. **Zero dead empty states.** Every initial surface (no projects, no workspaces, no tabs, no artifacts) ships a primary CTA that takes the next obvious action — never a blank pane with chrome around it.
+2. **Guided first project.** A single coachmarked path: launch → "create your first project" → Finder folder picker → name → land in project home with a hint at the next step (linking the repo, opening the first workspace).
+3. **Picker-first inputs.** Filepath, color, date, model — every input modality with a native affordance defaults to that affordance (FB-0032). Free text is the fallback, not the primary path. Browse… button on `CreateProjectModal` (Track 13.J carry-over) is the canonical example.
+4. **Trust, not noise.** Onboarding respects "calm by default" — one surface, one idea per slide, dismissible. The existing `Onboarding` walkthrough is the right scaffold; it just needs concrete actions wired to each slide instead of marketing copy.
+5. **First-run permission model.** Approval gates explained on first contact, not silently enforced — a one-time inline tooltip the first time an approval lands in the inbox so the user understands why the agent paused.
 
 **Items (sequenced; each independent but they compose into a coherent flow):**
 
@@ -946,14 +954,15 @@ The user can `⌘⇧F`, hover any UI element (with snap to component), paste a s
 - **Welcome slabs → create-project chain.** `Onboarding.tsx`'s last slide currently dismisses; should end with a primary CTA "Create your first project" that calls `openCreateProject()`. The CreateProjectModal already accepts an `onCreated` callback so the welcome flow can chain into a follow-up step (e.g., "now link a repo").
 - **Claude-auth verification.** Boot already runs `claude --version`. Surface the result on the welcome flow: green check + version line if it works, actionable "Install or log in to Claude Code" panel if not (with copy-paste command + link to docs). Doesn't block onboarding completion — the user can dismiss and run the agent later — but warns clearly.
 - **GitHub-auth verification.** Equivalent for `gh auth status`. Designer's `cmd_request_merge` shells out to `gh pr create`; without auth that fails confusingly. A welcome-flow check + "log in" affordance prevents the first-merge surprise.
-- **Empty-state CTA.** Once `projects.length === 0` post-onboarding (e.g., user dismissed all slabs), the main pane should render a single "Create your first project" hero — not just an empty surface with the `+` icon as the only entry. Discoverability fix.
+- **Empty-state CTA on every initial surface.** Per Goal 1: not just `projects.length === 0` (PR #26 covered that one). Also the no-workspaces-in-project pane, no-tabs-in-workspace pane, no-artifacts-in-tab pane. Each renders a single primary action, not chrome around emptiness.
+- **First-approval explainer tooltip.** Per Goal 5: the first time an `ApprovalRequested` event lands in the user's inbox, render a one-time inline tooltip explaining the approval-gate model. Persisted dismissal flag in settings.
 - **Settings → Reset Designer.** Confirmation-gated wipe of `~/.designer/events.db` with a clear "this deletes all your workspaces" warning. Replaces today's `rm` workaround for stale mock-mode data and gives the user a sanctioned way to start fresh.
 
 **Out of scope for 15.K (file separately):**
 - Per-workspace claude home customization (would interact with team-spec wiring).
 - Multi-account claude / per-project model overrides.
 
-**Done when:** a fresh `~/.designer/` install walks the user from zero state through claude auth check, github auth check, "create your first project" with their repo, and into a working session — without forcing them to know about `events.db`, env vars, or PATH.
+**Done when:** a fresh `~/.designer/` install walks the user from zero state through claude auth check, github auth check, "create your first project" with their repo, and into a working session — without forcing them to know about `events.db`, env vars, or PATH. No initial surface in the app shows a blank pane with chrome around it.
 
 ---
 

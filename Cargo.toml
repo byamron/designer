@@ -77,6 +77,10 @@ dark-light = "1"
 # so the version pin lives alongside other workspace deps.
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-build = { version = "2", features = [] }
+# Native folder picker for the create-project flow. Path-typing UX
+# fails the "manager, not engineer" principle — every filepath input
+# in the app should default to a Finder picker.
+tauri-plugin-dialog = "2"
 
 # macOS Keychain bindings. MIT/Apache-2.0 dual-licensed (compatible with our
 # workspace license posture). Phase 13.G uses *only* `passwords::get_generic_password`

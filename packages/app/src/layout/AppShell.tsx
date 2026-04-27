@@ -13,18 +13,12 @@ export function AppShell() {
   const spineVisible = useAppState((s) => s.spineVisible);
 
   return (
-    <>
-      {/* Full-width titlebar zone: clears the macOS traffic-light inset
-       *  and provides a window-drag region across the whole top edge.
-       *  Tauri picks up `data-tauri-drag-region` at runtime; in the web
-       *  build it's just an empty strip. */}
-      <div className="app-titlebar" data-tauri-drag-region />
-      <div
-        className="app-shell"
-        data-strip={stripVisible ? "visible" : "hidden"}
-        data-sidebar={sidebarVisible ? "visible" : "hidden"}
-        data-spine={spineVisible ? "visible" : "hidden"}
-      >
+    <div
+      className="app-shell"
+      data-strip={stripVisible ? "visible" : "hidden"}
+      data-sidebar={sidebarVisible ? "visible" : "hidden"}
+      data-spine={spineVisible ? "visible" : "hidden"}
+    >
       <a href="#main-content" className="skip-link" title="Jump past navigation to the main content">
         Skip to main content
       </a>
@@ -54,8 +48,7 @@ export function AppShell() {
           icon={<IconChevronLeft />}
         />
       )}
-      </div>
-    </>
+    </div>
   );
 }
 
