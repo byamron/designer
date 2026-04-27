@@ -665,6 +665,175 @@ PR #23 (real-Claude default + workspace cwd + isolated claude_home + preflight) 
 
 ---
 
+### Lane 0 — ADR addendum: additive `EventPayload` extensions *(prereq for 13.K + 21.A1; ~30 min)*
+
+Both Track 13.K (`FrictionReported`, `FrictionLinked`, `FrictionFileFailed`) and Phase 21.A1 (`FindingRecorded` or similar) add new variants to `crates/designer-core/src/event.rs::EventPayload`. ADR 0002 §"Frozen contracts" forbids extending event shapes without an ADR. **Append to ADR 0002 (or land a new ADR 0004) before either implementation begins**:
+
+> Additive `EventPayload` variants are non-breaking and permitted under this rule, provided (a) no existing variant is modified, (b) the new variant is documented inline in `event.rs`, (c) all production projector arms include `_ => {}` defaults already (verified: `projection.rs:354`), (d) old `events.db` files written before the variant exists replay correctly (proof: pattern-match arms can't fail on a variant that never appears in the stream).
+>
+> Modifying or removing existing variants still requires `EventEnvelope.version` bump + migration plan.
+
+This unblocks both tracks. Without it, Friction and 21.A1 race to add variants without coordination.
+
+---
+
+### Track 13.K — Friction *(internal feedback capture; P0 for dogfood capture; ~3 days for a single agent)*
+
+**Why P0:** Designer just landed in `/Applications` for daily-driver use (PR #24). The user's friction with the app is the single most valuable input signal for everything that follows — every Phase 15.J polish item, the Phase 15.K onboarding pass, even the Phase 21 learning layer's training data. **Without an in-app capture, friction goes unrecorded.** Forge-style end-of-session retros are too coarse for the kind of "this button is in the wrong place" / "this affordance isn't discoverable" signal we need. Friction lives next to the user's hand, captures element-anchored notes mid-flight, and exports them as actionable GitHub issues.
+
+**Inspiration:** `agentation`'s visual-feedback toolbar — already wired into Designer's dev mode (`packages/app/src/App.tsx`). Agentation is SaaS-backed and only renders in dev; Friction replaces it for production-build dogfooding with a local-first, GitHub-integrated path that doesn't depend on a third-party service.
+
+#### Locked contracts (frozen by this spec)
+
+The shapes below are normative — implementing agents do not redesign them. They're locked here because Friction, Phase 15.H inline-comments, and Phase 21 finding evidence all share the `Anchor` enum.
+
+**Shared `Anchor` enum** — `packages/app/src/lib/anchor.ts` (TypeScript) + `crates/designer-core/src/anchor.rs` (Rust mirror, same shape):
+
+```ts
+export type Anchor =
+  | { kind: "message-span"; messageId: string; quote: string; charRange?: [number, number] }
+  | { kind: "prototype-point"; tabId: string; nx: number; ny: number }
+  | { kind: "prototype-element"; tabId: string; selectorPath: string; textSnippet?: string }
+  | { kind: "dom-element"; selectorPath: string; route: string; component?: string; stableId?: string; textSnippet?: string }
+  | { kind: "tool-call"; eventId: string; toolName: string }
+  | { kind: "file-path"; path: string; lineRange?: [number, number] };
+
+export function anchorFromElement(el: Element, route: string): Anchor;
+export function resolveAnchor(a: Anchor): Element | null;  // null if stale
+```
+
+13.K uses the `dom-element` variant. Resolution priority for `selectorPath`: (1) existing `data-component` attrs, (2) `data-block-kind` attrs, (3) stable `data-id`/`data-workspace-id`/`data-track-id` attrs, (4) structural CSS path as last resort. **Do NOT introduce a new `data-friction-id` attribute** — reuse the existing component-annotation surface. (Lane 1 prereq below adds `data-component` to the top ~30 surfaces if not already present; some are.)
+
+**`EventPayload` additions** (additive per Lane 0 ADR):
+
+```rust
+FrictionReported {
+    friction_id: FrictionId,
+    workspace_id: Option<WorkspaceId>,
+    project_id: Option<ProjectId>,
+    anchor: Anchor,
+    body: String,
+    screenshot_ref: Option<ScreenshotRef>,    // Local(PathBuf) | Gist { url, sha256 }
+    route: String,
+    app_version: String,
+    claude_version: Option<String>,
+    last_user_actions: Vec<String>,           // last 5 from projector
+    file_to_github: bool,                     // user toggle at submit time
+}
+FrictionLinked { friction_id: FrictionId, github_issue_url: String }
+FrictionFileFailed { friction_id: FrictionId, error_kind: FrictionFileError }
+FrictionResolved { friction_id: FrictionId }   // local-only resolution
+```
+
+The `gh issue create` call is async + multi-second; emit `FrictionReported` synchronously, then a background task emits `FrictionLinked` (success) or `FrictionFileFailed` (network / `gh` not authed / gist fail). Triage view derives status by projecting all three.
+
+**`cmd_report_friction` IPC**:
+
+```rust
+struct ReportFrictionRequest {
+    anchor: Anchor,
+    body: String,
+    screenshot_data: Option<Vec<u8>>,         // raw bytes from FE
+    screenshot_filename: Option<String>,
+    workspace_id: Option<WorkspaceId>,
+    file_to_github: bool,
+}
+struct ReportFrictionResponse {
+    friction_id: FrictionId,
+    local_path: PathBuf,
+}
+// New IpcError variant:
+IpcError::ExternalToolFailed { tool: String, message: String }  // gh-not-authed / offline
+```
+
+Lives in `crates/designer-ipc/src/lib.rs`, alphabetical with existing commands.
+
+#### User-facing behavior *(per the spec from the user, 2026-04-26):*
+
+1. **Floating button — bottom-right, always-on.**
+   - Designer's `SurfaceDevPanel` is **relocated to bottom-left** as part of this work (one-line CSS change: `right: var(--space-4)` → `left: var(--space-4)` on `.surface-dev-panel`). Friction owns bottom-right unconditionally. CSS-only solution; document the reservation rule in `pattern-log.md`.
+   - Visual: small 💭 / annotation glyph, neutral surface, `--elevation-raised` shadow, subtle hover. **Persistent toggle** — armed state shows `aria-pressed="true"` + accent fill + glyph swap; user can tell at a glance they're in selection mode.
+   - **Keyboard shortcut**: `⌘⇧F` toggles selection mode without clicking the button. Power users will use this 20×/day; mouse-first is wrong as the only path.
+   - `bottom: max(var(--space-4), env(safe-area-inset-bottom))` to guard against future titlebar / system UI overlap.
+
+2. **Element selection mode** *(directly inspired by agentation):*
+   - **Banner strip at top of viewport while armed**: "Click anything to anchor feedback. ESC to cancel." Forge has this pattern; copy it. Discoverability fix.
+   - Hovering any DOM element renders a focus ring on it (`outline: 2px solid var(--color-accent); outline-offset: 2px;` via a tracking overlay div, not direct `:hover`).
+   - **Smart snap**: hovering computes the nearest ancestor with `data-component` / `data-block-kind` / `[role="row"]` / `[role="button"]` / `dialog`. The atomic hovered element gets a thinner "child" ring; the snapped target gets the primary ring. Hold `⌥/Alt` to override and anchor to the precise hovered node.
+   - Tooltip near cursor shows the snapped element's component name + text snippet so the user knows what they're about to anchor to.
+   - **Three exits, all valid**: ESC, click the Friction button again, click outside any anchorable element with a 600ms grace period. Spec all three.
+   - Selection mode is inert when any modal scrim is open (`appStore.dialog !== null` → bail).
+
+3. **Friction widget** (input surface, pinned to selected element with collision-avoidance):
+   - **Multi-line text input** — "What's friction-y?" Mandatory.
+   - **Screenshot input** — four paths in priority order (all ship in v1; total cost <50 LOC):
+     1. **Paste from clipboard** (primary; hint shown in widget: "⌘V to paste"). `⌘⌃⇧4` puts a screenshot on clipboard — one fewer keystroke than `⌘⇧4` and no Desktop clutter.
+     2. **Auto-capture** — "📷 Capture this view" button calls Tauri's `webview.capture()`. **Captures BEFORE the widget covers the element** (snapshot at click-anchor time, not at widget-open time). Without this, every screenshot has the widget itself in frame.
+     3. **Drag-and-drop** — drop a file from Finder / screenshot tool.
+     4. **File picker** — clicking the drag-drop zone opens a native file picker (uses `<input type="file">`, no Tauri plugin needed for this fallback).
+   - **Auto-file-to-GitHub checkbox** — "🟢 Also file as GitHub issue" defaults checked, but uncheckable for "park this for later." Captures user's hybrid intent (auto/manual).
+   - **Auto-captured context chips** (visible, editable):
+     - Anchor descriptor + element text snippet
+     - Active route / workspace / project IDs
+     - App version + git SHA + claude version
+     - Timestamp
+   - **Submit button** — text mandatory; at least one of {screenshot, anchor with snap-target} required.
+   - **Cancel** — closes widget, returns to selection mode (does NOT exit armed state — user often wants to re-anchor).
+
+4. **Submit pipeline:**
+   - **Synchronous local persistence:** emit `FrictionReported` event to the workspace stream. Write markdown record to `~/.designer/friction/<timestamp>-<slug>.md`. Write screenshot to `~/.designer/friction/screenshots/<sha256>.png` (content-addressed; dedupes identical screenshots).
+   - **Async GitHub** (only if `file_to_github: true`):
+     - `gh gist create --secret <screenshot.png>` — **`--secret` is mandatory** (default `gh gist create` is secret already, but explicit). Document in spec: "secret ≠ private — anyone with the URL can read. Sensitive content stays local."
+     - **Downscale to 1920px max width before upload** (gist file cap is 10MB; Retina screenshots can exceed). Use the existing `image` crate (already a workspace dep via Tauri).
+     - **Atomicity**: capture gist URL into local markdown record before attempting issue create. If issue create fails, gist is orphaned; document orphan as acceptable (low cost; Settings → Friction can retry filing later).
+     - `gh issue create --label friction --title "<synthesized>" --body <markdown-with-gist-url>` on a background tokio task.
+   - **Title synthesis** (deterministic, no LLM): `<element-descriptor>: <first 60 chars of body>` — e.g. `WorkspaceSidebar row: cmd-click should open in new tab not focus existing`. Element descriptor is the snapped component's `data-component` value or fallback role; if no anchor, use the route.
+   - **Result handling**: on success → emit `FrictionLinked { friction_id, url }` + toast "Filed as #N — [Open]". On failure → emit `FrictionFileFailed { friction_id, error_kind }` + toast "Filed locally; couldn't reach GitHub — retry from Settings → Activity → Friction."
+
+5. **Triage surface:** Settings → **Activity** → **Friction** page (new IA section — see "Settings IA" below). Lists entries chronologically with status (`local-only` / `filed:#N` / `failed` / `resolved`). Per-entry actions: open issue link, **"File on GitHub"** (for local-only entries), **"Mark resolved"** (local-only — does NOT close GitHub issue; close-on-GitHub is a separate explicit action), **"Delete record"**. Batch-select for "file all parked items now."
+
+#### Implementation surface
+
+| File | Responsibility |
+|---|---|
+| `crates/designer-core/src/anchor.rs` | Shared `Anchor` enum (Rust). Mirror of TypeScript shape. |
+| `packages/app/src/lib/anchor.ts` | Shared `Anchor` enum + `anchorFromElement` + `resolveAnchor`. |
+| `packages/app/src/components/Friction/FrictionButton.tsx` | Bottom-right floating button. Toggles selection mode via app store. `aria-pressed` armed state. |
+| `packages/app/src/components/Friction/SelectionOverlay.tsx` | Hover focus ring + tooltip. `mousemove` listener; `document.elementFromPoint(x, y)`; smart-snap to nearest `data-component` ancestor (`Alt` key overrides). Banner strip at top. ESC + 3-exits handling. |
+| `packages/app/src/components/Friction/FrictionWidget.tsx` | Anchored input. Text + paste + auto-capture + drag-drop + file-picker (4-way screenshot input) + checkbox + submit. |
+| `packages/app/src/store/app.ts` | `frictionMode: "off" \| "selecting" \| "editing"` + `frictionAnchor: Anchor \| null` + actions. Add `⌘⇧F` keyboard binding. |
+| `packages/app/src/layout/SettingsPage.tsx` | New "Activity" IA section with "Friction" sub-page. |
+| `packages/app/src/styles/app.css` | `.friction-button`, `.friction-overlay`, `.friction-widget`, `.friction-banner`. **Move `.surface-dev-panel { left: var(--space-4); }`** (was `right`). |
+| `apps/desktop/src-tauri/src/core_friction.rs` (new module) | `AppCore::report_friction(req)` — emit event, write file, content-address screenshot, spawn `gh` task. |
+| `apps/desktop/src-tauri/src/commands.rs` + `ipc.rs` | `cmd_report_friction(req) -> ReportFrictionResponse`, `cmd_list_friction()`, `cmd_resolve_friction(id)`, `cmd_retry_file_friction(id)`. |
+| `crates/designer-ipc/src/lib.rs` | New `ReportFrictionRequest` / `ReportFrictionResponse` / `FrictionEntry` DTOs. New `IpcError::ExternalToolFailed { tool, message }` variant. |
+| `crates/designer-core/src/event.rs` | `FrictionReported` / `FrictionLinked` / `FrictionFileFailed` / `FrictionResolved` variants per Lane 0 ADR. |
+| `core-docs/pattern-log.md` | Append: "bottom-right reserved for Friction; dev panels go bottom-left." Append: "Anchor enum lives in `lib/anchor.ts` + `core/anchor.rs`; reused across Friction (13.K), inline comments (15.H), finding evidence (21)." |
+
+#### Settings IA (locked)
+
+Settings gains a new **Activity** top-level section with two children:
+- **Friction** (this PR) — triage list described above.
+- **Designer noticed** (Phase 21.A1) — finding list (read-only v1 + thumbs-up/down for signal).
+
+Locked here so 13.K's agent and 21.A1's agent don't independently invent two different IA homes. Append to `pattern-log.md`.
+
+#### Tests
+
+- Unit: `Anchor` round-trip (encode → resolve → identical element); stale-anchor detection returns `null`.
+- Unit: `FrictionButton` toggles store state on click + on `⌘⇧F`.
+- Unit: `SelectionOverlay` follows `mousemove`, snaps to `data-component` ancestor, `Alt` overrides snap, ESC cancels, banner strip mounts/unmounts on armed state change.
+- Unit: `FrictionWidget` four screenshot inputs (paste, auto-capture, drop, file-picker) all populate the same state.
+- Unit: title synthesis produces `<descriptor>: <first 60 chars>`; route fallback when no anchor.
+- Integration: `cmd_report_friction` writes the markdown file + screenshot file + emits the event. `gh` shim verifies `--secret` flag, downscale-to-1920px happens, gist-URL captured before issue create.
+- E2E (Playwright, in 15.J's harness): full flow click button → hover element with snap → click → paste screenshot → check "file to GitHub" off → submit → assert local-only state in triage page.
+
+#### Done when
+
+The user can `⌘⇧F`, hover any UI element (with snap to component), paste a screenshot, type a sentence, and within 5s see "Filed as #N" (or "Filed locally" if offline / GitHub disabled). Local-only entries can be filed later from Settings → Activity → Friction. Mark-resolved is local-only; close-on-GitHub is a separate explicit action. Friction overhead per capture is below 30s end-to-end.
+
+---
+
 ### Track 13.J — Phase 13.H follow-ups *(non-blocking; surfaced by the six-perspective review of PR #22)*
 
 **Why a separate track:** the 13.H review pass surfaced two classes of follow-up — small structural / test cleanups that are out-of-scope for the wiring PR but worth a discrete pass, plus heavier UX items that belong in the Phase 15 polish bucket (see `Phase 15.J` below). 13.J collects the structural items so they don't get lost. None block dogfooding.
@@ -769,7 +938,15 @@ PR #23 (real-Claude default + workspace cwd + isolated claude_home + preflight) 
 
 ### Phase 15.K — Onboarding & first-run *(detail)*
 
-**Why:** when the user wipes `~/.designer/` (intentionally — fresh start — or unintentionally — first install), the current welcome slab dismisses into a strip with no projects, no workspaces, and a small `+` icon as the only affordance. The user has to discover that `+` opens a modal that asks for a path. There's no claude-auth verification, no github-auth verification, no "your first project" hero. Filed during the PR #24 review as the largest UX gap once first-run actually works.
+**Why:** when the user wipes `~/.designer/` (intentionally — fresh start — or unintentionally — first install), the current welcome slab dismisses into a strip with no projects, no workspaces, and a small `+` icon as the only affordance. The user has to discover that `+` opens a modal that asks for a path. There's no claude-auth verification, no github-auth verification, no "your first project" hero. Filed during the PR #24 review as the largest UX gap once first-run actually works. The first real `/Applications` launch (2026-04-26, post-PR #24) confirmed: the empty state is a dead-end for new users — nothing tells them "the strip + button is how you start." PR #26 patched the symptom with a CTA on the empty surface; this phase lands the underlying flow.
+
+**Goals (the principles 15.K is judged against):**
+
+1. **Zero dead empty states.** Every initial surface (no projects, no workspaces, no tabs, no artifacts) ships a primary CTA that takes the next obvious action — never a blank pane with chrome around it.
+2. **Guided first project.** A single coachmarked path: launch → "create your first project" → Finder folder picker → name → land in project home with a hint at the next step (linking the repo, opening the first workspace).
+3. **Picker-first inputs.** Filepath, color, date, model — every input modality with a native affordance defaults to that affordance (FB-0032). Free text is the fallback, not the primary path. Browse… button on `CreateProjectModal` (Track 13.J carry-over) is the canonical example.
+4. **Trust, not noise.** Onboarding respects "calm by default" — one surface, one idea per slide, dismissible. The existing `Onboarding` walkthrough is the right scaffold; it just needs concrete actions wired to each slide instead of marketing copy.
+5. **First-run permission model.** Approval gates explained on first contact, not silently enforced — a one-time inline tooltip the first time an approval lands in the inbox so the user understands why the agent paused.
 
 **Items (sequenced; each independent but they compose into a coherent flow):**
 
@@ -777,14 +954,15 @@ PR #23 (real-Claude default + workspace cwd + isolated claude_home + preflight) 
 - **Welcome slabs → create-project chain.** `Onboarding.tsx`'s last slide currently dismisses; should end with a primary CTA "Create your first project" that calls `openCreateProject()`. The CreateProjectModal already accepts an `onCreated` callback so the welcome flow can chain into a follow-up step (e.g., "now link a repo").
 - **Claude-auth verification.** Boot already runs `claude --version`. Surface the result on the welcome flow: green check + version line if it works, actionable "Install or log in to Claude Code" panel if not (with copy-paste command + link to docs). Doesn't block onboarding completion — the user can dismiss and run the agent later — but warns clearly.
 - **GitHub-auth verification.** Equivalent for `gh auth status`. Designer's `cmd_request_merge` shells out to `gh pr create`; without auth that fails confusingly. A welcome-flow check + "log in" affordance prevents the first-merge surprise.
-- **Empty-state CTA.** Once `projects.length === 0` post-onboarding (e.g., user dismissed all slabs), the main pane should render a single "Create your first project" hero — not just an empty surface with the `+` icon as the only entry. Discoverability fix.
+- **Empty-state CTA on every initial surface.** Per Goal 1: not just `projects.length === 0` (PR #26 covered that one). Also the no-workspaces-in-project pane, no-tabs-in-workspace pane, no-artifacts-in-tab pane. Each renders a single primary action, not chrome around emptiness.
+- **First-approval explainer tooltip.** Per Goal 5: the first time an `ApprovalRequested` event lands in the user's inbox, render a one-time inline tooltip explaining the approval-gate model. Persisted dismissal flag in settings.
 - **Settings → Reset Designer.** Confirmation-gated wipe of `~/.designer/events.db` with a clear "this deletes all your workspaces" warning. Replaces today's `rm` workaround for stale mock-mode data and gives the user a sanctioned way to start fresh.
 
 **Out of scope for 15.K (file separately):**
 - Per-workspace claude home customization (would interact with team-spec wiring).
 - Multi-account claude / per-project model overrides.
 
-**Done when:** a fresh `~/.designer/` install walks the user from zero state through claude auth check, github auth check, "create your first project" with their repo, and into a working session — without forcing them to know about `events.db`, env vars, or PATH.
+**Done when:** a fresh `~/.designer/` install walks the user from zero state through claude auth check, github auth check, "create your first project" with their repo, and into a working session — without forcing them to know about `events.db`, env vars, or PATH. No initial surface in the app shows a blank pane with chrome around it.
 
 ---
 
@@ -920,6 +1098,95 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 **Prior art — Forge:** `/Users/benyamron/Desktop/coding/forge/`. Python-stdlib scripts under `forge/scripts/` (analyze-config, analyze-transcripts, analyze-memory, build-proposals, check-pending, format-proposals, cache-manager, finalize-proposals) + two subagents (`session-analyzer`, formerly `artifact-generator`) + three skills (`/forge`, `/forge:settings`, `/forge:version`) + SessionStart/SessionEnd hooks. v0.4.1 shipped; Phase 4 (quality + polish) in progress; Phase 5 (cross-project aggregation) planned. The pipeline, detector list, proposal types, calibration loop, and storage split are all load-bearing reference designs for Phase 21 — but Forge lives *inside* a Claude Code session, whereas Designer lives *around* it. The detector set below extends Forge's because Designer has richer inputs.
 
 **Needs:** 13.F (`LocalOps` surfaces wired to the real Foundation helper), 13.D (real agent traffic — analyzing mock streams proves nothing), plus Phase 13.G (approval gate + scope guard + cost tracker surfaces existing as event streams the detectors can consume).
+
+### Phase 21.A — Frontloadable detectors *(agent-parallelizable; ship while dogfooding)*
+
+**Why frontload:** the deterministic detectors in the table below are pure Rust + run against the event store. Each is independent, ~half-day of agent work, fully testable on captured event-store fixtures, and produces immediate signal once wired. **They do not need Phase B (LocalOps synthesis) or the proposal-acceptance UI to be useful** — finding storage + a basic listing surface in Settings is enough to start collecting "Designer noticed…" hits while you dogfood.
+
+This is the highest-leverage parallel-agent work available right now. The user's daily sessions become training-quality signal from day one.
+
+#### Locked contracts (frozen by 21.A1; 21.A2 detectors do not redesign them)
+
+`Detector` trait — async-ready so Phase B (which uses `LocalOps` async) can reuse the trait without refactor:
+
+```rust
+#[async_trait::async_trait]
+pub trait Detector: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn version(&self) -> u32;
+    /// Phase A: ignore `ops`. Phase B: take Some(&dyn LocalOps) for synthesis.
+    async fn analyze(
+        &self,
+        input: &SessionAnalysisInput,
+        config: &DetectorConfig,
+        ops: Option<&dyn designer_local_models::LocalOps>,
+    ) -> Result<Vec<Finding>, DetectorError>;
+}
+```
+
+`Finding` struct:
+
+```rust
+pub struct Finding {
+    pub id: FindingId,
+    pub detector_name: String,
+    pub detector_version: u32,
+    pub project_id: ProjectId,
+    pub workspace_id: Option<WorkspaceId>,
+    pub timestamp: Timestamp,
+    pub severity: Severity,                     // Info | Notice | Warn
+    pub confidence: f32,                        // [0.0, 1.0]
+    pub summary: String,                        // human-readable headline
+    pub evidence: Vec<Anchor>,                  // shared enum from Track 13.K
+    pub suggested_action: Option<ProposalRef>,  // None in Phase A
+    pub window_digest: String,                  // cache key per detector_version
+}
+```
+
+`EventPayload` additions (per Lane 0 ADR):
+```rust
+FindingRecorded { finding: Finding }
+FindingSignaled { finding_id: FindingId, signal: ThumbSignal }   // Up | Down — calibration
+```
+
+`DetectorConfig`: `{ enabled: bool, min_occurrences: u32, min_sessions: u32, impact_override: Option<Severity> }`. Defaults migrated verbatim from Forge with citation comments (`// Forge v0.4.1: forge/scripts/analyze-transcripts.py L142`).
+
+**Crate split:** new top-level `crates/designer-learn/` with `designer-local-models` as an optional feature-gated dep (Phase A doesn't need it; Phase B does). NOT a module inside `designer-core` (events are core; learning is a *consumer*) and NOT inside `designer-local-models` (Phase A has zero LocalOps cost).
+
+#### Sequencing
+
+1. **Phase 21.A1 — Foundation** *(1 agent, ~3 days — re-estimated from initial 1 day; blocks 21.A2)*. Deliverables:
+   - New `crates/designer-learn/` with the trait + struct + config above
+   - `SessionAnalysisInput` builder reading from `EventStore` (8 input fields enumerated in "Analysis inputs" below)
+   - `cmd_list_findings()` IPC + `FindingDto` shape in `crates/designer-ipc/`
+   - Settings → **Activity → "Designer noticed"** page (Settings IA section shared with 13.K's Friction page; locked in Track 13.K spec). Read-only listing + thumbs-up/down per finding (writes `FindingSignaled` event for calibration). No accept/reject UI yet.
+   - **`crates/designer-learn/CONTRIBUTING.md`** — load-bearing deliverable. Without it, parallel 21.A2 detectors invent incompatible shapes. Must include:
+     - Locked `Detector` trait + `Finding` + `Anchor` shapes (link to Track 13.K spec for `Anchor`)
+     - Fixture format: `tests/fixtures/<detector>/input.jsonl` (event stream) + `tests/fixtures/<detector>/expected.json` (Findings)
+     - Threshold defaults migrated verbatim from Forge in `defaults.rs` constants with citation comments
+     - Keyword corpora as static slices (`pub const CORRECTION_KEYWORDS: &[&str] = &["I told you", ...];`)
+     - A worked example: `example_detector.rs` with full structure + fixture, that 21.A2 agents copy-rename
+   - **Forge co-installation rule**: if `~/.claude/plugins/forge/` exists, detectors with name overlap (`repeated_correction`, `repeated_prompt_opening`, `multi_step_tool_sequence`, `config_gap`, `domain_specific_in_claude_md`, `memory_promotion`) downweight to `enabled: false` by default with a Settings toggle: "Forge is also installed — show overlapping findings? [off]". Designer-unique detectors (`approval_always_granted`, `scope_false_positive`, `cost_hot_streak`, `compaction_pressure`) always run.
+2. **Phase 21.A2 — Detector squad** *(parallel; one agent per detector; each ~half-day)*. Each detector is `crates/designer-learn/src/detectors/<name>.rs` + `tests/fixtures/<name>/`. Recommended order by signal value:
+   - `repeated_correction` (fastest signal — corrections are loud)
+   - `approval_always_granted` *(Designer-unique — uses `ApprovalRequested` events)*
+   - `scope_false_positive` *(Designer-unique — uses `ScopeDenied` events)*
+   - `cost_hot_streak` *(Designer-unique — uses `CostRecorded` events)*
+   - `repeated_prompt_opening`
+   - `multi_step_tool_sequence`
+   - `config_gap`
+   - `compaction_pressure` *(Designer-unique)*
+   - `domain_specific_in_claude_md`
+   - `memory_promotion`
+3. **Phase 21.A3 — Cross-project aggregation** *(after A1 + ≥3 detectors, 1 agent)*. Forge's Phase 5 work — meta-findings when N projects show the same detector firing.
+
+**Out of scope for 21.A** (deferred to Phase 21 proper):
+- Phase B LocalOps synthesis + quality gate (needs the Foundation helper's real-binary validation)
+- Proposal generation (the "what to do about the finding") and editable acceptance UI
+- Calibration loop logic that *uses* thumbs-up/down to adjust thresholds (the events are emitted now; the loop ships in Phase B)
+- File-write side: turning accepted proposals into actual `CLAUDE.md` / rule / skill edits
+
+**Done when:** all ten Phase A detectors ship, the Settings → Activity → "Designer noticed" page renders findings, thumbs-up/down emits calibration events, and at least one Designer-unique detector (recommended: `approval_always_granted`) has fired against the user's real session data.
 
 ### Analysis inputs — what the layer reads
 
