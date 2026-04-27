@@ -14,6 +14,10 @@ const invokePromise = () =>
   import("@tauri-apps/api/core").then((m) => m.invoke);
 const listenPromise = () =>
   import("@tauri-apps/api/event").then((m) => m.listen);
+const windowPromise = () =>
+  import("@tauri-apps/api/window").then((m) => m.getCurrentWindow());
+const dialogOpenPromise = () =>
+  import("@tauri-apps/plugin-dialog").then((m) => m.open);
 
 export async function invoke<T>(
   cmd: string,
@@ -21,6 +25,40 @@ export async function invoke<T>(
 ): Promise<T> {
   const fn = await invokePromise();
   return fn<T>(cmd, args);
+}
+
+// Tauri's `data-tauri-drag-region` auto-detect is fragile; calling
+// `startDragging()` explicitly from a mousedown handler bypasses it.
+// No-op outside Tauri so the handler can stay mounted in web/test.
+export async function startDragging(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const win = await windowPromise();
+    await win.startDragging();
+  } catch (err) {
+    console.warn("startDragging failed", err);
+  }
+}
+
+// Returns the picked absolute path, `null` on cancel or non-Tauri.
+// `defaultPath` seeds the picker so it opens at the user's last entry.
+export async function pickFolder(
+  defaultPath?: string,
+): Promise<string | null> {
+  if (!isTauri()) return null;
+  try {
+    const open = await dialogOpenPromise();
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Choose project folder",
+      defaultPath: defaultPath || undefined,
+    });
+    return typeof selected === "string" ? selected : null;
+  } catch (err) {
+    console.warn("folder picker failed", err);
+    return null;
+  }
 }
 
 /**

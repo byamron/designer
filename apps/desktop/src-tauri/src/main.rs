@@ -130,6 +130,12 @@ fn main() {
     let core_for_state = core.clone();
 
     tauri::Builder::default()
+        // Native dialog plugin — backs the Finder folder picker in
+        // CreateProjectModal. No fs/shell permissions are granted; the
+        // dialog returns a path string that the existing
+        // `cmd_validate_project_path` IPC validates server-side before
+        // any project state is created.
+        .plugin(tauri_plugin_dialog::init())
         .manage(core_for_state)
         .invoke_handler(tauri::generate_handler![
             commands::create_project,

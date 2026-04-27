@@ -8,8 +8,9 @@ use crate::time::{monotonic_now, rfc3339};
 use async_trait::async_trait;
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::params;
+use rusqlite::{params, OpenFlags};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::task;
 use tracing::{debug, info, instrument};
@@ -121,10 +122,32 @@ impl SqliteEventStore {
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        let manager = SqliteConnectionManager::memory().with_init(|c| {
-            c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
-            Ok(())
-        });
+        // `SqliteConnectionManager::memory()` gives EACH pooled connection a
+        // fresh `:memory:` database — schema + rows live only on whichever
+        // connection ran them. The first connection wins by default, but
+        // under load the pool may hand out a different connection for a
+        // read than for the prior write, and the read sees an empty (or
+        // stale) DB. That's the root cause of the flaky
+        // `track_lifecycle_projects_through_pr_open_complete_archive`
+        // failure on CI: the replay's `read_all` landed on a connection
+        // whose DB was missing the final `TrackArchived` row.
+        //
+        // Fix: open every pooled connection against the same in-memory DB
+        // via SQLite's shared-cache URI. A unique name per store keeps
+        // separate `open_in_memory()` calls (e.g. parallel tests) isolated.
+        static IN_MEMORY_COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = IN_MEMORY_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let uri = format!("file:designer-mem-{n}?mode=memory&cache=shared");
+        let manager = SqliteConnectionManager::file(uri)
+            .with_flags(
+                OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | OpenFlags::SQLITE_OPEN_CREATE
+                    | OpenFlags::SQLITE_OPEN_URI,
+            )
+            .with_init(|c| {
+                c.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
+                Ok(())
+            });
         let pool = Pool::builder()
             .max_size(4)
             .build(manager)

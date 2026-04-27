@@ -33,6 +33,18 @@ Plus: `--app-titlebar-height` and `--layer-titlebar` defined as design tokens, `
 
 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
 
+### Phase 15 — First-run onboarding *(planned, post-dogfood)*
+
+The first real launch (2026-04-26) surfaced that the empty state is a dead-end for new users — nothing tells them "the strip + button is how you start." We patched the symptom with a CTA on the empty surface (FB-0032 / PR pending) but the underlying flow needs a real onboarding pass. Goals:
+
+1. **Zero dead empty states.** Every initial surface (no projects, no workspaces, no tabs, no artifacts) ships a primary CTA that takes the next obvious action.
+2. **Guided first project.** A single coachmarked path: launch → "create your first project" → Finder folder picker → name → land in project home with a hint at the next step (linking the repo, opening the first workspace).
+3. **Picker-first inputs.** Filepath, color, date, model — every input modality with a native affordance defaults to that affordance (FB-0032). Free text is the fallback, not the primary path.
+4. **Trust, not noise.** Onboarding must respect "calm by default" — one surface, one idea per slide, dismissible. The existing `Onboarding` walkthrough is the right scaffold; it just needs concrete actions wired to each slide instead of marketing copy.
+5. **First-run permission model.** Approval gates should be explained on first contact, not silently enforced — surface a one-time inline tooltip the first time an approval lands in the inbox.
+
+Owns: `frontend`, `ux`. Lands after Phase 14 unless dogfooders block on it.
+
 ## Handoff Notes
 
 - Spec and roadmap are complete for the planning phase. Treat `spec.md` as architectural source of truth and `roadmap.md` as the sequence source of truth.

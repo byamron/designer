@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { selectTab, useAppState } from "../store/app";
+import { openCreateProject, selectTab, useAppState } from "../store/app";
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
 import type { Project, Tab, Workspace } from "../ipc/types";
@@ -32,14 +32,33 @@ export function MainView() {
   }, [activeProjectId, activeWorkspaceId, workspaces]);
 
   if (!project) {
+    // First-run (no projects) ships a primary CTA so the empty surface
+    // doesn't read as a dead end. Once at least one project exists, fall
+    // back to the "pick from sidebar" copy.
+    const firstRun = projects.length === 0;
     return (
       <main className="app-main" aria-label="Main" id="main-content" tabIndex={-1}>
         <div className="main-surface">
           <div className="main-empty">
-            <h2 className="main-empty__title">Pick a project</h2>
+            <h2 className="main-empty__title">
+              {firstRun ? "Welcome to Designer" : "Pick a project"}
+            </h2>
             <p className="main-empty__body">
-              Select a project from the sidebar to see its home.
+              {firstRun
+                ? "Point Designer at a folder you'd like to manage. Designer will set up per-track worktrees so agents can work on independent branches without touching your main checkout."
+                : "Select a project from the sidebar to see its home."}
             </p>
+            {firstRun && (
+              <button
+                type="button"
+                className="btn main-empty__cta"
+                data-variant="primary"
+                onClick={openCreateProject}
+              >
+                <IconPlus size={14} />
+                Create your first project
+              </button>
+            )}
           </div>
         </div>
       </main>

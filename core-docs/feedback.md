@@ -33,6 +33,16 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0032: Filepath inputs default to a native picker, never plain text
+**Date:** 2026-04-26
+**Source:** user correction (first-real-build dogfood, PR #24 follow-up)
+
+**What was said:** The CreateProjectModal asked the user to type the project folder path into a text input ("~/code/my-project"). Reaction: "i need a file picker here to my finder/desktop — nobody should ever need to type in the full filepath (we should be catching UX issues like this — log in feedback)."
+
+**Synthesized rule:** Any UI that asks for a filesystem path must front a native picker (Finder folder/file dialog on macOS) as the primary affordance. A text input is acceptable only as a fallback for power-users — never the only way in. Generalize: "manager, not engineer" extends to *every* input modality — if there is a native OS affordance for the data we're asking for, the user should never have to type the literal value. Audit the rest of the app for the same pattern (color, file paths, dates, etc.) when adding new forms; flag during PR review the moment a free-text field implies "the user knows the literal syntax."
+
+**Applies to:** ux, code (every modal/dialog with a filesystem-path field)
+
 ### FB-0031: Cache "in-flight" separately from "resolved" — concurrent callers must share one round-trip
 **Date:** 2026-04-25
 **Source:** review feedback (Phase 13.F PR #18)

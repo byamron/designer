@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability set for Designer. Only the IPC commands the frontend calls today, plus the event-stream channel, are reachable. No fs/shell/dialog permissions — those arrive in Phase 13.E.",
+  "description": "Default capability set for Designer. IPC + event channel + native folder picker (used by the create-project flow). No fs/shell read/write permissions — Designer touches the disk only through validated Rust commands.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:event:allow-listen",
-    "core:event:allow-unlisten"
+    "core:event:allow-unlisten",
+    "dialog:allow-open"
   ]
 }

@@ -156,12 +156,15 @@
     0 24px 48px -8px rgb(0 0 0 / 0.18),
     0 4px 8px -2px rgb(0 0 0 / 0.10);
 
-  /* Z-index layer, paired 1:1 with elevation */
+  /* Z-index layer, paired 1:1 with elevation. The titlebar sits ABOVE
+   * modals because OS chrome (window-drag region, traffic-light inset)
+   * has to keep working even when a modal is up — the user must always
+   * be able to grab the title strip and move the window. */
   --layer-flat:     auto;
   --layer-raised:   1;
-  --layer-titlebar: 5;
   --layer-overlay:  10;
   --layer-modal:    100;
+  --layer-titlebar: 200;
 
   /* ==================== Focus ==================== */
   /* Drives the focus-style axiom (design-axioms.md #10). Consumed by
