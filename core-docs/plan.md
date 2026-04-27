@@ -226,7 +226,7 @@ Surfaced by the PR #22 six-perspective review (13.H wiring) and the PR #24 three
 13.H follow-ups:
 
 - [ ] **F5+1** — tool_use_id → tool_result correlation; emit `ArtifactUpdated` on the original "Read X" card with the result's summary (~50 LOC stateful pass; flagged as `TODO(13.H+1)` in `stream.rs`).
-- [ ] **ADR addendum** — decide whether `Orchestrator::subscribe_signals` keeps `ClaudeSignal` or factors a neutral `OrchestratorSignal` enum. Lock before a second orchestrator (Cursor, Ollama) lands.
+- [x] **ADR addendum** — decide whether `Orchestrator::subscribe_signals` keeps `ClaudeSignal` or factors a neutral `OrchestratorSignal` enum. Lock before a second orchestrator (Cursor, Ollama) lands. *(landed as ADR 0005 — recommends `OrchestratorSignal` with `pub type ClaudeSignal = OrchestratorSignal;` alias for v1; implementation PR is mechanical.)*
 - [ ] **Live `permission_prompt_round_trip` test** — gated by `--features claude_live` on the self-hosted runner; confirms the response wire shape against real `claude`.
 - [ ] **`spawn_cost_subscriber` ↔ `build_event_bridge` unify** — extract `forward_broadcast<T>(rx, handler)` so the `Lagged`/`Closed` arms aren't duplicated.
 - [ ] **F4 test reuse** — expose `core_local::tests::boot_with_helper_status` as `pub(crate)` and a shared `mod test_support` for `CountingHandler`/`CountingOps`.
