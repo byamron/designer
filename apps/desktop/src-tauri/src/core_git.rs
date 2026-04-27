@@ -1267,103 +1267,20 @@ mod tests {
     /// summary hook.
     #[tokio::test]
     async fn check_track_status_routes_through_summary_hook() {
-        use designer_audit::SqliteAuditLog;
-        use designer_claude::MockOrchestrator;
-        use designer_core::{Projector, SqliteEventStore, StreamOptions};
-        use designer_local_models::{
-            AuditClaim, AuditVerdict, ContextOptimizerInput, ContextOptimizerOutput, HelperResult,
-            LocalOps, RecapInput, RecapOutput, RowSummarizeInput, RowSummarizeOutput,
-        };
-        use designer_safety::InMemoryApprovalGate;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        struct CountingOps {
-            summarize_calls: Arc<AtomicUsize>,
-        }
-        #[async_trait]
-        impl LocalOps for CountingOps {
-            async fn context_optimize(
-                &self,
-                _input: ContextOptimizerInput,
-            ) -> HelperResult<ContextOptimizerOutput> {
-                Ok(ContextOptimizerOutput {
-                    summary: String::new(),
-                    key_facts: vec![],
-                })
-            }
-            async fn recap(&self, _input: RecapInput) -> HelperResult<RecapOutput> {
-                Ok(RecapOutput {
-                    headline: String::new(),
-                    bullets: vec![],
-                })
-            }
-            async fn audit_claim(&self, _input: AuditClaim) -> HelperResult<AuditVerdict> {
-                Ok(AuditVerdict::Inconclusive)
-            }
-            async fn summarize_row(
-                &self,
-                _input: RowSummarizeInput,
-            ) -> HelperResult<RowSummarizeOutput> {
-                self.summarize_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(RowSummarizeOutput {
-                    line: "summary line".into(),
-                })
-            }
-        }
+        use crate::core::HelperStatusKind;
+        use crate::core_local::tests::boot_with_local_ops;
+        use crate::test_support::CountingOps;
+        use designer_local_models::{FoundationHelper, LocalOps, NullHelper};
+        use std::sync::atomic::Ordering;
 
         let _g = test_lock().lock().await;
-        let dir = tempdir().unwrap();
-        let config = AppConfig {
-            data_dir: dir.path().to_path_buf(),
-            use_mock_orchestrator: true,
-            claude_options: Default::default(),
-            default_cost_cap: CostCap {
-                max_dollars_cents: None,
-                max_tokens: None,
-            },
-            helper_binary_path: None,
-        };
-        std::mem::forget(dir);
-
-        let store = Arc::new(SqliteEventStore::open(config.data_dir.join("events.db")).unwrap());
-        let projector = Projector::new();
-        let history = store.read_all(StreamOptions::default()).await.unwrap();
-        projector.replay(&history);
-
-        let counter = Arc::new(AtomicUsize::new(0));
-        let local_ops: Arc<dyn LocalOps> = Arc::new(CountingOps {
-            summarize_calls: counter.clone(),
-        });
-        let orchestrator = Arc::new(MockOrchestrator::new(store.clone()));
-        let audit = Arc::new(SqliteAuditLog::new(store.clone()));
-        let gate = Arc::new(InMemoryApprovalGate::new(store.clone()));
-        let cost = designer_safety::CostTracker::new(store.clone(), config.default_cost_cap);
+        let (counting_ops, counter) = CountingOps::new();
+        let local_ops: Arc<dyn LocalOps> = counting_ops;
+        let null_helper: Arc<dyn FoundationHelper> = Arc::new(NullHelper::default());
         // Live status so `append_code_change_with_hook` actually invokes
         // `summarize_row` instead of short-circuiting to the deterministic
         // truncation path.
-        let helper_status = crate::core::HelperStatus {
-            kind: crate::core::HelperStatusKind::Live,
-            fallback_reason: None,
-            binary_path: None,
-            version: Some("test".into()),
-            model: Some("test-model".into()),
-        };
-        let null_helper: Arc<dyn designer_local_models::FoundationHelper> =
-            Arc::new(designer_local_models::NullHelper::default());
-        let core = Arc::new(AppCore {
-            config,
-            store,
-            projector,
-            orchestrator,
-            audit,
-            gate,
-            cost,
-            helper: null_helper,
-            local_ops,
-            helper_status,
-            helper_events: None,
-            summary_debounce: Arc::new(crate::core_local::SummaryDebounce::new()),
-        });
+        let core = boot_with_local_ops(null_helper, local_ops, HelperStatusKind::Live).await;
 
         // One status snapshot → one CodeChange emit. The 2-second per-track
         // debounce window short-circuits a quick second call into a cache

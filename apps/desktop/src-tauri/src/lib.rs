@@ -22,6 +22,8 @@ pub mod ipc;
 pub mod ipc_agents;
 pub mod menu;
 pub mod settings;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod updater;
 
 pub use core::{AppConfig, AppCore};
