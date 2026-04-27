@@ -228,7 +228,7 @@ Surfaced by the PR #22 six-perspective review (13.H wiring) and the PR #24 three
 - [ ] **F5+1** — tool_use_id → tool_result correlation; emit `ArtifactUpdated` on the original "Read X" card with the result's summary (~50 LOC stateful pass; flagged as `TODO(13.H+1)` in `stream.rs`).
 - [ ] **ADR addendum** — decide whether `Orchestrator::subscribe_signals` keeps `ClaudeSignal` or factors a neutral `OrchestratorSignal` enum. Lock before a second orchestrator (Cursor, Ollama) lands.
 - [ ] **Live `permission_prompt_round_trip` test** — gated by `--features claude_live` on the self-hosted runner; confirms the response wire shape against real `claude`.
-- [ ] **`spawn_cost_subscriber` ↔ `build_event_bridge` unify** — extract `forward_broadcast<T>(rx, handler)` so the `Lagged`/`Closed` arms aren't duplicated.
+- [x] **`spawn_cost_subscriber` ↔ `build_event_bridge` unify** — extract `forward_broadcast<T>(rx, handler)` so the `Lagged`/`Closed` arms aren't duplicated. *(PR [#31](https://github.com/byamron/designer/pull/31))*
 - [ ] **F4 test reuse** — expose `core_local::tests::boot_with_helper_status` as `pub(crate)` and a shared `mod test_support` for `CountingHandler`/`CountingOps`.
 - [ ] **`run_reader_loop` context struct** — bundle the 9 args into `ReaderLoopCtx`, drop `#[allow(clippy::too_many_arguments)]`.
 - [ ] **Bounded translator state** — LRU cap (~1k) on `ClaudeStreamTranslator::tasks`/`agents` HashMaps so multi-day sessions can't grow them unboundedly.
