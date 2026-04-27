@@ -665,6 +665,75 @@ PR #23 (real-Claude default + workspace cwd + isolated claude_home + preflight) 
 
 ---
 
+### Track 13.K — Friction *(internal feedback capture; ~1–2 days for a single agent; P0 for dogfood capture)*
+
+**Why P0:** Designer just landed in `/Applications` for daily-driver use (PR #24). The user's friction with the app is the single most valuable input signal for everything that follows — every Phase 15.J polish item, the Phase 15.K onboarding pass, even the Phase 21 learning layer's training data. **Without an in-app capture, friction goes unrecorded.** Forge-style end-of-session retros are too coarse for the kind of "this button is in the wrong place" / "this affordance isn't discoverable" signal we need. Friction lives next to the user's hand, captures element-anchored notes mid-flight, and exports them as actionable GitHub issues.
+
+**Inspiration:** `agentation`'s visual-feedback toolbar — already wired into Designer's dev mode (`packages/app/src/App.tsx`). Agentation is SaaS-backed and only renders in dev (`import.meta.env.MODE === "development"`); Friction replaces it for production-build dogfooding with a local-first, GitHub-integrated path that doesn't depend on a third-party service.
+
+**User-facing behavior** *(per the spec from the user, 2026-04-26):*
+
+1. **Floating button — bottom-right, always-on.**
+   - Designer's `SurfaceDevPanel` (dev-only, `right: var(--space-4); bottom: var(--space-4)`) currently owns that corner.
+   - **Coexistence rule:** Friction button is the canonical bottom-right occupant. In dev mode, `SurfaceDevPanel` shifts up by Friction's reserved height + gap so both are reachable without overlap. CSS-only via a body-class or sibling selector; no JS coordination.
+   - Visual: small 💭 / annotation glyph, neutral surface, `--elevation-raised` shadow, subtle hover. Single click toggles selection mode.
+2. **Element selection mode** *(directly inspired by agentation):*
+   - Once activated, hovering any DOM element renders a focus ring on it (`outline: 2px solid var(--color-accent); outline-offset: 2px;` on the hovered element via a tracking overlay div, NOT direct `:hover` — we want the ring on whatever the mouse is over regardless of pointer-events).
+   - The hovered element's `data-component`/`data-block-kind`/role/text-summary is shown in a tooltip near the cursor so the user knows what they're about to anchor to.
+   - Click selects → freezes the focus ring on that element + opens the **Friction widget** anchored to it (positioned to avoid covering the selected element when possible).
+   - ESC cancels selection mode.
+3. **Friction widget** (the input surface, pinned to the selected element):
+   - **Multi-line text input** — "What's friction-y?" Mandatory.
+   - **Drag-and-drop zone for screenshot files** — user can grab a screenshot from Finder / their screenshot tool and drop it onto the widget. Supports paste-from-clipboard too. (Stretch: a "📷 Capture screen" button using Tauri's `webview.capture()` so the user doesn't have to leave the app — file as a follow-up if scope tight.)
+   - **Auto-captured context chips** (visible, editable):
+     - Anchor descriptor (CSS-selector-ish path, e.g. `.workspace-row[data-id="ws-abc"]` + element text snippet)
+     - Active route / workspace / project IDs
+     - App version + git SHA + claude version
+     - Timestamp
+   - **Submit button** — mandatory text + at least one of {anchor, screenshot}.
+   - **Cancel** — closes widget, returns to selection mode.
+4. **Submit pipeline:**
+   - **Local persistence:** append a `FrictionReported` event to the workspace's stream + write a markdown record to `~/.designer/friction/<timestamp>-<slug>.md` (text + anchor + screenshot reference).
+   - **GitHub issue creation (automatic):** call `gh issue create --repo byamron/designer --title <synthesized> --body <markdown> --label friction` on a background tokio task. The screenshot is committed via `gh gist create` (if available) and linked from the issue body, OR embedded as base64 inside a `<details>` block.
+   - **Result handling:** on successful issue creation, append the issue URL to the local markdown record and emit a toast with "Filed as #N — [Open]". On failure, the local record persists and the toast says "Filed locally; couldn't reach GitHub — retry later."
+5. **Triage surface:** Settings → "Friction" page lists all entries chronologically with state (`local-only` / `filed:#N` / `resolved`). Open issue link, "mark resolved", "delete record" affordances.
+
+**Implementation surface:**
+
+| File | Responsibility |
+|---|---|
+| `packages/app/src/components/Friction/FrictionButton.tsx` | The bottom-right floating button. Toggles selection mode via app store. |
+| `packages/app/src/components/Friction/SelectionOverlay.tsx` | Renders the hover focus ring + tooltip while in selection mode. Listens to `mousemove` globally and `document.elementFromPoint(x,y)` to identify the hovered element. ESC cancels. |
+| `packages/app/src/components/Friction/FrictionWidget.tsx` | The anchored input surface. Text + drag-drop zone + context chips + submit. |
+| `packages/app/src/components/Friction/anchor.ts` | Compute a stable anchor descriptor for a given DOM element (CSS path with stable ids, fallback to nth-child positioning). Reuses Phase 15.H anchor primitive vocabulary. |
+| `packages/app/src/store/app.ts` | Add `frictionMode: "off" \| "selecting" \| "editing"` and `frictionAnchor: FrictionAnchor \| null` state + actions. |
+| `packages/app/src/styles/app.css` | `.friction-button`, `.friction-overlay`, `.friction-widget` styles. Use `--layer-overlay` (the buttons) and `--layer-modal` (the widget when editing). |
+| `apps/desktop/src-tauri/src/commands.rs` + `ipc.rs` | New `cmd_report_friction(req)` IPC: write local markdown, then spawn background `gh issue create` via `std::process::Command`. |
+| `apps/desktop/src-tauri/src/core.rs` (or `core_friction.rs`) | `AppCore::report_friction(req)` — append `FrictionReported` event, write file, kick off issue creation. |
+| `crates/designer-core/src/event.rs` | New `EventPayload::FrictionReported { id, anchor, body, screenshot_ref, github_issue_url }`. ⚠️ **Touches the frozen event vocabulary — this is a deliberate additive extension.** Document in ADR. |
+
+**Design decisions worth locking in the implementation PR:**
+
+- **Screenshot transport to GitHub.** Three options: (a) `gh gist create` then link the gist URL in the issue body, (b) base64-embed in a `<details>` collapsed section (issues have a 65k body limit; large screenshots overflow), (c) commit screenshots to `friction-screenshots/` in the repo and link from there (requires git ops on every submit). **Recommend (a)** — gh gist is one CLI call, public-or-secret per user choice, no repo pollution. Document the choice and let the user toggle private/public default in Settings.
+- **Anchor stability across DOM rebuilds.** A click-handler-driven CSS path (e.g. `[data-component="WorkspaceSidebar"] > .workspace-row:nth-of-type(3)`) breaks after refactors. Prefer `data-friction-id` attributes added to load-bearing elements + a fallback descriptor (component name + text snippet) when no id exists. Anchor compatibility check on display: if the anchor can't be resolved when the user opens a Friction entry later, show "Anchor stale — element no longer in DOM" rather than failing silently.
+- **Coexistence with `Onboarding`, `CreateProjectModal`, etc.** Friction selection mode should be inert when a modal scrim is open (modal owns interaction). Easy via reading `appStore.dialog !== null` and bailing.
+- **Coexistence with `SurfaceDevPanel`.** As above. Document in CSS comment.
+- **No `agentation` in production.** Once Friction ships, drop the `import.meta.env.MODE === "development"` Agentation gate or remove the dep entirely. Track 13.J item: confirm the agentation dep is no longer load-bearing post-Friction.
+
+**Tests:**
+
+- Unit: `FrictionButton` toggles store state on click.
+- Unit: `SelectionOverlay` follows mousemove and emits anchor on click.
+- Unit: anchor.ts computes stable paths for representative elements; falls back to component-name+text when no `data-friction-id`.
+- Integration: `cmd_report_friction` writes the markdown file + emits the event; `gh issue create` is spawned with the right args (mocked via `gh` shim).
+- E2E (Playwright, in 15-J's harness): full flow click button → hover element → click → type message → submit → assert toast + assert markdown file exists.
+
+**Done when:**
+
+The user can press the button, click any UI element, type a sentence, drop a screenshot, and within 5 seconds see a GitHub issue filed with all the context attached. Friction friction itself (no recursion) is below 30 seconds end-to-end. Local fallback works offline. Triage surface in Settings shows all entries with their issue numbers.
+
+---
+
 ### Track 13.J — Phase 13.H follow-ups *(non-blocking; surfaced by the six-perspective review of PR #22)*
 
 **Why a separate track:** the 13.H review pass surfaced two classes of follow-up — small structural / test cleanups that are out-of-scope for the wiring PR but worth a discrete pass, plus heavier UX items that belong in the Phase 15 polish bucket (see `Phase 15.J` below). 13.J collects the structural items so they don't get lost. None block dogfooding.
@@ -920,6 +989,36 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 **Prior art — Forge:** `/Users/benyamron/Desktop/coding/forge/`. Python-stdlib scripts under `forge/scripts/` (analyze-config, analyze-transcripts, analyze-memory, build-proposals, check-pending, format-proposals, cache-manager, finalize-proposals) + two subagents (`session-analyzer`, formerly `artifact-generator`) + three skills (`/forge`, `/forge:settings`, `/forge:version`) + SessionStart/SessionEnd hooks. v0.4.1 shipped; Phase 4 (quality + polish) in progress; Phase 5 (cross-project aggregation) planned. The pipeline, detector list, proposal types, calibration loop, and storage split are all load-bearing reference designs for Phase 21 — but Forge lives *inside* a Claude Code session, whereas Designer lives *around* it. The detector set below extends Forge's because Designer has richer inputs.
 
 **Needs:** 13.F (`LocalOps` surfaces wired to the real Foundation helper), 13.D (real agent traffic — analyzing mock streams proves nothing), plus Phase 13.G (approval gate + scope guard + cost tracker surfaces existing as event streams the detectors can consume).
+
+### Phase 21.A — Frontloadable detectors *(agent-parallelizable; ship while dogfooding)*
+
+**Why frontload:** the deterministic detectors in the table below are pure Rust functions — `Fn(&SessionAnalysisInput, &DetectorConfig) -> Vec<Finding>`. Each one is independent, ~half-day of agent work, fully testable on captured event-store fixtures, and produces immediate signal once wired. **They do not need Phase B (LocalOps synthesis) or the proposal-acceptance UI to be useful** — finding storage + a basic listing surface in Settings is enough to start collecting "Designer noticed…" hits while you dogfood.
+
+This is the highest-leverage parallel-agent work available right now: ten detectors, ten branches, ten merges, no contention. The user's daily sessions become training-quality signal from day one.
+
+**Sequencing:**
+
+1. **Phase 21.A1 — Foundation** *(1 agent, ~1 day; blocks the parallel detectors)*. Add `crates/designer-learn/` with the `SessionAnalysisInput` builder (reads from `EventStore`), `Finding` struct, `Detector` trait, `DetectorConfig`, and a `findings` event payload. Add a Settings → "Designer noticed" page that lists findings chronologically (read-only — Phase B accept/reject UI lands in Phase 21 proper). Migrate Forge's threshold defaults verbatim where they apply.
+2. **Phase 21.A2 — Detector squad** *(parallel; one agent per detector; each ~half-day)*. Each detector is its own file under `crates/designer-learn/src/detectors/<name>.rs`, its own fixture under `crates/designer-learn/tests/fixtures/<name>/`, and its own merge. Recommended order by signal value:
+   - `repeated_correction` (fastest signal — corrections are loud)
+   - `approval_always_granted` *(Designer-unique — uses `ApprovalRequested` events)*
+   - `scope_false_positive` *(Designer-unique — uses `ScopeDenied` events)*
+   - `cost_hot_streak` *(Designer-unique — uses `CostRecorded` events)*
+   - `repeated_prompt_opening`
+   - `multi_step_tool_sequence`
+   - `config_gap`
+   - `compaction_pressure` *(Designer-unique)*
+   - `domain_specific_in_claude_md`
+   - `memory_promotion`
+3. **Phase 21.A3 — Cross-project aggregation** *(after A1 + ≥3 detectors, 1 agent)*. Forge's Phase 5 work — when N projects show the same detector firing, surface a meta-finding ("this is a *you* preference, not a *project* preference"). Useful while dogfooding because the user runs Designer across multiple repos.
+
+**Out of scope for 21.A** (deferred to Phase 21 proper):
+- Phase B LocalOps synthesis + quality gate (needs the Foundation helper's real-binary validation)
+- Proposal generation (the "what to do about the finding") and editable acceptance UI
+- Calibration loop (per-detector accept/reject rates)
+- File-write side: turning accepted proposals into actual `CLAUDE.md` / rule / skill edits
+
+**Done when:** all ten Phase A detectors ship, the Settings → "Designer noticed" page renders findings as the user dogfoods, and at least one Designer-unique detector (recommended: `approval_always_granted`) has fired against the user's real session data.
 
 ### Analysis inputs — what the layer reads
 

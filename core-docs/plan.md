@@ -29,9 +29,45 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 Plus: `--app-titlebar-height` and `--layer-titlebar` defined as design tokens, `createProjectOpen` boolean migrated to extending `AppDialog` discriminant, shared `collectFocusable` + `messageFromError` helpers extracted to `lib/modal.ts` (used by both `RepoLinkModal` and `CreateProjectModal`).
 
-**Next: dogfood-driven.** Designer is now actually runnable in `/Applications` against real Claude. The next phase priority is whatever real workflow friction surfaces — Phase 14 (sync transport) vs. Phase 15 (polish) vs. Track 13.J (the 13.H/PR-24 follow-ups), driven by daily-driver signal.
+**Next: parallel-agent execution while the user dogfoods.** Designer is now actually runnable in `/Applications` against real Claude. Rather than serialize phases, frontload everything that's agent-parallelizable so the user's dogfood signal feeds back into focused work. The lanes below are the working sequence.
 
 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
+
+## Parallel-agent execution lanes *(2026-04-26 reorder)*
+
+Pick from these top-down. Lane 1 starts immediately; Lanes 2–3 run alongside; Lane 4 needs the user in the loop; Lane 5 is deferred until earlier lanes signal them ready.
+
+### Lane 1 — IMMEDIATE *(start today; one agent picks each)*
+
+- **[P0] Phase 13.K — Friction (internal feedback capture).** Floating bottom-right button → element-anchored hover/select → message + drag-drop screenshot → auto-creates GitHub issue. ~1–2 days. **Highest leverage: every friction the user feels during dogfooding becomes captured signal that feeds 15.J / 15.K / 21 prioritization.** See `roadmap.md` § Track 13.K for the full spec.
+- **Phase 21.A1 — Learning layer foundation.** New `crates/designer-learn/` with `SessionAnalysisInput` builder + `Detector` trait + `Finding` struct + Settings → "Designer noticed" listing surface. Blocks the parallel detector squad. ~1 day.
+- **Track 13.J — first 4 cleanups in parallel.** Pick four 13.J items (e.g. F5+1 correlation, ADR addendum, `forward_broadcast` unify, ReaderLoopCtx). Four agents, four branches, four merges. Each ~half-day.
+
+### Lane 2 — PARALLEL *(spin up alongside Lane 1; no contention)*
+
+- **Phase 21.A2 — Detector squad.** Once 21.A1 lands, spin up one agent per detector. Recommended top-of-list: `repeated_correction`, `approval_always_granted`, `scope_false_positive`, `cost_hot_streak`, then the rest. Each is a self-contained file under `crates/designer-learn/src/detectors/<name>.rs` with its own fixture. **The user's dogfood sessions become training-quality signal as detectors land.** See `roadmap.md` § Phase 21.A.
+- **Phase 14 — Sync transport.** Independent of UI. WebRTC pairing + 6-digit code + two-process integration test. ~5–7 days for a single agent.
+- **Phase 16.S — Supply-chain CI** *(the audits, not the signing)*. `cargo audit`, `cargo deny`, SBOM, lockfile-lint as CI gates. ~1–2 days for one agent.
+- **Track 13.J — remaining cleanups.** Pick up the rest of the 13.J list as Lane 1 agents finish.
+
+### Lane 3 — DOGFOOD-DRIVEN *(driven by what 13.K's Friction inbox surfaces)*
+
+- **Phase 15.J — Real-Claude UX polish items.** Each item is a small focused fix. Triage from the Friction inbox; spin one agent per high-priority item per week. Detail in `roadmap.md` § 15.J.
+- **Phase 15.K — Onboarding & first-run.** One agent in isolation. ~3–5 days. Surface design informed by Lane 1's 13.K findings (which onboarding moments friction-flagged most).
+
+### Lane 4 — SINGLE-TRACK *(user in the loop; not agent-parallel)*
+
+- **Phase 13.I — Safety enforcement.** GA gate (cannot ship public release without). Coherent design surface — Touch ID, scope canonicalization, HMAC chain — that needs careful review-loop. ~15–20 days. Detail in `security.md`.
+- **Phase 16.R — Signed DMG.** Needs the user's Apple Developer cert + secrets. Single sequential pipeline. ~2–3 days. The user already has the cert; once Friction is filed enough findings that 15.J is winding down, this is the natural next.
+
+### Lane 5 — DEFERRED *(post-DMG; not actionable yet)*
+
+- Phase 17 — Team-tier trust *(needs real users + procurement signal)*
+- Phase 18 — Mobile *(gates on Phase 14 sync transport landing)*
+- Phase 19 — Workspace scales up *(driven by signal that you actually need parallel tracks per workspace)*
+- Phase 20 — Parallel-work coordination *(needs Phase 19 primitives + real "we tried to coordinate N tracks by hand" pain)*
+- Phase 21 — Phase B (LocalOps synthesis + quality gate; needs 13.F real-binary validation on AI-capable Mac first)
+- Phase 21 — Project-side proposal-acceptance UI (after Phase B and after enough A-tier findings have accumulated to design the surface against real data)
 
 ## Handoff Notes
 
@@ -145,6 +181,19 @@ Independent items, picked by what dogfooding surfaces first:
 - [ ] `AppCore::sync_projector_from_log` incrementalization (last-seen sequence per stream).
 - [ ] **15.J — Real-Claude UX polish.** Tool-use card visual demotion, ApprovalBlock drill-down + resolved-label fix + busy state, cost chip a11y glyph + cap-warn popover + first-enable tip, code-change rail cross-fade, `ArtifactKind::Report` disambiguation, AskUserQuestion choice as feedback entry. Detail in `roadmap.md` § 15.J.
 - [ ] **15.K — Onboarding & first-run.** Welcome → claude auth verification → github auth verification → "create your first project" chain. Currently Onboarding ends in a dismiss; an empty `~/.designer/` should walk the user through to a working state. Detail in `roadmap.md` § 15.K.
+
+### Track 13.K — Friction *(internal feedback capture; P0 next-up)*
+
+In-app feedback tool for dogfooding. Floating bottom-right button → click any element → drop screenshot + type a note → automatic GitHub issue. The dogfood signal feeder for everything in 15.J, 15.K, 21. Detail in `roadmap.md` § Track 13.K.
+
+- [ ] Add `EventPayload::FrictionReported` variant + ADR for the additive event-vocabulary extension.
+- [ ] `crates/designer-core/.../friction.rs` (new module) — backend persistence + `gh issue create` background task + screenshot-to-gist transport.
+- [ ] `cmd_report_friction` IPC + frontend client.
+- [ ] `packages/app/src/components/Friction/` — FrictionButton (bottom-right floating), SelectionOverlay (hover focus ring tracker), FrictionWidget (anchored input + drag-drop screenshot zone), anchor.ts (stable element descriptors).
+- [ ] Coexistence rule with `SurfaceDevPanel` — Friction owns bottom-right; SurfaceDevPanel shifts up in dev mode.
+- [ ] Settings → "Friction" triage page (chronological list, open issue link, mark resolved).
+- [ ] Tests: anchor stability + button toggle + IPC happy path + integration smoke.
+- [ ] Drop the dev-only `Agentation` gate or remove the dep entirely once Friction ships.
 
 ### Track 13.J — Phase 13.H + 13.K follow-ups *(non-blocking; structural cleanups + first-run polish carry-overs)*
 
