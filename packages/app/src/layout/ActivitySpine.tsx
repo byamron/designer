@@ -114,6 +114,7 @@ export function ActivitySpine() {
   return (
     <aside
       className="app-spine"
+      data-component="ActivitySpine"
       aria-label="Activity"
       style={{ width: spineWidth }}
     >

@@ -41,7 +41,7 @@ function BlockHeader({
   pinnable?: boolean;
 }) {
   return (
-    <header className="block__header">
+    <header className="block__header" data-component="BlockHeader">
       <div className="block__header-row">
         <span className="block__kind-badge" data-kind={kind}>
           {humanizeKind(kind)}
@@ -86,7 +86,7 @@ function BlockHeader({
 
 export function MessageBlock({ artifact }: BlockProps) {
   return (
-    <article className="block block--message" aria-label={`Message by ${artifact.author_role ?? "user"}`}>
+    <article className="block block--message" data-component="MessageBlock" aria-label={`Message by ${artifact.author_role ?? "user"}`}>
       <div className="block__message-author">{artifact.author_role ?? "user"}</div>
       <div className="block__message-body">{artifact.summary}</div>
     </article>
@@ -102,7 +102,7 @@ export function SpecBlock(props: BlockProps) {
   const body = payload?.kind === "inline" ? payload.body : artifact.summary;
   const panelId = useId();
   return (
-    <article className="block block--spec">
+    <article className="block block--spec" data-component="SpecBlock">
       <BlockHeader
         title={artifact.title}
         authorRole={artifact.author_role}
@@ -134,7 +134,7 @@ export function CodeChangeBlock(props: BlockProps) {
       : [];
   const panelId = useId();
   return (
-    <article className="block block--code-change">
+    <article className="block block--code-change" data-component="CodeChangeBlock">
       <BlockHeader
         title={artifact.title}
         authorRole={artifact.author_role}
@@ -166,7 +166,7 @@ export function CodeChangeBlock(props: BlockProps) {
 export function PrBlock({ artifact, isPinned, onTogglePin, payload }: BlockProps) {
   const url = payload?.kind === "inline" ? payload.body.trim() : null;
   return (
-    <article className="block block--pr">
+    <article className="block block--pr" data-component="PrBlock">
       <BlockHeader
         title={artifact.title}
         authorRole={artifact.author_role}
@@ -257,6 +257,7 @@ export function ApprovalBlock({ artifact, payload, isPinned, onTogglePin }: Bloc
   return (
     <article
       className="block block--approval"
+      data-component="ApprovalBlock"
       data-state={resolution}
       aria-label={`Approval: ${artifact.title}`}
       aria-busy={busy || undefined}
@@ -309,7 +310,7 @@ export function ApprovalBlock({ artifact, payload, isPinned, onTogglePin }: Bloc
 
 export function CommentBlock({ artifact }: BlockProps) {
   return (
-    <article className="block block--comment">
+    <article className="block block--comment" data-component="CommentBlock">
       <div className="block__comment-author">
         {artifact.author_role ?? "user"}
       </div>
@@ -368,7 +369,7 @@ export function ReportBlock(props: BlockProps) {
   const panelId = useId();
   const expandable = Boolean(body);
   return (
-    <article className="block block--report">
+    <article className="block block--report" data-component="ReportBlock">
       <BlockHeader
         title={artifact.title}
         authorRole={artifact.author_role}
@@ -392,7 +393,7 @@ export function ReportBlock(props: BlockProps) {
 export function PrototypeBlock(props: BlockProps) {
   const html = props.payload?.kind === "inline" ? props.payload.body : null;
   return (
-    <article className="block block--prototype">
+    <article className="block block--prototype" data-component="PrototypeBlock">
       <BlockHeader
         title={props.artifact.title}
         authorRole={props.artifact.author_role}
@@ -414,7 +415,7 @@ export function PrototypeBlock(props: BlockProps) {
 
 export function DiagramBlock(props: BlockProps) {
   return (
-    <article className="block block--diagram">
+    <article className="block block--diagram" data-component="DiagramBlock">
       <BlockHeader
         title={props.artifact.title}
         authorRole={props.artifact.author_role}

@@ -81,6 +81,7 @@ export function QuickSwitcher() {
   return (
     <div
       className="quick-switcher-overlay"
+      data-component="QuickSwitcher"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) toggleQuickSwitcher(false);

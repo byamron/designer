@@ -28,7 +28,7 @@ export function ProjectStrip() {
   const onCreate = () => openCreateProject();
 
   return (
-    <nav className="app-strip" aria-label="Projects">
+    <nav className="app-strip" data-component="ProjectStrip" aria-label="Projects">
       {projects.map((p) => {
         const initials = p.project.name
           .split(/\s+/)

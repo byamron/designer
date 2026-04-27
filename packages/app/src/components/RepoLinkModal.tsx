@@ -101,6 +101,7 @@ export function RepoLinkModal({
   return (
     <div
       className="app-dialog-scrim"
+      data-component="RepoLinkModal"
       role="presentation"
       onClick={(e) => {
         // onClick (not onMouseDown) so a drag that starts inside the

@@ -16,7 +16,7 @@ export function TabLayout({
   dock?: ReactNode;
 }) {
   return (
-    <div className="tab-layout">
+    <div className="tab-layout" data-component="TabLayout">
       <div className="tab-layout__scroll">
         <div className="tab-layout__inner">{children}</div>
       </div>

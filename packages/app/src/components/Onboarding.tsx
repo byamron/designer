@@ -73,6 +73,7 @@ export function Onboarding() {
   return (
     <div
       className="quick-switcher-overlay"
+      data-component="Onboarding"
       role="dialog"
       aria-modal="true"
       aria-label="Welcome to Designer"

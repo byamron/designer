@@ -37,7 +37,7 @@ export function MainView() {
     // back to the "pick from sidebar" copy.
     const firstRun = projects.length === 0;
     return (
-      <main className="app-main" aria-label="Main" id="main-content" tabIndex={-1}>
+      <main className="app-main" data-component="MainView" aria-label="Main" id="main-content" tabIndex={-1}>
         <div className="main-surface">
           <div className="main-empty">
             <h2 className="main-empty__title">
@@ -67,7 +67,7 @@ export function MainView() {
 
   if (!workspace) {
     return (
-      <main className="app-main" aria-label="Main" id="main-content" tabIndex={-1}>
+      <main className="app-main" data-component="MainView" aria-label="Main" id="main-content" tabIndex={-1}>
         {/* Project home — always the Panels variant. The palette is still
             available for blank tabs (BlankTab) where it better fits the
             "I don't know what I want yet; show me affordances" intent. */}
@@ -108,7 +108,7 @@ export function MainView() {
   };
 
   return (
-    <main className="app-main" aria-label="Main" id="main-content" tabIndex={-1}>
+    <main className="app-main" data-component="MainView" aria-label="Main" id="main-content" tabIndex={-1}>
       {/* Workspace chrome: the tabs bar is the top row. Workspace name,
           branch, and lifecycle state all live in the left sidebar already. */}
       <div className="tabs-bar" role="tablist" aria-orientation="horizontal">
