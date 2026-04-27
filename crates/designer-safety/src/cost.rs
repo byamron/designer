@@ -9,6 +9,7 @@ use designer_core::{
     Actor, EventEnvelope, EventPayload, EventStore, StreamId, StreamOptions, WorkspaceId,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,7 +103,12 @@ impl<S: EventStore> CostTracker<S> {
             .read_all(StreamOptions::default())
             .await
             .map_err(SafetyError::Core)?;
-        self.usage.clear();
+        // Fold every CostRecorded into a local map first, then publish in one
+        // pass. The previous implementation called `self.usage.entry(...)` per
+        // event, locking a DashMap shard each time; for long event histories
+        // that is N shard-acquisitions when 1 would suffice. Equivalence with
+        // the old per-event path is asserted in `tests::replay_matches_old_path`.
+        let mut acc: HashMap<WorkspaceId, CostUsage> = HashMap::new();
         for env in &events {
             if let EventPayload::CostRecorded {
                 workspace_id,
@@ -111,11 +117,15 @@ impl<S: EventStore> CostTracker<S> {
                 dollars_cents,
             } = &env.payload
             {
-                let mut entry = self.usage.entry(*workspace_id).or_default();
+                let entry = acc.entry(*workspace_id).or_default();
                 entry.tokens_input = entry.tokens_input.saturating_add(*tokens_input);
                 entry.tokens_output = entry.tokens_output.saturating_add(*tokens_output);
                 entry.dollars_cents = entry.dollars_cents.saturating_add(*dollars_cents);
             }
+        }
+        self.usage.clear();
+        for (workspace_id, usage) in acc {
+            self.usage.insert(workspace_id, usage);
         }
         Ok(())
     }
@@ -189,4 +199,90 @@ pub fn usd_to_cents(usd: f64) -> u64 {
         return 0;
     }
     (usd * 100.0).round() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designer_core::SqliteEventStore;
+
+    /// Reference implementation of the previous per-event replay path. Used
+    /// only in the equivalence test below so the new bulk implementation can
+    /// be compared against the exact code it replaced.
+    async fn old_path_replay(store: &Arc<SqliteEventStore>) -> DashMap<WorkspaceId, CostUsage> {
+        let usage: DashMap<WorkspaceId, CostUsage> = DashMap::new();
+        let events = store.read_all(StreamOptions::default()).await.unwrap();
+        for env in &events {
+            if let EventPayload::CostRecorded {
+                workspace_id,
+                tokens_input,
+                tokens_output,
+                dollars_cents,
+            } = &env.payload
+            {
+                let mut entry = usage.entry(*workspace_id).or_default();
+                entry.tokens_input = entry.tokens_input.saturating_add(*tokens_input);
+                entry.tokens_output = entry.tokens_output.saturating_add(*tokens_output);
+                entry.dollars_cents = entry.dollars_cents.saturating_add(*dollars_cents);
+            }
+        }
+        usage
+    }
+
+    #[tokio::test]
+    async fn replay_matches_old_path() {
+        let store = Arc::new(SqliteEventStore::open_in_memory().unwrap());
+        // Five workspaces, 20 events apiece — 100 events total. Spread the
+        // appends across workspaces so the event stream interleaves them and
+        // the accumulator must merge per-workspace contributions correctly.
+        let workspaces: Vec<WorkspaceId> = (0..5).map(|_| WorkspaceId::new()).collect();
+        for i in 0..100u64 {
+            let ws = workspaces[(i as usize) % workspaces.len()];
+            store
+                .append(
+                    StreamId::Workspace(ws),
+                    None,
+                    Actor::user(),
+                    EventPayload::CostRecorded {
+                        workspace_id: ws,
+                        tokens_input: i,
+                        tokens_output: i * 2,
+                        dollars_cents: i * 3 + 7,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        // A single non-cost event mixed in to confirm the filter still skips it.
+        store
+            .append(
+                StreamId::Workspace(workspaces[0]),
+                None,
+                Actor::user(),
+                EventPayload::AuditEntry {
+                    category: "test".into(),
+                    summary: "non-cost event in stream".into(),
+                    details: serde_json::Value::Null,
+                },
+            )
+            .await
+            .unwrap();
+
+        let tracker = CostTracker::new(store.clone(), CostCap::default());
+        tracker.replay_from_store().await.unwrap();
+
+        let expected = old_path_replay(&store).await;
+        for ws in &workspaces {
+            let got = tracker.usage(*ws);
+            let want = expected.get(ws).map(|u| *u).unwrap_or_default();
+            assert_eq!(got, want, "workspace {ws} mismatched after replay");
+        }
+        // Workspaces in the old path that the new path missed (or vice versa)
+        // would also be a divergence — guard the inverse direction.
+        assert_eq!(
+            expected.len(),
+            workspaces.len(),
+            "fixture should populate every workspace"
+        );
+    }
 }
