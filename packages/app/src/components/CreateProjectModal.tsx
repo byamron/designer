@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FolderOpen } from "lucide-react";
 import { ipcClient } from "../ipc/client";
+import { isTauri, pickFolder } from "../ipc/tauri";
 import { closeCreateProject, selectProject, useAppState } from "../store/app";
 import { refreshProjects } from "../store/data";
 import { collectFocusable, messageFromError } from "../lib/modal";
@@ -94,6 +96,14 @@ export function CreateProjectModal({ onCreated }: CreateProjectModalProps = {}) 
     [error],
   );
 
+  const onPickFolder = useCallback(async () => {
+    const picked = await pickFolder(rootPath.trim() || undefined);
+    if (!picked) return;
+    onPathChange(picked);
+    // Hand focus back so the user can hit Enter without re-clicking.
+    pathRef.current?.focus();
+  }, [rootPath, onPathChange]);
+
   if (!open) return null;
 
   const submit = async () => {
@@ -166,26 +176,43 @@ export function CreateProjectModal({ onCreated }: CreateProjectModalProps = {}) 
             >
               Project folder
             </label>
-            <input
-              ref={pathRef}
-              id="create-project-path"
-              type="text"
-              className="quick-switcher__input"
-              placeholder="~/code/my-project"
-              value={rootPath}
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-              onChange={(e) => onPathChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void submit();
-                }
-              }}
-              aria-invalid={error !== null && !rootPath.trim()}
-              disabled={busy}
-            />
+            <div className="create-project__path-row">
+              <input
+                ref={pathRef}
+                id="create-project-path"
+                type="text"
+                className="quick-switcher__input create-project__path-input"
+                placeholder="~/code/my-project"
+                value={rootPath}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                onChange={(e) => onPathChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submit();
+                  }
+                }}
+                aria-invalid={error !== null && !rootPath.trim()}
+                disabled={busy}
+              />
+              {/* Native picker only meaningful in Tauri; web build keeps
+                * the text input as the sole affordance. */}
+              {isTauri() && (
+                <button
+                  type="button"
+                  className="btn create-project__browse"
+                  onClick={() => void onPickFolder()}
+                  disabled={busy}
+                  aria-label="Choose folder"
+                  title="Choose folder"
+                >
+                  <FolderOpen size={14} strokeWidth={1.5} aria-hidden="true" />
+                  Browse…
+                </button>
+              )}
+            </div>
             {pathHint && (
               <p
                 style={{

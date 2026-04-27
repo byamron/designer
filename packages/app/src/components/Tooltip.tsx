@@ -126,28 +126,68 @@ function TooltipSurface({
   rect: DOMRect;
   side: "auto" | "top" | "bottom" | "left" | "right";
 }) {
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  // Two-pass measure → clamp. First pass paints offscreen + hidden; second
+  // pass positions inside the viewport, so triggers at any window edge
+  // (titlebar corners, modal close X) never produce a clipped tooltip.
+  const [measured, setMeasured] = useState<{ w: number; h: number } | null>(
+    null,
+  );
+
+  useLayoutEffect(() => {
+    if (!surfaceRef.current) return;
+    const r = surfaceRef.current.getBoundingClientRect();
+    setMeasured((prev) =>
+      prev && prev.w === r.width && prev.h === r.height
+        ? prev
+        : { w: r.width, h: r.height },
+    );
+  }, [label, shortcut]);
+
   const gap = 6;
-  const resolved = side === "auto" ? (rect.top > 48 ? "top" : "bottom") : side;
+  const margin = 4;
+  const resolved =
+    side === "auto" ? (rect.top > 48 ? "top" : "bottom") : side;
+
   const style: React.CSSProperties = { position: "fixed" };
-  if (resolved === "top") {
-    style.left = rect.left + rect.width / 2;
-    style.top = rect.top - gap;
-    style.transform = "translate(-50%, -100%)";
-  } else if (resolved === "bottom") {
-    style.left = rect.left + rect.width / 2;
-    style.top = rect.bottom + gap;
-    style.transform = "translate(-50%, 0)";
-  } else if (resolved === "left") {
-    style.left = rect.left - gap;
-    style.top = rect.top + rect.height / 2;
-    style.transform = "translate(-100%, -50%)";
+  if (!measured) {
+    style.left = -9999;
+    style.top = -9999;
+    style.visibility = "hidden";
   } else {
-    style.left = rect.right + gap;
-    style.top = rect.top + rect.height / 2;
-    style.transform = "translate(0, -50%)";
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const { w, h } = measured;
+    let left: number;
+    let top: number;
+    if (resolved === "top") {
+      left = rect.left + rect.width / 2 - w / 2;
+      top = rect.top - gap - h;
+    } else if (resolved === "bottom") {
+      left = rect.left + rect.width / 2 - w / 2;
+      top = rect.bottom + gap;
+    } else if (resolved === "left") {
+      left = rect.left - gap - w;
+      top = rect.top + rect.height / 2 - h / 2;
+    } else {
+      left = rect.right + gap;
+      top = rect.top + rect.height / 2 - h / 2;
+    }
+    left = Math.min(Math.max(left, margin), Math.max(margin, vw - w - margin));
+    top = Math.min(Math.max(top, margin), Math.max(margin, vh - h - margin));
+    style.left = left;
+    style.top = top;
   }
+
   return (
-    <div id={id} role="tooltip" className="tooltip" data-side={resolved} style={style}>
+    <div
+      ref={surfaceRef}
+      id={id}
+      role="tooltip"
+      className="tooltip"
+      data-side={resolved}
+      style={style}
+    >
       <span className="tooltip__label">{label}</span>
       {shortcut && <kbd className="tooltip__kbd">{shortcut}</kbd>}
     </div>

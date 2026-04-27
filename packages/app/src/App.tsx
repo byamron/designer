@@ -7,6 +7,7 @@ import { Onboarding } from "./components/Onboarding";
 import { AppDialog } from "./components/AppDialog";
 import { CreateProjectModal } from "./components/CreateProjectModal";
 import { SurfaceDevPanel } from "./components/SurfaceDevPanel";
+import { Titlebar } from "./components/Titlebar";
 import { bootData, dataStore, useDataState } from "./store/data";
 import {
   appStore,
@@ -71,38 +72,35 @@ export function App() {
     });
   }, []);
 
-  if (!loaded) {
-    return (
-      <div
-        role="status"
-        aria-live="polite"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          color: "var(--color-muted)",
-        }}
-      >
-        Booting…
-      </div>
-    );
-  }
-
   // Settings takes over the entire viewport — it's a full page, not a
-  // modal. The AppDialog component continues to handle "help" (which
-  // remains modal — short, informational, doesn't warrant a page).
+  // modal. The AppDialog component continues to handle "help".
   const settingsOpen = dialog === "settings";
+  const isDev = import.meta.env.MODE === "development";
 
   return (
     <>
-      {settingsOpen ? <SettingsPage /> : <AppShell />}
-      <QuickSwitcher />
-      <AppDialog />
-      <CreateProjectModal />
-      <Onboarding />
-      {import.meta.env.MODE === "development" && <SurfaceDevPanel />}
-      {import.meta.env.MODE === "development" && <Agentation />}
+      <Titlebar />
+      {!loaded ? (
+        <BootingStatus />
+      ) : (
+        <>
+          {settingsOpen ? <SettingsPage /> : <AppShell />}
+          <QuickSwitcher />
+          <AppDialog />
+          <CreateProjectModal />
+          <Onboarding />
+          {isDev && <SurfaceDevPanel />}
+          {isDev && <Agentation />}
+        </>
+      )}
     </>
+  );
+}
+
+function BootingStatus() {
+  return (
+    <div role="status" aria-live="polite" className="app-booting">
+      Booting…
+    </div>
   );
 }

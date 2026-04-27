@@ -26,6 +26,7 @@ designer-local-models.workspace = true
 designer-sync.workspace = true
 designer-ipc.workspace = true
 tauri.workspace = true
+tauri-plugin-dialog.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
