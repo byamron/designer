@@ -232,7 +232,7 @@ Surfaced by the PR #22 six-perspective review (13.H wiring) and the PR #24 three
 - [ ] **F4 test reuse** — expose `core_local::tests::boot_with_helper_status` as `pub(crate)` and a shared `mod test_support` for `CountingHandler`/`CountingOps`.
 - [ ] **`run_reader_loop` context struct** — bundle the 9 args into `ReaderLoopCtx`, drop `#[allow(clippy::too_many_arguments)]`.
 - [ ] **Bounded translator state** — LRU cap (~1k) on `ClaudeStreamTranslator::tasks`/`agents` HashMaps so multi-day sessions can't grow them unboundedly.
-- [ ] **`CostTracker::replay_from_store` bulk-update** — collapse N shard-locks into one bulk projection at end of replay.
+- [x] **`CostTracker::replay_from_store` bulk-update** — collapse N shard-locks into one bulk projection at end of replay. *(landed 2026-04-26 in PR #30; `crates/designer-safety/src/cost.rs` only; equivalence test `cost::tests::replay_matches_old_path` covers a 100-event interleaved fixture)*
 
 13.K (first-run polish — PR #24) follow-ups:
 

@@ -362,9 +362,9 @@ Two crates ship in-memory state that must reflect historical events after a proc
 
 Why methods on the existing types instead of constructor parameters that take a snapshot: snapshot construction would force callers to know what to read, which couples them to the event vocabulary. Replay methods own their own queries and walk the log in one pass each. The pattern scales: a future `RateLimitTracker` that needs to remember per-day caps across boots gets the same shape — `pub async fn replay_from_store(&self) -> SafetyResult<()>`, called from `AppCore::boot`. Anything that holds runtime state derived from the event log gets this.
 
-The replay is *idempotent*: it `clear()`s the in-memory map first and then walks. A second call is a no-op (modulo wall-clock cost). Locks: the cost replay holds the `DashMap` entry mutex per write; the gate replay holds its `parking_lot::Mutex` for the entire replay (which is fine — replay is one-shot).
+The replay is *idempotent*: it `clear()`s the in-memory map first and then walks. A second call is a no-op (modulo wall-clock cost). Locks: the cost replay folds events into a local `HashMap` then bulk-publishes to the shared `DashMap` in one pass — N shard-acquisitions collapsed to K (where K = distinct workspaces seen) per Track 13.J 1.C, 2026-04-26; the gate replay holds its `parking_lot::Mutex` for the entire replay (which is fine — replay is one-shot).
 
-Tests: `cost_tracker_replay_reflects_historical_spend` and `gate_replay_reflects_historical_resolutions` in `crates/designer-safety/tests/gates.rs`; `cost_status_reflects_historical_spend_after_restart` in `core_safety::tests` exercises the full `AppCore::boot` path including the replay call.
+Tests: `cost_tracker_replay_reflects_historical_spend` and `gate_replay_reflects_historical_resolutions` in `crates/designer-safety/tests/gates.rs`; `cost::tests::replay_matches_old_path` (in-crate, post-13.J) anchors equivalence between the bulk-update path and the prior per-event entry path; `cost_status_reflects_historical_spend_after_restart` in `core_safety::tests` exercises the full `AppCore::boot` path including the replay call.
 
 ## 2026-04-25 — Phase 13.G: cost-chip color band uses Radix scale tokens directly, no role tokens added
 
