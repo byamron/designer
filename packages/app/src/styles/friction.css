@@ -1,0 +1,506 @@
+/* --- Track 13.K Friction ---------------------------------------------- */
+/* Bottom-right floating button + selection overlay + pinned widget +
+ * armed-state banner. Pattern-log notes the corner reservation rule. */
+
+.friction-button {
+  position: fixed;
+  right: var(--space-4);
+  bottom: max(var(--space-4), env(safe-area-inset-bottom, 0px));
+  z-index: var(--layer-overlay);
+  width: var(--target-md);
+  height: var(--target-md);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--elevation-raised);
+  transition: color var(--motion-interactive), background var(--motion-interactive),
+    transform var(--motion-interactive);
+}
+
+.friction-button:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.friction-button:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.friction-button[data-armed="true"] {
+  color: var(--color-background);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  transform: scale(1.04);
+}
+
+.friction-banner {
+  position: fixed;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--layer-overlay);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-background);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--elevation-raised);
+  font-size: var(--type-body-size);
+  pointer-events: auto;
+}
+
+.friction-banner__title {
+  font-weight: var(--weight-medium);
+}
+
+.friction-banner__hint {
+  opacity: 0.85;
+  font-size: var(--type-caption-size);
+}
+
+.friction-banner__cancel {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid currentColor;
+  color: inherit;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-button);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+}
+
+.friction-banner__cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.friction-overlay {
+  position: fixed;
+  pointer-events: none;
+  z-index: var(--layer-overlay);
+  border-radius: var(--radius-button);
+  transition: left var(--motion-interactive), top var(--motion-interactive),
+    width var(--motion-interactive), height var(--motion-interactive);
+}
+
+.friction-overlay--snapped {
+  outline: var(--border-strong) solid var(--color-accent);
+  outline-offset: var(--focus-outline-offset);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.friction-overlay--atom {
+  outline: var(--border-thin) dashed color-mix(in srgb, var(--color-accent) 60%, transparent);
+}
+
+.friction-overlay__tooltip {
+  position: fixed;
+  z-index: var(--layer-overlay);
+  pointer-events: none;
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  font-size: var(--type-caption-size);
+  max-width: var(--width-tooltip-max);
+  box-shadow: var(--elevation-raised);
+}
+
+.friction-overlay__descriptor {
+  font-family: var(--type-family-mono);
+  font-weight: var(--weight-medium);
+}
+
+.friction-overlay__snippet {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friction-widget {
+  position: fixed;
+  z-index: var(--layer-overlay);
+  width: var(--width-popover-md);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-raised);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.friction-widget__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.friction-widget__title {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friction-widget__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-button);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.friction-widget__close:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.friction-widget__body {
+  width: 100%;
+  resize: vertical;
+  min-height: calc(var(--space-4) * 4);
+  padding: var(--space-2);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  color: var(--color-foreground);
+  font-family: inherit;
+  font-size: var(--type-body-size);
+}
+
+.friction-widget__body:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.friction-widget__screenshot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.friction-widget__shot-empty {
+  flex: 1;
+  appearance: none;
+  background: var(--color-surface-raised);
+  border: var(--border-thin) dashed var(--color-border);
+  border-radius: var(--radius-button);
+  padding: var(--space-2);
+  color: var(--color-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+}
+
+.friction-widget__shot-empty:hover {
+  color: var(--color-foreground);
+  border-color: var(--color-foreground);
+}
+
+.friction-widget__shot-preview {
+  flex: 1;
+  position: relative;
+  border-radius: var(--radius-button);
+  overflow: hidden;
+  border: var(--border-thin) solid var(--color-border);
+  max-height: var(--size-thumb-md);
+}
+
+.friction-widget__shot-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.friction-widget__shot-clear {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  appearance: none;
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-muted);
+  border-radius: var(--radius-button);
+  width: var(--target-sm);
+  height: var(--target-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.friction-widget__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.friction-widget__chip {
+  background: var(--color-surface-raised);
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  padding: var(--space-1);
+  border-radius: var(--radius-pill);
+}
+
+.friction-widget__toast {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-button);
+  font-size: var(--type-caption-size);
+  background: var(--color-surface-raised);
+  color: var(--color-foreground);
+}
+
+.friction-widget__toast-link {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--accent-11);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+}
+
+.friction-widget__toast[data-kind="failed"] {
+  background: color-mix(in srgb, var(--danger-9) 14%, var(--color-surface-raised));
+}
+
+.friction-widget__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* Settings → Activity → Friction master list (Track 13.L). Filter chips
+ * across the top via the shared `SegmentedToggle`; expanding rows below.
+ * `Open` is the default filter; if it's empty but history exists, the
+ * page auto-falls-through to `All` so the user lands on something. */
+
+.friction-triage__filters {
+  margin-bottom: var(--space-3);
+}
+
+.friction-triage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.friction-triage__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+}
+
+.friction-triage__toggle {
+  grid-column: 1 / 2;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-2);
+  row-gap: 0;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+.friction-triage__chevron {
+  grid-row: 1 / 3;
+  align-self: start;
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  transition: transform var(--motion-interactive);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .friction-triage__chevron {
+    transition: none;
+  }
+}
+
+.friction-triage__toggle[aria-expanded="true"] .friction-triage__chevron {
+  transform: rotate(90deg);
+}
+
+.friction-triage__title {
+  grid-column: 2;
+  grid-row: 1;
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friction-triage__meta {
+  grid-column: 2;
+  grid-row: 2;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.friction-triage__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.friction-triage__state-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+.friction-triage__state[data-state="open"] {
+  color: var(--accent-11);
+}
+.friction-triage__state[data-state="open"] .friction-triage__state-dot {
+  background: var(--accent-9);
+}
+
+.friction-triage__state[data-state="addressed"] {
+  color: var(--color-muted);
+}
+.friction-triage__state[data-state="addressed"] .friction-triage__state-dot {
+  background: var(--accent-7);
+}
+
+.friction-triage__state[data-state="resolved"] {
+  color: var(--color-muted);
+}
+.friction-triage__state[data-state="resolved"] .friction-triage__state-dot {
+  background: var(--gray-9);
+}
+
+.friction-triage__pr {
+  font-family: var(--type-family-mono);
+}
+
+.friction-triage__actions {
+  grid-column: 2 / 3;
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.friction-triage__detail {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+}
+
+.friction-triage__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.friction-triage__screenshot-link {
+  align-self: flex-start;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--accent-11);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+}
+
+.friction-triage__screenshot-link:hover {
+  text-decoration-thickness: var(--border-strong);
+}
+
+.friction-triage__pr-link {
+  color: var(--color-muted);
+}
+
+.friction-triage__pr-link a {
+  color: var(--accent-11);
+}
+
+.friction-triage__empty {
+  padding: var(--space-4) var(--space-3);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  text-align: center;
+  list-style: none;
+}
+
+/* Address-friction dialog reuses the global `app-dialog` chrome from
+ * `RepoLinkModal` / `CreateProjectModal`. Only entry-specific bits live
+ * here. */
+
+.address-friction__entry-title {
+  margin: 0;
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.address-friction__error {
+  margin: 0;
+  color: var(--danger-9);
+  font-size: var(--type-caption-size);
+}
+
+.address-friction__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

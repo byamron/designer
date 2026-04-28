@@ -1,0 +1,112 @@
+/* --- segmented toggle + template menu ---- */
+/* Shared pill toggle — Panels/Palette, Bounded/Open, and any future
+ * two-to-N segmented control. */
+
+.segmented-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.segmented-toggle__btn {
+  all: unset;
+  cursor: pointer;
+  font-size: var(--type-caption-size);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  transition: color var(--motion-interactive), background var(--motion-interactive);
+}
+
+.segmented-toggle__btn svg {
+  display: block;
+}
+
+.segmented-toggle__btn[aria-pressed="true"] {
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+}
+
+.segmented-toggle__btn:hover {
+  color: var(--color-foreground);
+}
+
+.segmented-toggle__btn:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: calc(var(--focus-outline-offset) * -1);
+}
+
+/* --- new tab button + menu ---- */
+/* The + is an IconButton inside .tabs-bar, trailing the rightmost tab.
+ * Visual weight matches an unselected tab. */
+
+.new-tab {
+  position: relative;
+  display: inline-flex;
+}
+
+.new-tab__menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  min-width: calc(var(--space-8) * 4);
+  background: var(--color-background);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-overlay);
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  z-index: var(--layer-overlay);
+  animation: mini-overlay-in var(--motion-enter);
+}
+
+.new-tab__item {
+  appearance: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: var(--space-4) 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-3);
+  row-gap: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-body-size);
+  text-align: left;
+}
+
+.new-tab__item:hover,
+.new-tab__item:focus-visible {
+  background: var(--color-surface-raised);
+  outline: none;
+}
+
+.new-tab__item-icon {
+  grid-row: span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+.new-tab__item-hint {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+@keyframes mini-overlay-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-tab__menu { animation: none; }
+}

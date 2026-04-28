@@ -80,6 +80,10 @@
           "type": "string",
           "format": "date",
           "description": "ISO-8601 date (YYYY-MM-DD) of last modification."
+        },
+        "css_prefix": {
+          "type": "string",
+          "description": "BEM-style class prefix (or space-separated list) the component owns. Tells AI generators and reviewers which selectors belong to this component when grepping CSS."
         }
       },
       "additionalProperties": false

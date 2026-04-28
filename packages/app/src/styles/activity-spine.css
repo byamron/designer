@@ -1,0 +1,213 @@
+/* --- activity spine ---- */
+
+.spine-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Header sits at the same X column as the rail row content. */
+  padding: 0 var(--space-4);
+}
+
+.spine-header__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  /* Aligns with the tabs-bar label row (matches .sidebar-header__row). */
+  min-height: var(--target-md);
+}
+
+.spine-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.spine-summary__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-foreground);
+}
+
+.spine-summary__item--muted {
+  color: var(--color-muted);
+}
+
+.spine-list {
+  list-style: none;
+  margin: 0;
+  /* Horizontal padding restores the X column for agent rows now that
+   * .app-spine no longer pads horizontally. Matches the section
+   * labels above. */
+  padding: 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Artifact / file list — grid rows with icon + label + optional meta.
+ * Separate from .spine-list (tree) because these rows are leaves: no
+ * indent, no depth gridline, straightforward "open this as a tab"
+ * affordance. */
+.spine-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.spine-item {
+  all: unset;
+  display: grid;
+  grid-template-columns: var(--icon-md) 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  cursor: pointer;
+  color: var(--color-foreground);
+  width: 100%;
+  box-sizing: border-box;
+  transition: background var(--motion-interactive);
+}
+
+.spine-item:hover {
+  background: var(--color-surface-raised);
+}
+
+.spine-item:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: calc(var(--focus-outline-offset) * -1);
+}
+
+.spine-item__label {
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spine-item__meta {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: calc(var(--space-8) * 2);
+}
+
+.spine-row {
+  all: unset;
+  display: grid;
+  grid-template-columns: var(--space-3) 1fr;
+  align-items: baseline;
+  gap: var(--space-3);
+  cursor: pointer;
+  color: var(--color-foreground);
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: calc(var(--space-4) * var(--depth, 0));
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 var(--space-2),
+    var(--color-border) var(--space-2) calc(var(--space-2) + var(--border-thin)),
+    transparent calc(var(--space-2) + var(--border-thin)) var(--space-4)
+  );
+  background-size: calc(var(--space-4) * var(--depth, 0)) 100%;
+  background-repeat: no-repeat;
+  background-origin: border-box;
+}
+
+.spine-row:hover .spine-row__label { color: var(--color-foreground); }
+.spine-row:hover .spine-row__summary { color: var(--color-foreground); }
+
+.spine-row:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-badge);
+}
+
+.spine-row .state-dot {
+  align-self: center;
+}
+
+.spine-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.spine-row__label {
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  color: var(--color-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--motion-interactive);
+}
+
+.spine-row__summary {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  color: var(--color-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--motion-interactive);
+}
+
+.spine-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Section text children (label + empty state) live at the same X as the
+ * row content. Real items (.spine-artifact / .spine-row) render
+ * edge-to-edge and re-introduce the horizontal padding internally. */
+.spine-section > .sidebar-label,
+.spine-section > .sidebar-empty {
+  padding: 0 var(--space-4);
+}
+
+.spine-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.spine-events > li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.spine-event__time {
+  font-family: var(--type-family-mono);
+  color: var(--color-muted);
+}
+
+.spine-event__body {
+  color: var(--color-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

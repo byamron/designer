@@ -33,6 +33,23 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0034: North-star — a smooth AI enforcement loop that produces cohesive components on the first prompt
+**Date:** 2026-04-27
+**Source:** user direction (design-system audit, primitives discussion)
+
+**What was said:** "My real goal long term from a technical perspective is to build a system with an enforcement loop so smooth I can just prompt AI and it will deliver flawless components that are cohesive and perfect according to my design language and codebase quality standards." Discussed in the context of whether to adopt Mini's layout primitives now (deferred — see ADR 0006), with the recognition that mobile, marketing, and web product surfaces are probable.
+
+**Synthesized rule:** Every Mini-related decision is in service of this loop. The loop has three layers, and each one needs to be tight enough that an AI can hit it on the first try without human cleanup:
+- **Contract layer** — tokens, axioms, semantic scales. AI references named tokens; the language of the system is unambiguous.
+- **Enforcement layer** — invariants check, manifest coverage, primitive-prop type signatures (when adopted), CI gates. Drift cannot land silently.
+- **Curation layer** — generation log, pattern log, manifest. AI can read prior firings, see what passed and what didn't, and converge on the project's voice without re-elicitation each time.
+
+When proposing any design-system change, ask: does this make the AI loop tighter, looser, or neutral? Tighten by default. Loosen only with explicit reasoning. The substrate question — CSS classes vs JSX primitives, single-product vs multi-product layout — is downstream of this. The primary lens is enforcement, not aesthetics or library preference.
+
+The loop's bottleneck shifts as the system matures. Today it's drift detection (invariants weren't CI-gated). Tomorrow it might be component-reuse signal (manifest is rich enough that the AI picks the right base) or visual regression (snapshot tests for layout). Re-audit periodically; widen the highest-leverage hop.
+
+**Applies to:** architecture, design-system, workflow, agent behavior, AI tooling
+
 ### FB-0033: Reuse user infrastructure before building runtime — for review, preview, and adjacent capabilities
 **Date:** 2026-04-27
 **Source:** user direction (visual PR diff brainstorm)
