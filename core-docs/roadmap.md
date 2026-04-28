@@ -963,7 +963,7 @@ The user can hit ⌘⇧F, type a sentence, hit ⌘↵, and have a friction recor
 
 **Goal:** the quality-of-life pass that doesn't block shipping but defines the feel. Every item is independent — pick based on what the user feels most during dogfooding.
 
-- **Mini primitives migration (G12).** Rewrite `AppShell`, `HomeTab`, `ActivitySpine`, `WorkspaceSidebar` to use `Box` / `Stack` / `Cluster` / `Sidebar` from `@designer/ui/primitives`. Eliminate inline flex.
+- **Mini hygiene + primitives decision (G12, 15.M).** Re-sync upstream Mini (axioms / primitives / skills / invariants) then re-evaluate primitives adoption per ADR 0006 tripwires. Detail in 15.M below. Tripwire-driven, not date-driven.
 - **Correlation/causation (G13).** When the orchestrator emits an event in response to a user action, set `causation_id` to the triggering event. The activity spine gains a "why did this happen" drilldown.
 - **Pairing RNG (G14).** Swap the manual `/dev/urandom` read in `PairingMaterial::random` for `rand::rngs::OsRng`.
 - **Dark-mode regression (G15).** Add a Vitest + Playwright combination that screenshot-diffs every primary surface in light + dark.
@@ -1052,6 +1052,40 @@ The user can hit ⌘⇧F, type a sentence, hit ⌘↵, and have a friction recor
 - Multi-account claude / per-project model overrides.
 
 **Done when:** a fresh `~/.designer/` install walks the user from zero state through claude auth check, github auth check, "create your first project" with their repo, and into a working session — without forcing them to know about `events.db`, env vars, or PATH. No initial surface in the app shows a blank pane with chrome around it.
+
+### Phase 15.M — Mini hygiene + primitives decision *(detail)*
+
+**Why:** Stages 1–2 of the design-system audit (2026-04-27) shipped CI-gated invariants + manifest coverage and split the 4066-line `app.css` into 18 per-surface partials. The two remaining stages — re-syncing Mini and deciding on primitives adoption — were intentionally bundled and deferred to this phase. ADR 0006 records the deferral with five reopen tripwires; this section sequences the work for when one of them fires.
+
+**Tripwires (any one fires the work):**
+1. **Second product surface starts** — mobile, marketing site, or web cockpit. Most likely tripwire per user direction (FB-0034). At that point primitives become the portable layer between products and the cost calculus inverts.
+2. **Component count crosses ~50** — Designer was at ~37 components on 2026-04-27. Compounding "every new component reinvents flex" cost.
+3. **Second contributor regularly authors UI** — concurrent Claude sessions count; AI-driven generation that has to respect the language counts more.
+4. **`app.css` regrows past ~2000 lines** — signal that organization isn't holding under feature pressure even after the Stage 2 split.
+5. **Mini upstream evolves the primitives** — pull-driven adoption of a specific upstream change Designer wants to consume.
+
+**Stage 3 — Mini sync (always do this first when 15.M fires):**
+- Run `./scripts/sync-mini.sh` from the project root. The script overwrites the upstream-tracked surface (`packages/ui/src/primitives/`, `packages/ui/src/archetypes/`, `packages/ui/styles/axioms.css`, `packages/ui/styles/primitives.css`, `.claude/skills/`, `tools/invariants/`, `templates/`); fork-and-own files (`packages/ui/styles/tokens.css`, `packages/ui/styles/archetypes.css`) are never touched.
+- Diff the result. Categorize each upstream change as adopt-as-is / adopt-with-port / skip-with-rationale. Log non-obvious choices in `pattern-log.md`.
+- Update `MINI-VERSION.md` (the script does this) and verify both CI gates still pass against the synced upstream — invariants check first, manifest coverage second.
+- Done when: synced commit pinned in `MINI-VERSION.md`, `node tools/invariants/check.mjs packages/app/src` 6/6, `node tools/manifest/check.mjs` clean.
+
+**Stage 4 — Primitives adoption decision (after Stage 3):**
+
+Run the ADR 0006 re-evaluation audit:
+
+1. Count current components and lines across `packages/app/src/styles/*.css` (the Stage 2 split's resulting surfaces).
+2. Count primitive-shaped layout patterns in the existing CSS — flex columns / rows, two-column sidebars, centered content. That's the migration target size.
+3. Count layout patterns that *cannot* be expressed as primitives — `position: fixed`, transforms, the negative-margin tab seam, container queries, anything `color-mix()`-based. That's the residual CSS that stays no matter what.
+4. If migration target / residual ratio is greater than ~3:1, primitives earn their slot. Otherwise the mixed state is permanent and not worth entering.
+
+If the audit clears: do the migration as a planned project — one PR per surface family (shell → tabs → home → blocks → friction in that order, smallest blast radius first), visual-snapshot-tested, in a 1–2 week stretch where no other UI work is happening. Don't trickle.
+
+If the audit fails: formally retire the primitives package. Either delete `packages/ui/src/primitives/` or downgrade the package to "upstream we happen not to consume." Update ADR 0006 with the result and the reasoning. Mini still ships tokens / axioms / archetypes / skills / invariants — that's the part actually carrying the design system.
+
+**Why the two stages are bundled:** Stage 4's audit only makes sense against the freshest Mini. Adopting yesterday's primitives, then re-syncing, is double migration; running the audit on stale primitives risks deciding on an outdated abstraction.
+
+**Done when:** Mini is synced, the primitives decision is recorded in an ADR 0006 amendment, and either (a) the migration project is queued with a per-surface task list or (b) the primitives package is retired with a one-line replacement in `MINI-VERSION.md`.
 
 ---
 

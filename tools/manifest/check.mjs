@@ -21,6 +21,7 @@ import { extname, join, relative } from "node:path";
 
 const ROOT = process.cwd();
 const MANIFEST_PATH = "core-docs/component-manifest.json";
+const SCHEMA_PATH = "templates/component-manifest.schema.json";
 
 // Directories whose .tsx files are component sources.
 // Update if a new component-bearing directory is introduced.
@@ -69,6 +70,20 @@ function loadManifest() {
   return json.components ?? [];
 }
 
+function loadSchemaKeys() {
+  // Lightweight schema key check — full JSON-schema validation would
+  // require ajv as a dependency. This catches the most common drift:
+  // entries that carry a property the schema doesn't declare. If the
+  // schema's `additionalProperties: false` is ever relaxed, this still
+  // flags the contract gap rather than silently accepting it.
+  if (!existsSync(SCHEMA_PATH)) return null;
+  const src = readFileSync(SCHEMA_PATH, "utf8");
+  const json = JSON.parse(src);
+  const props = json?.$defs?.component?.properties;
+  if (!props) return null;
+  return new Set(Object.keys(props));
+}
+
 function run() {
   const components = loadManifest();
   const coveredPaths = new Set(
@@ -88,10 +103,25 @@ function run() {
     return !existsSync(join(ROOT, p));
   });
 
-  return { allFiles: relFiles, missing, stalePaths };
+  // Schema-key drift: properties on entries that aren't declared in the
+  // schema. Catches the common case where someone adds a field to the
+  // manifest without updating the schema (or vice versa).
+  const schemaKeys = loadSchemaKeys();
+  const schemaDrift = [];
+  if (schemaKeys) {
+    for (const c of components) {
+      for (const k of Object.keys(c)) {
+        if (!schemaKeys.has(k)) {
+          schemaDrift.push(`${c.name ?? "(unnamed)"}: extra field "${k}"`);
+        }
+      }
+    }
+  }
+
+  return { allFiles: relFiles, missing, stalePaths, schemaDrift };
 }
 
-function formatHuman({ allFiles, missing, stalePaths }) {
+function formatHuman({ allFiles, missing, stalePaths, schemaDrift }) {
   const lines = [];
   lines.push(`Manifest: ${MANIFEST_PATH}`);
   lines.push(`Component files scanned: ${allFiles.length}`);
@@ -109,6 +139,12 @@ function formatHuman({ allFiles, missing, stalePaths }) {
     for (const p of stalePaths) lines.push(`  - ${p}`);
     lines.push(`  (mark as "status": "retired" in the manifest if the file was deleted)`);
   }
+  if (schemaDrift.length > 0) {
+    lines.push("");
+    lines.push(`FAIL: ${schemaDrift.length} schema-key drift(s) — manifest entries carry fields the schema doesn't declare:`);
+    for (const d of schemaDrift) lines.push(`  - ${d}`);
+    lines.push(`  (add the property to templates/component-manifest.schema.json or remove from the entry)`);
+  }
   return lines.join("\n");
 }
 
@@ -116,7 +152,7 @@ function formatJson(report) {
   return JSON.stringify(
     {
       ...report,
-      pass: report.missing.length === 0,
+      pass: report.missing.length === 0 && report.schemaDrift.length === 0,
     },
     null,
     2
@@ -127,7 +163,7 @@ const args = process.argv.slice(2);
 const mode = args.includes("--json") ? "json" : "human";
 
 const report = run();
-const fail = report.missing.length > 0;
+const fail = report.missing.length > 0 || report.schemaDrift.length > 0;
 
 if (mode === "json") console.log(formatJson(report));
 else console.log(formatHuman(report));
