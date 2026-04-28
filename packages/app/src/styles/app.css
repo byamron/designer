@@ -3611,40 +3611,45 @@ kbd {
  * armed-state banner. Pattern-log notes the corner reservation rule. */
 
 .friction-button {
+  /* 13.M demotes the button: smaller footprint, lower-contrast hover.
+   * ⌘⇧F is the primary trigger; the button is the discoverable affordance
+   * for users who don't yet know the shortcut. */
   position: fixed;
   right: var(--space-4);
   bottom: max(var(--space-4), env(safe-area-inset-bottom, 0px));
   z-index: var(--layer-overlay);
-  width: var(--target-md);
-  height: var(--target-md);
+  width: var(--target-sm);
+  height: var(--target-sm);
   border-radius: var(--radius-pill);
-  background: var(--color-surface-overlay);
+  background: transparent;
   border: var(--border-thin) solid var(--color-border);
   color: var(--color-muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--elevation-raised);
+  opacity: 0.55;
   transition: color var(--motion-interactive), background var(--motion-interactive),
-    transform var(--motion-interactive);
+    opacity var(--motion-interactive);
 }
 
 .friction-button:hover {
   color: var(--color-foreground);
   background: var(--color-surface-raised);
+  opacity: 0.85;
 }
 
 .friction-button:focus-visible {
   outline: var(--focus-outline-width) solid var(--focus-outline-color);
   outline-offset: var(--focus-outline-offset);
+  opacity: 1;
 }
 
-.friction-button[data-armed="true"] {
-  color: var(--color-background);
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  transform: scale(1.04);
+.friction-button[data-active="true"] {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+  border-color: var(--color-foreground);
+  opacity: 1;
 }
 
 .friction-banner {
@@ -3739,7 +3744,16 @@ kbd {
 }
 
 .friction-widget {
+  /* 13.M: composer mounts bottom-right, anchored to the demoted
+   * FrictionButton. No more anchor-relative collision avoidance — the
+   * composer is a fixed surface the user types into; selection-mode is
+   * the opt-in path that re-anchors the user to a specific element. */
   position: fixed;
+  right: var(--space-4);
+  bottom: calc(
+    max(var(--space-4), env(safe-area-inset-bottom, 0px)) + var(--target-sm) +
+      var(--space-2)
+  );
   z-index: var(--layer-overlay);
   width: 360px;
   background: var(--color-surface-overlay);
@@ -3759,6 +3773,35 @@ kbd {
   gap: var(--space-2);
 }
 
+.friction-widget__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.friction-widget__icon-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-button);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.friction-widget__icon-btn:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.friction-widget__icon-btn:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
 .friction-widget__title {
   font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
@@ -3766,6 +3809,63 @@ kbd {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.friction-widget__anchor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-foreground);
+  font-size: var(--type-caption-size);
+  font-family: var(--type-family-mono);
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.friction-widget__anchor-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friction-widget__anchor-clear {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.friction-widget__anchor-clear:hover {
+  color: var(--color-foreground);
+}
+
+.friction-widget__keyhints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  border-top: var(--border-thin) solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.friction-widget__keyhints kbd {
+  font-family: var(--type-family-mono);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  padding: 0 var(--space-1);
+  margin-right: 4px;
+  color: var(--color-foreground);
 }
 
 .friction-widget__close {

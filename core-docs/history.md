@@ -37,6 +37,53 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Track 13.M — Friction trivial-by-default UX
+**Date:** 2026-04-28
+**Branch:** friction-trivial-ux
+
+**What was done:**
+
+Rewires the Friction widget so the typed-sentence path is the default and selection mode demotes to opt-in. Folds in 13.K's deferred v2 items (auto-capture, stream-subscribed toast).
+
+- **Composer-default flow.** ⌘⇧F mounts the composer bottom-right with the body textarea autofocused. Body alone is enough to submit (⌘↵). When the user submits without anchoring, a page-level `dom-element` anchor synthesized from the active route stands in. ESC dismisses.
+- **⌘⇧S viewport capture.** New `cmd_capture_viewport` IPC. Tauri 2.10 has no built-in webview-capture API, so we shell out to macOS `screencapture -R<x,y,w,h>` against the window's screen rect, scaled from physical pixels back to points via `WebviewWindow::scale_factor()`. The frontend hides the composer for one paint frame (two `requestAnimationFrame`s) before invoking the command so the composer doesn't appear in its own screenshot. Non-macOS hosts return a clear "macOS-only in this build" error.
+- **Opt-in anchor mode.** ⌘. or 📍 button enters selection mode; the composer hides while selection is active and restores with the anchor descriptor as a chip (× to clear). The selection-mode banner keeps a persistent legend ("Click element to anchor · Alt: anchor exact child · ESC to cancel") so Alt-overrides-snap is discoverable, not buried.
+- **50ms suppression replaces 600ms grace.** 13.K's silent 600ms outside-click grace was the single largest source of "where did my click go?" ambiguity. Replaced with a deterministic 50ms swallow after arming — long enough to absorb the click that triggered selection mode, short enough to feel instant.
+- **Demoted FrictionButton.** Smaller footprint, lower-contrast hover, no accent fill while active. ⌘⇧F is the primary trigger; the button exists as the discoverable affordance for users who don't yet know the shortcut.
+- **Persistent key-hint footer.** Inside the composer: `⌘↵ submit · ⌘⇧S screenshot · ⌘. anchor · ESC dismiss`. Always visible — no discoverability hide-and-seek.
+- **Stream-subscribed toast.** Post-submit toast subscribes to the workspace event stream and upgrades from "Filed locally" → "Filed as #abc123" once `friction_reported` lands in the projection. Removes the "did it actually save?" ambiguity from the local-only path.
+
+State machine: `frictionMode: "off" | "composing" | "selecting"` (was `"off" | "selecting" | "editing"`). The transitions are documented inline in `packages/app/src/store/app.ts`.
+
+**Why:**
+
+The four-perspective review of 13.K found that selection mode added cognitive load before the user had typed a single character. For a solo dogfood user, the most common case is "the thing I'm looking at right now is bad" — they don't need to anchor, they need a fast capture. 13.M makes "type a sentence and submit" the default path so the friction loop completes in <2s with zero DOM-walking. Selection demotes to a discoverable opt-in for the cases that actually need it.
+
+**Design decisions:**
+
+- **Page-level anchor as fallback, not a new variant.** When the user submits without anchoring, we synthesize a `dom-element` Anchor against the route. Reuses the locked Anchor enum per the frozen contracts; no new event variant needed.
+- **Hide-for-one-frame via two rAFs.** The first rAF fires after the visibility:hidden style is committed; the second fires after the paint actually lands. With one rAF the capture occasionally raced and included the composer's pixels.
+- **Tempfile staging over `screencapture - -`.** Stdout capture is unreliable on older macOS; staging to `/tmp/designer-friction-<pid>-<seq>.png` and reading back is one extra syscall but never flakes. Best-effort cleanup on the success path; an explicit unlink in the error path keeps `/tmp/` clean.
+- **Visual demotion before removal.** The button stays as a discoverable affordance. Removing it entirely would be cleaner if every user knew ⌘⇧F, but they don't — and the demoted button costs us nothing while teaching the shortcut via tooltip.
+
+**Technical decisions:**
+
+- **`cmd_capture_viewport(window: tauri::WebviewWindow)`.** The Tauri command takes the calling webview window directly so we don't need to look it up by label. Geometry comes from `outer_position()` + `inner_size()` (physical pixels) divided by `scale_factor()` (the standard points<>pixels conversion `screencapture -R` expects).
+- **Subscription teardown on toast timeout.** The stream subscriber is unsubscribed inside the same `setTimeout` that calls `clearFriction()`, so we never leak a listener even if the projection event arrives after the toast has been cleared.
+- **`io::Error::other`, not `io::Error::new(ErrorKind::Other, ...)`.** Clippy `io_other_error` lint catches this; using `Error::other` keeps clippy clean and is the rust-1.74+ idiom.
+
+**Tradeoffs discussed:**
+
+- **Webview-capture vs `screencapture` shell-out.** The spec mentioned `webview.capture()` but Tauri 2.10 doesn't ship one. Options: (a) wait for upstream, (b) pull a `xcap`/`core-graphics` Rust crate, (c) shell to `screencapture`. (c) won — it's a single 5-line tokio-blocking call, the macOS user already has the binary, and it gracefully prompts for Screen Recording permission on first use. We can swap to a Rust-native capture later without changing the IPC shape.
+- **Page-level anchor synthesis vs making the IPC anchor optional.** Making the anchor optional would have broken the locked `ReportFrictionRequest` contract and forced a backend version bump. Synthesizing a `dom-element` anchor with `selectorPath: "body"` and the route as descriptor satisfies the contract and projects sensibly in the triage view (descriptor falls back to the route).
+
+**Lessons learned:**
+
+- **jsdom doesn't ship `elementFromPoint`.** The 50ms-suppression Vitest needed a property stub to avoid blowing up the click-outside path. Worth noting in any future overlay tests.
+- **`clearFriction` in `beforeEach` AND `afterEach`.** The widget's effect-driven reset isn't quite enough between tests because React's act-flushing happens after the assertion. Belt-and-suspenders cleanup keeps tests order-independent.
+
+---
+
 ### Phase 21.A1.1 — Designer noticed on workspace home + cap/dedup polish
 **Date:** 2026-04-27
 **Branch:** noticed-home-placement

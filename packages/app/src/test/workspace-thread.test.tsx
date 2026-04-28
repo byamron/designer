@@ -84,6 +84,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       resolveFriction: () => Promise.resolve(),
       addressFriction: () => Promise.resolve(),
       reopenFriction: () => Promise.resolve(),
+      captureViewport: () => Promise.resolve(new Uint8Array()),
       revealInFinder: () => Promise.resolve(),
       listFindings: () => Promise.resolve([]),
       signalFinding: () => Promise.resolve(),
