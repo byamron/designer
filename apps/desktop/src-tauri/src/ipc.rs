@@ -329,6 +329,34 @@ pub async fn cmd_retry_file_friction(
     core.retry_file_friction(friction_id).await
 }
 
+// ---- Learning layer (Phase 21.A1) ---------------------------------------
+
+/// Read all findings for `project_id`. Returns the empty list on a
+/// fresh boot. Page renders chronological order (insertion time on
+/// each stream); cross-stream ordering is "project-then-workspace" per
+/// `core_learn::list_findings`.
+pub async fn cmd_list_findings(
+    core: &Arc<AppCore>,
+    project_id: ProjectId,
+) -> Result<Vec<FindingDto>, IpcError> {
+    let findings = core
+        .list_findings(project_id)
+        .await
+        .map_err(IpcError::from)?;
+    Ok(findings.into_iter().map(FindingDto::from).collect())
+}
+
+/// Record the user's thumbs-up/down on a specific finding. Phase B's
+/// calibration loop reads them later; Phase A only records.
+pub async fn cmd_signal_finding(
+    core: &Arc<AppCore>,
+    req: SignalFindingRequest,
+) -> Result<(), IpcError> {
+    core.signal_finding(req.finding_id, req.signal)
+        .await
+        .map_err(IpcError::from)
+}
+
 fn helper_status_to_response(status: HelperStatus, health: HelperHealth) -> HelperStatusResponse {
     let kind = match status.kind {
         HelperStatusKind::Live => "live".to_string(),

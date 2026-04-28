@@ -13,6 +13,7 @@ use designer_desktop::commands;
 use designer_desktop::commands_agents;
 use designer_desktop::commands_friction;
 use designer_desktop::commands_git;
+use designer_desktop::commands_learn;
 use designer_desktop::commands_local;
 use designer_desktop::commands_safety;
 use designer_desktop::core::AppCoreBoot;
@@ -165,6 +166,8 @@ fn main() {
             commands_git::cmd_list_tracks,
             commands_git::cmd_request_merge,
             commands_git::cmd_start_track,
+            commands_learn::cmd_list_findings,
+            commands_learn::cmd_signal_finding,
             commands_local::cmd_audit_artifact,
             commands_local::cmd_recap_workspace,
             commands_safety::cmd_get_cost_chip_preference,

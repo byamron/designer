@@ -914,6 +914,7 @@ dependencies = [
  "designer-core",
  "designer-git",
  "designer-ipc",
+ "designer-learn",
  "designer-local-models",
  "designer-safety",
  "designer-sync",
@@ -959,6 +960,24 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "time",
+]
+
+[[package]]
+name = "designer-learn"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "designer-core",
+ "designer-local-models",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

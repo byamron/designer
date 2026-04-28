@@ -4,9 +4,10 @@
 
 use crate::anchor::Anchor;
 use crate::domain::{Actor, ArtifactKind, Autonomy, PayloadRef, TabTemplate, WorkspaceState};
+use crate::finding::{Finding, ThumbSignal};
 use crate::ids::{
-    AgentId, ApprovalId, ArtifactId, EventId, FrictionId, ProjectId, StreamId, TabId, TaskId,
-    TrackId, WorkspaceId,
+    AgentId, ApprovalId, ArtifactId, EventId, FindingId, FrictionId, ProjectId, StreamId, TabId,
+    TaskId, TrackId, WorkspaceId,
 };
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -280,6 +281,19 @@ pub enum EventPayload {
     FrictionResolved {
         friction_id: FrictionId,
     },
+
+    // Phase 21.A — learning layer (frozen by Lane 0 ADR; see ADR 0002
+    // addendum 2026-04-26). `FindingRecorded` carries a single observation
+    // produced by a deterministic detector; `FindingSignaled` carries the
+    // user's thumbs-up/down calibration on a finding. Phase A only records;
+    // Phase B reads `FindingSignaled` to retune thresholds.
+    FindingRecorded {
+        finding: Finding,
+    },
+    FindingSignaled {
+        finding_id: FindingId,
+        signal: ThumbSignal,
+    },
 }
 
 /// Where a friction record's screenshot lives. `Local` is the only state
@@ -396,6 +410,8 @@ pub enum EventKind {
     FrictionLinked,
     FrictionFileFailed,
     FrictionResolved,
+    FindingRecorded,
+    FindingSignaled,
 }
 
 impl EventPayload {
@@ -440,6 +456,8 @@ impl EventPayload {
             EventPayload::FrictionLinked { .. } => EventKind::FrictionLinked,
             EventPayload::FrictionFileFailed { .. } => EventKind::FrictionFileFailed,
             EventPayload::FrictionResolved { .. } => EventKind::FrictionResolved,
+            EventPayload::FindingRecorded { .. } => EventKind::FindingRecorded,
+            EventPayload::FindingSignaled { .. } => EventKind::FindingSignaled,
         }
     }
 }
@@ -559,5 +577,44 @@ mod tests {
             let back: EventPayload = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(payload, &back, "round-trip mismatch for {json}");
         }
+    }
+
+    /// Phase 21.A1 — finding events round-trip through serde and report
+    /// the right `EventKind`. Without this, a downstream projector that
+    /// pattern-matches on `kind` could silently drop finding events when
+    /// a serde rename slips in.
+    #[test]
+    fn finding_events_roundtrip_through_serde() {
+        use crate::finding::{Finding, Severity, ThumbSignal};
+        use crate::ids::FindingId;
+        let project_id = ProjectId::new();
+        let finding = Finding {
+            id: FindingId::new(),
+            detector_name: "noop".into(),
+            detector_version: 1,
+            project_id,
+            workspace_id: None,
+            timestamp: Timestamp::UNIX_EPOCH,
+            severity: Severity::Notice,
+            confidence: 0.75,
+            summary: "noop saw nothing".into(),
+            evidence: vec![],
+            suggested_action: None,
+            window_digest: "deadbeef".into(),
+        };
+        let recorded = EventPayload::FindingRecorded {
+            finding: finding.clone(),
+        };
+        let signaled = EventPayload::FindingSignaled {
+            finding_id: finding.id,
+            signal: ThumbSignal::Up,
+        };
+        for payload in [recorded.clone(), signaled.clone()] {
+            let json = serde_json::to_string(&payload).expect("serialize");
+            let back: EventPayload = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(payload, back, "round-trip mismatch for {json}");
+        }
+        assert_eq!(recorded.kind(), EventKind::FindingRecorded);
+        assert_eq!(signaled.kind(), EventKind::FindingSignaled);
     }
 }

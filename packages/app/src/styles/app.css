@@ -3955,3 +3955,102 @@ kbd {
   font-size: var(--type-caption-size);
   text-align: center;
 }
+
+/* --- Designer noticed (Phase 21.A1) ---------------------------------- */
+/* Read-only list of findings under Settings → Activity → "Designer
+ * noticed". Severity drives the left-border accent only.
+ */
+.designer-noticed__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.designer-noticed__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-3);
+  border-bottom: var(--border-thin) solid var(--color-border);
+  border-left: 2px solid var(--color-border);
+}
+
+.designer-noticed__row:last-child {
+  border-bottom: none;
+}
+
+.designer-noticed__row[data-severity="info"] {
+  border-left-color: var(--color-border);
+}
+
+.designer-noticed__row[data-severity="notice"] {
+  border-left-color: var(--accent-9, var(--color-accent));
+}
+
+.designer-noticed__row[data-severity="warn"] {
+  border-left-color: var(--warning-9);
+}
+
+.designer-noticed__row-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.designer-noticed__row-summary {
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
+  line-height: var(--type-body-leading);
+  overflow-wrap: anywhere;
+}
+
+.designer-noticed__row-meta {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.designer-noticed__row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  justify-self: end;
+}
+
+.designer-noticed__signal {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-2);
+  padding: var(--space-2);
+  color: var(--color-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.designer-noticed__signal:hover {
+  color: var(--color-foreground);
+  border-color: var(--color-foreground);
+}
+
+.designer-noticed__signal:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.designer-noticed__signal[data-active="true"] {
+  background: var(--accent-3, var(--color-surface));
+  border-color: var(--accent-9, var(--color-accent));
+  color: var(--accent-11, var(--color-foreground));
+}
+
+.activity-section__tabs {
+  margin-bottom: var(--space-3);
+}

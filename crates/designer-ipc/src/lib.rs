@@ -5,8 +5,9 @@
 //! becomes painful).
 
 use designer_core::{
-    Anchor, Artifact, ArtifactId, ArtifactKind, Autonomy, FrictionId, PayloadRef, Project,
-    ProjectId, TabTemplate, Track, TrackId, TrackState, Workspace, WorkspaceId, WorkspaceState,
+    Anchor, Artifact, ArtifactId, ArtifactKind, Autonomy, Finding, FindingId, FrictionId,
+    PayloadRef, Project, ProjectId, Severity, TabTemplate, ThumbSignal, Track, TrackId, TrackState,
+    Workspace, WorkspaceId, WorkspaceState,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -582,4 +583,52 @@ pub struct HelperStatusResponse {
     /// hardware/OS cannot support the helper; UI should not offer retry.
     /// `None` when `kind == "live"`.
     pub recovery: Option<String>,
+}
+
+// ---- Learning layer (Phase 21.A1) ---------------------------------------
+
+/// Wire shape for a finding rendered by the Settings → Activity →
+/// "Designer noticed" page. Mirrors `designer_core::Finding` but
+/// timestamp is RFC3339-stringified so the TS side gets a primitive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FindingDto {
+    pub id: FindingId,
+    pub detector_name: String,
+    pub detector_version: u32,
+    pub project_id: ProjectId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<WorkspaceId>,
+    pub timestamp: String,
+    pub severity: Severity,
+    pub confidence: f32,
+    pub summary: String,
+    pub evidence: Vec<Anchor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_action: Option<serde_json::Value>,
+    pub window_digest: String,
+}
+
+impl From<Finding> for FindingDto {
+    fn from(f: Finding) -> Self {
+        FindingDto {
+            id: f.id,
+            detector_name: f.detector_name,
+            detector_version: f.detector_version,
+            project_id: f.project_id,
+            workspace_id: f.workspace_id,
+            timestamp: designer_core::rfc3339(f.timestamp),
+            severity: f.severity,
+            confidence: f.confidence,
+            summary: f.summary,
+            evidence: f.evidence,
+            suggested_action: f.suggested_action,
+            window_digest: f.window_digest,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalFindingRequest {
+    pub finding_id: FindingId,
+    pub signal: ThumbSignal,
 }

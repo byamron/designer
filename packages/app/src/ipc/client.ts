@@ -8,6 +8,7 @@ import type {
   ArtifactSummary,
   CreateProjectRequest,
   CreateWorkspaceRequest,
+  FindingDto,
   FrictionEntry,
   FrictionId,
   LinkRepoRequest,
@@ -19,6 +20,7 @@ import type {
   ReportFrictionRequest,
   ReportFrictionResponse,
   RequestMergeRequest,
+  SignalFindingRequest,
   SpineRow,
   StartTrackRequest,
   Tab,
@@ -71,6 +73,9 @@ export interface IpcClient {
   listFriction(): Promise<FrictionEntry[]>;
   resolveFriction(id: FrictionId): Promise<void>;
   retryFileFriction(id: FrictionId): Promise<void>;
+  // Learning layer (Phase 21.A1)
+  listFindings(projectId: ProjectId): Promise<FindingDto[]>;
+  signalFinding(req: SignalFindingRequest): Promise<void>;
 }
 
 // ---- Phase 13.G safety DTOs -----------------------------------------------
@@ -194,6 +199,12 @@ class TauriIpcClient implements IpcClient {
   retryFileFriction(id: FrictionId) {
     return invoke<void>("cmd_retry_file_friction", { frictionId: id });
   }
+  listFindings(projectId: ProjectId) {
+    return invoke<FindingDto[]>("cmd_list_findings", { projectId });
+  }
+  signalFinding(req: SignalFindingRequest) {
+    return invoke<void>("cmd_signal_finding", { req });
+  }
 }
 
 class MockIpcClient implements IpcClient {
@@ -315,6 +326,12 @@ class MockIpcClient implements IpcClient {
     return Promise.resolve();
   }
   retryFileFriction(_id: FrictionId) {
+    return Promise.resolve();
+  }
+  listFindings(_projectId: ProjectId) {
+    return Promise.resolve<FindingDto[]>([]);
+  }
+  signalFinding(_req: SignalFindingRequest) {
     return Promise.resolve();
   }
 }

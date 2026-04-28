@@ -37,6 +37,55 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 21.A1 — Learning layer foundation (rebased post-13.K)
+**Date:** 2026-04-27
+**Branch:** learn-foundation
+**PR:** [#33](https://github.com/byamron/designer/pull/33)
+
+**What was done:**
+
+Foundation for Phase 21's learning layer so the ten detectors of Phase 21.A2 can land in parallel. Initially shipped against a vendored `Anchor` stub (because Track 13.K hadn't merged); rebased onto `main` after 13.K (#34) landed so this PR uses 13.K's `Anchor` enum verbatim.
+
+- New crate `crates/designer-learn` with the locked `Detector` async trait (dyn-safe via `async_trait`), `DetectorConfig`, `DetectorError`, `SessionAnalysisInput` builder + `GateHistory` aggregation, Forge-migrated threshold constants + keyword corpora in `defaults.rs` (each with a `forge/scripts/...` citation comment), a `NoopDetector` worked example detector authors copy-rename, fixture-test harness (`tests/example_fixture.rs` + `tests/fixtures/example/`), and a load-bearing `CONTRIBUTING.md`.
+- `Finding` struct + `Severity` + `ThumbSignal` in `designer-core::finding`. `FindingId` lives alongside the other id types in `crate::ids` via the `id_type!` macro. `Anchor` is `designer-core::anchor::Anchor` — owned by 13.K, re-used here without modification.
+- Additive `EventPayload::FindingRecorded { finding }` and `EventPayload::FindingSignaled { finding_id, signal }` per the Lane 0 ADR addendum (PR #27).
+- `apps/desktop/src-tauri/src/core_learn.rs` wires `report_finding` / `list_findings` / `signal_finding` onto `AppCore`, plus `forge_present` (probes `~/.claude/plugins/forge/`; Phase 21.A2 detectors with names in `FORGE_OVERLAP_DETECTORS` default to disabled when Forge is co-installed). Probe split into `forge_plugin_dir_under(home)` so the integration test never mutates process-wide `HOME`.
+- New `cmd_list_findings` / `cmd_signal_finding` IPC in `commands_learn.rs` (matches the per-track `commands_<track>.rs` convention from 13.D/E/F/G + 13.K's `commands_friction.rs`). New `FindingDto` + `SignalFindingRequest` DTOs in `designer-ipc`.
+- Settings → **Activity** now hosts two sub-pages via `SegmentedToggle`: 13.K's **Friction** (already shipped) and **"Designer noticed"** (this PR — read-only finding list, thumbs-up/down per row that emits `FindingSignaled`). Severity drives a left-border accent only.
+
+**Why:**
+
+Locking the `Detector` trait + `Finding` shape + threshold constants + a CONTRIBUTING.md *before* the ten Phase 21.A2 detector authors land in parallel. Without the foundation crate + the contract doc, ten detector authors converging from a fresh context would each pick a different threshold-constant style, a different fixture format, a different scoring approach. Three days of foundation work cuts each subsequent detector to half a day.
+
+The surface is also genuinely useful before any detector arrives: a hand-crafted `FindingRecorded` event flows through the IPC into the Settings page, so the dogfood loop works end-to-end on first install.
+
+**Design decisions:**
+
+- **Settings IA — Activity holds both Friction + Designer noticed.** Locked in `roadmap.md` §"Settings IA (locked)". The sub-page selector is a `SegmentedToggle` rather than nested-rail navigation; both children share the surface conventions. 13.K shipped first as a flat "Activity · Friction" section; this PR's rebase converted it to the `SegmentedToggle` shape now that the second sibling exists.
+- **Read-only + thumbs only in Phase 21.A1.** The "what to do about this finding" UI (proposal accept / edit / dismiss) is Phase B's responsibility once `LocalOps::analyze_session` lands. Calibration events (`FindingSignaled`) are recorded now so Phase B has a corpus to tune against from day one.
+
+**Technical decisions:**
+
+- **`Anchor` lives in `designer-core::anchor` (owned by 13.K).** Initially this PR vendored a snake-case stub. The rebase dropped that stub entirely; finding evidence now uses 13.K's locked enum (kebab-case tags, camelCase fields, `FilePath { path: String, ... }`). No shape divergence.
+- **`FindingId` uses the `id_type!` macro.** The first cut hand-rolled `Display`/`FromStr`/`Default`. Three-perspective review caught the duplication; FindingId now lives alongside `ProjectId`/`WorkspaceId`/`ArtifactId`/`FrictionId` in `crate::ids` via the same macro.
+- **`commands_learn.rs` matches the per-track convention.** Initially the command shims went into the omnibus `commands.rs` with a `cmd_` prefix. Reuse review caught that the codebase has two conventions — bare names in the omnibus file, `cmd_` prefix in `commands_<track>.rs`. Since `core_learn.rs` matches the parallel-track convention, the shim file matches too.
+- **`derive_tool_inventory` is intentionally absent in Phase 21.A1.** Tool-call events don't yet have a typed `EventPayload` variant. Detectors that need the inventory populate it via `build_with_overrides` in 21.A2 until typed events arrive.
+
+**Tradeoffs discussed:**
+
+- **Vendor `Anchor` ahead of 13.K vs wait for 13.K.** Initial PR vendored. Once 13.K landed, the rebase dropped the vendor and adopted 13.K's enum verbatim — additive, zero migration. The "vendor first, swap on rebase" path saved ~3 days of serialization while keeping a single source of truth at merge time.
+
+**Lessons learned:**
+
+- **Comment-reality gap is a real risk in foundation PRs.** A `forge_present` docstring claimed snapshot-once at boot caching; the implementation re-checked the filesystem on every call. Three-perspective review caught the lie. Doc-strings written ahead of implementation can outlive the actual implementation — audit them before merge.
+- **`std::env::set_var` mid-test races other tests in the same binary.** Refactoring the production helper to take a path argument so the test never mutates global env was cheaper than serializing tests with a mutex.
+
+**Verification:**
+
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (Rust tests including #34's camelCase wire-format pinning all green), `npm run typecheck`, `npm test` (46 frontend tests). The fixture-driven proof-of-life (`tests/example_fixture.rs`) and the Forge stub-dir test (`forge_plugin_dir_under_flips_when_stub_dir_exists`) verify the deliverables.
+
+---
+
 ### Track 13.K — Friction (internal feedback capture) — PR #34
 **Date:** 2026-04-27
 **Branch:** friction-capture

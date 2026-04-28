@@ -9,6 +9,7 @@ pub mod anchor;
 pub mod domain;
 pub mod error;
 pub mod event;
+pub mod finding;
 pub mod ids;
 pub mod projection;
 pub mod store;
@@ -21,9 +22,10 @@ pub use domain::{
 };
 pub use error::{CoreError, Result};
 pub use event::{Event, EventEnvelope, EventKind, EventPayload, FrictionFileError, ScreenshotRef};
+pub use finding::{Finding, Severity, ThumbSignal};
 pub use ids::{
-    AgentId, ApprovalId, ArtifactId, EventId, FrictionId, ProjectId, StreamId, TabId, TaskId,
-    TrackId, WorkspaceId,
+    AgentId, ApprovalId, ArtifactId, EventId, FindingId, FrictionId, ProjectId, StreamId, TabId,
+    TaskId, TrackId, WorkspaceId,
 };
 pub use projection::{Projection, ProjectionError, Projector};
 pub use store::{EventStore, SqliteEventStore, StreamOptions};

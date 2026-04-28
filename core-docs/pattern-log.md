@@ -16,6 +16,16 @@ Each entry is a dated heading plus 3–6 sentences. Focus on the *why*. Referenc
 
 ## Entries
 
+## 2026-04-27 — Phase 21.A1 reuses 13.K's `Anchor` verbatim (no new variants on landing)
+
+Phase 21.A1 (PR #33) was initially developed against a vendored `Anchor` stub because Track 13.K hadn't merged yet. Once 13.K (#34) landed, the rebase dropped the stub and adopted 13.K's enum verbatim — same kebab-case tags, same `rename_all_fields = "camelCase"`, same `FilePath { path: String, ... }`. Phase 21.A1 only uses three of the six variants today (`MessageSpan`, `ToolCall`, `FilePath`); the others (`PrototypePoint`, `PrototypeElement`, `DomElement`) are reserved for 13.K + 15.H. Adding new variants for 21.A2 detector-specific evidence kinds is **explicitly off-limits** — that would be an ADR-level decision. If a detector's evidence doesn't fit the existing six, the conversation moves to ADR 0002 (or a successor), not a per-detector enum tweak.
+
+## 2026-04-27 — Settings IA Activity hosts Friction + Designer noticed via `SegmentedToggle`
+
+13.K initially shipped Activity as a flat single page ("Activity · Friction"). Phase 21.A1 needed a sibling sub-page ("Designer noticed"), so the rebase converted Activity to a top-level section that houses both via a `SegmentedToggle`. Sub-page selection: `<SegmentedToggle value={tab} options={[Friction, Designer noticed]} />` at the top of the section body. Why this shape and not nested-rail navigation: nested rail (Settings → section → sub-page in the left rail) duplicates routing depth without adding signal. Activity has at most 3–4 long-term children. A segmented toggle is the right depth for that count. If a fifth child shows up, revisit and consider promoting Activity to its own rail level.
+
+When 21.A1 landed, the Friction page was the default tab — it has user-generated content from day one whereas Designer noticed only populates as detectors fire. Detector authors in Phase 21.A2 don't need to reshape the Settings page; they emit `FindingRecorded` and the existing read path renders the row.
+
 ## 2026-04-26 — Bottom-right reserved for Friction; dev panels go bottom-left
 
 Track 13.K introduces the always-on Friction button (`packages/app/src/components/Friction/FrictionButton.tsx`) at `bottom: max(var(--space-4), env(safe-area-inset-bottom)); right: var(--space-4)`. Bottom-right is the muscle-memory corner for capture affordances (think "screenshot-to-issue" buttons in Forge / Linear / Vercel). To keep the corner unambiguously the user's "report this" affordance, the dev-only `SurfaceDevPanel` (the radii/spacing tuner from 13.1) was relocated to bottom-left in `packages/app/src/styles/app.css`. The reservation rule: **bottom-right is permanently the user-facing capture surface**; any new floating affordance — dev tooling, debug overlays, future cost-control popovers — defaults to bottom-left or top-right. Friction owns bottom-right unconditionally.
