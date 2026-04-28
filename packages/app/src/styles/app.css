@@ -4051,6 +4051,49 @@ kbd {
   color: var(--accent-11, var(--color-foreground));
 }
 
+/* Phase 21.A1.1 — calibrated badge in the row meta line. The "👍/👎"
+ * glyph carries the polarity; color is reserved for severity, so the
+ * badge stays visually quiet next to the severity-tinted left border.
+ */
+.designer-noticed__calibrated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+}
+
+/* Phase 21.A1.1 — workspace-home placement. The home component reuses
+ * the home-a section chrome; this rule narrows the row gap so the
+ * top-N feed sits flush with the surrounding panels.
+ */
+.designer-noticed-home .designer-noticed__list {
+  margin-top: var(--space-2);
+}
+
+/* Sidebar Home button unread badge for Designer noticed (Phase 21.A1.1). */
+.sidebar-home {
+  position: relative;
+}
+
+.sidebar-home__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--accent-9, var(--color-accent));
+  color: var(--accent-contrast, white);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  line-height: 1;
+}
+
 .activity-section__tabs {
   margin-bottom: var(--space-3);
 }

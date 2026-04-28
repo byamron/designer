@@ -331,8 +331,9 @@ pub async fn cmd_retry_file_friction(
 
 // ---- Learning layer (Phase 21.A1) ---------------------------------------
 
-/// Read all findings for `project_id`. Returns the empty list on a
-/// fresh boot. Page renders chronological order (insertion time on
+/// Read all findings for `project_id` joined against the
+/// `FindingSignaled` calibration projection. Returns the empty list on
+/// a fresh boot. Page renders chronological order (insertion time on
 /// each stream); cross-stream ordering is "project-then-workspace" per
 /// `core_learn::list_findings`.
 pub async fn cmd_list_findings(
@@ -343,7 +344,23 @@ pub async fn cmd_list_findings(
         .list_findings(project_id)
         .await
         .map_err(IpcError::from)?;
-    Ok(findings.into_iter().map(FindingDto::from).collect())
+    let signals = core.list_signals().await.map_err(IpcError::from)?;
+    let dtos = findings
+        .into_iter()
+        .map(|f| {
+            let calibration =
+                signals
+                    .get(&f.id)
+                    .map(|(signal, ts)| designer_ipc::FindingCalibration {
+                        signal: *signal,
+                        timestamp: designer_core::rfc3339(*ts),
+                    });
+            let mut dto = FindingDto::from(f);
+            dto.calibration = calibration;
+            dto
+        })
+        .collect();
+    Ok(dtos)
 }
 
 /// Record the user's thumbs-up/down on a specific finding. Phase B's

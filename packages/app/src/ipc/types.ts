@@ -248,6 +248,11 @@ export type FindingId = string;
 export type Severity = "info" | "notice" | "warn";
 export type ThumbSignal = "up" | "down";
 
+export interface FindingCalibration {
+  signal: ThumbSignal;
+  timestamp: string;
+}
+
 export interface FindingDto {
   id: FindingId;
   detector_name: string;
@@ -261,6 +266,9 @@ export interface FindingDto {
   evidence: Anchor[];
   suggested_action?: unknown;
   window_digest: string;
+  /** Phase 21.A1.1 — present when the user has thumbed this finding;
+   *  the row renders a `calibrated 👍/👎` badge. */
+  calibration?: FindingCalibration | null;
 }
 
 export interface SignalFindingRequest {

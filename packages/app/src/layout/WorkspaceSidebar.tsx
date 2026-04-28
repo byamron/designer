@@ -24,8 +24,18 @@ export function WorkspaceSidebar() {
   const activeProjectId = useAppState((s) => s.activeProject);
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
   const sidebarWidth = useAppState((s) => s.sidebarWidth);
+  const noticedLastViewedSeq = useAppState((s) => s.noticedLastViewedSeq);
   const workspaces = useDataState<WorkspaceSummary[]>((s) =>
     activeProjectId ? s.workspaces[activeProjectId] ?? emptyArray() : emptyArray(),
+  );
+  const noticedUnread = useDataState((s) =>
+    s.events.reduce(
+      (acc, e) =>
+        e.kind === "finding_recorded" && e.sequence > noticedLastViewedSeq
+          ? acc + 1
+          : acc,
+      0,
+    ),
   );
   const projects = useDataState((s) => s.projects);
   const activeProject = useMemo(
@@ -91,7 +101,13 @@ export function WorkspaceSidebar() {
         )}
       </header>
 
-      <Tooltip label="Project home">
+      <Tooltip
+        label={
+          noticedUnread > 0
+            ? `Project home — ${noticedUnread} new from Designer noticed`
+            : "Project home"
+        }
+      >
         <button
           type="button"
           className="sidebar-home"
@@ -101,6 +117,14 @@ export function WorkspaceSidebar() {
         >
           <House size={16} strokeWidth={1.5} aria-hidden="true" />
           <span>Home</span>
+          {noticedUnread > 0 && (
+            <span
+              className="sidebar-home__badge"
+              aria-label={`${noticedUnread} new noticed findings`}
+            >
+              {noticedUnread > 99 ? "99+" : noticedUnread}
+            </span>
+          )}
         </button>
       </Tooltip>
 

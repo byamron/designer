@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { ipcClient } from "../../ipc/client";
 import { describeIpcError } from "../../ipc/error";
 import type { FindingDto, ProjectId, ThumbSignal } from "../../ipc/types";
 import { emptyArray } from "../../util/empty";
+import { markNoticedViewed } from "../../store/app";
+import { FindingRow } from "./FindingRow";
 
 /**
- * Settings → Activity → "Designer noticed" — read-only listing of
- * findings the learning layer (Phase 21) has recorded for the active
- * project, with thumbs-up / thumbs-down per finding for calibration.
+ * Settings → Activity → "Designer noticed" — full archive of findings
+ * the learning layer (Phase 21) has recorded for the active project.
+ * Thumbs-up / thumbs-down per finding for calibration.
  *
- * Phase 21.A1 ships only the *read* + thumb-signal surface. The
- * "what-to-do-about-this-finding" UI (proposal acceptance, inline
- * accept/edit/dismiss) is Phase B's responsibility once the
- * `LocalOps::analyze_session` pipeline lands.
+ * Phase 21.A1.1 makes this the *archive* sibling of the workspace-home
+ * live feed (`DesignerNoticedHome`): the home tab shows the top-N
+ * severity-sorted slice; this page is the historian.
  *
  * Settings IA: locked under Activity per Track 13.K's spec
  * (`core-docs/roadmap.md` §"Settings IA (locked)"). Friction is the
@@ -30,6 +30,9 @@ export function DesignerNoticedPage({ projectId }: { projectId: ProjectId | null
       setFindings(emptyArray());
       return;
     }
+    // Opening the archive clears the unread badge — viewing here is
+    // the same "I'm caught up" signal as opening the workspace home.
+    markNoticedViewed();
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -118,59 +121,10 @@ function SectionHeader() {
     <header className="settings-page__section-header">
       <h2 className="settings-page__section-title">Designer noticed</h2>
       <p className="settings-page__section-description">
-        Patterns the learning layer has spotted. Thumbs-up signals help
-        calibrate; thumbs-down quiets the signal. No edits are applied
-        from this page.
+        Full archive of patterns the learning layer has spotted across
+        this project. Thumbs-up signals help calibrate; thumbs-down
+        quiets the signal. The workspace home shows the live top-N feed.
       </p>
     </header>
-  );
-}
-
-function FindingRow({
-  finding,
-  signal,
-  onSignal,
-}: {
-  finding: FindingDto;
-  signal: ThumbSignal | null;
-  onSignal: (id: string, signal: ThumbSignal) => void;
-}) {
-  const confidencePct = Math.round(finding.confidence * 100);
-  return (
-    <li className="designer-noticed__row" data-severity={finding.severity}>
-      <div className="designer-noticed__row-text">
-        <span className="designer-noticed__row-summary">{finding.summary}</span>
-        <span className="designer-noticed__row-meta">
-          {finding.detector_name} · {finding.severity} · {confidencePct}%
-          confidence
-        </span>
-      </div>
-      <div
-        className="designer-noticed__row-actions"
-        role="group"
-        aria-label={`Signal feedback on "${finding.summary}"`}
-      >
-        <button
-          type="button"
-          className="designer-noticed__signal"
-          data-active={signal === "up"}
-          aria-pressed={signal === "up"}
-          aria-label="Useful — keep showing patterns like this"
-          onClick={() => onSignal(finding.id, "up")}
-        >
-          <ThumbsUp size={14} strokeWidth={1.5} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="designer-noticed__signal"
-          data-active={signal === "down"}
-          aria-pressed={signal === "down"}
-          aria-label="Noise — quiet patterns like this"
-          onClick={() => onSignal(finding.id, "down")}
-        >
-          <ThumbsDown size={14} strokeWidth={1.5} aria-hidden="true" />
-        </button>
-      </div>
-    </li>
   );
 }
