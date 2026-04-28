@@ -1,4 +1,4 @@
-//! Tauri command shims for Track 13.K — Friction.
+//! Tauri command shims for Friction (Tracks 13.K + 13.L).
 //!
 //! Mirrors the pattern in `commands.rs` / `commands_safety.rs`: every wire
 //! call is a thin wrapper around `ipc::cmd_*`, so tests can hit the same
@@ -6,8 +6,10 @@
 
 use crate::core::AppCore;
 use crate::ipc;
-use designer_core::FrictionId;
-use designer_ipc::{FrictionEntry, IpcError, ReportFrictionRequest, ReportFrictionResponse};
+use designer_ipc::{
+    AddressFrictionRequest, FrictionEntry, FrictionTransitionRequest, IpcError,
+    ReportFrictionRequest, ReportFrictionResponse,
+};
 use std::sync::Arc;
 use tauri::State;
 
@@ -29,15 +31,23 @@ pub async fn cmd_list_friction(
 #[tauri::command]
 pub async fn cmd_resolve_friction(
     core: State<'_, Arc<AppCore>>,
-    friction_id: FrictionId,
+    req: FrictionTransitionRequest,
 ) -> Result<(), IpcError> {
-    ipc::cmd_resolve_friction(&core, friction_id).await
+    ipc::cmd_resolve_friction(&core, req).await
 }
 
 #[tauri::command]
-pub async fn cmd_retry_file_friction(
+pub async fn cmd_address_friction(
     core: State<'_, Arc<AppCore>>,
-    friction_id: FrictionId,
+    req: AddressFrictionRequest,
 ) -> Result<(), IpcError> {
-    ipc::cmd_retry_file_friction(&core, friction_id).await
+    ipc::cmd_address_friction(&core, req).await
+}
+
+#[tauri::command]
+pub async fn cmd_reopen_friction(
+    core: State<'_, Arc<AppCore>>,
+    req: FrictionTransitionRequest,
+) -> Result<(), IpcError> {
+    ipc::cmd_reopen_friction(&core, req).await
 }

@@ -3878,21 +3878,26 @@ kbd {
   border-radius: var(--radius-pill);
 }
 
-.friction-widget__filebox {
+.friction-widget__toast {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--type-caption-size);
-  color: var(--color-foreground);
-  cursor: pointer;
-}
-
-.friction-widget__toast {
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-button);
   font-size: var(--type-caption-size);
   background: var(--color-surface-raised);
   color: var(--color-foreground);
+}
+
+.friction-widget__toast-link {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--accent-11);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .friction-widget__toast[data-kind="failed"] {
@@ -3905,17 +3910,28 @@ kbd {
   gap: var(--space-2);
 }
 
-/* Settings → Activity → Friction triage table */
+/* Settings → Activity → Friction master list (Track 13.L). Filter chips
+ * across the top via the shared `SegmentedToggle`; expanding rows below.
+ * `Open` is the default filter; if it's empty but history exists, the
+ * page auto-falls-through to `All` so the user lands on something. */
+
+.friction-triage__filters {
+  margin-bottom: var(--space-3);
+}
 
 .friction-triage {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .friction-triage__row {
   display: grid;
   grid-template-columns: 1fr auto;
+  align-items: start;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   background: var(--color-surface-raised);
@@ -3923,37 +3939,178 @@ kbd {
   border-radius: var(--radius-button);
 }
 
+.friction-triage__toggle {
+  grid-column: 1 / 2;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-2);
+  row-gap: 0;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+.friction-triage__chevron {
+  grid-row: 1 / 3;
+  align-self: start;
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  transition: transform var(--motion-interactive);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .friction-triage__chevron {
+    transition: none;
+  }
+}
+
+.friction-triage__toggle[aria-expanded="true"] .friction-triage__chevron {
+  transform: rotate(90deg);
+}
+
 .friction-triage__title {
+  grid-column: 2;
+  grid-row: 1;
   font-weight: var(--weight-medium);
+  color: var(--color-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .friction-triage__meta {
+  grid-column: 2;
+  grid-row: 2;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--type-caption-size);
   color: var(--color-muted);
 }
 
 .friction-triage__state {
-  font-family: var(--type-family-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--type-caption-size);
+  color: var(--color-muted);
 }
 
-.friction-triage__state[data-state="failed"] {
-  color: var(--danger-9);
+.friction-triage__state-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+.friction-triage__state[data-state="open"] {
+  color: var(--accent-11);
+}
+.friction-triage__state[data-state="open"] .friction-triage__state-dot {
+  background: var(--accent-9);
+}
+
+.friction-triage__state[data-state="addressed"] {
+  color: var(--color-muted);
+}
+.friction-triage__state[data-state="addressed"] .friction-triage__state-dot {
+  background: var(--accent-7);
+}
+
+.friction-triage__state[data-state="resolved"] {
+  color: var(--color-muted);
+}
+.friction-triage__state[data-state="resolved"] .friction-triage__state-dot {
+  background: var(--gray-9);
+}
+
+.friction-triage__pr {
+  font-family: var(--type-family-mono);
 }
 
 .friction-triage__actions {
+  grid-column: 2 / 3;
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-1);
 }
 
+.friction-triage__detail {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+}
+
+.friction-triage__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.friction-triage__screenshot-link {
+  align-self: flex-start;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--accent-11);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.friction-triage__screenshot-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+.friction-triage__pr-link {
+  color: var(--color-muted);
+}
+
+.friction-triage__pr-link a {
+  color: var(--accent-11);
+}
+
 .friction-triage__empty {
-  padding: var(--space-3);
+  padding: var(--space-4) var(--space-3);
   color: var(--color-muted);
   font-size: var(--type-caption-size);
   text-align: center;
+  list-style: none;
+}
+
+/* Address-friction dialog reuses the global `app-dialog` chrome from
+ * `RepoLinkModal` / `CreateProjectModal`. Only entry-specific bits live
+ * here. */
+
+.address-friction__entry-title {
+  margin: 0;
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.address-friction__error {
+  margin: 0;
+  color: var(--danger-9);
+  font-size: var(--type-caption-size);
+}
+
+.address-friction__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 /* --- Designer noticed (Phase 21.A1) ---------------------------------- */

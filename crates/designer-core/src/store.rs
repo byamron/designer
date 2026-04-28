@@ -360,7 +360,11 @@ impl EventStore for SqliteEventStore {
                 sequence: next_sequence,
                 timestamp,
                 actor: actor.clone(),
-                version: 1,
+                // Bumped 1→2 in Track 13.L (FrictionLinked → FrictionAddressed
+                // rename). Old records written at version 1 still decode via
+                // the legacy `FrictionLinked` variant; new records emit
+                // `FrictionAddressed` directly.
+                version: 2,
                 causation_id: None,
                 correlation_id: None,
                 payload,

@@ -74,10 +74,6 @@ hex = "0.4"
 regex = "1"
 tempfile = "3"
 dark-light = "1"
-# Track 13.K (Friction): screenshot downscaling before gist upload (10MB
-# cap). PNG-only featureset keeps the dependency surface tight; we never
-# transcode formats.
-image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Desktop shell (Tauri v2). Only used by apps/desktop/src-tauri; declared here
 # so the version pin lives alongside other workspace deps.

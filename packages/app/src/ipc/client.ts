@@ -3,6 +3,7 @@
 // exercisable without the WebView. Callers never know which runtime they're on.
 
 import type {
+  AddressFrictionRequest,
   ArtifactDetail,
   ArtifactId,
   ArtifactSummary,
@@ -10,7 +11,7 @@ import type {
   CreateWorkspaceRequest,
   FindingDto,
   FrictionEntry,
-  FrictionId,
+  FrictionTransitionRequest,
   LinkRepoRequest,
   OpenTabRequest,
   PostMessageRequest,
@@ -68,11 +69,16 @@ export interface IpcClient {
   getKeychainStatus(): Promise<KeychainStatus>;
   getCostChipPreference(): Promise<CostChipPreferences>;
   setCostChipPreference(enabled: boolean): Promise<CostChipPreferences>;
-  // Friction (Track 13.K)
+  // Friction (Tracks 13.K + 13.L)
   reportFriction(req: ReportFrictionRequest): Promise<ReportFrictionResponse>;
   listFriction(): Promise<FrictionEntry[]>;
-  resolveFriction(id: FrictionId): Promise<void>;
-  retryFileFriction(id: FrictionId): Promise<void>;
+  resolveFriction(req: FrictionTransitionRequest): Promise<void>;
+  addressFriction(req: AddressFrictionRequest): Promise<void>;
+  reopenFriction(req: FrictionTransitionRequest): Promise<void>;
+  /// Reveal `path` in Finder (macOS) — selects the file. Falls back to a
+  /// clipboard copy when the Tauri runtime isn't available so the user
+  /// can paste the path into a Finder "Go to Folder" prompt.
+  revealInFinder(path: string): Promise<void>;
   // Learning layer (Phase 21.A1)
   listFindings(projectId: ProjectId): Promise<FindingDto[]>;
   signalFinding(req: SignalFindingRequest): Promise<void>;
@@ -193,11 +199,24 @@ class TauriIpcClient implements IpcClient {
   listFriction() {
     return invoke<FrictionEntry[]>("cmd_list_friction");
   }
-  resolveFriction(id: FrictionId) {
-    return invoke<void>("cmd_resolve_friction", { frictionId: id });
+  resolveFriction(req: FrictionTransitionRequest) {
+    return invoke<void>("cmd_resolve_friction", { req });
   }
-  retryFileFriction(id: FrictionId) {
-    return invoke<void>("cmd_retry_file_friction", { frictionId: id });
+  addressFriction(req: AddressFrictionRequest) {
+    return invoke<void>("cmd_address_friction", { req });
+  }
+  reopenFriction(req: FrictionTransitionRequest) {
+    return invoke<void>("cmd_reopen_friction", { req });
+  }
+  async revealInFinder(path: string) {
+    try {
+      await invoke<void>("reveal_in_finder", { path });
+    } catch (err) {
+      // Fall back to clipboard so the user can paste into Finder's
+      // "Go to Folder" prompt — same pattern as `WorkspaceSidebar`.
+      console.warn("reveal_in_finder failed; copying path", err);
+      await navigator.clipboard.writeText(path).catch(() => {});
+    }
   }
   listFindings(projectId: ProjectId) {
     return invoke<FindingDto[]>("cmd_list_findings", { projectId });
@@ -322,11 +341,18 @@ class MockIpcClient implements IpcClient {
   listFriction() {
     return Promise.resolve<FrictionEntry[]>([]);
   }
-  resolveFriction(_id: FrictionId) {
+  resolveFriction(_req: FrictionTransitionRequest) {
     return Promise.resolve();
   }
-  retryFileFriction(_id: FrictionId) {
+  addressFriction(_req: AddressFrictionRequest) {
     return Promise.resolve();
+  }
+  reopenFriction(_req: FrictionTransitionRequest) {
+    return Promise.resolve();
+  }
+  async revealInFinder(path: string) {
+    // Web/test runtime: copy the path so the user can paste into Finder.
+    await navigator.clipboard?.writeText?.(path).catch(() => {});
   }
   listFindings(_projectId: ProjectId) {
     return Promise.resolve<FindingDto[]>([]);

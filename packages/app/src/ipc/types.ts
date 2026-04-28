@@ -214,13 +214,13 @@ export const EVENT_KIND = {
   FINDING_SIGNALED: "finding_signaled",
 } as const;
 
-// ---- Friction (Track 13.K) ----
+// ---- Friction (Tracks 13.K + 13.L) ----
 
 import type { Anchor } from "../lib/anchor";
 
 export type FrictionId = string;
 
-export type FrictionState = "local_only" | "filed" | "failed" | "resolved";
+export type FrictionState = "open" | "addressed" | "resolved";
 
 export interface ReportFrictionRequest {
   anchor: Anchor;
@@ -229,7 +229,6 @@ export interface ReportFrictionRequest {
   screenshot_filename?: string | null;
   workspace_id?: WorkspaceId | null;
   project_id?: ProjectId | null;
-  file_to_github: boolean;
   route: string;
 }
 
@@ -248,10 +247,23 @@ export interface FrictionEntry {
   title: string;
   anchor_descriptor: string;
   state: FrictionState;
-  github_issue_url: string | null;
-  error: string | null;
+  pr_url: string | null;
   screenshot_path: string | null;
   local_path: string;
+}
+
+export interface AddressFrictionRequest {
+  friction_id: FrictionId;
+  workspace_id?: WorkspaceId | null;
+  pr_url?: string | null;
+}
+
+/// Same shape used by `cmd_resolve_friction` and `cmd_reopen_friction`.
+/// `workspace_id` carries the entry's originating stream so the backend
+/// can append without a full event-log scan.
+export interface FrictionTransitionRequest {
+  friction_id: FrictionId;
+  workspace_id?: WorkspaceId | null;
 }
 
 // ---- Learning layer (Phase 21.A1) ----

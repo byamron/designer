@@ -289,12 +289,6 @@ pub struct AppCore {
     /// Per-track debounce cache backing the write-time summary hook (Phase
     /// 13.F). See `core_local::SummaryDebounce` for semantics.
     pub summary_debounce: Arc<SummaryDebounce>,
-    /// Track 13.K (Friction) — optional override for the `gh` CLI runner.
-    /// Production callers leave this `None` and `core_friction.rs` falls
-    /// back to `RealGhRunner`. Tests inject a recording mock via
-    /// `core_friction::set_gh_runner_for_tests` so `cargo test` doesn't
-    /// require a logged-in `gh` on the runner.
-    pub(crate) gh_runner_override: crate::core_friction::GhRunnerSlot,
     /// Phase 21.A1.1 — per-detector counter of `FindingRecorded` events
     /// emitted in the current process lifetime. Reset on restart;
     /// `core_learn::report_finding` enforces
@@ -399,7 +393,6 @@ impl AppCore {
             helper_status,
             helper_events,
             summary_debounce: Arc::new(SummaryDebounce::new()),
-            gh_runner_override: parking_lot::Mutex::new(None),
             finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
         });
         spawn_cost_subscriber(Arc::downgrade(&core), signal_rx);
