@@ -135,6 +135,23 @@ function trimSnippet(text: string | null | undefined, max = 80): string | undefi
 }
 
 /**
+ * Page-level fallback Anchor — used when the user submits a friction
+ * report without explicitly anchoring (Track 13.M's typed-sentence
+ * default flow). Reuses the locked `dom-element` variant; the projection
+ * descriptor falls back to the route, which is the right hint.
+ */
+export function pageAnchorForRoute(route: string): Anchor {
+  return {
+    kind: "dom-element",
+    selectorPath: "body",
+    route,
+    component: undefined,
+    stableId: undefined,
+    textSnippet: undefined,
+  };
+}
+
+/**
  * Build a `dom-element` Anchor from the given DOM node + active route.
  * `el` is typically the snap-target (component root) but can be the atomic
  * hovered node when the user holds Alt.

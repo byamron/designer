@@ -5,23 +5,18 @@ import {
   clearFrictionAnchor,
   enterFrictionSelecting,
   openDialog,
-  setFrictionAutoCapture,
   useAppState,
 } from "../../store/app";
 import { ipcClient } from "../../ipc/client";
-import { anchorDescriptor, type Anchor } from "../../lib/anchor";
-import type { StreamEvent } from "../../ipc/types";
-
-const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? "0.1.0";
+import { anchorDescriptor, pageAnchorForRoute, type Anchor } from "../../lib/anchor";
+import { EVENT_KIND, type StreamEvent } from "../../ipc/types";
 
 type ToastKind = "local" | "confirmed" | "failed";
 
 interface ToastState {
   kind: ToastKind;
   message: string;
-  /// When set on a `local`/`confirmed` toast, the toast renders an inline
-  /// action that jumps to Settings → Activity → Friction. Frees the user
-  /// from hunt-and-peck navigation after submit.
+  /** Inline action that jumps to Settings → Activity → Friction. */
   linkToTriage?: boolean;
 }
 
@@ -29,14 +24,22 @@ interface ScreenshotState {
   bytes: Uint8Array;
   filename: string;
   previewUrl: string;
-  source: "paste" | "auto" | "drop" | "picker" | "viewport";
 }
+
+const HIDDEN_STYLE: React.CSSProperties = { visibility: "hidden" };
+
+const KEYHINTS: ReadonlyArray<{ keys: string; label: string }> = [
+  { keys: "⌘↵", label: "submit" },
+  { keys: "⌘⇧S", label: "screenshot" },
+  { keys: "⌘.", label: "anchor" },
+  { keys: "esc", label: "dismiss" },
+];
 
 /**
  * Track 13.M FrictionWidget — composer-by-default surface.
  *
- * 13.K shipped a "selection-first" flow (arm → click an element → composer
- * appears). The four-perspective review found that for a solo dogfood user,
+ * 13.K shipped a "selection-first" flow (arm → click element → composer
+ * appears). The four-perspective review found that for a solo dogfood user
  * the most common case is "the thing I'm looking at right now is bad" — they
  * don't need to anchor, they need a fast capture. 13.M makes the composer
  * the default surface: ⌘⇧F mounts it bottom-right, body autofocused, body
@@ -47,117 +50,87 @@ interface ScreenshotState {
  *   ⌘.    enter selection mode (composer hides; overlay arms)
  *   ESC   dismiss
  *
- * Hidden when a modal scrim is open (friction is inert in those states per
- * spec). Reuses the SelectionOverlay surface for the opt-in anchor path —
- * see `SelectionOverlay.tsx`.
+ * Hidden when a modal scrim is open. The widget stays mounted across
+ * `mode` transitions (returns null when not "composing") so component
+ * state — body draft, screenshot — survives the round-trip through
+ * selection mode.
  */
 export function FrictionWidget() {
   const mode = useAppState((s) => s.frictionMode);
   const dialog = useAppState((s) => s.dialog);
   const anchor = useAppState((s) => s.frictionAnchor);
-  const autoCapture = useAppState((s) => s.frictionAutoCapture);
   const workspaceId = useAppState((s) => s.activeWorkspace);
   const projectId = useAppState((s) => s.activeProject);
   const visible = mode === "composing" && dialog === null;
 
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submittedId, setSubmittedId] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [screenshot, setScreenshot] = useState<ScreenshotState | null>(null);
   const [hiddenForCapture, setHiddenForCapture] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const widgetRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  // Submitted-id is held in a ref so the stream-event subscriber (registered
-  // once on mount) can compare against it without re-binding on every render.
-  const submittedIdRef = useRef<string | null>(null);
-
-  const screenshotRef = useRef<ScreenshotState | null>(null);
-  useEffect(() => {
-    screenshotRef.current = screenshot;
-  }, [screenshot]);
 
   // Final cleanup on unmount: revoke any in-flight object URL so route
-  // swaps / hot reloads don't leak the previewed PNG.
+  // swaps / hot reloads don't leak the previewed PNG. The closure captures
+  // the *current* screenshot via state-setter access, so we don't need a
+  // ref-mirror.
   useEffect(() => {
     return () => {
-      const cur = screenshotRef.current;
-      if (cur) URL.revokeObjectURL(cur.previewUrl);
+      setScreenshot((cur) => {
+        if (cur) URL.revokeObjectURL(cur.previewUrl);
+        return null;
+      });
     };
   }, []);
 
-  const adoptScreenshot = useCallback(
-    (bytes: Uint8Array, filename: string, source: ScreenshotState["source"]) => {
-      setScreenshot((prev) => {
-        if (prev) URL.revokeObjectURL(prev.previewUrl);
-        // The inner `Uint8Array(bytes)` forces an ArrayBuffer backing —
-        // TS rejects the bare `Uint8Array` because its buffer could be
-        // SharedArrayBuffer-typed, which `Blob` doesn't accept.
-        const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
-        return {
-          bytes,
-          filename,
-          previewUrl: URL.createObjectURL(blob),
-          source,
-        };
-      });
-    },
-    [],
-  );
+  const adoptScreenshot = useCallback((bytes: Uint8Array, filename: string) => {
+    setScreenshot((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      // The inner `Uint8Array(bytes)` forces an ArrayBuffer backing —
+      // TS rejects the bare `Uint8Array` because its buffer could be
+      // SharedArrayBuffer-typed, which `Blob` doesn't accept.
+      const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
+      return {
+        bytes,
+        filename,
+        previewUrl: URL.createObjectURL(blob),
+      };
+    });
+  }, []);
 
-  // Reset on enter/exit of composer mode so re-opening sees a fresh widget.
-  // Stale text from a previous session would confuse the user.
+  const clearScreenshot = useCallback(() => {
+    setScreenshot((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  }, []);
+
+  // Reset on full close. We avoid touching `screenshot` while bouncing into
+  // selection mode — the widget stays mounted across mode flips, so state
+  // persists naturally.
   useEffect(() => {
-    if (mode === "composing") {
-      // Adopting a previously-captured screenshot (e.g. ⌘⇧S then anchor)
-      // happens when `frictionAutoCapture` is set in the store. Don't blow
-      // away the body if the user is bouncing between composer ↔ selection.
-      if (autoCapture && !screenshotRef.current) {
-        adoptScreenshot(autoCapture.bytes, autoCapture.filename, "auto");
-      }
-    } else if (mode === "off") {
+    if (mode === "off") {
       setBody("");
       setSubmitting(false);
+      setSubmittedId(null);
       setCapturing(false);
       setHiddenForCapture(false);
       setToast(null);
-      submittedIdRef.current = null;
-      setScreenshot((prev) => {
-        if (prev) URL.revokeObjectURL(prev.previewUrl);
-        return null;
-      });
+      clearScreenshot();
     }
-  }, [mode, autoCapture, adoptScreenshot]);
+  }, [mode, clearScreenshot]);
 
-  // Autofocus the body whenever the composer becomes visible. `autoFocus` on
-  // the JSX alone misses the case where the user re-opens after selection
-  // mode (the textarea is the same DOM node, no re-mount).
+  // Autofocus the body whenever the composer becomes visible. `autoFocus`
+  // on the JSX alone misses the case where the user re-opens after
+  // selection mode (the textarea is the same DOM node, no re-mount).
   useEffect(() => {
     if (visible && !hiddenForCapture) {
-      bodyRef.current?.focus();
+      bodyRef.current?.focus({ preventScroll: true });
     }
   }, [visible, hiddenForCapture]);
-
-  const onPickFile = useCallback(
-    async (file: File | null | undefined) => {
-      if (!file) return;
-      const buf = new Uint8Array(await file.arrayBuffer());
-      adoptScreenshot(buf, file.name, "picker");
-    },
-    [adoptScreenshot],
-  );
-
-  const onDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      const file = e.dataTransfer.files?.[0];
-      if (!file) return;
-      const buf = new Uint8Array(await file.arrayBuffer());
-      adoptScreenshot(buf, file.name, "drop");
-    },
-    [adoptScreenshot],
-  );
 
   // Paste handler — clipboard image becomes the screenshot.
   useEffect(() => {
@@ -170,11 +143,31 @@ export function FrictionWidget() {
       const file = imageItem.getAsFile();
       if (!file) return;
       const buf = new Uint8Array(await file.arrayBuffer());
-      adoptScreenshot(buf, file.name || "paste.png", "paste");
+      adoptScreenshot(buf, file.name || "paste.png");
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
   }, [visible, adoptScreenshot]);
+
+  const onPickFile = useCallback(
+    async (file: File | null | undefined) => {
+      if (!file) return;
+      const buf = new Uint8Array(await file.arrayBuffer());
+      adoptScreenshot(buf, file.name);
+    },
+    [adoptScreenshot],
+  );
+
+  const onDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+      const buf = new Uint8Array(await file.arrayBuffer());
+      adoptScreenshot(buf, file.name);
+    },
+    [adoptScreenshot],
+  );
 
   // ⌘⇧S — capture the viewport. Hides the composer for one paint frame so
   // it doesn't appear in its own screenshot, then calls into Rust to grab
@@ -193,7 +186,7 @@ export function FrictionWidget() {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
       const bytes = await ipcClient().captureViewport();
-      adoptScreenshot(bytes, `viewport-${Date.now()}.png`, "viewport");
+      adoptScreenshot(bytes, `viewport-${Date.now()}.png`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setToast({ kind: "failed", message: `Capture failed: ${msg}` });
@@ -203,26 +196,14 @@ export function FrictionWidget() {
     }
   }, [adoptScreenshot, capturing, submitting]);
 
-  const canSubmit = body.trim().length > 0 && !submitting;
-
-  // Build a "page-level" anchor when the user submitted without anchoring.
-  // Reuses the existing `dom-element` Anchor variant per the locked contract;
-  // no new variant needed.
-  const fallbackAnchor = (route: string): Anchor => ({
-    kind: "dom-element",
-    selectorPath: "body",
-    route,
-    component: undefined,
-    stableId: undefined,
-    textSnippet: undefined,
-  });
+  const canSubmit = body.trim().length > 0 && !submitting && submittedId === null;
 
   const onSubmit = useCallback(async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
       const route = window.location.hash || window.location.pathname || "/";
-      const submitAnchor: Anchor = anchor ?? fallbackAnchor(route);
+      const submitAnchor: Anchor = anchor ?? pageAnchorForRoute(route);
       const resp = await ipcClient().reportFriction({
         anchor: submitAnchor,
         body: body.trim(),
@@ -232,33 +213,9 @@ export function FrictionWidget() {
         project_id: projectId,
         route,
       });
-      submittedIdRef.current = resp.friction_id;
-      const tail = resp.friction_id.slice(-6);
-      setToast({
-        kind: "local",
-        message: "Filed locally…",
-        linkToTriage: false,
-      });
-      // Subscribe to the event stream and upgrade the toast to "Filed as
-      // #abc123" once the projection confirms the report. The unsubscribe
-      // handle lives on a local ref so we can clear it on dismiss/timeout.
-      const unsubscribe = ipcClient().stream((event: StreamEvent) => {
-        if (event.kind !== "friction_reported") return;
-        const payload = event.payload as { friction_id?: string } | undefined;
-        if (!payload || payload.friction_id !== submittedIdRef.current) return;
-        setToast({
-          kind: "confirmed",
-          message: `Filed as #${tail}`,
-          linkToTriage: true,
-        });
-      });
-      // Close the widget after a beat so the user reads the toast.
-      // Slightly longer than the local→confirmed delay (~50ms typical) so
-      // the user actually sees the upgrade.
-      setTimeout(() => {
-        unsubscribe();
-        clearFriction();
-      }, 2200);
+      setSubmittedId(resp.friction_id);
+      setSubmitting(false);
+      setToast({ kind: "local", message: "Filed locally" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setToast({ kind: "failed", message: msg });
@@ -266,9 +223,34 @@ export function FrictionWidget() {
     }
   }, [anchor, body, canSubmit, projectId, screenshot, workspaceId]);
 
+  // After a successful submit, subscribe to the event stream and upgrade
+  // the toast to "Filed as #abc123" once the projection confirms the
+  // report. Effect-managed so React tears the subscription down on
+  // unmount or follow-up submits without leaking listeners.
+  useEffect(() => {
+    if (!submittedId) return;
+    const tail = submittedId.slice(-6);
+    const unsubscribe = ipcClient().stream((event: StreamEvent) => {
+      if (event.kind !== EVENT_KIND.FRICTION_REPORTED) return;
+      const payload = event.payload as { friction_id?: string } | undefined;
+      if (payload?.friction_id !== submittedId) return;
+      setToast({
+        kind: "confirmed",
+        message: `Filed as #${tail}`,
+        linkToTriage: true,
+      });
+    });
+    // Close the widget after a beat so the user sees the upgrade.
+    const closeTimer = window.setTimeout(clearFriction, 2200);
+    return () => {
+      unsubscribe();
+      window.clearTimeout(closeTimer);
+    };
+  }, [submittedId]);
+
   // Composer-level keymap: ⌘↵ submit, ⌘⇧S capture, ⌘. anchor, ESC dismiss.
-  // Bound at the document level (not the textarea) so the user can hit ⌘↵
-  // from the screenshot button or anywhere else inside the widget.
+  // Bound at the document level so the user can hit ⌘↵ from the screenshot
+  // button or anywhere else inside the widget.
   useEffect(() => {
     if (!visible) return;
     const onKey = (e: KeyboardEvent) => {
@@ -288,13 +270,6 @@ export function FrictionWidget() {
         void onCaptureViewport();
       } else if (!e.shiftKey && key === ".") {
         e.preventDefault();
-        // Persist the current body draft via state — it survives the round
-        // trip through selection mode because the widget stays mounted.
-        setFrictionAutoCapture(
-          screenshotRef.current
-            ? { bytes: screenshotRef.current.bytes, filename: screenshotRef.current.filename }
-            : null,
-        );
         enterFrictionSelecting();
       }
     };
@@ -304,19 +279,22 @@ export function FrictionWidget() {
 
   if (!visible) return null;
 
-  const style: React.CSSProperties = hiddenForCapture
-    ? { visibility: "hidden" }
-    : {};
+  const style = hiddenForCapture ? HIDDEN_STYLE : undefined;
+  const submitLabel = submitting
+    ? "Submitting…"
+    : submittedId
+      ? "Filed"
+      : "Submit";
 
   return (
     <div
-      ref={widgetRef}
       className="friction-widget"
       data-component="FrictionWidget"
       data-anchored={anchor ? "true" : "false"}
       style={style}
       role="dialog"
       aria-label="Capture friction"
+      aria-keyshortcuts="Meta+Enter Meta+Shift+S Meta+Period Escape"
     >
       <div className="friction-widget__header">
         <span className="friction-widget__title">Friction</span>
@@ -324,18 +302,9 @@ export function FrictionWidget() {
           <button
             type="button"
             className="friction-widget__icon-btn"
-            onClick={() => {
-              setFrictionAutoCapture(
-                screenshotRef.current
-                  ? {
-                      bytes: screenshotRef.current.bytes,
-                      filename: screenshotRef.current.filename,
-                    }
-                  : null,
-              );
-              enterFrictionSelecting();
-            }}
+            onClick={enterFrictionSelecting}
             aria-label="Anchor to element (⌘.)"
+            aria-keyshortcuts="Meta+Period"
             title="Anchor to element (⌘.)"
           >
             <MapPin size={14} strokeWidth={1.6} aria-hidden="true" />
@@ -344,8 +313,9 @@ export function FrictionWidget() {
             type="button"
             className="friction-widget__icon-btn"
             onClick={() => void onCaptureViewport()}
-            disabled={capturing}
+            disabled={capturing || submitting}
             aria-label="Capture viewport (⌘⇧S)"
+            aria-keyshortcuts="Meta+Shift+S"
             title="Capture viewport (⌘⇧S)"
           >
             <Camera size={14} strokeWidth={1.6} aria-hidden="true" />
@@ -357,15 +327,20 @@ export function FrictionWidget() {
             aria-label="Close (ESC)"
             title="Close (ESC)"
           >
-            <X size={14} strokeWidth={1.6} />
+            <X size={14} strokeWidth={1.6} aria-hidden="true" />
           </button>
         </div>
       </div>
 
       {anchor && (
-        <div className="friction-widget__anchor-chip" data-component="FrictionAnchorChip">
+        <div
+          className="friction-widget__anchor-chip"
+          data-component="FrictionAnchorChip"
+        >
           <MapPin size={12} strokeWidth={1.6} aria-hidden="true" />
-          <span className="friction-widget__anchor-text">{anchorDescriptor(anchor)}</span>
+          <span className="friction-widget__anchor-text">
+            {anchorDescriptor(anchor)}
+          </span>
           <button
             type="button"
             className="friction-widget__anchor-clear"
@@ -400,14 +375,10 @@ export function FrictionWidget() {
             <button
               type="button"
               className="friction-widget__shot-clear"
-              onClick={() => {
-                URL.revokeObjectURL(screenshot.previewUrl);
-                setScreenshot(null);
-                setFrictionAutoCapture(null);
-              }}
+              onClick={clearScreenshot}
               aria-label="Remove screenshot"
             >
-              <Trash2 size={12} strokeWidth={1.6} />
+              <Trash2 size={12} strokeWidth={1.6} aria-hidden="true" />
             </button>
           </div>
         ) : (
@@ -416,8 +387,8 @@ export function FrictionWidget() {
             className="friction-widget__shot-empty"
             onClick={() => fileInputRef.current?.click()}
           >
-            <ImageIcon size={16} strokeWidth={1.6} />
-            <span>⌘⇧S to capture · ⌘V to paste · drop a file</span>
+            <ImageIcon size={16} strokeWidth={1.6} aria-hidden="true" />
+            <span>Drop · paste · click to pick</span>
           </button>
         )}
         <input
@@ -430,7 +401,12 @@ export function FrictionWidget() {
       </div>
 
       {toast && (
-        <div className="friction-widget__toast" data-kind={toast.kind} role="status">
+        <div
+          className="friction-widget__toast"
+          data-kind={toast.kind}
+          role="status"
+          aria-live="polite"
+        >
           <span>{toast.message}</span>
           {toast.linkToTriage && (
             <button
@@ -464,7 +440,7 @@ export function FrictionWidget() {
           disabled={!canSubmit}
           data-component="FrictionWidgetSubmit"
         >
-          {submitting ? "Submitting…" : "Submit"}
+          {submitLabel}
         </button>
       </div>
 
@@ -473,23 +449,11 @@ export function FrictionWidget() {
         data-component="FrictionKeyHints"
         aria-hidden="true"
       >
-        <span>
-          <kbd>⌘↵</kbd> submit
-        </span>
-        <span>
-          <kbd>⌘⇧S</kbd> screenshot
-        </span>
-        <span>
-          <kbd>⌘.</kbd> anchor
-        </span>
-        <span>
-          <kbd>esc</kbd> dismiss
-        </span>
-      </div>
-
-      <div className="friction-widget__chips" aria-hidden="true">
-        <span className="friction-widget__chip">v{APP_VERSION}</span>
-        {anchor && <span className="friction-widget__chip">{anchor.kind}</span>}
+        {KEYHINTS.map(({ keys, label }) => (
+          <span key={label}>
+            <kbd>{keys}</kbd> {label}
+          </span>
+        ))}
       </div>
     </div>
   );

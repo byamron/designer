@@ -55,7 +55,7 @@ export function SelectionOverlay() {
     if (!hover) return;
     const target = altHeldRef.current ? hover.atom : hover.snap;
     const route = window.location.hash || window.location.pathname || "/";
-    setFrictionAnchor(anchorFromElement(target, route), null);
+    setFrictionAnchor(anchorFromElement(target, route));
   }, [hover]);
 
   // Reset armed-at timestamp + clear stale hover whenever arming flips on.

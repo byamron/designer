@@ -29,16 +29,6 @@ export type AppDialog = "settings" | "help" | "create-project" | null;
 //   selecting → off             (ESC, click outside after 50ms suppression)
 export type FrictionMode = "off" | "composing" | "selecting";
 
-/**
- * Auto-captured viewport screenshot bundled into the composer when the user
- * pressed ⌘⇧S. The composer is hidden for one frame before capture so it
- * doesn't appear in its own screenshot — see FrictionWidget.
- */
-export interface FrictionAutoCapture {
-  bytes: Uint8Array;
-  filename: string;
-}
-
 export const PANE_MIN_WIDTH = 180;
 export const PANE_MAX_WIDTH = 480;
 export const PANE_DEFAULT_WIDTH = 256;
@@ -101,7 +91,6 @@ export interface AppState {
   // Track 13.K / 13.M — Friction.
   frictionMode: FrictionMode;
   frictionAnchor: Anchor | null;
-  frictionAutoCapture: FrictionAutoCapture | null;
   /**
    * Phase 21.A1.1 — Designer noticed unread badge state.
    *
@@ -133,7 +122,6 @@ export const appStore = createStore<AppState>({
   autonomyOverrides: {},
   frictionMode: "off",
   frictionAnchor: null,
-  frictionAutoCapture: null,
   noticedLastViewedSeq: 0,
 });
 
@@ -267,20 +255,8 @@ export const toggleFrictionComposer = () => {
     // Inert when any modal scrim is open — prevents the user from opening
     // the composer while a settings page or dialog covers the viewport.
     if (s.dialog !== null) return s;
-    if (s.frictionMode === "off") {
-      return {
-        ...s,
-        frictionMode: "composing",
-        frictionAnchor: null,
-        frictionAutoCapture: null,
-      };
-    }
-    return {
-      ...s,
-      frictionMode: "off",
-      frictionAnchor: null,
-      frictionAutoCapture: null,
-    };
+    const next: FrictionMode = s.frictionMode === "off" ? "composing" : "off";
+    return { ...s, frictionMode: next, frictionAnchor: null };
   });
 };
 
@@ -298,19 +274,13 @@ export const exitFrictionSelecting = () =>
 
 /**
  * Anchor captured from the overlay. Returns the user to the composer with
- * the descriptor showing as a chip. The optional auto-capture is preserved
- * for legacy callers but is not used in the 13.M flow (⌘⇧S is now the
- * primary screenshot path).
+ * the descriptor showing as a chip.
  */
-export const setFrictionAnchor = (
-  anchor: Anchor,
-  autoCapture: FrictionAutoCapture | null = null,
-) =>
+export const setFrictionAnchor = (anchor: Anchor) =>
   appStore.set((s) => ({
     ...s,
     frictionMode: "composing",
     frictionAnchor: anchor,
-    frictionAutoCapture: autoCapture ?? s.frictionAutoCapture,
   }));
 
 /** Clear the anchor while keeping the composer open (× on the chip). */
@@ -319,23 +289,12 @@ export const clearFrictionAnchor = () =>
     s.frictionAnchor === null ? s : { ...s, frictionAnchor: null },
   );
 
-/** Bundle an auto-captured screenshot into the composer (⌘⇧S). */
-export const setFrictionAutoCapture = (capture: FrictionAutoCapture | null) =>
-  appStore.set((s) =>
-    s.frictionAutoCapture === capture ? s : { ...s, frictionAutoCapture: capture },
-  );
-
 /** Fully clear friction state — submit success, ESC, ⌘⇧F again. */
 export const clearFriction = () =>
   appStore.set((s) =>
     s.frictionMode === "off" && s.frictionAnchor === null
       ? s
-      : {
-          ...s,
-          frictionMode: "off",
-          frictionAnchor: null,
-          frictionAutoCapture: null,
-        },
+      : { ...s, frictionMode: "off", frictionAnchor: null },
   );
 
 // ---- Phase 21.A1.1 Designer noticed unread badge ------------------------
