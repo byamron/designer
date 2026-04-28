@@ -1,0 +1,155 @@
+/* --- Designer noticed (Phase 21.A1) ---------------------------------- */
+/* Read-only list of findings under Settings → Activity → "Designer
+ * noticed". Severity drives the left-border accent only.
+ */
+.designer-noticed__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.designer-noticed__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-3);
+  border-bottom: var(--border-thin) solid var(--color-border);
+  border-left: var(--border-strong) solid var(--color-border);
+}
+
+.designer-noticed__row:last-child {
+  border-bottom: none;
+}
+
+.designer-noticed__row[data-severity="info"] {
+  border-left-color: var(--color-border);
+}
+
+.designer-noticed__row[data-severity="notice"] {
+  border-left-color: var(--accent-9, var(--color-accent));
+}
+
+.designer-noticed__row[data-severity="warn"] {
+  border-left-color: var(--warning-9);
+}
+
+.designer-noticed__row-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.designer-noticed__row-summary {
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
+  line-height: var(--type-body-leading);
+  overflow-wrap: anywhere;
+}
+
+.designer-noticed__row-meta {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.designer-noticed__row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  justify-self: end;
+}
+
+.designer-noticed__signal {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-2);
+  padding: var(--space-2);
+  color: var(--color-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.designer-noticed__signal:hover {
+  color: var(--color-foreground);
+  border-color: var(--color-foreground);
+}
+
+.designer-noticed__signal:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.designer-noticed__signal[data-active="true"] {
+  background: var(--accent-3, var(--color-surface));
+  border-color: var(--accent-9, var(--color-accent));
+  color: var(--accent-11, var(--color-foreground));
+}
+
+/* Phase 21.A1.1 — calibrated badge. A small pill that sits in the row
+ * meta line, visually distinct enough to read as "this finding has been
+ * thumbed" at a glance without competing with the severity-tinted left
+ * border. The "👍/👎" glyph carries the polarity; color is reserved for
+ * severity, so the badge palette stays neutral.
+ */
+.designer-noticed__calibrated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  line-height: 1.4;
+}
+
+/* Phase 21.A1.1 — workspace-home placement. The home component reuses
+ * the home-a section chrome; this rule narrows the row gap so the
+ * top-N feed sits flush with the surrounding panels.
+ */
+.designer-noticed-home .designer-noticed__list {
+  margin-top: var(--space-2);
+}
+
+/* Sidebar Home button unread badge for Designer noticed (Phase 21.A1.1).
+ * The home button is `display: grid` with two tracks (icon | label); the
+ * label track stretches to fill `1fr` so the badge can ride at the right
+ * edge via `justify-content: space-between` on the inner flex row.
+ */
+.sidebar-home__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.sidebar-home__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--size-badge);
+  height: var(--size-badge);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--accent-9);
+  color: var(--accent-contrast);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+
+.activity-section__tabs {
+  margin-bottom: var(--space-3);
+}

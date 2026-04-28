@@ -1,0 +1,157 @@
+/* --- component catalog + prototype preview ---- */
+
+.lab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-8) * 4), 1fr));
+  gap: var(--space-4);
+}
+
+.lab-tile {
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: calc(var(--space-8) * 3);
+}
+
+.lab-tile__name {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+}
+.lab-tile__hint {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+}
+.lab-tile__example {
+  padding: var(--space-3);
+  background: var(--color-background);
+  border: var(--border-thin) dashed var(--color-border);
+  border-radius: var(--radius-button);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prototype-frame {
+  width: 100%;
+  min-height: calc(var(--space-8) * 8);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-background);
+}
+
+/* --- annotation pins + popover ---------------------------------------- */
+
+.annotation-pin {
+  appearance: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--info-9);
+  color: var(--info-1);
+  border: var(--border-thin) solid var(--info-11);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  box-shadow: var(--elevation-overlay);
+  transition: transform var(--motion-interactive);
+}
+
+.annotation-pin:hover {
+  transform: scale(1.08);
+}
+
+.annotation-pin:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.annotation-popover {
+  min-width: calc(var(--space-8) * 4);
+  max-width: calc(var(--space-8) * 6);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  box-shadow: var(--elevation-overlay);
+  z-index: var(--layer-overlay);
+}
+
+.annotation-popover__body {
+  margin: 0;
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  white-space: pre-wrap;
+}
+
+.annotation-popover__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+}
+
+.annotation-popover__remove {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--danger-11);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+  padding: 0;
+}
+
+.annotation-popover__remove:hover {
+  text-decoration: underline;
+}
+
+.annotation-draft {
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: calc(var(--space-8) * 4);
+  box-shadow: var(--elevation-overlay);
+  z-index: var(--layer-overlay);
+}
+
+.annotation-draft__input {
+  all: unset;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-foreground);
+  background: var(--color-background);
+  border-radius: var(--radius-button);
+  border: var(--border-thin) solid var(--color-border);
+  min-height: var(--space-6);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-body-size);
+}
+
+.annotation-draft__input:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.annotation-draft__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

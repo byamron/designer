@@ -1,0 +1,327 @@
+/* --- home variant A: single-column quieter dashboard ----------------- */
+
+.home-a {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: calc(var(--space-8) * 10);
+}
+
+.home-a__explain {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  color: var(--color-muted);
+  max-width: calc(var(--space-8) * 10);
+  margin: 0;
+}
+
+.home-a__explain strong {
+  color: var(--color-foreground);
+  font-weight: var(--weight-medium);
+}
+
+/* Active-workspaces variant: the first column is an icon (sidebar-style
+ * status glyph), not a bare dot. Icon sits 12px wide with space-2 gap. */
+.home-a__list--workspaces > li {
+  grid-template-columns: var(--icon-sm) 1fr auto;
+}
+
+.home-a__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.home-a__section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+
+.home-a__section-label {
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.home-a__section-trailing {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.home-a__count {
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+}
+
+.home-a__count[data-variant="warning"] {
+  color: var(--warning-11);
+}
+
+.home-a__muted-small {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+}
+
+.home-a__link-btn {
+  all: unset;
+  cursor: pointer;
+  color: var(--color-muted);
+  font-size: var(--type-body-size);
+  align-self: flex-start;
+  padding: var(--space-2) 0;
+  transition: color var(--motion-interactive);
+}
+
+.home-a__link-btn:hover,
+.home-a__link-btn:focus-visible {
+  color: var(--color-foreground);
+}
+
+.home-a__link-btn:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-badge);
+}
+
+.home-a__steps {
+  list-style: none;
+  counter-reset: step;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+}
+
+.home-a__steps > li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: var(--space-4) 1fr;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+}
+
+.home-a__steps > li::before {
+  content: counter(step);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.home-a__steps > li[data-done="true"] {
+  color: var(--color-muted);
+}
+
+.home-a__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-a__list > li {
+  display: grid;
+  grid-template-columns: var(--space-3) 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.home-a__list > li:not(:has(.state-dot)) {
+  grid-template-columns: 1fr auto;
+}
+
+.home-a__row-title {
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-a__row-meta {
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+}
+
+/* --- home variant B: palette-first (Dia-inspired) ---- */
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding-top: var(--space-7);
+}
+
+.palette__stage {
+  margin: 0 auto;
+  width: 100%;
+  max-width: calc(var(--space-8) * 9);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+.palette__stage-head {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Palette: the prompt and suggestions form a single object. The
+ * `bounded` density wraps them in a rounded surface with a hairline
+ * between prompt and suggestions (Dia pattern). The `open` density
+ * removes the surface — items sit directly on the page. */
+.palette__surface {
+  display: flex;
+  flex-direction: column;
+  transition: background var(--motion-interactive), border-color var(--motion-interactive), box-shadow var(--motion-interactive);
+}
+
+.palette__surface[data-density="bounded"] {
+  background: var(--color-surface-flat);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-modal);
+  overflow: hidden;
+}
+
+.palette__surface[data-density="bounded"]:focus-within {
+  border-color: var(--color-foreground);
+  box-shadow: 0 0 0 var(--focus-outline-width) var(--focus-outline-color);
+}
+
+.palette__surface[data-density="bounded"] .palette__prompt {
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+
+.palette__prompt {
+  display: grid;
+  grid-template-columns: var(--space-4) 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  box-sizing: border-box;
+}
+
+.palette__prompt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+.palette__input {
+  all: unset;
+  width: 100%;
+  padding: 0;
+  font-size: var(--type-lead-size);
+  line-height: var(--type-lead-leading);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  box-sizing: border-box;
+}
+
+/* Open density: prompt has no container, border, or background — the
+ * user types directly on the surface (Notion / Linear feel). Only the
+ * native caret + placeholder make the input discoverable. Padding
+ * matches the suggestion rows below so items align on the left edge. */
+.palette__surface[data-density="open"] .palette__prompt {
+  padding: var(--space-2) 0;
+  margin-bottom: var(--space-3);
+  background: transparent;
+  border: none;
+}
+
+.palette__surface[data-density="open"] .palette__input {
+  background: transparent;
+}
+
+.palette__surface[data-density="open"] .palette__input:focus-visible {
+  outline: none;
+}
+
+.palette__input::placeholder {
+  color: var(--color-muted);
+}
+
+.palette__suggestions {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+}
+
+.palette__surface[data-density="open"] .palette__suggestions {
+  padding: 0;
+}
+
+.palette__surface[data-density="open"] .palette__suggestions > li + li {
+  border-top: var(--border-thin) solid var(--color-border);
+}
+
+.palette__suggestion {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: var(--space-4) 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-button);
+  transition: background var(--motion-interactive);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.palette__surface[data-density="bounded"] .palette__suggestion:hover {
+  background: var(--color-surface-raised);
+}
+
+.palette__surface[data-density="open"] .palette__suggestion:hover {
+  background: var(--color-surface-flat);
+}
+
+.palette__suggestion:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: calc(var(--focus-outline-offset) * -1);
+}
+
+.palette__suggestion-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+.palette__suggestion-label {
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Suggestion meta (role labels like "spine · context") removed — users
+ * reported role labels were not self-explanatory. Keep the class as a
+ * legacy alias in case palette consumers still reference it, but it
+ * renders nothing in the DOM. */
