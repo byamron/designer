@@ -33,6 +33,16 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0033: Reuse user infrastructure before building runtime — for review, preview, and adjacent capabilities
+**Date:** 2026-04-27
+**Source:** user direction (visual PR diff brainstorm)
+
+**What was said:** During brainstorm of a visual PR-diff feature, the assistant moved fast from "design a capture primitive" to "Playwright vs WKWebView" without questioning whether Designer should run the rendering at all. After a staff-engineer / staff-UX re-evaluation, the right answer turned out to be: don't build a capture engine — reuse the per-PR preview URLs the user's deploy provider (Vercel/Netlify/Cloudflare) already produces. ~10× lower lift, real interactive app, perfect fidelity, no Chromium bundle. The whole "browser-engine" debate was a question inside the wrong decision.
+
+**Synthesized rule:** Before designing a runtime/capture/orchestration subsystem, ask: *what artifact does the user's existing infrastructure already produce that we could surface instead?* Designer's target user runs a real product — they likely already have CI, preview deployments, observability, error tracking, analytics. Surfacing those into the cockpit is almost always cheaper, higher-fidelity, and more aligned with "manager, not engineer" than building our own equivalent. Specifically: prefer **preview URLs over headless screenshots**, **CI artifacts over local builds**, **PR comments over re-running checks**, **the user's deploys over our sandbox**. Only build runtime when no comparable artifact exists in the user's toolchain. When tempted to architect a new subsystem, list the existing artifacts first and have to argue past them. Pairs with FB-0010 (explore + debate before committing): the failure mode is jumping to architecture inside the first plausible framing rather than questioning the framing itself.
+
+**Applies to:** architecture, product, workflow, agent behavior
+
 ### FB-0032: Filepath inputs default to a native picker, never plain text
 **Date:** 2026-04-26
 **Source:** user correction (first-real-build dogfood, PR #24 follow-up)
