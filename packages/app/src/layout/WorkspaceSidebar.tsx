@@ -12,7 +12,7 @@ import {
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
 import { invoke, isTauri } from "../ipc/tauri";
-import type { TrackSummary, Workspace, WorkspaceSummary } from "../ipc/types";
+import { EVENT_KIND, type TrackSummary, type Workspace, type WorkspaceSummary } from "../ipc/types";
 import { emptyArray } from "../util/empty";
 import { IconButton } from "../components/IconButton";
 import { Tooltip } from "../components/Tooltip";
@@ -31,7 +31,8 @@ export function WorkspaceSidebar() {
   const noticedUnread = useDataState((s) =>
     s.events.reduce(
       (acc, e) =>
-        e.kind === "finding_recorded" && e.sequence > noticedLastViewedSeq
+        e.kind === EVENT_KIND.FINDING_RECORDED &&
+        e.sequence > noticedLastViewedSeq
           ? acc + 1
           : acc,
       0,
@@ -116,15 +117,14 @@ export function WorkspaceSidebar() {
           disabled={!activeProjectId}
         >
           <House size={16} strokeWidth={1.5} aria-hidden="true" />
-          <span>Home</span>
-          {noticedUnread > 0 && (
-            <span
-              className="sidebar-home__badge"
-              aria-label={`${noticedUnread} new noticed findings`}
-            >
-              {noticedUnread > 99 ? "99+" : noticedUnread}
-            </span>
-          )}
+          <span className="sidebar-home__label">
+            <span>Home</span>
+            {noticedUnread > 0 && (
+              <span className="sidebar-home__badge" aria-hidden="true">
+                {noticedUnread > 99 ? "99+" : noticedUnread}
+              </span>
+            )}
+          </span>
         </button>
       </Tooltip>
 

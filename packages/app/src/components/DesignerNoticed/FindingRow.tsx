@@ -43,13 +43,11 @@ export function FindingRow({
               <span
                 className="designer-noticed__calibrated-badge"
                 data-signal={calibratedSignal}
-                aria-label={
-                  calibratedSignal === "up"
-                    ? "Calibrated useful"
-                    : "Calibrated noise"
-                }
               >
-                calibrated {calibratedSignal === "up" ? "👍" : "👎"}
+                <span aria-hidden="true">
+                  {calibratedSignal === "up" ? "👍" : "👎"}
+                </span>
+                calibrated
               </span>
             </>
           )}

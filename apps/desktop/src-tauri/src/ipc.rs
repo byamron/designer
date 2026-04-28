@@ -340,11 +340,12 @@ pub async fn cmd_list_findings(
     core: &Arc<AppCore>,
     project_id: ProjectId,
 ) -> Result<Vec<FindingDto>, IpcError> {
-    let findings = core
-        .list_findings(project_id)
-        .await
-        .map_err(IpcError::from)?;
-    let signals = core.list_signals().await.map_err(IpcError::from)?;
+    // The two reads are independent — concurrent fetch saves the
+    // second read's latency on every page open.
+    let (findings, signals) = tokio::try_join!(
+        async { core.list_findings(project_id).await.map_err(IpcError::from) },
+        async { core.list_signals().await.map_err(IpcError::from) },
+    )?;
     let dtos = findings
         .into_iter()
         .map(|f| {

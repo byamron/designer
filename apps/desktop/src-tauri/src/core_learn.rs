@@ -54,6 +54,30 @@ pub enum LearnError {
     Core(#[from] designer_core::CoreError),
 }
 
+impl From<LearnError> for designer_ipc::IpcError {
+    fn from(value: LearnError) -> Self {
+        match value {
+            LearnError::SessionCapReached { detector } => designer_ipc::IpcError::invalid_request(
+                format!("detector `{detector}` reached its per-session finding cap"),
+            ),
+            LearnError::Core(err) => err.into(),
+        }
+    }
+}
+
+/// Outcome of the inner `write_finding_unchecked` path. Distinct from
+/// `Result<(), LearnError>` because the dedup no-op needs to be
+/// distinguished from a successful write so the caller knows whether
+/// to keep or refund the cap reservation.
+enum WriteOutcome {
+    /// Event was appended; the cap reservation stands.
+    Written,
+    /// `window_digest` matched an existing finding; refund the slot.
+    DuplicateDigest,
+    /// The underlying store / projection failed; refund the slot.
+    Failed(LearnError),
+}
+
 impl AppCore {
     /// Append a [`EventPayload::FindingRecorded`] for `finding`, gated
     /// by per-detector caps and write-time dedup.
@@ -83,33 +107,55 @@ impl AppCore {
         finding: Finding,
         config: &DetectorConfig,
     ) -> Result<(), LearnError> {
-        // Cap check first — cheaper than the dedup walk, and a hot
-        // detector that's already over the cap shouldn't trigger a
-        // projection scan it can't act on.
+        // Atomic check-and-reserve under a single lock acquisition.
+        // Two concurrent callers can otherwise both pass a "count <
+        // cap" check before either bumps, slipping past the cap by
+        // one. Reserving up front and refunding on no-op / failure
+        // keeps the cap exact even under contention.
         let detector = finding.detector_name.clone();
         {
-            let counts = self.finding_session_counts.lock();
-            let count = counts.get(&detector).copied().unwrap_or(0);
-            if count >= config.max_findings_per_session {
+            let mut counts = self.finding_session_counts.lock();
+            let slot = counts.entry(detector.clone()).or_insert(0);
+            if *slot >= config.max_findings_per_session {
                 return Err(LearnError::SessionCapReached { detector });
             }
+            *slot = slot.saturating_add(1);
         }
 
-        // Dedup against the current project's open findings. List is
-        // bounded to a few hundred even on a heavily-instrumented
-        // project; a linear scan is fine until the dedicated
-        // findings projection lands in 21.A3.
-        let existing = self.list_findings(finding.project_id).await?;
+        // From here on, every early return must release the
+        // reservation we just made — only a successful append earns it.
+        match self.write_finding_unchecked(finding).await {
+            WriteOutcome::Written => Ok(()),
+            WriteOutcome::DuplicateDigest => {
+                self.refund_session_slot(&detector);
+                Ok(())
+            }
+            WriteOutcome::Failed(err) => {
+                self.refund_session_slot(&detector);
+                Err(err)
+            }
+        }
+    }
+
+    /// Inner write path used by [`Self::report_finding`] after the
+    /// session cap has been reserved. Performs the dedup scan + event
+    /// append; the caller refunds the reservation on the non-success
+    /// outcomes.
+    async fn write_finding_unchecked(&self, finding: Finding) -> WriteOutcome {
+        let existing = match self.list_findings(finding.project_id).await {
+            Ok(e) => e,
+            Err(err) => return WriteOutcome::Failed(err.into()),
+        };
         if existing
             .iter()
             .any(|f| f.window_digest == finding.window_digest)
         {
             debug!(
-                detector = %detector,
+                detector = %finding.detector_name,
                 window_digest = %finding.window_digest,
                 "report_finding: duplicate window_digest in current project; no-op"
             );
-            return Ok(());
+            return WriteOutcome::DuplicateDigest;
         }
 
         let stream = match finding.workspace_id {
@@ -117,23 +163,23 @@ impl AppCore {
             None => StreamId::Project(finding.project_id),
         };
         let payload = EventPayload::FindingRecorded { finding };
-        let env = self
+        let env = match self
             .store
             .append(stream, None, Actor::system(), payload)
-            .await?;
+            .await
+        {
+            Ok(env) => env,
+            Err(err) => return WriteOutcome::Failed(err.into()),
+        };
         self.projector.apply(&env);
+        WriteOutcome::Written
+    }
 
-        // Bump the in-memory session counter only after a successful
-        // append. A failed write should not consume the detector's
-        // budget — the detector can retry without spuriously hitting
-        // the cap.
-        self.finding_session_counts
-            .lock()
-            .entry(detector)
-            .and_modify(|n| *n = n.saturating_add(1))
-            .or_insert(1);
-
-        Ok(())
+    fn refund_session_slot(&self, detector: &str) {
+        let mut counts = self.finding_session_counts.lock();
+        if let Some(slot) = counts.get_mut(detector) {
+            *slot = slot.saturating_sub(1);
+        }
     }
 
     /// Append a [`EventPayload::FindingSignaled`] for `finding_id`.
@@ -203,20 +249,22 @@ impl AppCore {
     pub async fn list_signals(
         &self,
     ) -> designer_core::Result<HashMap<FindingId, (ThumbSignal, Timestamp)>> {
+        // `read_stream` returns events in sequence order, which is
+        // monotonic per stream — a plain `insert` is therefore already
+        // last-write-wins.
         let events = self
             .store
             .read_stream(StreamId::System, StreamOptions::default())
             .await?;
-        let mut latest: HashMap<FindingId, (ThumbSignal, Timestamp)> = HashMap::new();
-        for env in events {
-            if let EventPayload::FindingSignaled { finding_id, signal } = env.payload {
-                let entry = latest.entry(finding_id).or_insert((signal, env.timestamp));
-                if env.timestamp >= entry.1 {
-                    *entry = (signal, env.timestamp);
+        Ok(events
+            .into_iter()
+            .filter_map(|env| match env.payload {
+                EventPayload::FindingSignaled { finding_id, signal } => {
+                    Some((finding_id, (signal, env.timestamp)))
                 }
-            }
-        }
-        Ok(latest)
+                _ => None,
+            })
+            .collect())
     }
 
     /// `true` when `~/.claude/plugins/forge/` exists.
@@ -469,6 +517,54 @@ mod tests {
         assert_eq!(signals.len(), 1);
         let (signal, _ts) = signals.get(&id).copied().unwrap();
         assert_eq!(signal, ThumbSignal::Down);
+    }
+
+    /// Phase 21.A1.1 — concurrent callers cannot slip past the cap.
+    /// Spawns N+1 `report_finding` tasks against a cap of N; exactly N
+    /// must succeed and the (N+1)th must hit `SessionCapReached`. With
+    /// the naive "check then bump" pattern, two callers reading
+    /// count=N-1 simultaneously could both write.
+    #[tokio::test]
+    async fn report_finding_cap_holds_under_concurrency() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let cap: u32 = 3;
+        let cfg = DetectorConfig {
+            max_findings_per_session: cap,
+            ..DetectorConfig::default()
+        };
+
+        let mut handles = Vec::new();
+        let total: u32 = cap + 2;
+        for i in 0..total {
+            let core = core.clone();
+            let cfg = cfg.clone();
+            let pid = project.id;
+            handles.push(tokio::spawn(async move {
+                let digest = format!("digest-{i}");
+                core.report_finding(make_finding_with(pid, "demo", "concurrent", &digest), &cfg)
+                    .await
+            }));
+        }
+
+        let mut writes = 0u32;
+        let mut caps = 0u32;
+        for h in handles {
+            match h.await.unwrap() {
+                Ok(()) => writes += 1,
+                Err(LearnError::SessionCapReached { .. }) => caps += 1,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+        assert_eq!(writes, cap, "exactly {cap} writes should succeed");
+        assert_eq!(caps, total - cap, "the rest hit the session cap");
+        assert_eq!(
+            core.list_findings(project.id).await.unwrap().len() as u32,
+            cap
+        );
     }
 
     /// Phase 21.A1.1 — duplicate `window_digest` writes silently no-op

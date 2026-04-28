@@ -31,14 +31,14 @@ export function HomeTabA({ project }: { project: Project }) {
   const autonomyOverride = useAppState((s) => s.autonomyOverrides[project.id]);
   const autonomy: Autonomy = autonomyOverride ?? project.autonomy ?? "suggest";
 
-  // Phase 21.A1.1 — mounting the home tab is the "I'm caught up"
-  // signal for the Designer noticed unread badge. Re-fire on every
-  // event-stream change so the cursor keeps pace with newly-streamed
-  // findings while the tab stays open.
-  const eventsLen = events.length;
+  // Phase 21.A1.1 — opening the home tab is the "I'm caught up"
+  // signal for the Designer noticed unread badge. Fire once per
+  // mount + project switch; the badge represents what's new since
+  // the user last looked, not a real-time count while they sit on
+  // this tab. New findings stream into the section directly.
   useEffect(() => {
     markNoticedViewed();
-  }, [eventsLen]);
+  }, [project.id]);
 
   const projectWorkspaces: WorkspaceSummary[] =
     workspaces[project.id] ?? emptyArray();

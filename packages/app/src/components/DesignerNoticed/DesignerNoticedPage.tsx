@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { ipcClient } from "../../ipc/client";
-import { describeIpcError } from "../../ipc/error";
-import type { FindingDto, ProjectId, ThumbSignal } from "../../ipc/types";
-import { emptyArray } from "../../util/empty";
+import { useEffect } from "react";
+import type { ProjectId } from "../../ipc/types";
 import { markNoticedViewed } from "../../store/app";
 import { FindingRow } from "./FindingRow";
+import { useFindings } from "./useFindings";
 
 /**
  * Settings → Activity → "Designer noticed" — full archive of findings
@@ -20,57 +18,13 @@ import { FindingRow } from "./FindingRow";
  * sibling page; both consume gate-style read endpoints from Rust core.
  */
 export function DesignerNoticedPage({ projectId }: { projectId: ProjectId | null }) {
-  const [findings, setFindings] = useState<FindingDto[]>(emptyArray);
-  const [signaled, setSignaled] = useState<Record<string, ThumbSignal>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { findings, signaled, onSignal, loading, error } = useFindings(projectId);
 
+  // Opening the archive clears the unread badge — viewing here is the
+  // same "I'm caught up" signal as opening the workspace home.
   useEffect(() => {
-    if (!projectId) {
-      setFindings(emptyArray());
-      return;
-    }
-    // Opening the archive clears the unread badge — viewing here is
-    // the same "I'm caught up" signal as opening the workspace home.
-    markNoticedViewed();
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    ipcClient()
-      .listFindings(projectId)
-      .then((rows) => {
-        if (!cancelled) setFindings(rows);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(describeIpcError(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    if (projectId) markNoticedViewed();
   }, [projectId]);
-
-  const onSignal = useCallback(
-    async (id: string, signal: ThumbSignal) => {
-      setSignaled((prev) => ({ ...prev, [id]: signal }));
-      try {
-        await ipcClient().signalFinding({ finding_id: id, signal });
-      } catch {
-        // Roll back the optimistic update so the UI doesn't lie about
-        // persisted calibration. We don't surface the failure inline —
-        // a finding that can't be signaled isn't blocking; the user
-        // can retry.
-        setSignaled((prev) => {
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-      }
-    },
-    [],
-  );
 
   if (!projectId) {
     return (
@@ -96,8 +50,8 @@ export function DesignerNoticedPage({ projectId }: { projectId: ProjectId | null
       )}
       {!loading && !error && findings.length === 0 && (
         <p className="settings-page__section-description">
-          Nothing noticed yet. Designer collects signal as you work — keep
-          dogfooding and findings will appear here.
+          Nothing noticed yet — keep working and Designer will surface
+          patterns it sees.
         </p>
       )}
       {findings.length > 0 && (

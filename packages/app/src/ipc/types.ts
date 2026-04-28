@@ -203,6 +203,17 @@ export interface StreamEvent {
   payload?: unknown;
 }
 
+/**
+ * Event-kind string constants. The Rust side serializes
+ * `EventKind` as snake_case via serde; these names mirror that
+ * encoding so consumers can compare without sprinkling magic
+ * strings.
+ */
+export const EVENT_KIND = {
+  FINDING_RECORDED: "finding_recorded",
+  FINDING_SIGNALED: "finding_signaled",
+} as const;
+
 // ---- Friction (Track 13.K) ----
 
 import type { Anchor } from "../lib/anchor";
