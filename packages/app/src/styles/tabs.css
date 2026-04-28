@@ -1,0 +1,529 @@
+/* --- tabs bar (Linear-style pills above the floating surface) ---- */
+/* Bar is transparent and sits on the page. Horizontal gap between tabs
+ * and vertical gap to the surface below are both driven by the single
+ * --surface-tab-gap custom property — tunable 4 / 6 / 8 via the
+ * SurfaceDevPanel.
+ *
+ * Tab style is switched via [data-tab-style="A"|"B"|"C"] on .app-shell.
+ * The active tab always uses --color-content-surface so it reads as the
+ * same material as the surface below (no merge — the gap replaces it). */
+
+.tabs-bar {
+  display: flex;
+  gap: var(--surface-tab-gap);
+  /* Left padding is 0 so the first tab's left edge is flush with the
+   * main-surface left edge below. Top padding still gives the row some
+   * breathing room from the project strip; bottom padding is the
+   * tab-to-surface gap. */
+  padding: var(--space-2) var(--space-3) var(--surface-tab-gap) 0;
+  background: transparent;
+  align-items: flex-end;
+  position: relative;
+  z-index: var(--layer-raised);
+}
+
+.tab-button-wrap {
+  flex: 0 1 calc(var(--space-8) * 3);
+  min-width: calc(var(--space-8) * 1.5);
+  max-width: calc(var(--space-8) * 3);
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.tab-button {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  /* Right padding clears the absolutely-positioned close button:
+   * close hit target (--space-5 = 24px) + right inset (--space-2 = 4px)
+   * + breathing room (--space-2 = 4px) ≈ 32px = --space-6. */
+  padding-right: calc(var(--space-6) + var(--space-2));
+  /* Unselected tab fill: main-tab color faded by --dev-tab-opacity.
+   * Border picks up the same fade so the border weight tracks the
+   * fill weight. */
+  background: color-mix(
+    in srgb,
+    var(--color-content-surface) var(--dev-tab-opacity),
+    transparent
+  );
+  border: var(--border-thin) solid var(--tab-inactive-border-color);
+  /* Top-corner-then-bottom-corner ordering. Asymmetric Folder variant
+   * gives top > bottom; symmetric variants keep them equal. */
+  border-radius: var(--dev-tab-radius-top) var(--dev-tab-radius-top)
+    var(--dev-tab-radius-bottom) var(--dev-tab-radius-bottom);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  font-family: var(--type-family-sans);
+  cursor: pointer;
+  transition: color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive), border-color var(--motion-interactive);
+  position: relative;
+}
+
+/* --- style A: selected-only container (default) ---------------------- */
+/* Active tab is a fully-rounded white pill floating above the page at
+ * the same elevation as the main surface below. --surface-tab-gap
+ * drives the air between the tab row and the surface — same value as
+ * the horizontal gap between tabs so the two axes stay equal. No
+ * border; the shadow + full-white fill differentiate it from the 90%
+ * translucent siblings without needing a dark outline. */
+
+.app-shell:not([data-tab-style]) .tab-button[data-active="true"],
+.app-shell[data-tab-style="A"] .tab-button[data-active="true"] {
+  color: var(--color-foreground);
+  /* Active tab matches the main-tab container exactly: same fill, same
+   * border, same shadow — the two read as the same material at the
+   * same elevation, separated only by --surface-tab-gap. */
+  background: var(--color-content-surface);
+  border-color: var(--surface-border-color);
+  font-weight: var(--weight-medium);
+  box-shadow: var(--surface-shadow);
+}
+
+/* --- style B: translucent-white inactive, floating selected ----------- */
+/* Inactive tabs are a translucent white — lets the sand page show through
+ * so they read as muted but are still visibly distinct from the page.
+ * Active tab is opaque --color-content-surface and bordered, still
+ * separated from the surface by --surface-tab-gap. */
+
+.app-shell[data-tab-style="B"] .tab-button {
+  background: color-mix(in srgb, var(--color-content-surface) 80%, transparent);
+  border-color: transparent;
+}
+
+.app-shell[data-tab-style="B"] .tab-button[data-active="true"] {
+  color: var(--color-foreground);
+  background: var(--color-content-surface);
+  border-color: var(--color-border-soft);
+  font-weight: var(--weight-medium);
+}
+
+/* --- style C: all floating -------------------------------------------- */
+/* Every tab is a bordered pill sitting above the page. Active is the
+ * content-surface fill with strong border; inactive are surface-raised
+ * (muted sand) with a soft border and muted label. */
+
+.app-shell[data-tab-style="C"] .tab-button {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-soft);
+}
+
+.app-shell[data-tab-style="C"] .tab-button[data-active="true"] {
+  color: var(--color-foreground);
+  background: var(--color-content-surface);
+  border-color: var(--color-border);
+  font-weight: var(--weight-medium);
+}
+
+.tab-button__close {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  /* 24px hit target hosts the 16px icon at standard size with a
+   * 4px ring of padding — same register as IconButton chrome
+   * elsewhere. */
+  width: var(--space-5);
+  height: var(--space-5);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--motion-interactive), background var(--motion-interactive), color var(--motion-interactive);
+}
+
+.tab-button-wrap:hover .tab-button__close,
+.tab-button-wrap[data-active="true"] .tab-button__close,
+.tab-button__close:focus-visible {
+  opacity: 1;
+}
+
+.tab-button__close:hover {
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+}
+
+.tab-button__close:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: calc(var(--focus-outline-offset) * -1);
+}
+
+.tab-button:hover:not([data-active="true"]) {
+  color: var(--color-foreground);
+}
+
+.tab-button:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.tab-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.tab-button[data-active="true"] .tab-button__icon {
+  color: var(--color-foreground);
+}
+
+.tab-button__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- main surface (Tier-2 floating rectangle) --------------------- */
+/* The raised content panel inside .app-main. Carries the elevation +
+ * rounded corners that separate content from page. Tabs sit above it
+ * (outside .main-surface) and the active tab merges into its top edge
+ * via negative margin in styles A and B. */
+
+.main-surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-content-surface);
+  border: var(--border-thin) solid var(--surface-border-color);
+  border-radius: var(--dev-main-tab-radius, var(--radius-surface));
+  box-shadow: var(--surface-shadow);
+  overflow: hidden;
+}
+
+/* --- tab body ---- */
+
+.tab-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Tab layout primitive: scrollable content + optional bottom dock. */
+.tab-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Tab content scroll area: padded by --surface-text-pad (24 px). Compose
+ * dock: padded by --surface-inner-pad (tunable 8–24). The two are
+ * separate knobs so the content-reading register stays stable while the
+ * compose affordance can be dialed tighter or airier. */
+
+.tab-layout__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--surface-text-pad);
+}
+
+.tab-layout__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.tab-layout__dock {
+  flex-shrink: 0;
+  background: transparent;
+  padding: 0 var(--surface-inner-pad) var(--surface-inner-pad);
+}
+
+.tab-layout__dock-inner {
+  /* Compose fills the full width of the dock (minus the surface-inner-pad
+   * gutter on either side). No inner max-width — the user asked for
+   * edge-to-edge compose against the pad. */
+  width: 100%;
+}
+
+/* Header shared across tabs — title + subtitle, no kicker.
+ * Empty-state only for Plan tabs; other tabs always render it while the
+ * 3-role text audit settles. Title is body-size with medium weight — the
+ * hierarchy comes from weight and color, not from a separate type step. */
+.tab-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tab-title {
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+  margin: 0;
+}
+
+.tab-subtitle {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  margin: 0;
+}
+
+/* Compose — the docked chat input. Corner radius is computed so the
+ * compose sits concentric with the surface: inner radius = outer radius
+ * minus the pad that separates them. With the ship defaults this is
+ * 24 − 16 = 8px. */
+.compose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  /* Compose fill blends between the main-tab container fill (0%, default)
+   * and the parent background (100%), driven by the SurfaceDevPanel
+   * "Compose fill" slider. The `--dev-compose-mix` var is set on :root
+   * by the panel; the `var(...)` fallback only kicks in if the panel
+   * hasn't written anything yet. */
+  background: color-mix(in oklab, var(--color-background) var(--dev-compose-mix, 0%), var(--color-content-surface));
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--dev-compose-radius, calc(var(--radius-surface) - var(--surface-inner-pad)));
+  transition: border-color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive);
+}
+
+.compose:focus-within {
+  border-color: var(--color-foreground);
+  box-shadow: 0 0 0 var(--focus-outline-width) var(--focus-outline-color);
+}
+
+.compose[data-dragging="true"] {
+  border-color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.compose__attach-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.compose__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-badge);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+}
+
+.compose__chip-remove {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-badge);
+}
+
+.compose__chip-remove:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-overlay);
+}
+
+.compose__body {
+  display: flex;
+}
+
+.compose__input {
+  all: unset;
+  flex: 1;
+  min-height: calc(var(--space-7));
+  /* Equal horizontal + vertical padding so the textarea's breathing room
+   * matches the compose footer's model/effort chips — both sit at
+   * --space-3 from the compose edge, the user asked for parity here. */
+  padding: var(--space-3);
+  color: var(--color-foreground);
+  background: transparent;
+  font-family: var(--type-family-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  resize: none;
+  box-sizing: border-box;
+}
+
+.compose__input::placeholder {
+  color: var(--color-muted);
+}
+
+.compose__input:focus {
+  outline: none;
+}
+
+/* Footer: left = model/effort/plan-mode controls, right = attach/mic/send
+ * icon stack. No divider; the compose container border already frames it. */
+.compose__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-1);
+}
+
+/* Small-icon-group best practice: enough gap to read as three distinct
+ * targets (passes Fitts' law at 32×32) while still visually grouped —
+ * 8px gap between the neutral pair, 12px before the filled send so the
+ * primary affordance is clearly separated. */
+.compose__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.compose__actions > .btn-icon--primary {
+  margin-left: var(--space-2);
+}
+
+.compose__footer-left {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Label wraps an invisible native <select> so the whole control is the
+ * focus target and the ring doesn't appear on a nested element. The
+ * visible chip is the label + value + chevron; the <select> is opacity 0
+ * and sized to cover the chip so clicks hit it natively. */
+.compose__select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  /* Concentric with the compose container: compose radius − compose pad.
+   * With --radius-surface = 16 and --surface-inner-pad = 8, compose
+   * radius is 8; take one more pad in (--space-3 = 8) and the inside
+   * corner should be ~0 for true concentric math. --radius-button (6px)
+   * reads as a harmonic neighbor without going visually flat. */
+  border-radius: var(--radius-button);
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  cursor: pointer;
+  transition: background var(--motion-interactive), border-color var(--motion-interactive);
+}
+
+.compose__select:hover {
+  background: var(--color-surface-raised);
+}
+
+.compose__select:focus-within {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.compose__select-label {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.compose__select-value {
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+}
+
+.compose__select-chevron {
+  color: var(--color-muted);
+}
+
+.compose__select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+}
+
+.compose__select select:focus {
+  outline: none;
+}
+
+.compose__toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-muted);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+  transition: color var(--motion-interactive), background var(--motion-interactive), border-color var(--motion-interactive);
+}
+
+.compose__toggle[aria-pressed="true"] {
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+  border-color: var(--color-foreground);
+}
+
+.compose__toggle:hover {
+  color: var(--color-foreground);
+}
+
+.compose__toggle:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.compose__send {
+  all: unset;
+  cursor: pointer;
+  padding: 0;
+  width: var(--space-6);
+  height: var(--space-6);
+  background: var(--color-foreground);
+  color: var(--color-background);
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--motion-interactive);
+  flex-shrink: 0;
+}
+
+.compose__send:hover { opacity: 0.88; }
+
+.compose__send:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}

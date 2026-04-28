@@ -195,6 +195,44 @@
      standard --radius-button neighbor. */
   --radius-surface:    1.5rem;   /* 24px */
 
+  /* ==================== Surface register dev defaults ====================
+     Initial values for the SurfaceDevPanel's six knobs (axiom #17) plus
+     the four corner-radius sliders. The dev panel writes overrides on
+     :root at runtime in development; production reads these as defaults.
+     Locked here so values are tokenized and the invariants check passes
+     even though the consumer site (app.css) needs literal lengths. */
+  --dev-surface-sand:        80%;
+  --dev-main-tab-sand:       5%;
+  --dev-compose-mix:         20%;
+  --dev-tab-opacity:         70%;
+  --dev-border-strength:     10%;
+  --dev-shadow-intensity:    50%;
+  --dev-tab-radius-top:      var(--radius-button);   /*  6px */
+  --dev-tab-radius-bottom:   var(--radius-button);   /*  6px */
+  --dev-main-tab-radius:     1.125rem;               /* 18px */
+  --dev-compose-radius:      var(--radius-button);   /*  6px */
+
+  /* Surface shadow — two-layer diffuse stack (axiom #19).
+     Sharp 3px definition layer + soft 16px ambient layer pulled inward
+     so it doesn't bleed past corners. Both scale via
+     --dev-shadow-intensity, so the slider goes flat→full without
+     changing shape. */
+  --surface-shadow:
+    0 1px 3px 0
+      color-mix(in srgb, black calc(2% * var(--dev-shadow-intensity) / 100%), transparent),
+    0 6px 16px -2px
+      color-mix(in srgb, black calc(6% * var(--dev-shadow-intensity) / 100%), transparent);
+
+  /* ==================== Layout sizes ====================
+     Currently consumed by Friction surfaces and the Designer noticed
+     badge. Names are role-generic so a second consumer (e.g. Phase
+     15.H inline-comment popover) can reuse them without coupling to
+     the original surface. */
+  --width-tooltip-max:   20rem;     /* 320px — Friction overlay tooltip */
+  --width-popover-md:    22.5rem;   /* 360px — Friction widget */
+  --size-thumb-md:        6rem;     /*  96px — inline screenshot thumb */
+  --size-badge:           1.125rem; /*  18px — inline counter badge (sidebar Home unread, etc.) */
+
   /* Icon sizing (axiom #13). All Designer SVGs use currentColor; pick one
      of these three sizes. stroke-width 1.25 at sm/md, 1.5 at lg. */
   --icon-sm:         0.75rem;  /* 12px */

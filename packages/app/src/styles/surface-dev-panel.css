@@ -1,0 +1,154 @@
+/* --- surface dev panel (dev-only floating tuner) ---------------------- */
+/* Track 13.K reserves bottom-right for the Friction button. The dev panel
+ * lives bottom-left now; pattern-log.md documents the reservation. Hotkey
+ * ⌘. toggles. Never shipped in production — App.tsx gates on MODE. */
+
+.surface-dev-panel {
+  position: fixed;
+  left: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--layer-overlay);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.surface-dev-panel > * {
+  pointer-events: auto;
+}
+
+.surface-dev-panel__handle {
+  appearance: none;
+  width: var(--target-md);
+  height: var(--target-md);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--elevation-raised);
+  transition: color var(--motion-interactive), background var(--motion-interactive);
+}
+
+.surface-dev-panel__handle:hover,
+.surface-dev-panel[data-open="true"] .surface-dev-panel__handle {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.surface-dev-panel__handle:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.surface-dev-panel__body {
+  order: -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: calc(var(--space-8) * 4);
+  padding: var(--space-4);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--elevation-overlay);
+  color: var(--color-foreground);
+  font-size: var(--type-caption-size);
+}
+
+.surface-dev-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Tab-radius variant toggle has 5 options inside the narrow dev panel —
+ * wrap onto two rows and let buttons share width. The base segmented-
+ * toggle is inline-flex with no wrap, which would overflow here. */
+.surface-dev-panel__row > .segmented-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  border-radius: var(--radius-button);
+}
+
+.surface-dev-panel__row > .segmented-toggle .segmented-toggle__btn {
+  flex: 1 0 auto;
+  justify-content: center;
+  padding: var(--space-1) var(--space-2);
+}
+
+.surface-dev-panel__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-foreground);
+  font-weight: var(--weight-medium);
+}
+
+.surface-dev-panel__value {
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+}
+
+.surface-dev-panel__hint {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+}
+
+.surface-dev-panel input[type="range"] {
+  appearance: none;
+  width: 100%;
+  height: var(--space-4);
+  background: transparent;
+  cursor: pointer;
+}
+
+.surface-dev-panel input[type="range"]::-webkit-slider-runnable-track {
+  height: var(--space-1);
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
+}
+
+.surface-dev-panel input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-foreground);
+  margin-top: calc(var(--space-1) * -1 - var(--border-thin));
+  cursor: grab;
+}
+
+.surface-dev-panel input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 var(--focus-outline-width) var(--focus-outline-color);
+}
+
+.surface-dev-panel__reset {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+  transition: color var(--motion-interactive), background var(--motion-interactive);
+}
+
+.surface-dev-panel__reset:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-raised);
+}
+
+.surface-dev-panel__reset:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+

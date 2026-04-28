@@ -1,0 +1,129 @@
+/* --- settings / help dialogs ------------------------------------------ */
+
+.app-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--color-foreground) 8%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--layer-modal);
+  padding: var(--space-5);
+}
+
+.app-dialog {
+  width: calc(var(--space-8) * 8);
+  max-width: 90vw;
+  max-height: 80vh;
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--elevation-modal);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+
+.app-dialog__title {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+  margin: 0;
+}
+
+.app-dialog__body {
+  padding: var(--space-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+}
+
+.app-dialog__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.app-dialog__section-label {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Inline row for the path input + Finder picker button. Input flexes,
+ * button hugs its label. Same gap rhythm as the dialog's body so the
+ * row doesn't feel like a separate region. */
+.create-project__path-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.create-project__path-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.create-project__browse {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.app-dialog__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  /* Soft divider inside an already-bordered overlay — the outer dialog
+   * frame carries the full --color-border, so inner dividers use -soft
+   * to avoid visual double-framing. */
+  border-bottom: var(--border-thin) solid var(--color-border-soft);
+}
+
+.app-dialog__row:last-child { border-bottom: none; }
+
+.app-dialog__row-label {
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+}
+
+.app-dialog__row-meta {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  font-family: var(--type-family-mono);
+}
+
+.app-dialog__kbd-list {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+}
+
+.app-dialog__kbd-list dt {
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+}
+
+.app-dialog__kbd-list dd {
+  margin: 0;
+  justify-self: end;
+}

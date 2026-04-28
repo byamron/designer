@@ -1,0 +1,255 @@
+/* --- booting state ------------------------------------------------------ */
+
+.app-booting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: var(--color-muted);
+}
+
+/* --- skip link ---------------------------------------------------------- */
+/* Visually hidden until focused; WCAG 2.4.1 bypass-blocks pattern. */
+
+.skip-link {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  font-size: var(--type-body-size);
+  text-decoration: none;
+  transform: translateY(calc(-1 * var(--space-8)));
+  z-index: var(--layer-modal);
+  transition: var(--motion-interactive);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+html,
+body,
+#app {
+  /* Fixed-viewport macOS app: the root never scrolls; specific panels own
+   * their own overflow:auto. Without `position: fixed; inset: 0`, body
+   * scroll defaults like a web page and the whole app drifts under the
+   * mouse wheel. */
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* --- shell -------------------------------------------------------------- */
+
+/* Titlebar zone — full-width drag strip covering the macOS traffic-light
+ * inset (titleBarStyle: Overlay paints content from y=0). The whole
+ * top is `data-tauri-drag-region` so the user can grab anywhere up
+ * here to move the window. Transparent so the underlying surface
+ * shows through; no chrome. Sits below modal scrims (which use
+ * --layer-modal = 100) so dialogs cover it correctly. */
+.app-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--app-titlebar-height);
+  z-index: var(--layer-titlebar);
+  background: transparent;
+  /* `user-select: none` stops a click-drag from starting a text selection
+   * instead of a window drag. */
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  grid-template-areas: "strip sidebar main spine";
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  /* Reserve the top inset for the titlebar zone so panels start below it
+   * and don't render under the traffic lights. */
+  padding-top: var(--app-titlebar-height);
+}
+
+.app-shell[data-strip="hidden"] {
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "sidebar main spine";
+}
+
+/* Spacing rhythm (enforced by convention, not tokens):
+ *   space-2 (4px)  — tight row gap
+ *   space-3 (8px)  — inline gap (dot→text), row horiz padding
+ *   space-4 (16px) — panel edge padding, group gap
+ *   space-5 (24px) — stacked rows gap in content, main pad
+ *   space-6 (32px) — section break in home surfaces
+ * Everything else is an exception and should be justified.
+ */
+
+.app-strip {
+  grid-area: strip;
+  background: var(--color-surface-flat);
+  border-right: var(--border-thin) solid var(--color-border);
+  /* Vertical padding matches the sidebar / spine (`var(--space-4)` =
+   * 16px) so the first project icon (or the "+") aligns horizontally
+   * with the "Pick a project" / "Workspace activity" titles in the
+   * neighboring rails. The rest of the rail's content rhythm (gap +
+   * spacer) is unchanged. */
+  padding: var(--space-4) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: var(--space-8);
+}
+
+/* Sidebars render on --color-background — they ARE the page surface.
+ * The floating main-surface rectangle is the only Tier-2 raised area
+ * inside the workspace view. Project strip keeps its own surface-flat
+ * fill + hairline divider above (it's Tier-1 chrome, not content). */
+
+.app-sidebar {
+  grid-area: sidebar;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* Vertical padding only — horizontal padding is delegated to the
+   * inner blocks (sidebar-home, sidebar-group__head, workspace-row,
+   * sidebar-empty) so workspace-row hover/active fills the full
+   * sidebar width without negative-margin tricks that get clipped by
+   * sidebar-group's overflow-y: auto. */
+  padding: var(--space-4) 0;
+  /* Overflow is visible so the PaneResizer can bleed past the right edge
+   * to sit over the gutter between sidebar and main surface. The inner
+   * sidebar-group owns scrolling when the workspace list gets long. */
+  overflow: visible;
+  box-sizing: border-box;
+  min-height: 0;
+}
+
+.app-sidebar .sidebar-group {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  /* Inset rhythm around the floating surface. When a sidebar is collapsed
+   * the rail renders inside its own grid column, so the surface can push
+   * right up against --surface-gutter on that side regardless. */
+  padding: var(--surface-gutter) var(--surface-gutter) var(--surface-gutter) 0;
+}
+
+/* When the workspace sidebar is hidden, restore the left gutter so the
+ * surface doesn't kiss the pane-rail. */
+.app-shell[data-sidebar="hidden"] .app-main {
+  padding-left: var(--surface-gutter);
+}
+
+.app-spine {
+  grid-area: spine;
+  background: transparent;
+  /* Vertical padding only — horizontal padding is delegated to inner
+   * blocks (header, section labels, empty states) so .spine-artifact
+   * rows can fill the full rail width on hover, mirroring the
+   * left-sidebar .workspace-row treatment. */
+  padding: var(--space-4) 0;
+  /* Overflow visible so the left-edge PaneResizer is not clipped. The
+   * .spine-list and .spine-section children own any vertical scroll. */
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  box-sizing: border-box;
+  min-height: 0;
+}
+
+.app-spine .spine-list {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 0 1 auto;
+}
+
+/* Custom properties can't be used inside @media conditions (CSS limitation).
+ * Breakpoints in em scale with the user's root font size, which is the
+ * accessibility-friendly alternative to fixed px. 68.75em ≈ 1100px at
+ * a 16px root — kept in sync with --breakpoint-lg in tokens.css. */
+@media (max-width: 68.75em) {
+  .app-shell {
+    grid-template-columns: auto auto 1fr;
+    grid-template-areas: "strip sidebar main";
+  }
+  .app-spine {
+    display: none;
+  }
+}
+
+/* --- project strip icons ---- */
+
+.strip-icon {
+  width: var(--target-md);
+  height: var(--target-md);
+  /* Matches the tab-button radius (--radius-button, 6px) so the left-rail
+   * squares read in the same corner register as the tabs across the top
+   * of the main surface — one "tool" radius for chrome boxes. */
+  border-radius: var(--radius-button);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-weight: var(--weight-semibold);
+  font-size: var(--type-caption-size);
+  letter-spacing: 0.02em;
+  transition: var(--motion-interactive);
+}
+
+.strip-icon[data-active="true"] {
+  background: var(--color-surface-overlay);
+  border-color: var(--color-foreground);
+}
+
+.strip-icon:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.strip-icon:hover {
+  background: var(--color-surface-overlay);
+}
+
+.strip-icon-btn {
+  color: var(--color-muted);
+}
+
+.app-strip__spacer {
+  flex: 1;
+  min-height: var(--space-3);
+}

@@ -1,0 +1,244 @@
+/* --- inbox ---- */
+
+.inbox-badge {
+  background: var(--info-9);
+  color: var(--info-1);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+}
+
+/* --- inline button ---- */
+
+button.btn {
+  appearance: none;
+  border: var(--border-thin) solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-foreground);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: var(--motion-interactive);
+}
+
+button.btn:hover { background: var(--color-surface-overlay); }
+button.btn:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+button.btn[data-variant="primary"] {
+  background: var(--color-foreground);
+  color: var(--color-background);
+  border-color: var(--color-foreground);
+}
+
+button.btn[data-variant="danger"] {
+  color: var(--danger-12);
+  border-color: var(--danger-7);
+  background: var(--danger-3);
+}
+
+/* --- keyboard hints ---- */
+
+kbd {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  padding: 0 var(--space-1);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-badge);
+}
+
+/* --- icon button archetype (axiom #14) -------------------------------- */
+/* Standardized hit targets. Transparent by default; hover + focus-visible
+ * are carried on the outer button so the whole target receives focus. */
+
+.btn-icon {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-button);
+  padding: 0;
+  flex-shrink: 0;
+  transition: color var(--motion-interactive), background var(--motion-interactive);
+}
+
+.btn-icon--sm {
+  width: var(--target-sm);
+  height: var(--target-sm);
+  border-radius: var(--radius-badge);
+}
+
+.btn-icon--md {
+  width: var(--target-md);
+  height: var(--target-md);
+}
+
+.btn-icon:hover:not([disabled]) {
+  color: var(--color-foreground);
+  /* Single hover fill across every icon button — strip "+" / "?" /
+   * gear, sidebar collapse, modal close. Previously the close button
+   * landed on `--color-surface-raised`, one tier lighter than the
+   * `--color-surface-overlay` the strip overrides used; the visible
+   * mismatch read as two different button systems. One token, one
+   * register. */
+  background: var(--color-surface-overlay);
+}
+
+.btn-icon[aria-pressed="true"] {
+  color: var(--color-foreground);
+  background: var(--color-surface-overlay);
+}
+
+.btn-icon:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.btn-icon[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-icon--primary {
+  background: var(--color-foreground);
+  color: var(--color-background);
+  border-radius: var(--radius-pill);
+}
+
+.btn-icon--primary:hover:not([disabled]) {
+  background: var(--color-foreground);
+  color: var(--color-background);
+  opacity: 0.88;
+}
+
+/* --- tooltip (custom, immediate-on-hover, no delay) ------------------- */
+
+.tooltip {
+  z-index: var(--layer-modal);
+  background: var(--color-foreground);
+  color: var(--color-background);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-badge);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+  max-width: calc(var(--space-8) * 4);
+  box-shadow: var(--elevation-overlay);
+  animation: tooltip-in var(--motion-quick) var(--ease-out-enter);
+}
+
+.tooltip__label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tooltip__kbd {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  background: transparent;
+  border: none;
+  color: var(--gray-8);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+@keyframes tooltip-in {
+  /* Positioning is owned by absolute left/top coordinates set on the
+   * inline style (TooltipSurface clamps to viewport). Animation is a
+   * pure scale + opacity in-place — no translate, since translate would
+   * fight the clamp and cause the tooltip to drift on enter. */
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip { animation: none; }
+}
+
+/* --- pane resizer (edge drag handle) ---------------------------------- */
+/* Invisible grip that changes the cursor to col-resize on hover. No
+ * visible bar or hairline — the user asked for cursor-only feedback
+ * so the drag target doesn't compete visually with the sidebar content.
+ * Positioned at the edge of the floating surface (not the pane rail),
+ * so the affordance matches where the user expects to grab. */
+
+.pane-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* 8px wide — fat enough to grab without misses at Fitts' law targets,
+   * while still invisible so there's no vertical-bar competing with the
+   * sidebar content. Cursor is the only hover feedback, per user spec. */
+  width: var(--space-3);
+  background: transparent;
+  border: none;
+  cursor: col-resize;
+  z-index: var(--layer-raised);
+  touch-action: none;
+}
+
+/* Anchor at the surface edge (`--surface-gutter` from the pane boundary),
+ * not at the pane's content edge — the user reads "the edge of the main
+ * tab container" as the grabbable zone. */
+.pane-resizer[data-side="right"] { right: calc(var(--surface-gutter) * -1); }
+.pane-resizer[data-side="left"] { left: calc(var(--surface-gutter) * -1); }
+
+.pane-resizer:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: calc(var(--focus-outline-offset) * -1);
+}
+
+.app-sidebar,
+.app-spine {
+  position: relative;
+}
+
+/* Collapsed rail: narrow strip showing a single reveal button. */
+.pane-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--space-6);
+  padding: var(--space-3) 0;
+  background: transparent;
+}
+
+.pane-rail--right {
+  /* no border — sidebars and spine now sit on the page surface */
+}
+
+/* --- project strip activity dot --------------------------------------- */
+
+.strip-icon {
+  position: relative;
+}
+
+.strip-icon__activity {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-foreground);
+  animation: state-pulse var(--motion-pulse) var(--ease-standard) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip-icon__activity { animation: none; }
+}

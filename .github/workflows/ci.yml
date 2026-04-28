@@ -64,3 +64,19 @@ jobs:
             npm run -s typecheck --if-present
             npm run -s test --if-present
           fi
+
+  design-system:
+    name: design-system
+    # Mini's enforcement gates — run cheaply on Linux since these are
+    # pure-Node scripts with no platform-specific deps. See ADR 0006
+    # and FB-0034 for the AI-enforcement-loop motivation.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: invariants — no arbitrary px/hex/ms/z-index, primitives package-imported
+        run: node tools/invariants/check.mjs packages/app/src
+      - name: manifest coverage — every component file has a manifest entry
+        run: node tools/manifest/check.mjs
