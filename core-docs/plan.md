@@ -37,9 +37,9 @@ Plus: `--app-titlebar-height` and `--layer-titlebar` defined as design tokens, `
 
 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
 
-## Parallel-agent execution lanes *(2026-04-26 reorder; revised after 3-perspective review of PR #25)*
+## Parallel-agent execution lanes *(2026-04-26 reorder; revised after 3-perspective review of PR #25; Lane 1.5 inserted 2026-04-27 after the four-perspective review of PRs #28–34)*
 
-Lane 0 is a 30-minute prereq that unblocks Lane 1. Lane 1 items run in parallel with no merge contention (pre-picked by file ownership). Lane 2 is pure parallel after 21.A1 lands. Lane 3 has an explicit dogfood-signal gate. Lane 4 needs the user in the loop. Lane 5 is deferred.
+Lane 0 is a 30-minute prereq that unblocks Lane 1. Lane 1 items run in parallel with no merge contention (pre-picked by file ownership). Lane 1.5 is post-merge UX/architecture cleanup of Lane 1's deliverables — two waves (Wave 1 parallel; Wave 2 sequential) — and **lands before Lane 2** so the friction inbox is trustworthy and "Designer noticed" doesn't multiply noise into a buried surface. Lane 2 is pure parallel after Lane 1.5 lands. Lane 3 has an explicit dogfood-signal gate. Lane 4 needs the user in the loop. Lane 5 is deferred.
 
 **Source-of-truth rule:** these lanes are the **priority view**. The "Active Work Items" section below is the **canonical task list** per phase. When they disagree, the lanes win — update Active Work Items to match.
 
@@ -59,7 +59,22 @@ Lane 0 is a 30-minute prereq that unblocks Lane 1. Lane 1 items run in parallel 
   - **1.D** F4 test reuse — expose `core_local::tests::boot_with_helper_status` as `pub(crate)`. *(`apps/desktop/src-tauri/src/core_local.rs` test module only)*
   - **NOTE:** `F5+1 correlation`, `bounded translator state`, and `ReaderLoopCtx` all touch `crates/designer-claude/src/stream.rs` or its callers. **Serialize them** in Lane 2 in this order: F5+1 → bounded translator state → ReaderLoopCtx. The `permission_prompt_round_trip` live test follows after ReaderLoopCtx so the test surface doesn't have to be rewritten.
 
-### Lane 2 — PARALLEL *(after 21.A1 + Lane 1 agents land their cleanups; no contention)*
+### Lane 1.5 — PRE-LANE-2 POLISH *(post-merge UX/architecture cleanup of Lane 1; 2 waves; ~3.5 days total)*
+
+Surfaced by the four-perspective review of #28–#34 (2026-04-27). Lane 1 landed with high code quality but real UX gaps and architectural debt that compounds if Lane 2 ships ten more detectors / dogfood findings on top. **Land Lane 1.5 before Lane 2.**
+
+**Wave 1 — parallel** *(disjoint module trees; zero merge contention)*:
+
+- **Track 13.L — Friction local-first + master-list workflow** *(~1 day, one agent)*. Drop the `gh gist` + `gh issue` filer; persist friction records as `<repo>/.designer/friction/<id>.md` (gitignored by default). Repurpose `FrictionLinked` → `FrictionAddressed { pr_url: Option<String> }` for the workflow loop. Triage view becomes the master list with filters (Open / Addressed / Resolved / All), optional PR-URL on resolve, and *Open file* / *Mark addressed* / *Mark resolved* / *Reopen* row actions. Net code reduction (no `gh` runner, no external-tool error variant). Detail in `roadmap.md` § Track 13.L.
+- **Phase 21.A1.1 — Findings on workspace home + budget + dedup + calibrated badge** *(~1 day, one agent)*. Move "Designer noticed" out of Settings → Activity → sub-tab onto the bottom of the workspace home (top-N findings for the current workspace); Settings page becomes the full archive. Add a "calibrated" badge for thumbed findings. Enforce a per-detector cap (default 5/session via `DetectorConfig`) and dedup at write time using the existing `window_digest`. Append severity guidance to `crates/designer-learn/CONTRIBUTING.md` (A2 detectors default to `Severity::Notice`). Detail in `roadmap.md` § Phase 21.A1.1.
+
+**Wave 2 — sequential** *(depends on Wave 1)*:
+
+- **Track 13.M — Friction trivial-by-default UX** *(~1.5 days, one agent; depends on 13.L for the storage shape)*. Default flow becomes ⌘⇧F → composer with auto-focused body textarea + ⌘⇧S in-composer screenshot via Tauri `webview.capture()` + ⌘↵ submit. Selection mode demotes to opt-in via a "📍 anchor" button or ⌘. inside the composer. Drop the 600ms silent grace; suppress click-outside for the first 50ms after arming instead. Persistent key-hint legend in selection-mode banner so Alt-overrides-snap is discoverable. Folds in 13.K's deferred v2 items (auto-capture + stream-toast). Detail in `roadmap.md` § Track 13.M.
+
+**Coordination:** 13.L touches `core_friction.rs` + Friction FE + Settings triage. 21.A1.1 touches `core_learn.rs` + DesignerNoticed FE + workspace-home component. Disjoint module trees, true parallel. 13.M depends on 13.L's storage shape (`FrictionAddressed` variant + `.designer/friction/` location), so it ships after 13.L lands.
+
+### Lane 2 — PARALLEL *(after 21.A1 + Lane 1 + Lane 1.5 agents land their cleanups; no contention)*
 
 - **Phase 21.A2 — Detector squad.** Spin up one agent per detector. CONTRIBUTING.md (from 21.A1) locks the shapes. Recommended order — Designer-unique first since they exploit Designer's event-store advantage over Forge's plugin position:
   - `repeated_correction` (fastest signal — corrections are loud)
