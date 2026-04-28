@@ -423,9 +423,21 @@ function ActivitySection() {
   );
 }
 
+type FrictionFilter = "open" | "addressed" | "resolved" | "all";
+
+const FRICTION_FILTERS: { value: FrictionFilter; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "addressed", label: "Addressed" },
+  { value: "resolved", label: "Resolved" },
+  { value: "all", label: "All" },
+];
+
 function FrictionTriageSection() {
   const [entries, setEntries] = useState<FrictionEntry[] | null>(null);
+  const [filter, setFilter] = useState<FrictionFilter>("open");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [addressTarget, setAddressTarget] = useState<FrictionEntry | null>(null);
 
   const refresh = async () => {
     try {
@@ -440,89 +452,274 @@ function FrictionTriageSection() {
     void refresh();
   }, []);
 
+  const counts = useMemo(() => {
+    const c = { open: 0, addressed: 0, resolved: 0, all: 0 };
+    if (entries) {
+      for (const e of entries) {
+        c.all += 1;
+        c[e.state] += 1;
+      }
+    }
+    return c;
+  }, [entries]);
+
+  const filtered = useMemo(() => {
+    if (!entries) return null;
+    return filter === "all" ? entries : entries.filter((e) => e.state === filter);
+  }, [entries, filter]);
+
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
     <>
       <SettingsSectionHeader
         label="Friction"
-        description="Internal feedback captured via the bottom-right button or ⌘⇧F. Filed entries link to GitHub issues; local-only entries can be filed later."
+        description="Internal feedback captured via the bottom-right button or ⌘⇧F. Records persist as local markdown files in the linked repo (gitignored by default)."
       />
+      <div className="friction-triage__filters" role="tablist" aria-label="Filter by state">
+        {FRICTION_FILTERS.map((f) => {
+          const active = filter === f.value;
+          return (
+            <button
+              key={f.value}
+              type="button"
+              className="friction-triage__filter"
+              role="tab"
+              aria-selected={active}
+              data-active={active}
+              onClick={() => setFilter(f.value)}
+            >
+              {f.label}
+              <span className="friction-triage__filter-count">{counts[f.value]}</span>
+            </button>
+          );
+        })}
+      </div>
       <div className="friction-triage">
-        {entries === null ? (
+        {filtered === null ? (
           <div className="friction-triage__empty">Loading…</div>
-        ) : entries.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="friction-triage__empty">
-            No friction captured yet. Press ⌘⇧F to start.
+            {filter === "open"
+              ? "No open friction. Press ⌘⇧F to capture something."
+              : filter === "all"
+                ? "No friction captured yet. Press ⌘⇧F to start."
+                : `Nothing in ${filter}.`}
           </div>
         ) : (
-          entries.map((e) => (
-            <div className="friction-triage__row" key={e.friction_id}>
-              <div>
-                <div className="friction-triage__title" title={e.title}>
-                  {e.title || e.body}
-                </div>
-                <div className="friction-triage__meta">
-                  <span className="friction-triage__state" data-state={e.state}>
-                    {e.state.replace("_", " ")}
-                  </span>
-                  {" · "}
-                  {new Date(e.created_at).toLocaleString()}
-                  {" · "}
-                  {e.anchor_descriptor}
-                  {e.error ? ` · ${e.error}` : ""}
-                </div>
-              </div>
-              <div className="friction-triage__actions">
-                {e.github_issue_url && (
-                  <a
-                    className="btn"
-                    href={e.github_issue_url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                  >
-                    Open
-                  </a>
+          filtered.map((e) => {
+            const isExpanded = expanded.has(e.friction_id);
+            return (
+              <div
+                className="friction-triage__row"
+                key={e.friction_id}
+                data-state={e.state}
+                data-component="FrictionTriageRow"
+              >
+                <button
+                  type="button"
+                  className="friction-triage__row-summary"
+                  aria-expanded={isExpanded}
+                  onClick={() => toggleExpanded(e.friction_id)}
+                >
+                  <div className="friction-triage__title" title={e.title}>
+                    {e.title || e.body}
+                  </div>
+                  <div className="friction-triage__meta">
+                    <span className="friction-triage__state" data-state={e.state}>
+                      {e.state}
+                    </span>
+                    {" · "}
+                    {new Date(e.created_at).toLocaleString()}
+                    {" · "}
+                    {e.anchor_descriptor}
+                    {e.pr_url ? (
+                      <>
+                        {" · "}
+                        <span className="friction-triage__pr">PR linked</span>
+                      </>
+                    ) : null}
+                  </div>
+                </button>
+                {isExpanded && (
+                  <div className="friction-triage__detail">
+                    {e.body && <p className="friction-triage__body">{e.body}</p>}
+                    {e.screenshot_path && (
+                      <div className="friction-triage__screenshot-meta">
+                        Screenshot: <code>{e.screenshot_path}</code>
+                      </div>
+                    )}
+                    {e.pr_url && (
+                      <div className="friction-triage__pr-link">
+                        PR:{" "}
+                        <a href={e.pr_url} target="_blank" rel="noreferrer noopener">
+                          {e.pr_url}
+                        </a>
+                      </div>
+                    )}
+                  </div>
                 )}
-                {e.state !== "filed" && e.state !== "resolved" && (
+                <div className="friction-triage__actions">
                   <button
                     type="button"
                     className="btn"
-                    disabled={busyId === e.friction_id}
+                    disabled={!e.local_path}
                     onClick={async () => {
-                      setBusyId(e.friction_id);
+                      if (!e.local_path) return;
                       try {
-                        await ipcClient().retryFileFriction(e.friction_id);
-                        await refresh();
-                      } finally {
-                        setBusyId(null);
+                        await ipcClient().revealInFinder(e.local_path);
+                      } catch {
+                        /* best-effort; ignore */
                       }
                     }}
                   >
-                    File on GitHub
+                    Open file
                   </button>
-                )}
-                {e.state !== "resolved" && (
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={busyId === e.friction_id}
-                    onClick={async () => {
-                      setBusyId(e.friction_id);
-                      try {
-                        await ipcClient().resolveFriction(e.friction_id);
-                        await refresh();
-                      } finally {
-                        setBusyId(null);
-                      }
-                    }}
-                  >
-                    Mark resolved
-                  </button>
-                )}
+                  {e.state === "open" && (
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={busyId === e.friction_id}
+                      onClick={() => setAddressTarget(e)}
+                    >
+                      Mark addressed
+                    </button>
+                  )}
+                  {e.state !== "resolved" && (
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={busyId === e.friction_id}
+                      onClick={async () => {
+                        setBusyId(e.friction_id);
+                        try {
+                          await ipcClient().resolveFriction(e.friction_id);
+                          await refresh();
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    >
+                      Mark resolved
+                    </button>
+                  )}
+                  {e.state === "resolved" && (
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={busyId === e.friction_id}
+                      onClick={async () => {
+                        setBusyId(e.friction_id);
+                        try {
+                          await ipcClient().reopenFriction(e.friction_id);
+                          await refresh();
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    >
+                      Reopen
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
+      {addressTarget && (
+        <AddressFrictionDialog
+          entry={addressTarget}
+          onCancel={() => setAddressTarget(null)}
+          onSubmit={async (prUrl) => {
+            const target = addressTarget;
+            setAddressTarget(null);
+            setBusyId(target.friction_id);
+            try {
+              await ipcClient().addressFriction({
+                friction_id: target.friction_id,
+                pr_url: prUrl,
+              });
+              await refresh();
+            } finally {
+              setBusyId(null);
+            }
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function AddressFrictionDialog({
+  entry,
+  onCancel,
+  onSubmit,
+}: {
+  entry: FrictionEntry;
+  onCancel: () => void;
+  onSubmit: (prUrl: string | null) => void | Promise<void>;
+}) {
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="friction-triage__modal-scrim"
+      role="dialog"
+      aria-label="Mark friction addressed"
+      onClick={onCancel}
+    >
+      <div
+        className="friction-triage__modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="friction-triage__modal-title">Mark addressed</h2>
+        <p className="friction-triage__modal-body" title={entry.title}>
+          {entry.title}
+        </p>
+        <label className="friction-triage__modal-label">
+          PR URL (optional)
+          <input
+            className="friction-triage__modal-input"
+            type="url"
+            placeholder="https://github.com/owner/repo/pull/123"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            autoFocus
+          />
+        </label>
+        <div className="friction-triage__modal-actions">
+          <button type="button" className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn"
+            data-variant="primary"
+            onClick={() => {
+              const trimmed = value.trim();
+              void onSubmit(trimmed.length > 0 ? trimmed : null);
+            }}
+          >
+            Mark addressed
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -3878,15 +3878,6 @@ kbd {
   border-radius: var(--radius-pill);
 }
 
-.friction-widget__filebox {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--type-caption-size);
-  color: var(--color-foreground);
-  cursor: pointer;
-}
-
 .friction-widget__toast {
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-button);
@@ -3905,7 +3896,43 @@ kbd {
   gap: var(--space-2);
 }
 
-/* Settings → Activity → Friction triage table */
+/* Settings → Activity → Friction master list (Track 13.L). Filter chips
+ * across the top, expanding rows below; Open is the default filter. */
+
+.friction-triage__filters {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  padding: var(--space-1);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-pill);
+}
+
+.friction-triage__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.friction-triage__filter[data-active="true"] {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+.friction-triage__filter-count {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
 
 .friction-triage {
   display: flex;
@@ -3916,11 +3943,44 @@ kbd {
 .friction-triage__row {
   display: grid;
   grid-template-columns: 1fr auto;
+  align-items: start;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   background: var(--color-surface-raised);
   border: var(--border-thin) solid var(--color-border);
   border-radius: var(--radius-button);
+}
+
+.friction-triage__row-summary {
+  grid-column: 1 / 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.friction-triage__detail {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+}
+
+.friction-triage__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.friction-triage__screenshot-meta,
+.friction-triage__pr-link {
+  color: var(--color-muted);
 }
 
 .friction-triage__title {
@@ -3938,13 +3998,31 @@ kbd {
 .friction-triage__state {
   font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.friction-triage__state[data-state="failed"] {
-  color: var(--danger-9);
+.friction-triage__state[data-state="open"] {
+  color: var(--color-accent-9, var(--color-foreground));
+}
+
+.friction-triage__state[data-state="addressed"] {
+  color: var(--color-muted);
+}
+
+.friction-triage__state[data-state="resolved"] {
+  color: var(--color-muted);
+  opacity: 0.7;
+}
+
+.friction-triage__pr {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
 }
 
 .friction-triage__actions {
+  grid-column: 2 / 3;
   display: inline-flex;
   gap: var(--space-1);
 }
@@ -3954,6 +4032,68 @@ kbd {
   color: var(--color-muted);
   font-size: var(--type-caption-size);
   text-align: center;
+}
+
+/* Mark-addressed modal: small scrim + centered card. */
+.friction-triage__modal-scrim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, black 36%, transparent);
+  z-index: var(--layer-modal);
+}
+
+.friction-triage__modal {
+  width: min(440px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  box-shadow: var(--shadow-overlay, 0 12px 32px rgba(0, 0, 0, 0.18));
+}
+
+.friction-triage__modal-title {
+  margin: 0;
+  font-size: var(--type-h3-size, 16px);
+  font-weight: var(--weight-medium);
+}
+
+.friction-triage__modal-body {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friction-triage__modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.friction-triage__modal-input {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-body-size);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  color: var(--color-foreground);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+}
+
+.friction-triage__modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 /* --- Designer noticed (Phase 21.A1) ---------------------------------- */

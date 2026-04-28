@@ -50,7 +50,6 @@ export function FrictionWidget() {
   const visible = mode === "editing" && anchor !== null && dialog === null;
 
   const [body, setBody] = useState("");
-  const [fileToGithub, setFileToGithub] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [screenshot, setScreenshot] = useState<ScreenshotState | null>(null);
@@ -194,15 +193,12 @@ export function FrictionWidget() {
         screenshot_filename: screenshot?.filename ?? null,
         workspace_id: workspaceId,
         project_id: projectId,
-        file_to_github: fileToGithub,
         route,
       });
       const tail = resp.friction_id.slice(-6);
       setToast({
         kind: "local",
-        message: fileToGithub
-          ? `Filing #${tail} — track in Settings → Activity → Friction.`
-          : "Saved locally. File from Settings → Activity → Friction.",
+        message: `Saved as #${tail} — review in Settings → Activity → Friction.`,
       });
       // Close the widget after a beat so the user reads the toast.
       setTimeout(clearFriction, 1400);
@@ -211,7 +207,7 @@ export function FrictionWidget() {
       setToast({ kind: "failed", message: msg });
       setSubmitting(false);
     }
-  }, [anchor, body, canSubmit, fileToGithub, projectId, screenshot, workspaceId]);
+  }, [anchor, body, canSubmit, projectId, screenshot, workspaceId]);
 
   if (!visible || !anchor) return null;
 
@@ -296,15 +292,6 @@ export function FrictionWidget() {
           <span className="friction-widget__chip">{anchor.component}</span>
         )}
       </div>
-
-      <label className="friction-widget__filebox">
-        <input
-          type="checkbox"
-          checked={fileToGithub}
-          onChange={(e) => setFileToGithub(e.target.checked)}
-        />
-        <span>Also file as GitHub issue</span>
-      </label>
 
       {toast && (
         <div className="friction-widget__toast" data-kind={toast.kind} role="status">

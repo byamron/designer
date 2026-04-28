@@ -302,7 +302,7 @@ pub async fn cmd_get_track(
         .ok_or_else(|| IpcError::not_found(track_id.to_string()))
 }
 
-// ---- Friction (Track 13.K) -----------------------------------------------
+// ---- Friction (Tracks 13.K + 13.L) ---------------------------------------
 
 pub async fn cmd_report_friction(
     core: &Arc<AppCore>,
@@ -322,11 +322,18 @@ pub async fn cmd_resolve_friction(
     core.resolve_friction(friction_id).await
 }
 
-pub async fn cmd_retry_file_friction(
+pub async fn cmd_address_friction(
+    core: &Arc<AppCore>,
+    req: AddressFrictionRequest,
+) -> Result<(), IpcError> {
+    core.address_friction(req.friction_id, req.pr_url).await
+}
+
+pub async fn cmd_reopen_friction(
     core: &Arc<AppCore>,
     friction_id: FrictionId,
 ) -> Result<(), IpcError> {
-    core.retry_file_friction(friction_id).await
+    core.reopen_friction(friction_id).await
 }
 
 // ---- Learning layer (Phase 21.A1) ---------------------------------------

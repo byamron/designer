@@ -3,6 +3,7 @@
 // exercisable without the WebView. Callers never know which runtime they're on.
 
 import type {
+  AddressFrictionRequest,
   ArtifactDetail,
   ArtifactId,
   ArtifactSummary,
@@ -68,11 +69,15 @@ export interface IpcClient {
   getKeychainStatus(): Promise<KeychainStatus>;
   getCostChipPreference(): Promise<CostChipPreferences>;
   setCostChipPreference(enabled: boolean): Promise<CostChipPreferences>;
-  // Friction (Track 13.K)
+  // Friction (Tracks 13.K + 13.L)
   reportFriction(req: ReportFrictionRequest): Promise<ReportFrictionResponse>;
   listFriction(): Promise<FrictionEntry[]>;
   resolveFriction(id: FrictionId): Promise<void>;
-  retryFileFriction(id: FrictionId): Promise<void>;
+  addressFriction(req: AddressFrictionRequest): Promise<void>;
+  reopenFriction(id: FrictionId): Promise<void>;
+  /// Open the given path in the user's file manager (Finder on macOS).
+  /// Best-effort; no-op in the web/mock runtime.
+  revealInFinder(path: string): Promise<void>;
   // Learning layer (Phase 21.A1)
   listFindings(projectId: ProjectId): Promise<FindingDto[]>;
   signalFinding(req: SignalFindingRequest): Promise<void>;
@@ -196,8 +201,14 @@ class TauriIpcClient implements IpcClient {
   resolveFriction(id: FrictionId) {
     return invoke<void>("cmd_resolve_friction", { frictionId: id });
   }
-  retryFileFriction(id: FrictionId) {
-    return invoke<void>("cmd_retry_file_friction", { frictionId: id });
+  addressFriction(req: AddressFrictionRequest) {
+    return invoke<void>("cmd_address_friction", { req });
+  }
+  reopenFriction(id: FrictionId) {
+    return invoke<void>("cmd_reopen_friction", { frictionId: id });
+  }
+  revealInFinder(path: string) {
+    return invoke<void>("reveal_in_finder", { path });
   }
   listFindings(projectId: ProjectId) {
     return invoke<FindingDto[]>("cmd_list_findings", { projectId });
@@ -325,7 +336,13 @@ class MockIpcClient implements IpcClient {
   resolveFriction(_id: FrictionId) {
     return Promise.resolve();
   }
-  retryFileFriction(_id: FrictionId) {
+  addressFriction(_req: AddressFrictionRequest) {
+    return Promise.resolve();
+  }
+  reopenFriction(_id: FrictionId) {
+    return Promise.resolve();
+  }
+  revealInFinder(_path: string) {
     return Promise.resolve();
   }
   listFindings(_projectId: ProjectId) {

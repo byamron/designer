@@ -82,7 +82,9 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
         Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
       listFriction: () => Promise.resolve([]),
       resolveFriction: () => Promise.resolve(),
-      retryFileFriction: () => Promise.resolve(),
+      addressFriction: () => Promise.resolve(),
+      reopenFriction: () => Promise.resolve(),
+      revealInFinder: () => Promise.resolve(),
       listFindings: () => Promise.resolve([]),
       signalFinding: () => Promise.resolve(),
     });

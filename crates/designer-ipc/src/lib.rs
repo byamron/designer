@@ -36,12 +36,6 @@ pub enum IpcError {
     CostCapExceeded { message: String },
     #[error("scope denied: {path}")]
     ScopeDenied { path: String },
-    /// Track 13.K — an out-of-process tool we shell out to (today: `gh` for
-    /// gist + issue create) failed. The frontend renders a toast pointing
-    /// the user at Settings → Activity → Friction to retry once they've
-    /// fixed the underlying cause (offline / not authed / tool missing).
-    #[error("{tool} failed: {message}")]
-    ExternalToolFailed { tool: String, message: String },
 }
 
 impl IpcError {
@@ -73,12 +67,6 @@ impl IpcError {
     }
     pub fn scope_denied(path: impl Into<String>) -> Self {
         IpcError::ScopeDenied { path: path.into() }
-    }
-    pub fn external_tool_failed(tool: impl Into<String>, message: impl Into<String>) -> Self {
-        IpcError::ExternalToolFailed {
-            tool: tool.into(),
-            message: message.into(),
-        }
     }
 }
 
@@ -307,13 +295,13 @@ pub enum SpineAltitude {
     Artifact,
 }
 
-// ---- Friction (Track 13.K) ------------------------------------------------
+// ---- Friction (Tracks 13.K + 13.L) ---------------------------------------
 
 /// Request body for `cmd_report_friction`. The screenshot is bundled inline
 /// as raw bytes — Tauri serializes `Vec<u8>` efficiently and screenshots
 /// are ≤ a few MB after the frontend's pre-shrink. The backend writes the
-/// bytes to `~/.designer/friction/screenshots/<sha256>.png` (content-addressed
-/// — identical screenshots dedupe).
+/// markdown record + PNG sidecar under `<repo>/.designer/friction/<id>.{md,png}`
+/// (or `~/.designer/friction/` when no repo is linked).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportFrictionRequest {
     pub anchor: Anchor,
@@ -326,7 +314,6 @@ pub struct ReportFrictionRequest {
     pub workspace_id: Option<WorkspaceId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<ProjectId>,
-    pub file_to_github: bool,
     /// Active route at submit time (for the markdown record + replay).
     pub route: String,
 }
@@ -338,22 +325,19 @@ pub struct ReportFrictionResponse {
 }
 
 /// State a friction record is in *right now* — derived by projecting all
-/// `Friction*` events for a given `friction_id`. Triage view sorts by
-/// state band (failed → local-only → linked → resolved) so unhandled work
-/// surfaces first.
+/// `Friction*` events for a given `friction_id`. Master-list filter chips
+/// in the triage view map directly onto these variants (plus `All`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FrictionState {
-    /// `FrictionReported` only — `gh` not attempted (file_to_github=false)
-    /// or attempt is in flight.
-    LocalOnly,
-    /// `FrictionLinked` landed; `github_issue_url` populated.
-    Filed,
-    /// `FrictionFileFailed` was the last terminal event. User can retry
-    /// from Settings → Activity → Friction.
-    Failed,
-    /// `FrictionResolved` was emitted (local-only resolution; does NOT
-    /// close the GitHub issue).
+    /// `FrictionReported` is the latest state-changing event for this id.
+    /// Reopened entries also land here (after `FrictionReopened`).
+    Open,
+    /// `FrictionAddressed` (or legacy `FrictionLinked`) is the latest
+    /// state-changing event. `pr_url` may be `None` if the user fixed it
+    /// without a PR (or the legacy variant carried no PR field).
+    Addressed,
+    /// `FrictionResolved` is the latest state-changing event.
     Resolved,
 }
 
@@ -372,10 +356,21 @@ pub struct FrictionEntry {
     /// have to re-implement the synthesis.
     pub anchor_descriptor: String,
     pub state: FrictionState,
-    pub github_issue_url: Option<String>,
-    pub error: Option<String>,
+    /// PR that addressed this entry, when one was supplied. Set on
+    /// `FrictionAddressed`; legacy `FrictionLinked` records map to `None`
+    /// (the GitHub issue URL they carried is not a PR).
+    pub pr_url: Option<String>,
     pub screenshot_path: Option<PathBuf>,
     pub local_path: PathBuf,
+}
+
+/// Request body for `cmd_address_friction`. `pr_url` is optional — many
+/// real fixes ship without a PR (config tweak, doc edit, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddressFrictionRequest {
+    pub friction_id: FrictionId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
 }
 
 // ---- Event subscription --------------------------------------------------
