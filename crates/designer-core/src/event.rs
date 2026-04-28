@@ -245,18 +245,16 @@ pub enum EventPayload {
         artifact_id: ArtifactId,
     },
 
-    // Friction (Track 13.K) — internal feedback capture. Additive variants
-    // per ADR 0002 addendum (commit c03f650): no existing variant is
-    // modified, all production projector arms include `_ => {}` defaults,
-    // and old `events.db` files written before these variants exist replay
-    // correctly because match arms can't fail on a variant that never
-    // appears in the stream.
+    // Friction (Track 13.K + 13.L) — internal feedback capture. 13.L drops
+    // the GitHub gist + issue filer and reworks triage as a master list with
+    // an explicit Open / Addressed / Resolved state machine. Old records
+    // written before 13.L (envelope `version: 1`) still decode through the
+    // legacy `FrictionLinked` variant — projection treats them as
+    // `addressed` with `pr_url: None`. New records (envelope `version: 2`)
+    // emit `FrictionAddressed { pr_url }` directly.
     //
-    // The `gh issue create` call is async + multi-second; emit
-    // `FrictionReported` synchronously, then a background task emits
-    // `FrictionLinked` (success) or `FrictionFileFailed` (network /
-    // `gh` not authed / gist fail). Triage view derives status by
-    // projecting all four.
+    // `FrictionFileFailed` lost its producer in 13.L but stays in the
+    // vocabulary for legacy decode + a future external-filing path.
     FrictionReported {
         friction_id: FrictionId,
         workspace_id: Option<WorkspaceId>,
@@ -269,11 +267,36 @@ pub enum EventPayload {
         claude_version: Option<String>,
         last_user_actions: Vec<String>,
         file_to_github: bool,
+        /// Absolute path to the markdown record on disk. Added in 13.L so
+        /// the triage view's "Open file" action knows which directory to
+        /// reveal. `Option` so legacy 13.K records (where the field
+        /// wasn't on the event) still decode via `serde(default)`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        local_path: Option<PathBuf>,
     },
+    /// 13.L — submitter marked the friction record as addressed. Optional
+    /// `pr_url` links the change that resolved it; `None` is valid (the user
+    /// fixed it without a PR).
+    FrictionAddressed {
+        friction_id: FrictionId,
+        pr_url: Option<String>,
+    },
+    /// 13.L — resolved entry was reopened. Projects back to `Open`.
+    FrictionReopened {
+        friction_id: FrictionId,
+    },
+    /// Legacy 13.K event: kept so envelopes written with `version: 1` still
+    /// decode. 13.L projector treats this as `FrictionAddressed { pr_url:
+    /// None }`. New records must emit `FrictionAddressed` instead.
+    #[deprecated(note = "removed in 13.L; legacy decode only — emit FrictionAddressed")]
     FrictionLinked {
         friction_id: FrictionId,
         github_issue_url: String,
     },
+    /// Legacy 13.K event: kept so envelopes written with `version: 1` still
+    /// decode. 13.L dropped the producer (no more `gh` filer); reserved for
+    /// a future external-filing path.
+    #[deprecated(note = "removed in 13.L; reserved for future external-filing path")]
     FrictionFileFailed {
         friction_id: FrictionId,
         error_kind: FrictionFileError,
@@ -407,6 +430,8 @@ pub enum EventKind {
     ArtifactUnpinned,
     ArtifactArchived,
     FrictionReported,
+    FrictionAddressed,
+    FrictionReopened,
     FrictionLinked,
     FrictionFileFailed,
     FrictionResolved,
@@ -453,7 +478,11 @@ impl EventPayload {
             EventPayload::ArtifactUnpinned { .. } => EventKind::ArtifactUnpinned,
             EventPayload::ArtifactArchived { .. } => EventKind::ArtifactArchived,
             EventPayload::FrictionReported { .. } => EventKind::FrictionReported,
+            EventPayload::FrictionAddressed { .. } => EventKind::FrictionAddressed,
+            EventPayload::FrictionReopened { .. } => EventKind::FrictionReopened,
+            #[allow(deprecated)]
             EventPayload::FrictionLinked { .. } => EventKind::FrictionLinked,
+            #[allow(deprecated)]
             EventPayload::FrictionFileFailed { .. } => EventKind::FrictionFileFailed,
             EventPayload::FrictionResolved { .. } => EventKind::FrictionResolved,
             EventPayload::FindingRecorded { .. } => EventKind::FindingRecorded,
@@ -522,10 +551,13 @@ mod tests {
         );
     }
 
-    /// Track 13.K — Friction variants must round-trip through serde and map
-    /// to the matching `EventKind`. ADR 0002 addendum permits these
-    /// additive variants only if their wire format stays stable.
+    /// Tracks 13.K + 13.L — Friction variants must round-trip through
+    /// serde and map to the matching `EventKind`. The 13.L rename
+    /// (`FrictionLinked` → `FrictionAddressed`) is the only non-additive
+    /// payload change in this branch; old records continue to decode via
+    /// the legacy variant.
     #[test]
+    #[allow(deprecated)]
     fn friction_events_roundtrip_and_map_kinds() {
         use crate::Anchor;
         use crate::FrictionId;
@@ -553,7 +585,13 @@ mod tests {
                 claude_version: Some("2.1.0".into()),
                 last_user_actions: vec!["spawn".into()],
                 file_to_github: true,
+                local_path: Some(PathBuf::from("/tmp/x.md")),
             },
+            EventPayload::FrictionAddressed {
+                friction_id: fid,
+                pr_url: Some("https://github.com/byamron/designer/pull/9".into()),
+            },
+            EventPayload::FrictionReopened { friction_id: fid },
             EventPayload::FrictionLinked {
                 friction_id: fid,
                 github_issue_url: "https://github.com/byamron/designer/issues/42".into(),
@@ -567,6 +605,8 @@ mod tests {
 
         let kinds = [
             EventKind::FrictionReported,
+            EventKind::FrictionAddressed,
+            EventKind::FrictionReopened,
             EventKind::FrictionLinked,
             EventKind::FrictionFileFailed,
             EventKind::FrictionResolved,
@@ -577,6 +617,48 @@ mod tests {
             let back: EventPayload = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(payload, &back, "round-trip mismatch for {json}");
         }
+    }
+
+    /// 13.L migration: a fixture written before the rename (envelope
+    /// `version: 1`, payload `kind: friction_linked`) must continue to
+    /// decode. Production projection treats it as `addressed` with
+    /// `pr_url: None` — that mapping lives in `core_friction::project_friction`
+    /// and is exercised there. This test pins only the legacy decode.
+    #[test]
+    #[allow(deprecated)]
+    fn legacy_friction_linked_envelope_decodes() {
+        use crate::ids::EventId;
+        use crate::Anchor;
+        use crate::FrictionId;
+        let envelope_json = serde_json::json!({
+            "id": EventId::new(),
+            "stream": { "kind": "system" },
+            "sequence": 1,
+            "timestamp": Timestamp::UNIX_EPOCH,
+            "actor": Actor::user(),
+            "version": 1,
+            "causation_id": null,
+            "correlation_id": null,
+            "payload": {
+                "kind": "friction_linked",
+                "friction_id": FrictionId::new(),
+                "github_issue_url": "https://github.com/x/y/issues/1"
+            }
+        });
+        let env: EventEnvelope = serde_json::from_value(envelope_json).expect("legacy decode");
+        assert_eq!(env.version, 1);
+        assert!(matches!(env.payload, EventPayload::FrictionLinked { .. }));
+        // Stable kind discriminant preserved for indices.
+        assert_eq!(env.kind(), EventKind::FrictionLinked);
+        // Helpful sanity: the new variant is what 13.L emits going forward.
+        let anchor = Anchor::DomElement {
+            selector_path: "x".into(),
+            route: "/r".into(),
+            component: None,
+            stable_id: None,
+            text_snippet: None,
+        };
+        let _ = anchor;
     }
 
     /// Phase 21.A1 — finding events round-trip through serde and report

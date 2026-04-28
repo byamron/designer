@@ -269,6 +269,12 @@ impl AppCore {
         })?;
         let ops = current_git_ops();
         ops.validate_repo(&canonical).await.map_err(map_git_err)?;
+        // Track 13.L: friction records persist under
+        // `<repo>/.designer/friction/`. The default is "private to the
+        // user" — write the entry to `.gitignore` on first link so the
+        // user has to opt in to commit screenshots and bug bodies.
+        // Best-effort; failure is logged inside `ensure_friction_gitignore`.
+        crate::core_friction::ensure_friction_gitignore(&canonical);
         let env = self
             .store
             .append(

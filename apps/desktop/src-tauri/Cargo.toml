@@ -42,7 +42,6 @@ dark-light.workspace = true
 once_cell.workspace = true
 sha2.workspace = true
 hex.workspace = true
-image.workspace = true
 tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
