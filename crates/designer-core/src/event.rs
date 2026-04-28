@@ -267,6 +267,12 @@ pub enum EventPayload {
         claude_version: Option<String>,
         last_user_actions: Vec<String>,
         file_to_github: bool,
+        /// Absolute path to the markdown record on disk. Added in 13.L so
+        /// the triage view's "Open file" action knows which directory to
+        /// reveal. `Option` so legacy 13.K records (where the field
+        /// wasn't on the event) still decode via `serde(default)`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        local_path: Option<PathBuf>,
     },
     /// 13.L — submitter marked the friction record as addressed. Optional
     /// `pr_url` links the change that resolved it; `None` is valid (the user
@@ -579,6 +585,7 @@ mod tests {
                 claude_version: Some("2.1.0".into()),
                 last_user_actions: vec!["spawn".into()],
                 file_to_github: true,
+                local_path: Some(PathBuf::from("/tmp/x.md")),
             },
             EventPayload::FrictionAddressed {
                 friction_id: fid,

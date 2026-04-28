@@ -243,7 +243,16 @@ export interface FrictionEntry {
 
 export interface AddressFrictionRequest {
   friction_id: FrictionId;
+  workspace_id?: WorkspaceId | null;
   pr_url?: string | null;
+}
+
+/// Same shape used by `cmd_resolve_friction` and `cmd_reopen_friction`.
+/// `workspace_id` carries the entry's originating stream so the backend
+/// can append without a full event-log scan.
+export interface FrictionTransitionRequest {
+  friction_id: FrictionId;
+  workspace_id?: WorkspaceId | null;
 }
 
 // ---- Learning layer (Phase 21.A1) ----

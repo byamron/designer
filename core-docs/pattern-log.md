@@ -417,3 +417,19 @@ The "Switch workspace (N in this project)" suggestion in HomeTabB was flagged as
 ## 2026-04-26 — `data-component` on component roots — load-bearing for Friction anchor resolution
 
 Top-level React components in `packages/app/src/` carry a `data-component="<ComponentName>"` attribute on their topmost rendered DOM element. Track 13.K's Friction smart-snap selection mode walks up from the click target to the nearest `data-component` ancestor and uses that name as the anchor identifier; without these attributes, anchors fall back to brittle structural CSS paths that rot the moment the markup shifts. Add `data-component` to every new top-level component (layout, blocks, modals, primitives that render their own root) — the convention is cheap to maintain and keeps Friction annotations stable across refactors. Block renderers in `blocks/blocks.tsx` annotate the `<article>` root.
+
+## 2026-04-27 — Track 13.L envelope-version bump (1 → 2)
+
+Track 13.L renamed `EventPayload::FrictionLinked { friction_id, github_issue_url }` → `FrictionAddressed { friction_id, pr_url: Option<String> }` — the only non-additive payload change since the freeze. To stay within the spirit of ADR 0002's "additive only" addendum, the envelope's `version` field bumped from 1 to 2 (`crates/designer-core/src/store.rs`). The `FrictionLinked` variant is kept around marked `#[deprecated]` so legacy `events.db` files still decode; `core_friction::project_friction` maps it to `Addressed { pr_url: None }`. Same treatment for `FrictionFileFailed` (legacy decode only; producer dropped with the gh filer).
+
+Why a global bump rather than a per-payload version: the envelope's `version` exists for exactly this case. Version 2 isn't load-bearing at the projector today (no arm branches on `env.version`), but it lets future migrations know which snapshot they're looking at without sniffing payload shapes. Subsequent tracks must continue to follow the additive-only rule unless a new ADR addendum carves out another exception.
+
+The migration test (`crates/designer-core/src/event::tests::legacy_friction_linked_envelope_decodes`) pins a hand-built envelope at `version: 1` with `kind: friction_linked` and asserts it decodes through the deprecated variant — tripwire if anyone tries to "clean up" the deprecated arms before another retention window passes.
+
+## 2026-04-27 — FE state validation + optimistic transitions (Track 13.L)
+
+Track 13.L's address/resolve/reopen IPC commands accept `workspace_id` from the FE (carried on `FrictionEntry`) instead of locating the originating stream by scanning the event log. Validation that the transition is sensible (e.g. "can't address a resolved entry") was previously a backend `IpcError::InvalidRequest` guard; it now lives entirely in the FE — the row's button is gated by `entry.state` so the user can't trigger an invalid transition from the UI.
+
+Why move validation: the backend guard cost a full `read_all` per click (linear in event count). At 100k events that's 100–500ms of JSON deserialization on the click path. The defense was only against a buggy client — and a buggy client could write any event anyway via direct DB access in this single-user local-first model. Trade: drop O(N) backend validation; accept FE as the gating authority.
+
+The FE further applies state transitions optimistically (`setEntries(prev => prev.map(...))`) before the IPC call returns, so the row updates instantly. Pattern lifts to any single-user state-transition surface where the action is deterministic and the backend is just an event log.

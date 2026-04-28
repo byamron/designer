@@ -3,6 +3,7 @@ import { Image as ImageIcon, Trash2, X } from "lucide-react";
 import {
   cancelFrictionEditing,
   clearFriction,
+  openDialog,
   useAppState,
 } from "../../store/app";
 import { ipcClient } from "../../ipc/client";
@@ -19,6 +20,10 @@ type ToastKind = "local" | "failed";
 interface ToastState {
   kind: ToastKind;
   message: string;
+  /// When set on a `local` toast, the toast renders an inline action that
+  /// jumps to Settings → Activity → Friction. Frees the user from
+  /// hunt-and-peck navigation after submit.
+  linkToTriage?: boolean;
 }
 
 interface ScreenshotState {
@@ -198,10 +203,12 @@ export function FrictionWidget() {
       const tail = resp.friction_id.slice(-6);
       setToast({
         kind: "local",
-        message: `Saved as #${tail} — review in Settings → Activity → Friction.`,
+        message: `Saved as #${tail}.`,
+        linkToTriage: true,
       });
       // Close the widget after a beat so the user reads the toast.
-      setTimeout(clearFriction, 1400);
+      // Slightly longer than 1.4s so they have time to click Review.
+      setTimeout(clearFriction, 2200);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setToast({ kind: "failed", message: msg });
@@ -295,7 +302,19 @@ export function FrictionWidget() {
 
       {toast && (
         <div className="friction-widget__toast" data-kind={toast.kind} role="status">
-          {toast.message}
+          <span>{toast.message}</span>
+          {toast.linkToTriage && (
+            <button
+              type="button"
+              className="friction-widget__toast-link"
+              onClick={() => {
+                clearFriction();
+                openDialog("settings");
+              }}
+            >
+              Review
+            </button>
+          )}
         </div>
       )}
 

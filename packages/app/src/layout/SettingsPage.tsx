@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import { closeDialog, useAppState } from "../store/app";
 import { useDataState } from "../store/data";
 import { SegmentedToggle } from "../components/SegmentedToggle";
 import { RepoLinkModal } from "../components/RepoLinkModal";
 import { DesignerNoticedPage } from "../components/DesignerNoticed";
+import { IconButton } from "../components/IconButton";
+import { IconX } from "../components/icons";
+import { messageFromError, useFocusTrap } from "../lib/modal";
 import { emptyArray } from "../util/empty";
 import type { Workspace, WorkspaceSummary } from "../ipc/types";
 import {
@@ -425,12 +428,42 @@ function ActivitySection() {
 
 type FrictionFilter = "open" | "addressed" | "resolved" | "all";
 
-const FRICTION_FILTERS: { value: FrictionFilter; label: string }[] = [
-  { value: "open", label: "Open" },
-  { value: "addressed", label: "Addressed" },
-  { value: "resolved", label: "Resolved" },
-  { value: "all", label: "All" },
+interface FilterDef {
+  value: FrictionFilter;
+  label: string;
+  emptyCopy: string;
+}
+
+const FILTERS: FilterDef[] = [
+  {
+    value: "open",
+    label: "Open",
+    emptyCopy: "No open friction. Press ⌘⇧F to capture something.",
+  },
+  {
+    value: "addressed",
+    label: "Addressed",
+    emptyCopy: "Nothing addressed yet — items move here when you mark them addressed.",
+  },
+  { value: "resolved", label: "Resolved", emptyCopy: "Nothing resolved yet." },
+  { value: "all", label: "All", emptyCopy: "No friction captured yet. Press ⌘⇧F to start." },
 ];
+
+type RowAction = "address" | "resolve" | "reopen" | "show-record" | "show-screenshot";
+
+/// Parse a GitHub PR URL into `owner/repo#123` for the row-meta chip.
+/// Returns the raw host fallback if the URL doesn't match the expected
+/// shape — better to surface *something* than to drop the chip silently.
+function shortPrLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const m = u.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+    if (m) return `${m[1]}/${m[2]}#${m[3]}`;
+    return u.host + u.pathname;
+  } catch {
+    return url;
+  }
+}
 
 function FrictionTriageSection() {
   const [entries, setEntries] = useState<FrictionEntry[] | null>(null);
@@ -439,26 +472,33 @@ function FrictionTriageSection() {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [addressTarget, setAddressTarget] = useState<FrictionEntry | null>(null);
 
-  const refresh = async () => {
-    try {
-      const list = await ipcClient().listFriction();
-      setEntries(list);
-    } catch {
-      setEntries([]);
-    }
-  };
-
+  // Initial load — apply the projection synchronously and auto-fall-through
+  // from the default "Open" filter to "All" when there's history but no
+  // open items, so the user doesn't land on a dead empty state.
   useEffect(() => {
-    void refresh();
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await ipcClient().listFriction();
+        if (cancelled) return;
+        setEntries(list);
+        if (list.length > 0 && list.every((e) => e.state !== "open")) {
+          setFilter("all");
+        }
+      } catch {
+        if (!cancelled) setEntries([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const counts = useMemo(() => {
     const c = { open: 0, addressed: 0, resolved: 0, all: 0 };
-    if (entries) {
-      for (const e of entries) {
-        c.all += 1;
-        c[e.state] += 1;
-      }
+    for (const e of entries ?? []) {
+      c.all += 1;
+      c[e.state] += 1;
     }
     return c;
   }, [entries]);
@@ -468,14 +508,53 @@ function FrictionTriageSection() {
     return filter === "all" ? entries : entries.filter((e) => e.state === filter);
   }, [entries, filter]);
 
-  const toggleExpanded = (id: string) => {
+  const filterOptions = useMemo(
+    () => FILTERS.map((f) => ({ value: f.value, label: `${f.label} (${counts[f.value]})` })),
+    [counts],
+  );
+
+  // Apply a state transition optimistically + dispatch the IPC call. Keeps
+  // the UI responsive even on a large event store; the next refresh
+  // reconciles if the backend ever rejects.
+  const runAction = async (entry: FrictionEntry, action: RowAction) => {
+    if (action === "show-record") {
+      if (entry.local_path) await ipcClient().revealInFinder(entry.local_path);
+      return;
+    }
+    if (action === "show-screenshot") {
+      if (entry.screenshot_path) await ipcClient().revealInFinder(entry.screenshot_path);
+      return;
+    }
+    if (action === "address") {
+      setAddressTarget(entry);
+      return;
+    }
+    setBusyId(entry.friction_id);
+    setEntries((prev) =>
+      prev
+        ? prev.map((e) =>
+            e.friction_id === entry.friction_id
+              ? { ...e, state: action === "reopen" ? "open" : "resolved" }
+              : e,
+          )
+        : prev,
+    );
+    try {
+      const client = ipcClient();
+      const req = { friction_id: entry.friction_id, workspace_id: entry.workspace_id };
+      await (action === "reopen" ? client.reopenFriction(req) : client.resolveFriction(req));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
 
   return (
     <>
@@ -483,157 +562,34 @@ function FrictionTriageSection() {
         label="Friction"
         description="Internal feedback captured via the bottom-right button or ⌘⇧F. Records persist as local markdown files in the linked repo (gitignored by default)."
       />
-      <div className="friction-triage__filters" role="tablist" aria-label="Filter by state">
-        {FRICTION_FILTERS.map((f) => {
-          const active = filter === f.value;
-          return (
-            <button
-              key={f.value}
-              type="button"
-              className="friction-triage__filter"
-              role="tab"
-              aria-selected={active}
-              data-active={active}
-              onClick={() => setFilter(f.value)}
-            >
-              {f.label}
-              <span className="friction-triage__filter-count">{counts[f.value]}</span>
-            </button>
-          );
-        })}
+      <div className="friction-triage__filters">
+        <SegmentedToggle<FrictionFilter>
+          ariaLabel="Filter friction by state"
+          value={filter}
+          onChange={setFilter}
+          options={filterOptions}
+        />
       </div>
-      <div className="friction-triage">
+      <ul className="friction-triage" aria-label={`Friction — ${filter}`}>
         {filtered === null ? (
-          <div className="friction-triage__empty">Loading…</div>
+          <li className="friction-triage__empty">Loading…</li>
         ) : filtered.length === 0 ? (
-          <div className="friction-triage__empty">
-            {filter === "open"
-              ? "No open friction. Press ⌘⇧F to capture something."
-              : filter === "all"
-                ? "No friction captured yet. Press ⌘⇧F to start."
-                : `Nothing in ${filter}.`}
-          </div>
+          <li className="friction-triage__empty">
+            {FILTERS.find((f) => f.value === filter)?.emptyCopy}
+          </li>
         ) : (
-          filtered.map((e) => {
-            const isExpanded = expanded.has(e.friction_id);
-            return (
-              <div
-                className="friction-triage__row"
-                key={e.friction_id}
-                data-state={e.state}
-                data-component="FrictionTriageRow"
-              >
-                <button
-                  type="button"
-                  className="friction-triage__row-summary"
-                  aria-expanded={isExpanded}
-                  onClick={() => toggleExpanded(e.friction_id)}
-                >
-                  <div className="friction-triage__title" title={e.title}>
-                    {e.title || e.body}
-                  </div>
-                  <div className="friction-triage__meta">
-                    <span className="friction-triage__state" data-state={e.state}>
-                      {e.state}
-                    </span>
-                    {" · "}
-                    {new Date(e.created_at).toLocaleString()}
-                    {" · "}
-                    {e.anchor_descriptor}
-                    {e.pr_url ? (
-                      <>
-                        {" · "}
-                        <span className="friction-triage__pr">PR linked</span>
-                      </>
-                    ) : null}
-                  </div>
-                </button>
-                {isExpanded && (
-                  <div className="friction-triage__detail">
-                    {e.body && <p className="friction-triage__body">{e.body}</p>}
-                    {e.screenshot_path && (
-                      <div className="friction-triage__screenshot-meta">
-                        Screenshot: <code>{e.screenshot_path}</code>
-                      </div>
-                    )}
-                    {e.pr_url && (
-                      <div className="friction-triage__pr-link">
-                        PR:{" "}
-                        <a href={e.pr_url} target="_blank" rel="noreferrer noopener">
-                          {e.pr_url}
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="friction-triage__actions">
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={!e.local_path}
-                    onClick={async () => {
-                      if (!e.local_path) return;
-                      try {
-                        await ipcClient().revealInFinder(e.local_path);
-                      } catch {
-                        /* best-effort; ignore */
-                      }
-                    }}
-                  >
-                    Open file
-                  </button>
-                  {e.state === "open" && (
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={busyId === e.friction_id}
-                      onClick={() => setAddressTarget(e)}
-                    >
-                      Mark addressed
-                    </button>
-                  )}
-                  {e.state !== "resolved" && (
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={busyId === e.friction_id}
-                      onClick={async () => {
-                        setBusyId(e.friction_id);
-                        try {
-                          await ipcClient().resolveFriction(e.friction_id);
-                          await refresh();
-                        } finally {
-                          setBusyId(null);
-                        }
-                      }}
-                    >
-                      Mark resolved
-                    </button>
-                  )}
-                  {e.state === "resolved" && (
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={busyId === e.friction_id}
-                      onClick={async () => {
-                        setBusyId(e.friction_id);
-                        try {
-                          await ipcClient().reopenFriction(e.friction_id);
-                          await refresh();
-                        } finally {
-                          setBusyId(null);
-                        }
-                      }}
-                    >
-                      Reopen
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })
+          filtered.map((e) => (
+            <FrictionRow
+              key={e.friction_id}
+              entry={e}
+              expanded={expanded.has(e.friction_id)}
+              busy={busyId === e.friction_id}
+              onToggle={() => toggleExpanded(e.friction_id)}
+              onAction={(action) => runAction(e, action)}
+            />
+          ))
         )}
-      </div>
+      </ul>
       {addressTarget && (
         <AddressFrictionDialog
           entry={addressTarget}
@@ -642,12 +598,21 @@ function FrictionTriageSection() {
             const target = addressTarget;
             setAddressTarget(null);
             setBusyId(target.friction_id);
+            setEntries((prev) =>
+              prev
+                ? prev.map((e) =>
+                    e.friction_id === target.friction_id
+                      ? { ...e, state: "addressed", pr_url: prUrl }
+                      : e,
+                  )
+                : prev,
+            );
             try {
               await ipcClient().addressFriction({
                 friction_id: target.friction_id,
+                workspace_id: target.workspace_id,
                 pr_url: prUrl,
               });
-              await refresh();
             } finally {
               setBusyId(null);
             }
@@ -655,6 +620,131 @@ function FrictionTriageSection() {
         />
       )}
     </>
+  );
+}
+
+/// One row in the master list. Split out so the row is a `<li>` with
+/// non-nested-button siblings (chevron toggle + actions row) rather than
+/// the row-summary `<button>` containing other buttons — invalid HTML
+/// that the previous draft tripped on.
+function FrictionRow({
+  entry: e,
+  expanded,
+  busy,
+  onToggle,
+  onAction,
+}: {
+  entry: FrictionEntry;
+  expanded: boolean;
+  busy: boolean;
+  onToggle: () => void;
+  onAction: (action: RowAction) => void | Promise<void>;
+}) {
+  return (
+    <li
+      className="friction-triage__row"
+      data-state={e.state}
+      data-component="FrictionTriageRow"
+    >
+      <button
+        type="button"
+        className="friction-triage__toggle"
+        aria-expanded={expanded}
+        aria-controls={`friction-detail-${e.friction_id}`}
+        onClick={onToggle}
+      >
+        <ChevronRight
+          className="friction-triage__chevron"
+          size={14}
+          strokeWidth={1.6}
+          aria-hidden="true"
+        />
+        <span className="friction-triage__title" title={e.title}>
+          {e.title || e.body}
+        </span>
+        <span className="friction-triage__meta">
+          <span className="friction-triage__state" data-state={e.state}>
+            <span className="friction-triage__state-dot" aria-hidden="true" />
+            {e.state}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>{new Date(e.created_at).toLocaleString()}</span>
+          <span aria-hidden="true">·</span>
+          <span>{e.anchor_descriptor}</span>
+          {e.pr_url && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="friction-triage__pr">{shortPrLabel(e.pr_url)}</span>
+            </>
+          )}
+        </span>
+      </button>
+      <div className="friction-triage__actions">
+        {(e.state === "open" || e.state === "addressed") && (
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => onAction("address")}
+          >
+            {e.state === "open" ? "Mark addressed" : "Update PR"}
+          </button>
+        )}
+        {e.state !== "resolved" && (
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => onAction("resolve")}
+          >
+            Mark resolved
+          </button>
+        )}
+        {e.state !== "open" && (
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => onAction("reopen")}
+          >
+            Reopen
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn"
+          disabled={!e.local_path}
+          onClick={() => onAction("show-record")}
+        >
+          Show in Finder
+        </button>
+      </div>
+      {expanded && (
+        <div
+          className="friction-triage__detail"
+          id={`friction-detail-${e.friction_id}`}
+        >
+          {e.body && <p className="friction-triage__body">{e.body}</p>}
+          {e.screenshot_path && (
+            <button
+              type="button"
+              className="friction-triage__screenshot-link"
+              onClick={() => onAction("show-screenshot")}
+            >
+              Show screenshot in Finder
+            </button>
+          )}
+          {e.pr_url && (
+            <div className="friction-triage__pr-link">
+              PR:{" "}
+              <a href={e.pr_url} target="_blank" rel="noreferrer noopener">
+                {e.pr_url}
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -667,57 +757,122 @@ function AddressFrictionDialog({
   onCancel: () => void;
   onSubmit: (prUrl: string | null) => void | Promise<void>;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(entry.pr_url ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useFocusTrap(dialogRef, { onEscape: onCancel, busy });
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  const submit = () => {
+    const trimmed = value.trim();
+    if (trimmed && !/^https?:\/\/[^\s]+$/i.test(trimmed)) {
+      setError("Enter a full URL starting with http:// or https://, or leave it blank.");
+      return;
+    }
+    setBusy(true);
+    try {
+      void onSubmit(trimmed.length > 0 ? trimmed : null);
+    } catch (err) {
+      setError(messageFromError(err, "mark addressed"));
+      setBusy(false);
+    }
+  };
 
   return (
     <div
-      className="friction-triage__modal-scrim"
-      role="dialog"
-      aria-label="Mark friction addressed"
-      onClick={onCancel}
+      className="app-dialog-scrim"
+      data-component="AddressFrictionDialog"
+      role="presentation"
+      onClick={(e) => {
+        // `click` fires only when both mousedown and mouseup land on the
+        // scrim — so a drag started inside the card and released on the
+        // scrim doesn't surprise-dismiss.
+        if (e.target === e.currentTarget && !busy) onCancel();
+      }}
     >
       <div
-        className="friction-triage__modal"
-        onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
+        className="app-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="address-friction-title"
       >
-        <h2 className="friction-triage__modal-title">Mark addressed</h2>
-        <p className="friction-triage__modal-body" title={entry.title}>
-          {entry.title}
-        </p>
-        <label className="friction-triage__modal-label">
-          PR URL (optional)
-          <input
-            className="friction-triage__modal-input"
-            type="url"
-            placeholder="https://github.com/owner/repo/pull/123"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            autoFocus
-          />
-        </label>
-        <div className="friction-triage__modal-actions">
-          <button type="button" className="btn" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn"
-            data-variant="primary"
-            onClick={() => {
-              const trimmed = value.trim();
-              void onSubmit(trimmed.length > 0 ? trimmed : null);
-            }}
-          >
+        <header className="app-dialog__head">
+          <h2 className="app-dialog__title" id="address-friction-title">
             Mark addressed
-          </button>
+          </h2>
+          <IconButton label="Close" shortcut="Esc" onClick={onCancel} disabled={busy}>
+            <IconX size={12} />
+          </IconButton>
+        </header>
+        <div className="app-dialog__body">
+          <section className="app-dialog__section">
+            <span className="app-dialog__section-label">Friction</span>
+            <p className="address-friction__entry-title" title={entry.title}>
+              {entry.title}
+            </p>
+          </section>
+          <section className="app-dialog__section" aria-label="PR URL">
+            <label
+              className="app-dialog__section-label"
+              htmlFor="address-friction-pr"
+            >
+              PR URL (optional)
+            </label>
+            <input
+              ref={inputRef}
+              id="address-friction-pr"
+              type="url"
+              className="quick-switcher__input"
+              placeholder="https://github.com/owner/repo/pull/123"
+              value={value}
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              onChange={(e) => {
+                setValue(e.target.value);
+                if (error) setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              aria-invalid={error !== null}
+              aria-describedby={error ? "address-friction-error" : undefined}
+              disabled={busy}
+            />
+            {error && (
+              <p
+                id="address-friction-error"
+                role="alert"
+                className="address-friction__error"
+              >
+                {error}
+              </p>
+            )}
+          </section>
+          <div className="address-friction__actions">
+            <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn"
+              data-variant="primary"
+              onClick={submit}
+              disabled={busy}
+            >
+              {busy ? "Saving…" : "Mark addressed"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

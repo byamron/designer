@@ -6,9 +6,9 @@
 
 use crate::core::AppCore;
 use crate::ipc;
-use designer_core::FrictionId;
 use designer_ipc::{
-    AddressFrictionRequest, FrictionEntry, IpcError, ReportFrictionRequest, ReportFrictionResponse,
+    AddressFrictionRequest, FrictionEntry, FrictionTransitionRequest, IpcError,
+    ReportFrictionRequest, ReportFrictionResponse,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -31,9 +31,9 @@ pub async fn cmd_list_friction(
 #[tauri::command]
 pub async fn cmd_resolve_friction(
     core: State<'_, Arc<AppCore>>,
-    friction_id: FrictionId,
+    req: FrictionTransitionRequest,
 ) -> Result<(), IpcError> {
-    ipc::cmd_resolve_friction(&core, friction_id).await
+    ipc::cmd_resolve_friction(&core, req).await
 }
 
 #[tauri::command]
@@ -47,7 +47,7 @@ pub async fn cmd_address_friction(
 #[tauri::command]
 pub async fn cmd_reopen_friction(
     core: State<'_, Arc<AppCore>>,
-    friction_id: FrictionId,
+    req: FrictionTransitionRequest,
 ) -> Result<(), IpcError> {
-    ipc::cmd_reopen_friction(&core, friction_id).await
+    ipc::cmd_reopen_friction(&core, req).await
 }

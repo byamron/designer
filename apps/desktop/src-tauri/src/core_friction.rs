@@ -23,14 +23,16 @@
 use crate::core::AppCore;
 use designer_core::{
     Actor, Anchor, EventPayload, EventStore, FrictionId, Projection, ScreenshotRef, StreamId,
-    StreamOptions,
+    StreamOptions, WorkspaceId,
 };
 use designer_ipc::{
     FrictionEntry, FrictionState, IpcError, ReportFrictionRequest, ReportFrictionResponse,
 };
+use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Hard cap for screenshot bytes accepted by `cmd_report_friction`. Larger
 /// payloads are rejected at the IPC boundary so the frontend can't bloat
@@ -103,6 +105,30 @@ fn render_record(
     md
 }
 
+/// Owned bag of inputs for the spawn_blocking write task. Lifted out
+/// of `report_friction` to keep the closure capture explicit.
+struct WriteArgs {
+    dir: PathBuf,
+    record_path: PathBuf,
+    screenshot_path: Option<PathBuf>,
+    screenshot_bytes: Option<Vec<u8>>,
+    markdown: String,
+}
+
+fn write_record_to_disk(args: WriteArgs) -> std::io::Result<Option<ScreenshotRef>> {
+    std::fs::create_dir_all(&args.dir)?;
+    let sref = match (args.screenshot_bytes, args.screenshot_path) {
+        (Some(bytes), Some(path)) => {
+            let sha = hex::encode(Sha256::digest(&bytes));
+            std::fs::write(&path, &bytes)?;
+            Some(ScreenshotRef::Local { path, sha256: sha })
+        }
+        _ => None,
+    };
+    std::fs::write(&args.record_path, args.markdown)?;
+    Ok(sref)
+}
+
 impl AppCore {
     /// Persist a friction record locally and emit `FrictionReported`.
     /// Returns once the markdown + optional screenshot are durable on
@@ -134,53 +160,38 @@ impl AppCore {
             .screenshot_data
             .as_ref()
             .map(|_| dir.join(format!("{friction_id}.png")));
-
-        // I/O on `spawn_blocking` so a multi-MB screenshot doesn't pause
-        // the tokio worker. Hashing happens here too — keeps the
-        // `ScreenshotRef::Local { sha256 }` field stable for content-based
-        // replay (a future agent that re-files the same record gets the
-        // same hash).
-        let body = req.body.clone();
-        let anchor = req.anchor.clone();
-        let route = req.route.clone();
-        let app_version_for_blocking = app_version.clone();
-        let title_for_blocking = title.clone();
         let bytes = req.screenshot_data.take();
-        let dir_for_blocking = dir.clone();
-        let record_path_for_blocking = record_path.clone();
-        let screenshot_path_for_blocking = screenshot_path.clone();
 
-        let screenshot_ref =
-            tokio::task::spawn_blocking(move || -> std::io::Result<Option<ScreenshotRef>> {
-                std::fs::create_dir_all(&dir_for_blocking)?;
-                let sref = if let (Some(bytes), Some(path)) = (bytes, screenshot_path_for_blocking)
-                {
-                    let mut hasher = Sha256::new();
-                    hasher.update(&bytes);
-                    let sha = hex::encode(hasher.finalize());
-                    std::fs::write(&path, &bytes)?;
-                    Some(ScreenshotRef::Local { path, sha256: sha })
-                } else {
-                    None
-                };
-                let md = render_record(
-                    friction_id,
-                    &title_for_blocking,
-                    &body,
-                    &anchor,
-                    &route,
-                    &app_version_for_blocking,
-                    sref.as_ref().and_then(ScreenshotRef::local_path),
-                );
-                std::fs::write(&record_path_for_blocking, md)?;
-                Ok(sref)
-            })
+        // The markdown is CPU-cheap; render it on the async runtime
+        // before handing the I/O off to spawn_blocking. Keeps the
+        // closure's capture set down to (dir, record_path, screenshot
+        // path + bytes, rendered md) instead of every render-input.
+        let md = render_record(
+            friction_id,
+            &title,
+            &req.body,
+            &req.anchor,
+            &req.route,
+            &app_version,
+            screenshot_path.as_deref(),
+        );
+
+        // spawn_blocking carries the multi-MB hash + write so a slow
+        // disk doesn't park a tokio worker for tens of milliseconds.
+        let write_args = WriteArgs {
+            dir,
+            record_path: record_path.clone(),
+            screenshot_path,
+            screenshot_bytes: bytes,
+            markdown: md,
+        };
+        let screenshot_ref = tokio::task::spawn_blocking(move || write_record_to_disk(write_args))
             .await
             .map_err(|e| IpcError::unknown(format!("record write task: {e}")))?
             .map_err(|e| IpcError::unknown(format!("record write: {e}")))?;
 
         let stream = stream_for(&req);
-        let env = self
+        let append_result = self
             .store
             .append(
                 stream,
@@ -192,7 +203,7 @@ impl AppCore {
                     project_id: req.project_id,
                     anchor: req.anchor.clone(),
                     body: req.body.clone(),
-                    screenshot_ref,
+                    screenshot_ref: screenshot_ref.clone(),
                     route: req.route.clone(),
                     app_version,
                     claude_version: None,
@@ -201,16 +212,30 @@ impl AppCore {
                     // event payload for replay compatibility with 13.K
                     // records.
                     file_to_github: false,
+                    local_path: Some(record_path.clone()),
                 },
             )
-            .await
-            .map_err(IpcError::from)?;
-        self.projector.apply(&env);
-
-        Ok(ReportFrictionResponse {
-            friction_id,
-            local_path: record_path,
-        })
+            .await;
+        match append_result {
+            Ok(env) => {
+                self.projector.apply(&env);
+                Ok(ReportFrictionResponse {
+                    friction_id,
+                    local_path: record_path,
+                })
+            }
+            Err(err) => {
+                // Append failed — best-effort cleanup of the on-disk
+                // record so the event store stays the source of truth.
+                // Failure to remove is logged but not propagated; the
+                // user already sees the append error.
+                let _ = std::fs::remove_file(&record_path);
+                if let Some(ScreenshotRef::Local { path, .. }) = screenshot_ref.as_ref() {
+                    let _ = std::fs::remove_file(path);
+                }
+                Err(IpcError::from(err))
+            }
+        }
     }
 
     /// Project the friction event stream into a list of triage entries.
@@ -226,83 +251,65 @@ impl AppCore {
     }
 
     /// Mark a friction record `Addressed`. Optional `pr_url` records the
-    /// fix's PR (autocomplete-from-`gh-pr-list` lives in the FE).
+    /// fix's PR. The caller passes `workspace_id` from the projected
+    /// `FrictionEntry` so the backend doesn't have to re-scan the event
+    /// log to locate the originating stream — at 100k events that scan
+    /// would dominate click latency.
     pub async fn address_friction(
         &self,
         id: FrictionId,
+        workspace_id: Option<WorkspaceId>,
         pr_url: Option<String>,
     ) -> Result<(), IpcError> {
-        let stream = self.locate_friction_stream(id).await?;
+        self.append_friction_event(
+            workspace_id,
+            EventPayload::FrictionAddressed {
+                friction_id: id,
+                pr_url,
+            },
+        )
+        .await
+    }
+
+    pub async fn resolve_friction(
+        &self,
+        id: FrictionId,
+        workspace_id: Option<WorkspaceId>,
+    ) -> Result<(), IpcError> {
+        self.append_friction_event(
+            workspace_id,
+            EventPayload::FrictionResolved { friction_id: id },
+        )
+        .await
+    }
+
+    pub async fn reopen_friction(
+        &self,
+        id: FrictionId,
+        workspace_id: Option<WorkspaceId>,
+    ) -> Result<(), IpcError> {
+        self.append_friction_event(
+            workspace_id,
+            EventPayload::FrictionReopened { friction_id: id },
+        )
+        .await
+    }
+
+    async fn append_friction_event(
+        &self,
+        workspace_id: Option<WorkspaceId>,
+        payload: EventPayload,
+    ) -> Result<(), IpcError> {
+        let stream = workspace_id
+            .map(StreamId::Workspace)
+            .unwrap_or(StreamId::System);
         let env = self
             .store
-            .append(
-                stream,
-                None,
-                Actor::user(),
-                EventPayload::FrictionAddressed {
-                    friction_id: id,
-                    pr_url,
-                },
-            )
+            .append(stream, None, Actor::user(), payload)
             .await
             .map_err(IpcError::from)?;
         self.projector.apply(&env);
         Ok(())
-    }
-
-    /// Mark a friction record `Resolved`.
-    pub async fn resolve_friction(&self, id: FrictionId) -> Result<(), IpcError> {
-        let stream = self.locate_friction_stream(id).await?;
-        let env = self
-            .store
-            .append(
-                stream,
-                None,
-                Actor::user(),
-                EventPayload::FrictionResolved { friction_id: id },
-            )
-            .await
-            .map_err(IpcError::from)?;
-        self.projector.apply(&env);
-        Ok(())
-    }
-
-    /// Reopen a previously-resolved (or -addressed) friction record. Pulls
-    /// it back into the default `Open` filter.
-    pub async fn reopen_friction(&self, id: FrictionId) -> Result<(), IpcError> {
-        let stream = self.locate_friction_stream(id).await?;
-        let env = self
-            .store
-            .append(
-                stream,
-                None,
-                Actor::user(),
-                EventPayload::FrictionReopened { friction_id: id },
-            )
-            .await
-            .map_err(IpcError::from)?;
-        self.projector.apply(&env);
-        Ok(())
-    }
-
-    /// Find the originating stream for a friction id by scanning the event
-    /// log for the `FrictionReported`. Returns `NotFound` if no such record
-    /// exists. Callers that need more than the stream should project the
-    /// event log directly via `list_friction` to avoid a double-read.
-    async fn locate_friction_stream(&self, id: FrictionId) -> Result<StreamId, IpcError> {
-        let events = self
-            .store
-            .read_all(StreamOptions::default())
-            .await
-            .map_err(IpcError::from)?;
-        for env in events.iter() {
-            if let EventPayload::FrictionReported { friction_id, .. } = &env.payload {
-                if *friction_id == id {
-                    return Ok(env.stream.clone());
-                }
-            }
-        }
-        Err(IpcError::not_found(id.to_string()))
     }
 }
 
@@ -325,6 +332,7 @@ where
                 body,
                 screenshot_ref,
                 route,
+                local_path,
                 ..
             } => {
                 if !by_id.contains_key(friction_id) {
@@ -346,7 +354,9 @@ where
                         Some(ScreenshotRef::Local { path, .. }) => Some(path.clone()),
                         _ => None,
                     },
-                    local_path: PathBuf::new(),
+                    // Field added in 13.L; legacy 13.K records have `None`
+                    // and the FE gates the "Open file" action accordingly.
+                    local_path: local_path.clone().unwrap_or_default(),
                 };
                 by_id.insert(*friction_id, entry);
             }
@@ -402,7 +412,14 @@ where
 /// when not already listed. Idempotent: a no-op if the entry exists.
 /// Best-effort — failing to write is logged, not propagated, because it
 /// must never block `link_repo`.
+///
+/// The read+write is serialized via a process-global mutex so two
+/// concurrent `link_repo` calls on the same repo can't both observe the
+/// "needle missing" state and both append a duplicate line.
 pub fn ensure_friction_gitignore(repo_root: &Path) {
+    static GITIGNORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = GITIGNORE_LOCK.get_or_init(|| Mutex::new(())).lock();
+
     let gitignore = repo_root.join(".gitignore");
     let needle = ".designer/friction/";
     let existing = std::fs::read_to_string(&gitignore).unwrap_or_default();
@@ -570,6 +587,7 @@ mod tests {
         let resp = core.report_friction(req).await.unwrap();
         core.address_friction(
             resp.friction_id,
+            None,
             Some("https://github.com/x/y/pull/9".into()),
         )
         .await
@@ -609,19 +627,19 @@ mod tests {
             FrictionState::Open
         );
 
-        core.address_friction(id, None).await.unwrap();
+        core.address_friction(id, None, None).await.unwrap();
         assert_eq!(
             state(&core.list_friction().await.unwrap()),
             FrictionState::Addressed
         );
 
-        core.resolve_friction(id).await.unwrap();
+        core.resolve_friction(id, None).await.unwrap();
         assert_eq!(
             state(&core.list_friction().await.unwrap()),
             FrictionState::Resolved
         );
 
-        core.reopen_friction(id).await.unwrap();
+        core.reopen_friction(id, None).await.unwrap();
         assert_eq!(
             state(&core.list_friction().await.unwrap()),
             FrictionState::Open
@@ -667,6 +685,7 @@ mod tests {
                     claude_version: None,
                     last_user_actions: vec![],
                     file_to_github: true,
+                    local_path: None,
                 },
             ),
             make(
@@ -714,6 +733,7 @@ mod tests {
             claude_version: None,
             last_user_actions: vec![],
             file_to_github: false,
+            local_path: None,
         };
 
         let t_old = Timestamp::UNIX_EPOCH;

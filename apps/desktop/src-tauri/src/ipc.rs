@@ -6,7 +6,7 @@
 //! safety check (scope / cost / approval). Frontend callers cannot bypass.
 
 use crate::core::{AppCore, FallbackReason, HelperStatus, HelperStatusKind, RecoveryKind};
-use designer_core::{ArtifactId, FrictionId, ProjectId, Tab, TrackId, WorkspaceId};
+use designer_core::{ArtifactId, ProjectId, Tab, TrackId, WorkspaceId};
 use designer_ipc::*;
 use designer_local_models::HelperHealth;
 use std::sync::Arc;
@@ -317,23 +317,26 @@ pub async fn cmd_list_friction(core: &Arc<AppCore>) -> Result<Vec<FrictionEntry>
 
 pub async fn cmd_resolve_friction(
     core: &Arc<AppCore>,
-    friction_id: FrictionId,
+    req: FrictionTransitionRequest,
 ) -> Result<(), IpcError> {
-    core.resolve_friction(friction_id).await
+    core.resolve_friction(req.friction_id, req.workspace_id)
+        .await
 }
 
 pub async fn cmd_address_friction(
     core: &Arc<AppCore>,
     req: AddressFrictionRequest,
 ) -> Result<(), IpcError> {
-    core.address_friction(req.friction_id, req.pr_url).await
+    core.address_friction(req.friction_id, req.workspace_id, req.pr_url)
+        .await
 }
 
 pub async fn cmd_reopen_friction(
     core: &Arc<AppCore>,
-    friction_id: FrictionId,
+    req: FrictionTransitionRequest,
 ) -> Result<(), IpcError> {
-    core.reopen_friction(friction_id).await
+    core.reopen_friction(req.friction_id, req.workspace_id)
+        .await
 }
 
 // ---- Learning layer (Phase 21.A1) ---------------------------------------

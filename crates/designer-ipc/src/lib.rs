@@ -365,12 +365,25 @@ pub struct FrictionEntry {
 }
 
 /// Request body for `cmd_address_friction`. `pr_url` is optional — many
-/// real fixes ship without a PR (config tweak, doc edit, etc.).
+/// real fixes ship without a PR (config tweak, doc edit, etc.). The
+/// `workspace_id` carries the originating stream so the backend doesn't
+/// have to re-scan the event log to locate it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddressFrictionRequest {
     pub friction_id: FrictionId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<WorkspaceId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
+}
+
+/// Request body for `cmd_resolve_friction` and `cmd_reopen_friction`.
+/// Same shape so the FE can use one DTO for both transitions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrictionTransitionRequest {
+    pub friction_id: FrictionId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<WorkspaceId>,
 }
 
 // ---- Event subscription --------------------------------------------------

@@ -556,3 +556,42 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - backend: dropped `GhRunner` trait + `RealGhRunner` + `GhRunnerSlot` + `gh_runner_override` field on `AppCore` + `set_gh_runner_for_tests` + `spawn_filer` background task + `IpcError::ExternalToolFailed` + `image` workspace dep + the `maybe_downscale` PNG decoder. `EventEnvelope.version` bumped 1→2; `FrictionAddressed { friction_id, pr_url }` and `FrictionReopened { friction_id }` added. `cmd_link_repo` now writes `.designer/friction/` into `<repo>/.gitignore` on first link via `core_friction::ensure_friction_gitignore`.
 - frontend: `FrictionState` is now `"open" | "addressed" | "resolved"`; `FrictionEntry` carries `pr_url` (no more `github_issue_url`/`error`); `IpcClient` gains `addressFriction` / `reopenFriction` / `revealInFinder` and drops `retryFileFriction`. `FrictionWidget` lost the "Also file as GitHub issue" checkbox; submit now produces a "Saved as #<tail>" toast.
 - feedback: pending (PR awaiting user dogfood signal)
+
+
+## 2026-04-27T21:50:00Z — manual (Track 13.L review + fix pass)
+- prompt: "review the change from the perspective of a staff engineer, a staff UX designer, a staff UI designer, and a staff design engineer. identify any bugs or breaking changes and fix them."
+- trigger: manual (multi-perspective review on the prior 13.L commit)
+- archetype-reused: `app-dialog__*` chrome and `lib/modal.ts` focus-trap helpers (`AddressFrictionDialog` rebuilt to match `RepoLinkModal` / `CreateProjectModal`); `SegmentedToggle` (filter chips replaced the hand-rolled pill row)
+- components-reused: `SegmentedToggle`, `IconButton`, `IconX`, `RepoLinkModal`-style modal chrome
+- components-new: `FrictionRow`, `AddressFrictionDialog` (rebuilt from scratch with shared infra). Plus a new `useFocusTrap` hook in `lib/modal.ts` extracted from the three-modal duplication.
+- primitives: (none beyond the existing app convention)
+- tokens: --accent-7, --accent-9, --accent-11, --gray-9, --color-foreground, --color-muted, --color-surface-overlay, --color-surface-raised, --color-border, --color-background, --space-1/2/3/8, --type-caption-size, --type-body-size, --type-family-mono, --weight-medium, --radius-button, --radius-pill, --radius-modal, --border-thin, --elevation-modal, --motion-interactive, --layer-modal, --danger-9
+- invariants: 6/6 clean on `SettingsPage.tsx`, `FrictionWidget.tsx`, `lib/modal.ts`. `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` green; `npm run typecheck` clean; `vitest run` 46 passed.
+- review-pass: four perspectives (staff engineer, staff UX, staff UI, staff design engineer) surfaced the punch list below. All P0s addressed; key P1s addressed; P2 polish folded in opportunistically.
+  - **P0 fixes:**
+    - `local_path` is now persisted on `EventPayload::FrictionReported` (additive `Option<PathBuf>`, `#[serde(default)]`) so the projection's `local_path` reflects reality. Was previously empty `PathBuf::new()` for every entry, which silently disabled "Show in Finder" for every row (`core_friction.rs:200, 393`).
+    - Three undefined CSS tokens fixed: `--color-accent-9` → `--accent-9` / `--accent-11`; `--color-surface` → `--color-surface-overlay`; `--shadow-overlay` → reused `--elevation-modal` via `app-dialog__*` archetype. Was rendering modal cards transparent in dark mode and hiding the "open" state cue (`app.css`).
+    - `AddressFrictionDialog` now uses the shared `app-dialog__*` chrome + `useFocusTrap` hook (extracted to `lib/modal.ts`) + `aria-modal="true"` + return-focus on close. Was a hand-rolled scrim/card with no focus trap (`SettingsPage.tsx:760-877`).
+    - Reopen affordance now shows on `addressed` rows too (was gated `state === "resolved"` only). UPDATE PR action shows on `addressed` rows so the user can change the recorded PR url without losing state.
+    - "Open file" renamed to "Show in Finder" — matches the underlying `reveal_in_finder` Tauri command (`open -R <path>` selects the markdown record in Finder). Spec's "shell.open(parent_dir)" was a v2 hand-wave; reveal-in-Finder is the craftier UX.
+    - Filter chips replaced with `SegmentedToggle` — drops the wrong `role="tablist"` markup (no `tabpanel`), the broken pill styles, and ~30 lines of duplicated CSS.
+    - Row structure rebuilt: row is a `<li>` with `__toggle` button + `__actions` sibling row, not a `<button>` containing other `<button>` elements (invalid HTML). `aria-controls` wires the toggle to its detail block.
+    - Default-filter dead-state fix: when the user lands on the default `Open` filter with zero open items but history exists in addressed/resolved, the page auto-falls-through to `All`. One-shot, only on initial load.
+  - **P1 fixes:**
+    - `revealInFinder` now has a clipboard fallback both in the Tauri client and the mock client — was no-op in the web/dev runtime.
+    - `useFocusTrap` hook extracted to `lib/modal.ts` (Esc + Tab cycle + return-focus). Three modals now share it; `RepoLinkModal` and `CreateProjectModal` could fold onto it next.
+    - Backend dropped `locate_friction` (full event-log scan per click) — `cmd_address_friction` / `cmd_resolve_friction` / `cmd_reopen_friction` now accept `workspace_id` directly (FE has it on `FrictionEntry`). At 100k events this dropped click latency from O(N) deserialize to O(1) append.
+    - FE applies state transitions optimistically via `setEntries(...)` before the IPC call, so click → row state updates instantly. Removed the `refresh()` re-fetch path.
+    - Backend `report_friction` cleans up the on-disk record + screenshot if `store.append` fails — orphan markdown is now bounded.
+    - `ensure_friction_gitignore` is race-safe via a process-global mutex on the gitignore path — two concurrent `link_repo` calls can't both observe "needle missing" and both append a duplicate line.
+    - PR URL chip in the row meta now shows `owner/repo#123` (parsed from URL via `shortPrLabel`) instead of the literal "PR linked".
+    - PR URL validation in the dialog: regex check against `^https?://[^\s]+$`; invalid-shape URLs render an inline `role="alert"` error.
+    - `messageFromError` now wraps IPC errors in the dialog (was swallowing failures).
+    - Single source-of-truth `FILTERS` table drives the SegmentedToggle options and the empty-state copy lookup (was repeated four times).
+    - `FrictionRow` callback sprawl collapsed to a single `onAction(action: RowAction)` dispatch.
+    - Backend `report_friction` rewrite: markdown rendered on the async runtime, `spawn_blocking` only carries the I/O. Five `*_for_blocking` clones collapsed to a single `WriteArgs` struct.
+    - Submit toast in `FrictionWidget` now has an inline "Review" button that opens Settings → Activity → Friction directly. No more hunt-and-peck.
+- backend: 1 file added (`WriteArgs` struct + `write_record_to_disk`); `locate_friction` removed (-50 LOC); state-machine validation tests removed (FE is the gating authority); `cargo fmt`/`clippy`/`test --workspace` clean (84 designer-desktop tests, was 86 before locate_friction removal).
+- frontend: `lib/modal.ts` gains `useFocusTrap`. `IpcClient` gains a clipboard fallback in `revealInFinder`. `IpcClient.{resolve,reopen}Friction` now accept `FrictionTransitionRequest` (carries `workspace_id`).
+- deviations: state-machine validation moved from backend to FE (server trusts the client to gate buttons by `entry.state`). Acceptable for a single-user local app where the cost of validation (full event-log scan per click) outweighs the defense.
+- feedback: pending (PR awaiting user dogfood signal)
