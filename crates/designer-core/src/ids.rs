@@ -77,6 +77,10 @@ id_type!(ArtifactId, "art");
 // `FrictionFileFailed` / `FrictionResolved` so the triage view can project
 // status by `friction_id` without re-reading the markdown record.
 id_type!(FrictionId, "frc");
+// Phase 21.A1 — finding identifier. Used by `EventPayload::FindingRecorded`
+// and `FindingSignaled`; the learning-layer crate (`designer-learn`)
+// re-exports it via `Finding`'s `id` field.
+id_type!(FindingId, "fnd");
 
 /// A stream is the logical append-only log for a given aggregate. Every event
 /// belongs to exactly one stream; streams are replayed to build projections.

@@ -9,6 +9,7 @@ members = [
     "crates/designer-safety",
     "crates/designer-sync",
     "crates/designer-ipc",
+    "crates/designer-learn",
     "crates/designer-cli",
     "apps/desktop/src-tauri",
 ]
@@ -31,6 +32,7 @@ designer-audit = { path = "crates/designer-audit" }
 designer-safety = { path = "crates/designer-safety" }
 designer-sync = { path = "crates/designer-sync" }
 designer-ipc = { path = "crates/designer-ipc" }
+designer-learn = { path = "crates/designer-learn" }
 
 # Async / runtime
 tokio = { version = "1", features = ["full"] }

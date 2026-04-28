@@ -243,6 +243,31 @@ export interface FrictionEntry {
   local_path: string;
 }
 
+// ---- Learning layer (Phase 21.A1) ----
+export type FindingId = string;
+export type Severity = "info" | "notice" | "warn";
+export type ThumbSignal = "up" | "down";
+
+export interface FindingDto {
+  id: FindingId;
+  detector_name: string;
+  detector_version: number;
+  project_id: ProjectId;
+  workspace_id?: WorkspaceId;
+  timestamp: string;
+  severity: Severity;
+  confidence: number;
+  summary: string;
+  evidence: Anchor[];
+  suggested_action?: unknown;
+  window_digest: string;
+}
+
+export interface SignalFindingRequest {
+  finding_id: FindingId;
+  signal: ThumbSignal;
+}
+
 export type AttentionTier = "inline" | "ambient" | "notify" | "digest";
 
 // Phase 13.G safety surfaces — re-exported from `./client` for convenience

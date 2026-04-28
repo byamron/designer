@@ -66,6 +66,8 @@ function makeClient() {
     listFriction: () => Promise.resolve([]),
     resolveFriction: () => Promise.resolve(),
     retryFileFriction: () => Promise.resolve(),
+    listFindings: () => Promise.resolve([]),
+    signalFinding: () => Promise.resolve(),
   });
   const project = core.listProjects()[0];
   const workspace = core.listWorkspaces(project.project.id)[0];

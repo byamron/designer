@@ -58,6 +58,8 @@ function makeClient() {
     listFriction: () => Promise.resolve([]),
     resolveFriction: () => Promise.resolve(),
     retryFileFriction: () => Promise.resolve(),
+    listFindings: () => Promise.resolve([]),
+    signalFinding: () => Promise.resolve(),
   });
 }
 

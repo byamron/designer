@@ -67,6 +67,8 @@ function makeStubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     getKeychainStatus: notImpl("getKeychainStatus"),
     getCostChipPreference: notImpl("getCostChipPreference"),
     setCostChipPreference: notImpl("setCostChipPreference"),
+    listFindings: notImpl("listFindings"),
+    signalFinding: notImpl("signalFinding"),
     ...overrides,
   };
   return stub as IpcClient;

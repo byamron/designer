@@ -4,6 +4,7 @@ import { closeDialog, useAppState } from "../store/app";
 import { useDataState } from "../store/data";
 import { SegmentedToggle } from "../components/SegmentedToggle";
 import { RepoLinkModal } from "../components/RepoLinkModal";
+import { DesignerNoticedPage } from "../components/DesignerNoticed";
 import { emptyArray } from "../util/empty";
 import type { Workspace, WorkspaceSummary } from "../ipc/types";
 import {
@@ -31,7 +32,7 @@ type SettingsSection =
   | "account"
   | "models"
   | "preferences"
-  | "activity-friction";
+  | "activity";
 
 const SECTIONS: { id: SettingsSection; label: string; description: string }[] = [
   {
@@ -55,12 +56,11 @@ const SECTIONS: { id: SettingsSection; label: string; description: string }[] = 
     description: "Autonomy, notifications, and keybindings.",
   },
   {
-    // Track 13.K — locks the Activity IA section. 21.A1 will land
-    // "Designer noticed" as a sibling here. Don't reshuffle without
-    // updating both specs + pattern-log.md.
-    id: "activity-friction",
-    label: "Activity · Friction",
-    description: "Captured friction reports and their triage state.",
+    // Locked by Track 13.K + Phase 21.A1 specs (`roadmap.md` §"Settings IA").
+    // Two sub-pages: Friction (13.K) and Designer noticed (21.A1).
+    id: "activity",
+    label: "Activity",
+    description: "Friction reports and what Designer noticed.",
   },
 ];
 
@@ -114,7 +114,7 @@ export function SettingsPage() {
             {active === "account" && <AccountSection />}
             {active === "models" && <ModelsSection />}
             {active === "preferences" && <PreferencesSection />}
-            {active === "activity-friction" && <FrictionTriageSection />}
+            {active === "activity" && <ActivitySection />}
           </div>
         </main>
       </div>
@@ -381,6 +381,45 @@ function ThemePicker() {
         { value: "dark", label: "Dark", tooltip: "Force dark mode" },
       ]}
     />
+  );
+}
+
+/**
+ * Activity section — hosts Friction (Track 13.K) and "Designer noticed"
+ * (Phase 21.A1). Settings IA is locked here per `roadmap.md` §"Settings
+ * IA (locked)" — both feature owners share this section.
+ */
+function ActivitySection() {
+  const activeProjectId = useAppState((s) => s.activeProject);
+  const [tab, setTab] = useState<"noticed" | "friction">("friction");
+  return (
+    <>
+      <SettingsSectionHeader
+        label="Activity"
+        description="Capture friction as you work and review what Designer's been noticing across this project."
+      />
+      <div className="activity-section__tabs">
+        <SegmentedToggle<"noticed" | "friction">
+          ariaLabel="Activity sub-page"
+          value={tab}
+          onChange={setTab}
+          options={[
+            {
+              value: "friction",
+              label: "Friction",
+              tooltip: "Captured friction reports and triage state",
+            },
+            {
+              value: "noticed",
+              label: "Designer noticed",
+              tooltip: "Findings from the learning layer",
+            },
+          ]}
+        />
+      </div>
+      {tab === "friction" && <FrictionTriageSection />}
+      {tab === "noticed" && <DesignerNoticedPage projectId={activeProjectId} />}
+    </>
   );
 }
 

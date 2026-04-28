@@ -1,0 +1,33 @@
+[package]
+name = "designer-learn"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# Phase B (Phase 21.B) wires `designer-local-models::LocalOps` into detectors
+# for semantic synthesis. Phase A (this crate's initial landing) does not
+# need it; the dep is feature-gated so Phase A consumers (the desktop core
+# at boot, integration tests) don't pull the helper crate when they don't
+# use it.
+default = []
+local-ops = ["dep:designer-local-models"]
+
+[dependencies]
+designer-core.workspace = true
+designer-local-models = { workspace = true, optional = true }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+time.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "test-util"] }
+tempfile.workspace = true

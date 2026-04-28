@@ -25,6 +25,7 @@ designer-audit.workspace = true
 designer-local-models.workspace = true
 designer-sync.workspace = true
 designer-ipc.workspace = true
+designer-learn.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog.workspace = true
 tokio.workspace = true
