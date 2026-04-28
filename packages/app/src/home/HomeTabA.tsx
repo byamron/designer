@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import type { Autonomy, Project, WorkspaceSummary } from "../ipc/types";
 import {
+  markNoticedViewed,
   selectWorkspace,
   selectTab,
   setAutonomyOverride,
@@ -12,6 +14,7 @@ import { humanizeKind } from "../util/humanize";
 import { TabLayout } from "../layout/TabLayout";
 import { SegmentedToggle } from "../components/SegmentedToggle";
 import { WorkspaceStatusIcon } from "../components/WorkspaceStatusIcon";
+import { DesignerNoticedHome } from "../components/DesignerNoticed";
 
 /**
  * Home — project dashboard (the committed variant; Palette lives on for
@@ -27,6 +30,15 @@ export function HomeTabA({ project }: { project: Project }) {
   const workspaces = useDataState((s) => s.workspaces);
   const autonomyOverride = useAppState((s) => s.autonomyOverrides[project.id]);
   const autonomy: Autonomy = autonomyOverride ?? project.autonomy ?? "suggest";
+
+  // Phase 21.A1.1 — opening the home tab is the "I'm caught up"
+  // signal for the Designer noticed unread badge. Fire once per
+  // mount + project switch; the badge represents what's new since
+  // the user last looked, not a real-time count while they sit on
+  // this tab. New findings stream into the section directly.
+  useEffect(() => {
+    markNoticedViewed();
+  }, [project.id]);
 
   const projectWorkspaces: WorkspaceSummary[] =
     workspaces[project.id] ?? emptyArray();
@@ -142,6 +154,8 @@ export function HomeTabA({ project }: { project: Project }) {
             ]}
           />
         </Section>
+
+        <DesignerNoticedHome projectId={project.id} />
       </div>
     </TabLayout>
   );

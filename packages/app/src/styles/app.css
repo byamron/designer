@@ -4051,6 +4051,63 @@ kbd {
   color: var(--accent-11, var(--color-foreground));
 }
 
+/* Phase 21.A1.1 — calibrated badge. A small pill that sits in the row
+ * meta line, visually distinct enough to read as "this finding has been
+ * thumbed" at a glance without competing with the severity-tinted left
+ * border. The "👍/👎" glyph carries the polarity; color is reserved for
+ * severity, so the badge palette stays neutral.
+ */
+.designer-noticed__calibrated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  line-height: 1.4;
+}
+
+/* Phase 21.A1.1 — workspace-home placement. The home component reuses
+ * the home-a section chrome; this rule narrows the row gap so the
+ * top-N feed sits flush with the surrounding panels.
+ */
+.designer-noticed-home .designer-noticed__list {
+  margin-top: var(--space-2);
+}
+
+/* Sidebar Home button unread badge for Designer noticed (Phase 21.A1.1).
+ * The home button is `display: grid` with two tracks (icon | label); the
+ * label track stretches to fill `1fr` so the badge can ride at the right
+ * edge via `justify-content: space-between` on the inner flex row.
+ */
+.sidebar-home__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.sidebar-home__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--accent-9);
+  color: var(--accent-contrast);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+
 .activity-section__tabs {
   margin-bottom: var(--space-3);
 }

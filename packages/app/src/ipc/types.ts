@@ -203,6 +203,17 @@ export interface StreamEvent {
   payload?: unknown;
 }
 
+/**
+ * Event-kind string constants. The Rust side serializes
+ * `EventKind` as snake_case via serde; these names mirror that
+ * encoding so consumers can compare without sprinkling magic
+ * strings.
+ */
+export const EVENT_KIND = {
+  FINDING_RECORDED: "finding_recorded",
+  FINDING_SIGNALED: "finding_signaled",
+} as const;
+
 // ---- Friction (Track 13.K) ----
 
 import type { Anchor } from "../lib/anchor";
@@ -248,6 +259,11 @@ export type FindingId = string;
 export type Severity = "info" | "notice" | "warn";
 export type ThumbSignal = "up" | "down";
 
+export interface FindingCalibration {
+  signal: ThumbSignal;
+  timestamp: string;
+}
+
 export interface FindingDto {
   id: FindingId;
   detector_name: string;
@@ -261,6 +277,9 @@ export interface FindingDto {
   evidence: Anchor[];
   suggested_action?: unknown;
   window_digest: string;
+  /** Phase 21.A1.1 — present when the user has thumbed this finding;
+   *  the row renders a `calibrated 👍/👎` badge. */
+  calibration?: FindingCalibration | null;
 }
 
 export interface SignalFindingRequest {

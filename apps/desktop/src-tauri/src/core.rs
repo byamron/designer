@@ -295,6 +295,13 @@ pub struct AppCore {
     /// `core_friction::set_gh_runner_for_tests` so `cargo test` doesn't
     /// require a logged-in `gh` on the runner.
     pub(crate) gh_runner_override: crate::core_friction::GhRunnerSlot,
+    /// Phase 21.A1.1 — per-detector counter of `FindingRecorded` events
+    /// emitted in the current process lifetime. Reset on restart;
+    /// `core_learn::report_finding` enforces
+    /// [`designer_learn::DetectorConfig::max_findings_per_session`]
+    /// against this map so a runaway detector cannot flood the
+    /// workspace-home feed.
+    pub(crate) finding_session_counts: parking_lot::Mutex<std::collections::HashMap<String, u32>>,
 }
 
 #[async_trait]
@@ -393,6 +400,7 @@ impl AppCore {
             helper_events,
             summary_debounce: Arc::new(SummaryDebounce::new()),
             gh_runner_override: parking_lot::Mutex::new(None),
+            finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
         });
         spawn_cost_subscriber(Arc::downgrade(&core), signal_rx);
         core.spawn_projector_task();

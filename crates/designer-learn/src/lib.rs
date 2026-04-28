@@ -66,6 +66,24 @@ pub struct DetectorConfig {
     /// detector's built-in pick.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub impact_override: Option<Severity>,
+    /// Maximum number of findings this detector may emit during a
+    /// single Designer process lifetime. Enforced by
+    /// `core_learn::report_finding`; once the cap is hit the call
+    /// returns `Err(LearnError::SessionCapReached)`. Default is
+    /// [`DEFAULT_MAX_FINDINGS_PER_SESSION`] (5) — generous enough that
+    /// a healthy detector seldom hits it, tight enough that a runaway
+    /// detector can't flood the live feed before the user notices.
+    #[serde(default = "default_max_findings_per_session")]
+    pub max_findings_per_session: u32,
+}
+
+/// Default cap for `DetectorConfig::max_findings_per_session`. Picked
+/// to match the workspace-home top-N width: a single detector cannot
+/// monopolize the surface in one session.
+pub const DEFAULT_MAX_FINDINGS_PER_SESSION: u32 = 5;
+
+fn default_max_findings_per_session() -> u32 {
+    DEFAULT_MAX_FINDINGS_PER_SESSION
 }
 
 impl Default for DetectorConfig {
@@ -78,6 +96,7 @@ impl Default for DetectorConfig {
             min_occurrences: 3,
             min_sessions: 2,
             impact_override: None,
+            max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
         }
     }
 }
@@ -90,6 +109,7 @@ impl DetectorConfig {
         min_occurrences: u32::MAX,
         min_sessions: u32::MAX,
         impact_override: None,
+        max_findings_per_session: 0,
     };
 }
 
