@@ -10,44 +10,18 @@
  */
 
 :root {
-  /* Five-slider surface architecture (SurfaceDevPanel).
-   *
-   *   --dev-surface-sand     → --color-background (sidebars, spine,
-   *     space-behind-tabs). Mix between sand-1 (brighter) and sand-3
-   *     (sandier). 80% default = a clearly sand parent that lets the
-   *     near-white main tab read as the figure.
-   *   --dev-main-tab-sand    → --color-content-surface (floating main
-   *     tab container). 5% default = a hair off pure white so the
-   *     surface picks up just enough warmth to feel of-a-piece with
-   *     the sand parent.
-   *   --dev-compose-mix      → .compose fill. 0% = same as main-tab,
-   *     100% = parent surface. 24% default sets the compose just
-   *     visibly warmer than the main-tab fill.
-   *   --dev-tab-opacity      → unselected-tab fill (and border) alpha.
-   *     Active tab is always 100%; only unselected tabs use this. 90%
-   *     default keeps inactive tabs muted but visible against sand.
-   *   --dev-border-strength  → main-tab + selected-tab + unselected-tab
-   *     border alpha. 100% default. Unselected tab border is
-   *     additionally modulated by --dev-tab-opacity (intensity ×
-   *     tab-opacity), so when tabs fade the borders fade with them. */
-  --dev-surface-sand: 80%;
-  --dev-main-tab-sand: 5%;
-  --dev-compose-mix: 20%;
-  --dev-tab-opacity: 70%;
-  --dev-border-strength: 10%;
-  --dev-shadow-intensity: 50%;
-  /* Tab corner radii — top and bottom can decouple for the "folder"
-   * variant (top rounder than bottom). Symmetric variants keep them
-   * equal. Default register: 6px (tight tool register; tabs read as
-   * crisp chips against the softer 18px main tab container). */
-  --dev-tab-radius-top: 6px;
-  --dev-tab-radius-bottom: 6px;
-  /* Main tab container + compose corner radii — independent sliders.
-   * Defaults: 18 outer / 6 inner with --surface-inner-pad = 12px,
-   * keeping the concentric math (18 − 12 = 6) intact at the new
-   * tighter register. */
-  --dev-main-tab-radius: 18px;
-  --dev-compose-radius: 6px;
+  /* Surface-register dev defaults (SurfaceDevPanel) live in
+   * packages/ui/styles/tokens.css now (axiom #17 + #19). The role
+   * layer below derives from those tokens; the panel writes runtime
+   * overrides on :root at dev time. Six knobs plus four radius sliders:
+   *   --dev-surface-sand    → --color-background warmth (sand-1 ↔ sand-3)
+   *   --dev-main-tab-sand   → --color-content-surface warmth
+   *   --dev-compose-mix     → .compose fill (parent ↔ main-tab)
+   *   --dev-tab-opacity     → unselected-tab fill + border alpha
+   *   --dev-border-strength → main + selected tab border alpha
+   *   --dev-shadow-intensity → drop-shadow opacity (axiom #19)
+   * Unselected tab border = strength × tab-opacity, so border fades
+   * with fill. */
 
   /* Border colors derived from the strength + tab-opacity sliders. The
    * main surface and the active tab share `--surface-border-color` so
@@ -115,28 +89,7 @@
    *   --surface-gutter, lets us hit 6px without introducing a bespoke
    *   token for a single caller. */
   --surface-tab-gap: calc(var(--space-2) * 1.5);
-  /* Shadow on the main tab container + the selected tab — the only two
-   * surfaces that read as "raised". Two layers for a modern, diffuse
-   * feel rather than a single bottom-heavy drop:
-   *   1. A sharp 3px definition layer right below the element.
-   *   2. A soft 16px ambient layer pulled inward (-2px spread) so it
-   *      doesn't bleed past the corners.
-   * Both layers scale proportionally with --dev-shadow-intensity, so
-   * the slider goes from flat (0%) to the full diffuse shadow (100%)
-   * without changing shape — only opacity. */
-  --surface-shadow:
-    0 1px 3px 0
-      color-mix(
-        in srgb,
-        black calc(2% * var(--dev-shadow-intensity) / 100%),
-        transparent
-      ),
-    0 6px 16px -2px
-      color-mix(
-        in srgb,
-        black calc(6% * var(--dev-shadow-intensity) / 100%),
-        transparent
-      );
+  /* --surface-shadow lives in tokens.css (axiom #19). */
   --surface-text-pad: var(--space-5);
   /* 12 px gap between the compose box and the main tab container border.
    * Sits at the same 1.5× space-3 step as --surface-gutter, so the
@@ -3699,13 +3652,13 @@ kbd {
 }
 
 .friction-overlay--snapped {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: var(--border-strong) solid var(--color-accent);
+  outline-offset: var(--focus-outline-offset);
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
 }
 
 .friction-overlay--atom {
-  outline: 1px dashed color-mix(in srgb, var(--color-accent) 60%, transparent);
+  outline: var(--border-thin) dashed color-mix(in srgb, var(--color-accent) 60%, transparent);
 }
 
 .friction-overlay__tooltip {
@@ -3714,14 +3667,14 @@ kbd {
   pointer-events: none;
   display: inline-flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
   background: var(--color-surface-overlay);
   color: var(--color-foreground);
   border: var(--border-thin) solid var(--color-border);
   border-radius: var(--radius-button);
   font-size: var(--type-caption-size);
-  max-width: 320px;
+  max-width: var(--width-tooltip-max);
   box-shadow: var(--elevation-raised);
 }
 
@@ -3741,7 +3694,7 @@ kbd {
 .friction-widget {
   position: fixed;
   z-index: var(--layer-overlay);
-  width: 360px;
+  width: var(--width-popover-md);
   background: var(--color-surface-overlay);
   border: var(--border-thin) solid var(--color-border);
   border-radius: var(--radius-card);
@@ -3836,7 +3789,7 @@ kbd {
   border-radius: var(--radius-button);
   overflow: hidden;
   border: var(--border-thin) solid var(--color-border);
-  max-height: 96px;
+  max-height: var(--size-thumb-md);
 }
 
 .friction-widget__shot-preview img {
@@ -3874,7 +3827,7 @@ kbd {
   color: var(--color-muted);
   font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
-  padding: 2px var(--space-1);
+  padding: var(--space-1);
   border-radius: var(--radius-pill);
 }
 
@@ -3975,7 +3928,7 @@ kbd {
   gap: var(--space-4);
   padding: var(--space-3) var(--space-3);
   border-bottom: var(--border-thin) solid var(--color-border);
-  border-left: 2px solid var(--color-border);
+  border-left: var(--border-strong) solid var(--color-border);
 }
 
 .designer-noticed__row:last-child {
@@ -4042,7 +3995,7 @@ kbd {
 
 .designer-noticed__signal:focus-visible {
   outline: var(--focus-ring);
-  outline-offset: 2px;
+  outline-offset: var(--focus-outline-offset);
 }
 
 .designer-noticed__signal[data-active="true"] {
@@ -4063,7 +4016,7 @@ kbd {
   gap: var(--space-1);
   padding: 0 var(--space-2);
   border: var(--border-thin) solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface);
   color: var(--color-foreground);
   font-family: var(--type-family-sans);
@@ -4096,10 +4049,10 @@ kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
+  min-width: var(--size-badge);
+  height: var(--size-badge);
   padding: 0 var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-9);
   color: var(--accent-contrast);
   font-family: var(--type-family-mono);
