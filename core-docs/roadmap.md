@@ -853,6 +853,95 @@ The user can `⌘⇧F`, hover any UI element (with snap to component), paste a s
 
 ---
 
+### Track 13.L — Friction local-first + master-list workflow *(post-13.K storage/triage rework; ~1 day, one agent; Lane 1.5 Wave 1)*
+
+**Why:** the four-perspective review of PR #34 surfaced two real product issues. (1) "Secret gist" is misleading privacy — anyone with the URL can read; not what a solo dogfood user wants for screenshot content. (2) The triage view doesn't track *addressed* state, which mirrors exactly the Agentation pain point the user called out (comments stored locally per dev server, no cross-off, no PR linkage). 13.L drops the GitHub round-trip and rebuilds the triage as a master list with state.
+
+#### Changes
+
+**Backend (`apps/desktop/src-tauri/src/core_friction.rs` + IPC)**
+- Drop the `gh gist create --secret` + `gh issue create` filer. Remove `GhRunner` trait, `GhRunnerSlot`, the `tokio::spawn` background task in `submit_friction`, and the `set_gh_runner_for_tests` cfg-test hook. Net deletion (~250 LOC).
+- Drop `IpcError::ExternalToolFailed` (no remaining producer).
+- Friction records persist to `<repo_root>/.designer/friction/<id>.md` with screenshot sidecar at `<repo_root>/.designer/friction/<id>.png` (still content-addressed by sha256). Fall back to `~/.designer/friction/` when no repo is linked.
+- `cmd_link_repo` writes `.designer/friction/` into the project's `.gitignore` on first link unless the user opts in to commit (a per-project setting; default = gitignored).
+- Repurpose `EventPayload::FrictionLinked { friction_id, github_issue_url }` → `EventPayload::FrictionAddressed { friction_id, pr_url: Option<String> }`. **This is the only non-additive change in 13.L** — bump `EventEnvelope.version` from 1 to 2 and add a one-paragraph addendum to ADR 0002. Old records continue to decode via the legacy variant; new records use the new shape.
+- Add `EventPayload::FrictionReopened { friction_id }` (additive; no version bump beyond the one above) so resolved entries can come back to the open list.
+- `EventPayload::FrictionFileFailed` stays in the vocabulary but loses its producer; mark `#[deprecated(note = "removed in 13.L; reserved for future external-filing path")]`.
+
+**IPC (`crates/designer-ipc/src/lib.rs` + `apps/desktop/src-tauri/src/commands_friction.rs`)**
+- New `cmd_address_friction(friction_id, pr_url: Option<String>) -> ()` emits `FrictionAddressed`.
+- New `cmd_reopen_friction(friction_id) -> ()` emits `FrictionReopened`.
+- Existing `cmd_resolve_friction` and `cmd_list_friction` unchanged.
+- Drop `cmd_retry_file_friction` (no filer to retry).
+- Keep `tauri::generate_handler![...]` registrations alphabetical.
+
+**Frontend (`packages/app/src/layout/SettingsPage.tsx` Friction triage — the `FrictionTriageSection` block)**
+- Replace the chronological list with a filterable master list. Filter chips: `Open` (default) / `Addressed` / `Resolved` / `All`.
+- Each row: synthesized title, state pill (`open` / `addressed` / `resolved`), anchor descriptor, created-at, optional PR link chip, expand-on-click for body + screenshot thumbnail + full anchor. Row actions:
+  - **Open file** — `shell.open(parent_dir)` (Tauri shell capability) on the markdown record's parent directory. Full reveal-in-Finder is a v2.
+  - **Mark addressed** — modal prompts for optional PR URL. If the linked repo has open PRs (cheap probe via `gh pr list --json url,title --limit 20`), autocomplete from that list. Emits `FrictionAddressed`.
+  - **Mark resolved** — emits `FrictionResolved`.
+  - **Reopen** — emits `FrictionReopened` (only on resolved entries).
+- Sort: most-recent-first within each filter.
+
+#### Tests
+- `cmd_address_friction` round-trips `pr_url` through the event store and the projection.
+- State machine: `FrictionReported` → `open`; `+FrictionAddressed` → `addressed`; `+FrictionResolved` → `resolved`; `+FrictionReopened` → `open`.
+- Old `FrictionLinked` records (version 1) continue to decode and project as `addressed` with `pr_url: None` (migration semantics).
+- `<repo>/.designer/friction/<id>.md` lands at the right path when a workspace is linked; falls back to `~/.designer/friction/` when no link is present.
+- `.gitignore` write is idempotent and skipped if `.designer/friction/` is already listed.
+
+#### Done when
+The user can: ⌘⇧F → submit a friction note → see it in the master list as Open → click *Mark addressed* and optionally paste a PR URL → see it filtered out of the default view → toggle to *Addressed* and find it → click *Mark resolved* once the PR merges. No GitHub round-trip; no `gh` dependency. Records are local-first and survive across machines via the repo (when committed) or stay private (when gitignored). Old records from 13.K continue to render correctly.
+
+---
+
+### Track 13.M — Friction trivial-by-default UX *(post-13.L UX rewrite; ~1.5 days, one agent; Lane 1.5 Wave 2; depends on 13.L)*
+
+**Why:** the four-perspective review found that 13.K's mid-flight selection mode adds cognitive load before the user has typed a single character. For a solo dogfood user, the most common case is "the thing I'm looking at right now is bad" — they don't need to anchor, they need a fast capture. 13.M makes "type a sentence" the default path; selection mode demotes to opt-in. Folds in the deferred 13.K v2 items (auto-capture + stream-subscribed toast).
+
+#### Changes
+
+**Default flow (no selection mode by default)**
+- ⌘⇧F → composer mounts bottom-right anchored to FrictionButton. Body textarea auto-focused on mount. Selection-mode banner does NOT appear in this flow.
+- Submit enabled when body has any non-whitespace content (screenshot is optional). ⌘↵ submits; ESC dismisses.
+- Inside the composer:
+  - **⌘⇧S** captures the current viewport via Tauri's `webview.capture()` API. To avoid the composer appearing in its own screenshot, hide the composer for one frame (CSS `visibility: hidden`), capture, restore. Picks the simplest path that ships.
+  - Paste, drag-and-drop, file-picker remain as alternate screenshot inputs.
+  - **⌘.** toggles into selection mode (opt-in path below).
+- Persistent key-hint footer in the composer: `⌘↵ submit · ⌘⇧S screenshot · ⌘. anchor · ESC dismiss`. Always visible; no discoverability hide-and-seek.
+
+**Opt-in anchor mode**
+- A small "📍 anchor to element" button in the composer header AND the ⌘. shortcut both enter selection mode. The composer hides while selection is active; on click, selection captures the anchor + restores the composer with the anchor descriptor as a chip ("ProjectStrip · Plan tab" with × to clear).
+- Selection-mode banner (kept; only renders in opt-in path) gains a persistent legend: `Click element to anchor · Alt: anchor exact child · ESC to cancel`. Alt-overrides-snap is now discoverable, not buried in a hint.
+- **Drop the 600ms outside-click grace entirely.** Replace with a 50ms click-outside suppression after the selection mode mounts (just enough to swallow the click that triggered arming). After 50ms, click-outside-exits-immediately. No silent ambiguity.
+
+**FrictionButton glyph state**
+- Always-on, but no longer the primary trigger. Visually demoted: smaller footprint, lower-contrast hover state. ⌘⇧F is the primary trigger going forward.
+
+**Stream-subscribed "Filed as #N" toast** *(folded in from 13.K v2 follow-ups)*
+- After submit, the toast subscribes to the workspace event stream and updates from "Filed locally" → confirmed-with-id once `FrictionReported` lands in the projection (within ~50ms typically). Removes the "did it actually save?" ambiguity from the local-only path.
+
+#### Files touched
+- `packages/app/src/components/Friction/FrictionButton.tsx` — visual demotion; still toggles via ⌘⇧F.
+- `packages/app/src/components/Friction/FrictionWidget.tsx` — composer becomes the default surface; `webview.capture()` integration; key-hint footer; anchor chip; stream-subscribed toast.
+- `packages/app/src/components/Friction/SelectionOverlay.tsx` — only mounts in opt-in path; persistent legend; 50ms suppression replaces 600ms grace.
+- `packages/app/src/store/app.ts` — `frictionMode: "off" | "composing" | "selecting"` (was `"off" | "selecting" | "editing"`); ⌘. binding scoped to composer.
+- `apps/desktop/src-tauri/Cargo.toml` + `tauri.conf.json` — enable webview-capture capability if not already.
+- `apps/desktop/src-tauri/src/commands_friction.rs` — `cmd_capture_viewport() -> Vec<u8>` returning PNG bytes (per Tauri v2's capture API).
+
+#### Tests
+- Default flow opens composer focused on body; ⌘↵ submits with body alone (no anchor required, no screenshot required).
+- ⌘. toggles into selection mode and back; anchor chip renders and clears via ×.
+- 50ms suppression window: synthetic click-outside fired at t=20ms is ignored; at t=80ms it exits.
+- Capture flow: composer hidden for one frame; restored after capture; screenshot bytes round-trip into `FrictionReported`.
+- Stream-subscribed toast: emit a fake `FrictionReported` post-submit; assert the toast text updates from "Filed locally" → "Filed as #N".
+
+#### Done when
+The user can hit ⌘⇧F, type a sentence, hit ⌘↵, and have a friction record persisted in <2s with zero DOM-walking. The 📍 button or ⌘. exposes the existing anchor flow as opt-in. No silent grace period; instructions are visible at all times. The toast confirms the persisted ID rather than implying it.
+
+---
+
 ## Phase 14 — Sync transport *(parallel with Phase 13 or 15)* (gap G10)
 
 **Goal:** take the event stream peer-to-peer without a server.
@@ -1167,7 +1256,8 @@ FindingSignaled { finding_id: FindingId, signal: ThumbSignal }   // Up | Down �
      - Keyword corpora as static slices (`pub const CORRECTION_KEYWORDS: &[&str] = &["I told you", ...];`)
      - A worked example: `example_detector.rs` with full structure + fixture, that 21.A2 agents copy-rename
    - **Forge co-installation rule**: if `~/.claude/plugins/forge/` exists, detectors with name overlap (`repeated_correction`, `repeated_prompt_opening`, `multi_step_tool_sequence`, `config_gap`, `domain_specific_in_claude_md`, `memory_promotion`) downweight to `enabled: false` by default with a Settings toggle: "Forge is also installed — show overlapping findings? [off]". Designer-unique detectors (`approval_always_granted`, `scope_false_positive`, `cost_hot_streak`, `compaction_pressure`) always run.
-2. **Phase 21.A2 — Detector squad** *(parallel; one agent per detector; each ~half-day)*. Each detector is `crates/designer-learn/src/detectors/<name>.rs` + `tests/fixtures/<name>/`. Recommended order by signal value:
+2. **Phase 21.A1.1 — Workspace-home placement + architectural fixes** *(post-21.A1 polish; ~1 day, one agent; Lane 1.5 Wave 1; lands before 21.A2)*. The four-perspective review of #33 surfaced three issues: (1) "Designer noticed" sits two levels deep but its product value is *catching the user's attention* — placement undermines the proposition; (2) thumbing produces no visible state change so the calibration loop feels broken from the user's seat; (3) no detector budget or write-time dedup means a noisy A2 detector can flood the feed. Land before A2 ships ten detectors on top of these gaps. Detail in §"Phase 21.A1.1" below.
+3. **Phase 21.A2 — Detector squad** *(parallel; one agent per detector; each ~half-day)*. Each detector is `crates/designer-learn/src/detectors/<name>.rs` + `tests/fixtures/<name>/`. Recommended order by signal value:
    - `repeated_correction` (fastest signal — corrections are loud)
    - `approval_always_granted` *(Designer-unique — uses `ApprovalRequested` events)*
    - `scope_false_positive` *(Designer-unique — uses `ScopeDenied` events)*
@@ -1178,7 +1268,7 @@ FindingSignaled { finding_id: FindingId, signal: ThumbSignal }   // Up | Down �
    - `compaction_pressure` *(Designer-unique)*
    - `domain_specific_in_claude_md`
    - `memory_promotion`
-3. **Phase 21.A3 — Cross-project aggregation** *(after A1 + ≥3 detectors, 1 agent)*. Forge's Phase 5 work — meta-findings when N projects show the same detector firing.
+4. **Phase 21.A3 — Cross-project aggregation** *(after A1 + ≥3 detectors, 1 agent)*. Forge's Phase 5 work — meta-findings when N projects show the same detector firing.
 
 **Out of scope for 21.A** (deferred to Phase 21 proper):
 - Phase B LocalOps synthesis + quality gate (needs the Foundation helper's real-binary validation)
@@ -1187,6 +1277,51 @@ FindingSignaled { finding_id: FindingId, signal: ThumbSignal }   // Up | Down �
 - File-write side: turning accepted proposals into actual `CLAUDE.md` / rule / skill edits
 
 **Done when:** all ten Phase A detectors ship, the Settings → Activity → "Designer noticed" page renders findings, thumbs-up/down emits calibration events, and at least one Designer-unique detector (recommended: `approval_always_granted`) has fired against the user's real session data.
+
+### Phase 21.A1.1 — Workspace-home placement + architectural fixes *(post-21.A1 polish; ~1 day, one agent; Lane 1.5 Wave 1; lands before 21.A2)*
+
+**Why:** the four-perspective review of PR #33 surfaced three gaps in 21.A1's landing. Land them before A2 ships ten detectors on top.
+
+#### Changes
+
+**Workspace-home placement**
+- New "Designer noticed" section at the bottom of the workspace home tab. Renders the top 5–10 findings for the current workspace, severity-sorted (`Warning` > `Notice` > `Info`), then most-recent-first within severity. Empty state: "Nothing noticed yet — keep working and Designer will surface patterns it sees."
+- Each row: severity dot, summary, detector name, confidence %, thumbs-up/down buttons, optional `calibrated 👍/👎` badge if already thumbed.
+- The Settings → Activity → Designer noticed sub-tab becomes the *full archive*: all findings across all workspaces, with filters (severity, detector, calibrated/uncalibrated). Home is the live feed; Settings is the historian.
+- Sidebar badge (on the Activity rail icon, or wherever the workspace home tab indicator lives) with unread count where unread = `FindingRecorded` since the last home-view, not yet thumbed. Cleared when the user opens the workspace home or the Settings archive.
+
+**Calibrated badge**
+- Findings with any `FindingSignaled` event in their projection render with a `calibrated 👍` or `calibrated 👎` badge. Subsequent thumbs on the same finding update the timestamp (idempotent at the projection — last write wins per `(FindingId, signal direction)`).
+- The badge is purely visual feedback in 21.A1.1; Phase B is still the consumer that uses signals to retune detector thresholds. The badge closes the user-facing loop ("my thumb did something") without needing the threshold-tuning logic.
+
+**Detector budget + dedup at write time**
+- Extend `DetectorConfig` with `max_findings_per_session: u32` (default 5; configurable per-detector). Enforce in `core_learn::report_finding` — if the count of `FindingRecorded` events in the current session for this detector ≥ cap, return `Err(LearnError::SessionCapReached)` instead of writing. (Session = current Designer process lifetime; reset on restart.)
+- Dedup using the existing `window_digest` field: before writing `FindingRecorded`, scan the open (unresolved) findings projection for the same digest in the current project; if present, no-op the write and log a debug-level message.
+- Both checks are cheap (in-memory projection lookup); no SQL change.
+
+**CONTRIBUTING.md severity guidance (`crates/designer-learn/CONTRIBUTING.md`)**
+- Append a "Severity calibration" section: A2 detectors default to `Severity::Notice`. `Severity::Warning` requires justification in the detector PR (criterion: false-positive rate <5% on the captured fixture suite; A2 reviewer enforces). Designer's noise tolerance is lower than Forge's because the surface is in the cockpit, not a CI log. `Severity::Info` for low-confidence ambient signal.
+
+#### Files touched
+- New: `packages/app/src/components/Workspace/DesignerNoticedHome.tsx` (or wherever the workspace home tab's components live — confirm with the existing layout). Imports the same `DesignerNoticedPage` row component but in a top-N capped variant.
+- `packages/app/src/components/DesignerNoticed/DesignerNoticedPage.tsx` — split the row component into a reusable `<FindingRow />` so home + archive share rendering. Add the calibrated badge.
+- `packages/app/src/store/app.ts` — `noticedUnreadCount` derived from `FindingRecorded` events since `noticedLastViewedAt`; cleared on home/archive view.
+- `apps/desktop/src-tauri/src/core_learn.rs` — `report_finding` enforces session cap + dedup; new `LearnError::SessionCapReached` variant.
+- `crates/designer-learn/src/lib.rs` — extend `DetectorConfig` with `max_findings_per_session` (default 5); document defaults in `defaults.rs`.
+- `crates/designer-learn/CONTRIBUTING.md` — append severity-calibration section.
+
+#### Tests
+- Workspace home renders the top-N findings for the current workspace; empty state copy passes accessibility audit (focus, contrast, no animate-in-tree).
+- Sidebar badge increments on `FindingRecorded` and clears on home/archive view.
+- `report_finding` returns `SessionCapReached` after N writes for the same detector in the same session.
+- `report_finding` no-ops on duplicate `window_digest` within the same project's open findings.
+- `FindingSignaled` projection produces the calibrated badge state; double-thumbing same direction updates timestamp without duplicating events.
+
+#### Done when
+- "Designer noticed" is visible on the workspace home (no Settings detour required for the live feed). Settings remains the full archive.
+- Findings carry a `calibrated` badge after thumbing.
+- A detector cannot flood the feed beyond its session cap; duplicate `window_digest` writes no-op.
+- A2 agents have explicit severity guidance in `CONTRIBUTING.md`.
 
 ### Analysis inputs — what the layer reads
 
