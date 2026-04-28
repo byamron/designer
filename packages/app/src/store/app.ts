@@ -1,5 +1,6 @@
 // App-level state: current project, current workspace, open tab per workspace.
 import { createStore, useStore } from "./index";
+import { dataStore } from "./data";
 import type { Autonomy, ProjectId, TabId, WorkspaceId } from "../ipc/types";
 import type { Anchor } from "../lib/anchor";
 import {
@@ -90,6 +91,18 @@ export interface AppState {
   frictionMode: FrictionMode;
   frictionAnchor: Anchor | null;
   frictionAutoCapture: FrictionAutoCapture | null;
+  /**
+   * Phase 21.A1.1 — Designer noticed unread badge state.
+   *
+   * `noticedLastViewedSeq` is the highest event-stream sequence the
+   * user has seen (set when the workspace home or the Settings
+   * archive is opened). `noticedUnreadCount` is derived in the UI
+   * from `events.filter(e => e.kind === "finding_recorded" &&
+   * e.sequence > noticedLastViewedSeq).length`. Stored as a sequence
+   * cursor (not a timestamp) so the read state survives clock skew
+   * and matches the same monotonic ordering the event store uses.
+   */
+  noticedLastViewedSeq: number;
 }
 
 export const appStore = createStore<AppState>({
@@ -110,6 +123,7 @@ export const appStore = createStore<AppState>({
   frictionMode: "off",
   frictionAnchor: null,
   frictionAutoCapture: null,
+  noticedLastViewedSeq: 0,
 });
 
 export const useAppState = <U,>(selector: (s: AppState) => U) =>
@@ -286,3 +300,22 @@ export const clearFriction = () =>
           frictionAutoCapture: null,
         },
   );
+
+// ---- Phase 21.A1.1 Designer noticed unread badge ------------------------
+
+/**
+ * Mark the noticed feed as viewed. Called when the user opens the
+ * workspace home (mounts `DesignerNoticedHome`) or the Settings
+ * archive. Advances the cursor to the latest known sequence so the
+ * badge clears.
+ */
+export const markNoticedViewed = () => {
+  const events = dataStore.get().events;
+  const max = events.reduce<number>(
+    (acc, e) => (e.sequence > acc ? e.sequence : acc),
+    0,
+  );
+  appStore.set((s) =>
+    s.noticedLastViewedSeq >= max ? s : { ...s, noticedLastViewedSeq: max },
+  );
+};

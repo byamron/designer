@@ -37,6 +37,63 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 21.A1.1 — Designer noticed on workspace home + cap/dedup polish
+**Date:** 2026-04-27
+**Branch:** noticed-home-placement
+**PR:** [#37](https://github.com/byamron/designer/pull/37)
+
+**What was done:**
+
+Lane 1.5 Wave 1 polish to close the four gaps the four-perspective review of PR #33 surfaced. Lands before Phase 21.A2 ships ten detectors on top.
+
+- **Workspace-home placement.** New `DesignerNoticedHome` section at the bottom of the project home tab — top-N (8) severity-sorted live feed (`Warn` > `Notice` > `Info`, then most-recent-first within bucket). Auto-refetches on `finding_recorded` / `finding_signaled` stream events.
+- **Settings → Activity → Designer noticed becomes the *archive*.** Same `SegmentedToggle` layout from 21.A1 — second sibling (Designer noticed) is now framed as the historian for the full list across the project; the live feed lives on home.
+- **Sidebar Home button unread badge.** Derived from `finding_recorded` events with sequence > `noticedLastViewedSeq` cursor; cursor advances on workspace-home mount or archive open. Badge is a quiet pill on the Home button using `--accent-9` / `--accent-contrast` (Mini's monochrome accent — no chromatic fill).
+- **Calibrated badge.** `FindingRow` now renders `👍 calibrated` / `👎 calibrated` pills whenever the finding has a `FindingSignaled` event in projection. New `core_learn::list_signals` projects the System stream into `HashMap<FindingId, (ThumbSignal, Timestamp)>`; `cmd_list_findings` joins it into a new optional `calibration: Option<FindingCalibration>` field on `FindingDto`. Local optimistic state still wins until the next refresh, so the badge appears the instant the user thumbs.
+- **Detector budget + write-time dedup.** `DetectorConfig` gains `max_findings_per_session: u32` (default 5 via the new `DEFAULT_MAX_FINDINGS_PER_SESSION` const). `core_learn::report_finding` now takes `&DetectorConfig` and enforces the cap atomically (reserve-and-refund pattern under one lock acquisition; verified race-free by `report_finding_cap_holds_under_concurrency`). Before writing, scans the project's open findings projection for the same `window_digest` — duplicates silently no-op and refund the cap.
+- **CONTRIBUTING.md severity calibration section.** A2 detectors default to `Notice`; `Warning` requires <5% FP-rate justification on the captured fixture suite.
+- **Code cleanup.** Extracted `useFindings` hook so the workspace-home and Settings archive share the fetch + optimistic-signal logic verbatim. Centralized event-kind magic strings into `EVENT_KIND` const in `ipc/types.ts`. Parallelized `list_findings` + `list_signals` in `cmd_list_findings` via `tokio::try_join`. Added `From<LearnError> for IpcError` to match the per-crate error-wrapping convention.
+
+**Why:**
+
+Three concrete UX gaps the post-21.A1 review surfaced:
+
+1. **Visibility.** Findings buried under `Settings → Activity → sub-tab` meant the user had to remember to look. The workspace home is where the user's attention naturally lands; that's where the live signal belongs.
+2. **Trust loop.** Thumbing a finding gave no persistent confirmation — the optimistic button state was lost on reload. The calibrated badge closes the user-facing loop ("my thumb did something") without needing Phase B's threshold-tuning logic.
+3. **Noise discipline.** Without a per-detector cap, a buggy or over-eager detector in Phase 21.A2 could flood the workspace home in one session before the user notices. The `max_findings_per_session` cap + `window_digest` dedup are cheap floors against that failure mode; both reset on process restart.
+
+**Design decisions:**
+
+- **Top-8 on home, full archive in Settings.** Spec says 5–10; 8 is the largest count that still fits cleanly under the existing home-tab panels at common window widths without scrolling. Backend cap is 5/detector — multiple detectors can fill the home feed, but no single one can dominate.
+- **Severity sort within home, insertion order in archive.** Home is "what should I look at," archive is "what's the history" — different mental models, different sorts.
+- **Badge is monochrome.** Mini's design language axiom #3 forbids chromatic accent; the unread badge uses `--accent-9` (gray-9) and `--accent-contrast` (white). The Mini convention is followed; the badge stays restrained.
+- **Calibrated badge style is a neutral pill.** Color is reserved for severity (the row's left border). The badge uses `--color-border` / `--color-surface` so it reads as "additional info" rather than "another severity dimension."
+- **Cursor stored as event sequence, not timestamp.** Sequences are monotonic per-stream; timestamps are subject to clock skew. The badge's "since you last looked" semantics match the event log's natural ordering.
+
+**Technical decisions:**
+
+- **In-memory session counter on `AppCore`.** Cheaper than an event-sourced counter; resets on restart. Matches the "session = process lifetime" framing in the spec. The race-free reservation pattern (check + bump under one lock acquisition; refund on dedup-no-op or store error) is verified by a concurrent test that spawns N+1 callers against a cap of N and asserts exactly N writes succeed.
+- **`list_signals` is a one-shot projection over the System stream.** Walked top-to-bottom; events arrive in sequence order which is monotonic, so plain `HashMap::insert` already gives last-write-wins without an explicit timestamp comparison. Phase B will move to a dedicated projection when 21.A3's cross-project aggregator lands.
+- **`useFindings` hook over duplicated logic.** The workspace-home and Settings archive share the same fetch, optimistic-signal, and refetch-on-stream-event behavior. One source of truth.
+- **`tokio::try_join!` in `cmd_list_findings`.** The two reads (`list_findings`, `list_signals`) are independent; concurrent fetch saves the second read's latency on every page open.
+- **`EVENT_KIND` const.** Replaces magic-string event-kind comparisons in TS. The Rust side serializes `EventKind` as snake_case via serde; the const mirrors that encoding so a future kind rename surfaces as a TS compile-time gap.
+
+**Tradeoffs discussed:**
+
+- **Reserve-and-refund vs hold-the-lock-across-await.** A sync `parking_lot::Mutex` cannot be held across `.await`; switching to `tokio::Mutex` would add per-call overhead for a counter that's hit at most once per detector per session. Reserve-and-refund keeps the sync mutex and refunds on the no-op / error paths.
+- **Top-N vs the cap as the single source of truth.** Considered fixing home-feed length to the per-detector cap. Rejected — multiple detectors should be able to crowd the feed; the cap is a per-detector floor, the feed length is a per-surface choice.
+
+**Lessons learned:**
+
+- **Multi-perspective review found a race the spec didn't.** The cap enforcement in the first cut had a check-then-bump race that none of the spec text or my own design pass surfaced — the quality-review agent flagged it, and the resulting reservation pattern is now covered by a concurrent test that would have caught the regression at PR time.
+- **CSS layout breakage from a 3rd grid child.** The home button is `display: grid` with two tracks; my first cut placed the badge as a 3rd child, which auto-flowed to a new row. Wrapping label+badge in a flex span fixed it. Worth a `data-component` audit pattern: when adding a child to an existing grid container, check the grid template before assuming `margin-left: auto` will do what you want.
+
+**Verification:**
+
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (10 learn tests pass — adds `report_finding_cap_holds_under_concurrency`, `report_finding_dedupes_on_duplicate_window_digest`, `list_signals_last_write_wins_on_repeat_thumbs`), `npm run typecheck`, `npm run test` (46 tests).
+
+---
+
 ### Phase 21.A1 — Learning layer foundation (rebased post-13.K)
 **Date:** 2026-04-27
 **Branch:** learn-foundation

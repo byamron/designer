@@ -19,30 +19,167 @@
 use crate::core::AppCore;
 use designer_core::{
     Actor, EventPayload, EventStore, Finding, FindingId, ProjectId, Projection, StreamId,
-    StreamOptions, ThumbSignal,
+    StreamOptions, ThumbSignal, Timestamp,
 };
+use designer_learn::DetectorConfig;
+use std::collections::HashMap;
 use std::path::Path;
+use thiserror::Error;
+use tracing::debug;
+
+/// Errors `core_learn::report_finding` can return that aren't a plain
+/// pass-through of [`designer_core::CoreError`].
+///
+/// Phase 21.A1.1 introduces the cap-and-dedup write path; the new
+/// shape is needed so the (eventual) Phase 21.A2 harness can branch on
+/// "we hit the cap, stop calling" vs. "the underlying store failed,
+/// surface it." Dedup is *not* an error variant — duplicates no-op
+/// silently and return `Ok(())`.
+#[derive(Debug, Error)]
+pub enum LearnError {
+    /// The detector has already emitted
+    /// `DetectorConfig::max_findings_per_session` findings during this
+    /// Designer process lifetime. Detector authors should treat this as
+    /// "stop emitting; the user has enough signal already" and let the
+    /// next process-restart reset the count.
+    #[error("session cap reached for detector {detector}")]
+    SessionCapReached {
+        /// The detector name whose cap was hit; matches
+        /// [`Finding::detector_name`].
+        detector: String,
+    },
+
+    /// Pass-through for the underlying event-store / projection error.
+    #[error(transparent)]
+    Core(#[from] designer_core::CoreError),
+}
+
+impl From<LearnError> for designer_ipc::IpcError {
+    fn from(value: LearnError) -> Self {
+        match value {
+            LearnError::SessionCapReached { detector } => designer_ipc::IpcError::invalid_request(
+                format!("detector `{detector}` reached its per-session finding cap"),
+            ),
+            LearnError::Core(err) => err.into(),
+        }
+    }
+}
+
+/// Outcome of the inner `write_finding_unchecked` path. Distinct from
+/// `Result<(), LearnError>` because the dedup no-op needs to be
+/// distinguished from a successful write so the caller knows whether
+/// to keep or refund the cap reservation.
+enum WriteOutcome {
+    /// Event was appended; the cap reservation stands.
+    Written,
+    /// `window_digest` matched an existing finding; refund the slot.
+    DuplicateDigest,
+    /// The underlying store / projection failed; refund the slot.
+    Failed(LearnError),
+}
 
 impl AppCore {
-    /// Append a [`EventPayload::FindingRecorded`] for `finding`.
+    /// Append a [`EventPayload::FindingRecorded`] for `finding`, gated
+    /// by per-detector caps and write-time dedup.
     ///
-    /// The finding flows on the workspace stream when `workspace_id` is
-    /// `Some`, otherwise on the project stream. This mirrors how
-    /// `MessagePosted` and `ApprovalRequested` route — workspace state
-    /// stays workspace-scoped; project-wide signals (e.g.,
-    /// `claude_md_demotion`) live on the project stream.
-    pub async fn report_finding(&self, finding: Finding) -> designer_core::Result<()> {
+    /// **Routing.** The finding flows on the workspace stream when
+    /// `workspace_id` is `Some`, otherwise on the project stream. This
+    /// mirrors how `MessagePosted` and `ApprovalRequested` route —
+    /// workspace state stays workspace-scoped; project-wide signals
+    /// (e.g., `claude_md_demotion`) live on the project stream.
+    ///
+    /// **Cap (Phase 21.A1.1).** Each detector may emit at most
+    /// `config.max_findings_per_session` findings during a single
+    /// Designer process lifetime. The counter is in-memory and resets
+    /// on restart — sessions are deliberately scoped to the process so
+    /// a runaway detector can't flood the workspace-home live feed in
+    /// one sitting, but the user gets a clean slate when they reopen
+    /// the app.
+    ///
+    /// **Dedup (Phase 21.A1.1).** Before writing, the existing
+    /// findings projection for the current project is scanned for the
+    /// same `window_digest`. If one is already on file, the call
+    /// silently no-ops and logs a debug-level message. This catches
+    /// the harmless-but-noisy case of a detector re-emitting the same
+    /// finding across replays or restarts.
+    pub async fn report_finding(
+        &self,
+        finding: Finding,
+        config: &DetectorConfig,
+    ) -> Result<(), LearnError> {
+        // Atomic check-and-reserve under a single lock acquisition.
+        // Two concurrent callers can otherwise both pass a "count <
+        // cap" check before either bumps, slipping past the cap by
+        // one. Reserving up front and refunding on no-op / failure
+        // keeps the cap exact even under contention.
+        let detector = finding.detector_name.clone();
+        {
+            let mut counts = self.finding_session_counts.lock();
+            let slot = counts.entry(detector.clone()).or_insert(0);
+            if *slot >= config.max_findings_per_session {
+                return Err(LearnError::SessionCapReached { detector });
+            }
+            *slot = slot.saturating_add(1);
+        }
+
+        // From here on, every early return must release the
+        // reservation we just made — only a successful append earns it.
+        match self.write_finding_unchecked(finding).await {
+            WriteOutcome::Written => Ok(()),
+            WriteOutcome::DuplicateDigest => {
+                self.refund_session_slot(&detector);
+                Ok(())
+            }
+            WriteOutcome::Failed(err) => {
+                self.refund_session_slot(&detector);
+                Err(err)
+            }
+        }
+    }
+
+    /// Inner write path used by [`Self::report_finding`] after the
+    /// session cap has been reserved. Performs the dedup scan + event
+    /// append; the caller refunds the reservation on the non-success
+    /// outcomes.
+    async fn write_finding_unchecked(&self, finding: Finding) -> WriteOutcome {
+        let existing = match self.list_findings(finding.project_id).await {
+            Ok(e) => e,
+            Err(err) => return WriteOutcome::Failed(err.into()),
+        };
+        if existing
+            .iter()
+            .any(|f| f.window_digest == finding.window_digest)
+        {
+            debug!(
+                detector = %finding.detector_name,
+                window_digest = %finding.window_digest,
+                "report_finding: duplicate window_digest in current project; no-op"
+            );
+            return WriteOutcome::DuplicateDigest;
+        }
+
         let stream = match finding.workspace_id {
             Some(ws) => StreamId::Workspace(ws),
             None => StreamId::Project(finding.project_id),
         };
         let payload = EventPayload::FindingRecorded { finding };
-        let env = self
+        let env = match self
             .store
             .append(stream, None, Actor::system(), payload)
-            .await?;
+            .await
+        {
+            Ok(env) => env,
+            Err(err) => return WriteOutcome::Failed(err.into()),
+        };
         self.projector.apply(&env);
-        Ok(())
+        WriteOutcome::Written
+    }
+
+    fn refund_session_slot(&self, detector: &str) {
+        let mut counts = self.finding_session_counts.lock();
+        if let Some(slot) = counts.get_mut(detector) {
+            *slot = slot.saturating_sub(1);
+        }
     }
 
     /// Append a [`EventPayload::FindingSignaled`] for `finding_id`.
@@ -102,6 +239,34 @@ impl AppCore {
         Ok(out)
     }
 
+    /// Project the System stream into the per-finding calibration
+    /// snapshot. Last-write-wins on `FindingId` — if the user thumbed
+    /// up then down, the badge will read `calibrated 👎`. Used by the
+    /// IPC layer to attach `FindingCalibration` to each `FindingDto`.
+    ///
+    /// Phase 21.A1 stores every thumb as a fresh event; this projection
+    /// is what the workspace-home and archive surfaces read against.
+    pub async fn list_signals(
+        &self,
+    ) -> designer_core::Result<HashMap<FindingId, (ThumbSignal, Timestamp)>> {
+        // `read_stream` returns events in sequence order, which is
+        // monotonic per stream — a plain `insert` is therefore already
+        // last-write-wins.
+        let events = self
+            .store
+            .read_stream(StreamId::System, StreamOptions::default())
+            .await?;
+        Ok(events
+            .into_iter()
+            .filter_map(|env| match env.payload {
+                EventPayload::FindingSignaled { finding_id, signal } => {
+                    Some((finding_id, (signal, env.timestamp)))
+                }
+                _ => None,
+            })
+            .collect())
+    }
+
     /// `true` when `~/.claude/plugins/forge/` exists.
     ///
     /// Re-checks the filesystem on each call — one `metadata()` syscall.
@@ -158,9 +323,18 @@ mod tests {
     }
 
     fn make_finding(project_id: ProjectId, summary: &str) -> Finding {
+        make_finding_with(project_id, "noop", summary, "abc")
+    }
+
+    fn make_finding_with(
+        project_id: ProjectId,
+        detector: &str,
+        summary: &str,
+        window_digest: &str,
+    ) -> Finding {
         Finding {
             id: FindingId::new(),
-            detector_name: "noop".into(),
+            detector_name: detector.into(),
             detector_version: 1,
             project_id,
             workspace_id: None,
@@ -170,7 +344,7 @@ mod tests {
             summary: summary.into(),
             evidence: vec![],
             suggested_action: None,
-            window_digest: "abc".into(),
+            window_digest: window_digest.into(),
         }
     }
 
@@ -194,7 +368,9 @@ mod tests {
             .unwrap();
         let finding = make_finding(project.id, "hand-crafted finding");
         let id = finding.id;
-        core.report_finding(finding).await.unwrap();
+        core.report_finding(finding, &DetectorConfig::default())
+            .await
+            .unwrap();
         let listed = core.list_findings(project.id).await.unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, id);
@@ -210,7 +386,9 @@ mod tests {
             .unwrap();
         let finding = make_finding(project.id, "to be signaled");
         let id = finding.id;
-        core.report_finding(finding).await.unwrap();
+        core.report_finding(finding, &DetectorConfig::default())
+            .await
+            .unwrap();
         core.signal_finding(id, ThumbSignal::Up).await.unwrap();
 
         let events = core
@@ -256,6 +434,170 @@ mod tests {
         assert!(
             probe.is_dir(),
             "stub dir should be visible after create_dir_all"
+        );
+    }
+
+    /// Phase 21.A1.1 — once the cap is reached, further `report_finding`
+    /// calls for the same detector return `SessionCapReached` instead of
+    /// growing the projection. Other detectors keep their own budget.
+    #[tokio::test]
+    async fn report_finding_returns_session_cap_reached_after_n_writes() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let cfg = DetectorConfig {
+            max_findings_per_session: 2,
+            ..DetectorConfig::default()
+        };
+
+        // Two writes succeed (each with a fresh window_digest so dedup
+        // doesn't intercept).
+        core.report_finding(
+            make_finding_with(project.id, "demo", "first", "digest-1"),
+            &cfg,
+        )
+        .await
+        .unwrap();
+        core.report_finding(
+            make_finding_with(project.id, "demo", "second", "digest-2"),
+            &cfg,
+        )
+        .await
+        .unwrap();
+
+        // The third hits the cap.
+        let err = core
+            .report_finding(
+                make_finding_with(project.id, "demo", "third", "digest-3"),
+                &cfg,
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, LearnError::SessionCapReached { ref detector } if detector == "demo")
+        );
+
+        // Other detectors aren't affected — caps are per detector.
+        core.report_finding(
+            make_finding_with(project.id, "other", "ok", "digest-other"),
+            &cfg,
+        )
+        .await
+        .unwrap();
+
+        let listed = core.list_findings(project.id).await.unwrap();
+        assert_eq!(listed.len(), 3);
+    }
+
+    /// Phase 21.A1.1 — `list_signals` collapses repeated thumbs on the
+    /// same finding to a single entry (last write wins) so the
+    /// workspace-home calibrated badge doesn't double-render.
+    #[tokio::test]
+    async fn list_signals_last_write_wins_on_repeat_thumbs() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let finding = make_finding(project.id, "to be re-signaled");
+        let id = finding.id;
+        core.report_finding(finding, &DetectorConfig::default())
+            .await
+            .unwrap();
+
+        // Up, then up again, then down — projection should land on
+        // Down with the latest timestamp.
+        core.signal_finding(id, ThumbSignal::Up).await.unwrap();
+        core.signal_finding(id, ThumbSignal::Up).await.unwrap();
+        core.signal_finding(id, ThumbSignal::Down).await.unwrap();
+
+        let signals = core.list_signals().await.unwrap();
+        assert_eq!(signals.len(), 1);
+        let (signal, _ts) = signals.get(&id).copied().unwrap();
+        assert_eq!(signal, ThumbSignal::Down);
+    }
+
+    /// Phase 21.A1.1 — concurrent callers cannot slip past the cap.
+    /// Spawns N+1 `report_finding` tasks against a cap of N; exactly N
+    /// must succeed and the (N+1)th must hit `SessionCapReached`. With
+    /// the naive "check then bump" pattern, two callers reading
+    /// count=N-1 simultaneously could both write.
+    #[tokio::test]
+    async fn report_finding_cap_holds_under_concurrency() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let cap: u32 = 3;
+        let cfg = DetectorConfig {
+            max_findings_per_session: cap,
+            ..DetectorConfig::default()
+        };
+
+        let mut handles = Vec::new();
+        let total: u32 = cap + 2;
+        for i in 0..total {
+            let core = core.clone();
+            let cfg = cfg.clone();
+            let pid = project.id;
+            handles.push(tokio::spawn(async move {
+                let digest = format!("digest-{i}");
+                core.report_finding(make_finding_with(pid, "demo", "concurrent", &digest), &cfg)
+                    .await
+            }));
+        }
+
+        let mut writes = 0u32;
+        let mut caps = 0u32;
+        for h in handles {
+            match h.await.unwrap() {
+                Ok(()) => writes += 1,
+                Err(LearnError::SessionCapReached { .. }) => caps += 1,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+        assert_eq!(writes, cap, "exactly {cap} writes should succeed");
+        assert_eq!(caps, total - cap, "the rest hit the session cap");
+        assert_eq!(
+            core.list_findings(project.id).await.unwrap().len() as u32,
+            cap
+        );
+    }
+
+    /// Phase 21.A1.1 — duplicate `window_digest` writes silently no-op
+    /// without touching the cap counter or the event store.
+    #[tokio::test]
+    async fn report_finding_dedupes_on_duplicate_window_digest() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let cfg = DetectorConfig::default();
+        let digest = "shared-digest";
+
+        core.report_finding(make_finding_with(project.id, "demo", "first", digest), &cfg)
+            .await
+            .unwrap();
+
+        // Second call with the same digest is a no-op — Ok(()) with no
+        // event written and no counter bump.
+        core.report_finding(
+            make_finding_with(project.id, "demo", "second", digest),
+            &cfg,
+        )
+        .await
+        .unwrap();
+
+        let listed = core.list_findings(project.id).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            core.finding_session_counts.lock().get("demo").copied(),
+            Some(1),
+            "duplicate write must not consume the per-session budget"
         );
     }
 }

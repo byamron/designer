@@ -595,6 +595,17 @@ pub struct HelperStatusResponse {
 
 // ---- Learning layer (Phase 21.A1) ---------------------------------------
 
+/// Latest persisted thumbs-up/down for a finding, as projected from
+/// the System stream's `FindingSignaled` events. `None` when the user
+/// hasn't calibrated this finding yet. Last-write-wins on `(FindingId,
+/// signal)` — double-thumbing the same direction updates the
+/// timestamp without splitting the badge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FindingCalibration {
+    pub signal: ThumbSignal,
+    pub timestamp: String,
+}
+
 /// Wire shape for a finding rendered by the Settings → Activity →
 /// "Designer noticed" page. Mirrors `designer_core::Finding` but
 /// timestamp is RFC3339-stringified so the TS side gets a primitive.
@@ -614,6 +625,11 @@ pub struct FindingDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggested_action: Option<serde_json::Value>,
     pub window_digest: String,
+    /// Phase 21.A1.1 — populated when the user has thumbed this
+    /// finding. Present means "calibrated"; the row renders the
+    /// `calibrated 👍/👎` badge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calibration: Option<FindingCalibration>,
 }
 
 impl From<Finding> for FindingDto {
@@ -631,6 +647,7 @@ impl From<Finding> for FindingDto {
             evidence: f.evidence,
             suggested_action: f.suggested_action,
             window_digest: f.window_digest,
+            calibration: None,
         }
     }
 }

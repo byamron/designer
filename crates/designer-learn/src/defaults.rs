@@ -16,7 +16,7 @@
 //! constants below are the *defaults* a detector picks up unless the user
 //! has tuned it.
 
-use crate::DetectorConfig;
+use crate::{DetectorConfig, DEFAULT_MAX_FINDINGS_PER_SESSION};
 use designer_core::Severity;
 
 // ---------------------------------------------------------------------------
@@ -30,6 +30,7 @@ pub const SKILL_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 4,
     min_sessions: 3,
     impact_override: None,
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 /// Forge `THRESHOLDS["hook"]`. Used by `post_action_deterministic` and
@@ -39,6 +40,7 @@ pub const HOOK_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 5,
     min_sessions: 3,
     impact_override: None,
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 /// Forge `THRESHOLDS["rule"]`. Used by `repeated_correction` (feedback-rule
@@ -48,6 +50,7 @@ pub const RULE_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 3,
     min_sessions: 2,
     impact_override: None,
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 /// Forge `THRESHOLDS["claude_md_entry"]`. Used by `memory_promotion`.
@@ -56,6 +59,7 @@ pub const CLAUDE_MD_ENTRY_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 3,
     min_sessions: 2,
     impact_override: None,
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 /// Forge `THRESHOLDS["agent"]`. Used by `multi_step_tool_sequence` when it
@@ -65,6 +69,7 @@ pub const AGENT_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 5,
     min_sessions: 3,
     impact_override: None,
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 // ---------------------------------------------------------------------------
@@ -97,6 +102,7 @@ pub const APPROVAL_ALWAYS_GRANTED_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 5,
     min_sessions: 1,
     impact_override: Some(Severity::Notice),
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 /// `scope_false_positive`: 3+ same-path denials. Lower bar than
@@ -107,6 +113,7 @@ pub const SCOPE_FALSE_POSITIVE_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 3,
     min_sessions: 1,
     impact_override: Some(Severity::Notice),
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 /// `cost_hot_streak`: token-spend outlier vs project baseline on a
@@ -118,6 +125,7 @@ pub const COST_HOT_STREAK_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 1,
     min_sessions: 3,
     impact_override: Some(Severity::Notice),
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 /// `compaction_pressure`: `/compact` invoked ≥1×/session consistently.
@@ -128,6 +136,7 @@ pub const COMPACTION_PRESSURE_DEFAULTS: DetectorConfig = DetectorConfig {
     min_occurrences: 3,
     min_sessions: 3,
     impact_override: None,
+    max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
 
 // ---------------------------------------------------------------------------
@@ -298,5 +307,24 @@ mod tests {
         assert_eq!(HOOK_DEFAULTS.min_sessions, 3);
         assert_eq!(STALENESS_MIN_SESSIONS, 10);
         assert!((STALENESS_MIN_REFERENCE_RATIO - 0.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn every_default_carries_a_session_cap() {
+        // Phase 21.A1.1 guard: a missing cap means a runaway detector
+        // can flood the workspace-home feed.
+        for cfg in [
+            &SKILL_DEFAULTS,
+            &HOOK_DEFAULTS,
+            &RULE_DEFAULTS,
+            &CLAUDE_MD_ENTRY_DEFAULTS,
+            &AGENT_DEFAULTS,
+            &APPROVAL_ALWAYS_GRANTED_DEFAULTS,
+            &SCOPE_FALSE_POSITIVE_DEFAULTS,
+            &COST_HOT_STREAK_DEFAULTS,
+            &COMPACTION_PRESSURE_DEFAULTS,
+        ] {
+            assert!(cfg.max_findings_per_session > 0);
+        }
     }
 }

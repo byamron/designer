@@ -289,6 +289,13 @@ pub struct AppCore {
     /// Per-track debounce cache backing the write-time summary hook (Phase
     /// 13.F). See `core_local::SummaryDebounce` for semantics.
     pub summary_debounce: Arc<SummaryDebounce>,
+    /// Phase 21.A1.1 — per-detector counter of `FindingRecorded` events
+    /// emitted in the current process lifetime. Reset on restart;
+    /// `core_learn::report_finding` enforces
+    /// [`designer_learn::DetectorConfig::max_findings_per_session`]
+    /// against this map so a runaway detector cannot flood the
+    /// workspace-home feed.
+    pub(crate) finding_session_counts: parking_lot::Mutex<std::collections::HashMap<String, u32>>,
 }
 
 #[async_trait]
@@ -386,6 +393,7 @@ impl AppCore {
             helper_status,
             helper_events,
             summary_debounce: Arc::new(SummaryDebounce::new()),
+            finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
         });
         spawn_cost_subscriber(Arc::downgrade(&core), signal_rx);
         core.spawn_projector_task();

@@ -12,7 +12,7 @@ import {
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
 import { invoke, isTauri } from "../ipc/tauri";
-import type { TrackSummary, Workspace, WorkspaceSummary } from "../ipc/types";
+import { EVENT_KIND, type TrackSummary, type Workspace, type WorkspaceSummary } from "../ipc/types";
 import { emptyArray } from "../util/empty";
 import { IconButton } from "../components/IconButton";
 import { Tooltip } from "../components/Tooltip";
@@ -24,8 +24,19 @@ export function WorkspaceSidebar() {
   const activeProjectId = useAppState((s) => s.activeProject);
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
   const sidebarWidth = useAppState((s) => s.sidebarWidth);
+  const noticedLastViewedSeq = useAppState((s) => s.noticedLastViewedSeq);
   const workspaces = useDataState<WorkspaceSummary[]>((s) =>
     activeProjectId ? s.workspaces[activeProjectId] ?? emptyArray() : emptyArray(),
+  );
+  const noticedUnread = useDataState((s) =>
+    s.events.reduce(
+      (acc, e) =>
+        e.kind === EVENT_KIND.FINDING_RECORDED &&
+        e.sequence > noticedLastViewedSeq
+          ? acc + 1
+          : acc,
+      0,
+    ),
   );
   const projects = useDataState((s) => s.projects);
   const activeProject = useMemo(
@@ -91,7 +102,13 @@ export function WorkspaceSidebar() {
         )}
       </header>
 
-      <Tooltip label="Project home">
+      <Tooltip
+        label={
+          noticedUnread > 0
+            ? `Project home — ${noticedUnread} new from Designer noticed`
+            : "Project home"
+        }
+      >
         <button
           type="button"
           className="sidebar-home"
@@ -100,7 +117,14 @@ export function WorkspaceSidebar() {
           disabled={!activeProjectId}
         >
           <House size={16} strokeWidth={1.5} aria-hidden="true" />
-          <span>Home</span>
+          <span className="sidebar-home__label">
+            <span>Home</span>
+            {noticedUnread > 0 && (
+              <span className="sidebar-home__badge" aria-hidden="true">
+                {noticedUnread > 99 ? "99+" : noticedUnread}
+              </span>
+            )}
+          </span>
         </button>
       </Tooltip>
 

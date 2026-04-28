@@ -214,7 +214,49 @@ async.
 
 ---
 
-## 6. References
+## 6. Severity calibration
+
+Designer's "noticed" surface lives in the cockpit, not a CI log. The
+user's noise tolerance for it is much lower than for Forge's — every
+`Severity::Warning` finding is a colored interruption on the workspace
+home tab. Pick severity conservatively:
+
+- **`Severity::Notice` is the A2 default.** Use it unless you can
+  defend a different choice in the detector PR. Notice is "I saw
+  this and you might care"; that fits the bulk of Phase A signal
+  (corrections, repeated prompts, gap detections, post-tool
+  determinism, etc.).
+- **`Severity::Warning` requires justification.** Acceptable only when
+  the detector's measured false-positive rate is **<5%** on the
+  captured fixture suite (positive-trigger fixtures + negative-edge
+  fixtures), and the underlying signal is action-worthy without
+  further synthesis (a Warning that just says "look at this" is
+  Notice-grade). The A2 reviewer will block-merge a Warning detector
+  that doesn't carry that data in its PR description.
+- **`Severity::Info` is the floor.** Use it for low-confidence ambient
+  signal — patterns the user might find interesting at the bottom of
+  the archive, not signal that earns a top-N slot on the home tab.
+  Cost-hot-streak baselines, idle teammates, and other "FYI" patterns
+  belong here.
+
+Severity does not cap visibility — every finding flows to the same
+projection regardless of severity. What it gates is *attention*: the
+workspace home tab severity-sorts (`Warning` > `Notice` > `Info`)
+within its top-N window, so a single Warning crowds out three Notices.
+A Warning that fires once a session and is wrong half the time will
+push useful Notices off the surface; that's the pressure to default
+low.
+
+If you need to flip a detector's severity later (calibration data
+suggests it should escalate or de-escalate), bump the detector's
+`VERSION` constant per §3 and adjust the `impact_override` default in
+`src/defaults.rs`. Old findings stay attached to their original
+detector version, so the change doesn't retroactively rewrite the
+archive.
+
+---
+
+## 7. References
 
 - **Spec:** `core-docs/roadmap.md` §"Phase 21.A — Frontloadable
   detectors". Frozen contracts are §"Locked contracts (frozen by

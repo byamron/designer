@@ -850,6 +850,7 @@ pub(crate) mod tests {
             helper_status,
             helper_events: None,
             summary_debounce: Arc::new(SummaryDebounce::new()),
+            finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
         })
     }
 
