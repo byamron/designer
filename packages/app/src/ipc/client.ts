@@ -8,12 +8,16 @@ import type {
   ArtifactSummary,
   CreateProjectRequest,
   CreateWorkspaceRequest,
+  FrictionEntry,
+  FrictionId,
   LinkRepoRequest,
   OpenTabRequest,
   PostMessageRequest,
   PostMessageResponse,
   ProjectId,
   ProjectSummary,
+  ReportFrictionRequest,
+  ReportFrictionResponse,
   RequestMergeRequest,
   SpineRow,
   StartTrackRequest,
@@ -62,6 +66,11 @@ export interface IpcClient {
   getKeychainStatus(): Promise<KeychainStatus>;
   getCostChipPreference(): Promise<CostChipPreferences>;
   setCostChipPreference(enabled: boolean): Promise<CostChipPreferences>;
+  // Friction (Track 13.K)
+  reportFriction(req: ReportFrictionRequest): Promise<ReportFrictionResponse>;
+  listFriction(): Promise<FrictionEntry[]>;
+  resolveFriction(id: FrictionId): Promise<void>;
+  retryFileFriction(id: FrictionId): Promise<void>;
 }
 
 // ---- Phase 13.G safety DTOs -----------------------------------------------
@@ -173,6 +182,18 @@ class TauriIpcClient implements IpcClient {
   setCostChipPreference(enabled: boolean) {
     return invoke<CostChipPreferences>("cmd_set_cost_chip_preference", { enabled });
   }
+  reportFriction(req: ReportFrictionRequest) {
+    return invoke<ReportFrictionResponse>("cmd_report_friction", { req });
+  }
+  listFriction() {
+    return invoke<FrictionEntry[]>("cmd_list_friction");
+  }
+  resolveFriction(id: FrictionId) {
+    return invoke<void>("cmd_resolve_friction", { frictionId: id });
+  }
+  retryFileFriction(id: FrictionId) {
+    return invoke<void>("cmd_retry_file_friction", { frictionId: id });
+  }
 }
 
 class MockIpcClient implements IpcClient {
@@ -277,6 +298,24 @@ class MockIpcClient implements IpcClient {
   }
   setCostChipPreference(enabled: boolean) {
     return Promise.resolve<CostChipPreferences>({ enabled });
+  }
+  reportFriction(_req: ReportFrictionRequest) {
+    // Mock keeps an in-memory record so dev mode + tests can render the
+    // triage page without a Tauri runtime. The real persistence layer
+    // lives in core_friction.rs.
+    return Promise.resolve<ReportFrictionResponse>({
+      friction_id: `frc_mock_${Date.now()}`,
+      local_path: "",
+    });
+  }
+  listFriction() {
+    return Promise.resolve<FrictionEntry[]>([]);
+  }
+  resolveFriction(_id: FrictionId) {
+    return Promise.resolve();
+  }
+  retryFileFriction(_id: FrictionId) {
+    return Promise.resolve();
   }
 }
 

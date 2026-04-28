@@ -2,10 +2,11 @@
 //! as JSON for storage. `version` on the envelope lets us evolve a payload
 //! schema without breaking old events; projections match on `(kind, version)`.
 
+use crate::anchor::Anchor;
 use crate::domain::{Actor, ArtifactKind, Autonomy, PayloadRef, TabTemplate, WorkspaceState};
 use crate::ids::{
-    AgentId, ApprovalId, ArtifactId, EventId, ProjectId, StreamId, TabId, TaskId, TrackId,
-    WorkspaceId,
+    AgentId, ApprovalId, ArtifactId, EventId, FrictionId, ProjectId, StreamId, TabId, TaskId,
+    TrackId, WorkspaceId,
 };
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,13 @@ pub type Event = EventEnvelope;
 /// Adding a new variant is a non-breaking change (old replay ignores unknown
 /// kinds). Modifying the shape of a variant's fields is a breaking change —
 /// bump `EventEnvelope.version` and fan out through projection match arms.
+///
+/// `large_enum_variant` is allowed because Track 13.K's `FrictionReported`
+/// is intentionally heavy (an Anchor + screenshot ref + provenance fields
+/// for the bug-report record). It's a low-frequency event (user-driven,
+/// not per-tool-call), so the per-`EventEnvelope` size cost is amortized
+/// across the steady-state cheap variants.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventPayload {
@@ -235,6 +243,114 @@ pub enum EventPayload {
     ArtifactArchived {
         artifact_id: ArtifactId,
     },
+
+    // Friction (Track 13.K) — internal feedback capture. Additive variants
+    // per ADR 0002 addendum (commit c03f650): no existing variant is
+    // modified, all production projector arms include `_ => {}` defaults,
+    // and old `events.db` files written before these variants exist replay
+    // correctly because match arms can't fail on a variant that never
+    // appears in the stream.
+    //
+    // The `gh issue create` call is async + multi-second; emit
+    // `FrictionReported` synchronously, then a background task emits
+    // `FrictionLinked` (success) or `FrictionFileFailed` (network /
+    // `gh` not authed / gist fail). Triage view derives status by
+    // projecting all four.
+    FrictionReported {
+        friction_id: FrictionId,
+        workspace_id: Option<WorkspaceId>,
+        project_id: Option<ProjectId>,
+        anchor: Anchor,
+        body: String,
+        screenshot_ref: Option<ScreenshotRef>,
+        route: String,
+        app_version: String,
+        claude_version: Option<String>,
+        last_user_actions: Vec<String>,
+        file_to_github: bool,
+    },
+    FrictionLinked {
+        friction_id: FrictionId,
+        github_issue_url: String,
+    },
+    FrictionFileFailed {
+        friction_id: FrictionId,
+        error_kind: FrictionFileError,
+    },
+    FrictionResolved {
+        friction_id: FrictionId,
+    },
+}
+
+/// Where a friction record's screenshot lives. `Local` is the only state
+/// possible synchronously at submit time; `Gist` is upgraded by the
+/// background filer once `gh gist create --secret` succeeds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ScreenshotRef {
+    Local { path: PathBuf, sha256: String },
+    Gist { url: String, sha256: String },
+}
+
+impl ScreenshotRef {
+    /// Local PNG path if the screenshot is still on disk; `None` once the
+    /// ref has been promoted to a gist (the gist task drops local copies
+    /// per the spec's content-addressed dedupe rule).
+    pub fn local_path(&self) -> Option<&std::path::Path> {
+        match self {
+            ScreenshotRef::Local { path, .. } => Some(path.as_path()),
+            ScreenshotRef::Gist { .. } => None,
+        }
+    }
+
+    pub fn sha256(&self) -> &str {
+        match self {
+            ScreenshotRef::Local { sha256, .. } | ScreenshotRef::Gist { sha256, .. } => sha256,
+        }
+    }
+}
+
+/// Why a `FrictionFileFailed` was emitted. Kept narrow on purpose so the
+/// triage view can render an actionable hint per kind without a free-text
+/// match. `gh` stderr is logged to the audit trail but not stored on the
+/// event; events are user-visible and stderr can be noisy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FrictionFileError {
+    /// The `gh` CLI is not installed or not on PATH.
+    GhMissing,
+    /// `gh` is installed but the user isn't authenticated.
+    GhNotAuthed,
+    /// Network looked offline (DNS / refused / timeout).
+    NetworkOffline,
+    /// `gh gist create` rejected the upload (10MB cap, file type, etc.).
+    GistRejected { detail: String },
+    /// `gh issue create` failed after the gist landed (orphan gist accepted).
+    IssueCreateFailed { detail: String },
+    /// Anything else. `detail` is for diagnostics only — don't pattern-match.
+    Other { detail: String },
+}
+
+impl std::fmt::Display for FrictionFileError {
+    /// User-facing message rendered into the triage view. Each kind maps
+    /// to an actionable hint. `Debug` would surface struct-syntax noise
+    /// (`GistRejected { detail: "..." }`) — don't use it for the triage row.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FrictionFileError::GhMissing => write!(f, "gh CLI missing — install GitHub CLI."),
+            FrictionFileError::GhNotAuthed => {
+                write!(f, "gh not authenticated — run `gh auth login`.")
+            }
+            FrictionFileError::NetworkOffline => write!(f, "Network offline — retry when online."),
+            FrictionFileError::GistRejected { detail } => {
+                write!(f, "Gist upload rejected: {detail}")
+            }
+            FrictionFileError::IssueCreateFailed { detail } => {
+                write!(f, "Gist landed but issue create failed: {detail}")
+            }
+            FrictionFileError::Other { detail } => write!(f, "{detail}"),
+        }
+    }
 }
 
 /// Cheap discriminant for pattern matching in indices + projections.
@@ -276,6 +392,10 @@ pub enum EventKind {
     ArtifactPinned,
     ArtifactUnpinned,
     ArtifactArchived,
+    FrictionReported,
+    FrictionLinked,
+    FrictionFileFailed,
+    FrictionResolved,
 }
 
 impl EventPayload {
@@ -316,6 +436,10 @@ impl EventPayload {
             EventPayload::ArtifactPinned { .. } => EventKind::ArtifactPinned,
             EventPayload::ArtifactUnpinned { .. } => EventKind::ArtifactUnpinned,
             EventPayload::ArtifactArchived { .. } => EventKind::ArtifactArchived,
+            EventPayload::FrictionReported { .. } => EventKind::FrictionReported,
+            EventPayload::FrictionLinked { .. } => EventKind::FrictionLinked,
+            EventPayload::FrictionFileFailed { .. } => EventKind::FrictionFileFailed,
+            EventPayload::FrictionResolved { .. } => EventKind::FrictionResolved,
         }
     }
 }
@@ -378,5 +502,62 @@ mod tests {
             EventPayload::TrackArchived { track_id: track }.kind(),
             EventKind::TrackArchived
         );
+    }
+
+    /// Track 13.K — Friction variants must round-trip through serde and map
+    /// to the matching `EventKind`. ADR 0002 addendum permits these
+    /// additive variants only if their wire format stays stable.
+    #[test]
+    fn friction_events_roundtrip_and_map_kinds() {
+        use crate::Anchor;
+        use crate::FrictionId;
+        let fid = FrictionId::new();
+        let anchor = Anchor::DomElement {
+            selector_path: "[data-component=\"WorkspaceSidebar\"]".into(),
+            route: "/workspace/x".into(),
+            component: Some("WorkspaceSidebar".into()),
+            stable_id: None,
+            text_snippet: Some("Track A".into()),
+        };
+        let cases = [
+            EventPayload::FrictionReported {
+                friction_id: fid,
+                workspace_id: None,
+                project_id: None,
+                anchor,
+                body: "row layout looks off".into(),
+                screenshot_ref: Some(ScreenshotRef::Local {
+                    path: PathBuf::from("/tmp/x.png"),
+                    sha256: "abc".into(),
+                }),
+                route: "/workspace/x".into(),
+                app_version: "0.1.0".into(),
+                claude_version: Some("2.1.0".into()),
+                last_user_actions: vec!["spawn".into()],
+                file_to_github: true,
+            },
+            EventPayload::FrictionLinked {
+                friction_id: fid,
+                github_issue_url: "https://github.com/byamron/designer/issues/42".into(),
+            },
+            EventPayload::FrictionFileFailed {
+                friction_id: fid,
+                error_kind: FrictionFileError::NetworkOffline,
+            },
+            EventPayload::FrictionResolved { friction_id: fid },
+        ];
+
+        let kinds = [
+            EventKind::FrictionReported,
+            EventKind::FrictionLinked,
+            EventKind::FrictionFileFailed,
+            EventKind::FrictionResolved,
+        ];
+        for (payload, expected_kind) in cases.iter().zip(kinds.iter()) {
+            assert_eq!(payload.kind(), *expected_kind);
+            let json = serde_json::to_string(payload).expect("serialize");
+            let back: EventPayload = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(payload, &back, "round-trip mismatch for {json}");
+        }
     }
 }

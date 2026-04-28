@@ -5,6 +5,7 @@
 //! runtime-agnostic (no Claude, no Swift); consumers plug in orchestrators
 //! and helpers via traits.
 
+pub mod anchor;
 pub mod domain;
 pub mod error;
 pub mod event;
@@ -13,15 +14,16 @@ pub mod projection;
 pub mod store;
 pub mod time;
 
+pub use anchor::Anchor;
 pub use domain::{
     author_roles, Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project, Tab, TabTemplate,
     Track, TrackState, Workspace, WorkspaceState,
 };
 pub use error::{CoreError, Result};
-pub use event::{Event, EventEnvelope, EventKind, EventPayload};
+pub use event::{Event, EventEnvelope, EventKind, EventPayload, FrictionFileError, ScreenshotRef};
 pub use ids::{
-    AgentId, ApprovalId, ArtifactId, EventId, ProjectId, StreamId, TabId, TaskId, TrackId,
-    WorkspaceId,
+    AgentId, ApprovalId, ArtifactId, EventId, FrictionId, ProjectId, StreamId, TabId, TaskId,
+    TrackId, WorkspaceId,
 };
 pub use projection::{Projection, ProjectionError, Projector};
 pub use store::{EventStore, SqliteEventStore, StreamOptions};

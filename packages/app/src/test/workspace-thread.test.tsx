@@ -78,6 +78,11 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
         }),
       getCostChipPreference: () => Promise.resolve({ enabled: false }),
       setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
+      reportFriction: () =>
+        Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
+      listFriction: () => Promise.resolve([]),
+      resolveFriction: () => Promise.resolve(),
+      retryFileFriction: () => Promise.resolve(),
     });
   });
 

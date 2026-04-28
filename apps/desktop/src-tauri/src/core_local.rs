@@ -850,6 +850,7 @@ pub(crate) mod tests {
             helper_status,
             helper_events: None,
             summary_debounce: Arc::new(SummaryDebounce::new()),
+            gh_runner_override: parking_lot::Mutex::new(None),
         })
     }
 
