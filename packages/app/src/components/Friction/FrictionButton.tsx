@@ -1,19 +1,22 @@
 import { useEffect } from "react";
 import { MessageSquareDashed } from "lucide-react";
 import {
-  toggleFrictionSelecting,
+  toggleFrictionComposer,
   useAppState,
   type FrictionMode,
 } from "../../store/app";
 
 /**
- * Floating bottom-right button that arms selection mode. Persistent toggle:
- * `aria-pressed="true"` + accent fill while armed. Locked surface per spec
- * (`core-docs/roadmap.md` § Track 13.K → "Floating button"). Bottom-right
- * is reserved for Friction; the dev panel now lives bottom-left.
+ * Floating bottom-right entry point. Visually demoted in 13.M — the primary
+ * trigger is now ⌘⇧F, and the button itself is intentionally smaller and
+ * lower-contrast than 13.K's accent-fill armed state. It exists as the
+ * discoverable affordance for users who don't yet know the shortcut.
  *
- * Keyboard: ⌘⇧F (handled here so the binding isn't lost when
- * SelectionOverlay/FrictionWidget unmount).
+ * Click → opens the composer (typed-sentence path). Selection mode is now
+ * an opt-in step inside the composer.
+ *
+ * Keyboard: ⌘⇧F is bound here so the global shortcut works even when the
+ * widget/overlay are unmounted.
  */
 export function FrictionButton() {
   const mode: FrictionMode = useAppState((s) => s.frictionMode);
@@ -24,7 +27,7 @@ export function FrictionButton() {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        toggleFrictionSelecting();
+        toggleFrictionComposer();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -36,23 +39,19 @@ export function FrictionButton() {
   // dead affordance the user can click but won't react).
   if (dialog !== null) return null;
 
-  const armed = mode !== "off";
+  const active = mode !== "off";
   return (
     <button
       type="button"
       className="friction-button"
       data-component="FrictionButton"
-      data-armed={armed ? "true" : "false"}
-      aria-pressed={armed}
-      aria-label={armed ? "Cancel friction capture" : "Capture friction"}
-      title={
-        armed
-          ? "Cancel (⌘⇧F or click outside)"
-          : "Capture friction (⌘⇧F)"
-      }
-      onClick={toggleFrictionSelecting}
+      data-active={active ? "true" : "false"}
+      aria-pressed={active}
+      aria-label={active ? "Close friction" : "Capture friction"}
+      title={active ? "Close (⌘⇧F or ESC)" : "Capture friction (⌘⇧F)"}
+      onClick={toggleFrictionComposer}
     >
-      <MessageSquareDashed size={18} strokeWidth={1.6} aria-hidden="true" />
+      <MessageSquareDashed size={14} strokeWidth={1.4} aria-hidden="true" />
     </button>
   );
 }

@@ -158,6 +158,7 @@ fn main() {
             commands::validate_project_path,
             commands_agents::post_message,
             commands_friction::cmd_address_friction,
+            commands_friction::cmd_capture_viewport,
             commands_friction::cmd_list_friction,
             commands_friction::cmd_reopen_friction,
             commands_friction::cmd_report_friction,

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { anchorFromElement, snapTarget } from "../../lib/anchor";
 import {
-  clearFriction,
+  exitFrictionSelecting,
   setFrictionAnchor,
-  toggleFrictionSelecting,
   useAppState,
 } from "../../store/app";
 
@@ -22,18 +21,23 @@ const SELF_SELECTOR =
   ".friction-overlay, .friction-widget, .friction-button, .friction-banner";
 
 /**
- * Track 13.K SelectionOverlay — armed-state visual + smart-snap.
+ * Track 13.M SelectionOverlay — opt-in anchor mode.
  *
  * Renders nothing when `frictionMode !== "selecting"`. Bails when a modal
  * scrim is open (`appStore.dialog !== null`) — friction is inert in those
  * states per spec.
  *
- * Three-exit policy (locked):
- *   1. ESC.
- *   2. Click the FrictionButton again.
- *   3. Click outside any anchorable element after a 600ms grace period from
- *      arming time. The grace gives the user a beat to drift over a target
- *      without losing the armed state on a stray click.
+ * Entry: ⌘. or 📍 button inside the composer.
+ * Exits:
+ *   1. ESC → back to the composer (preserves the body draft).
+ *   2. Click an anchorable element → captures anchor, returns to composer.
+ *   3. Click outside any anchorable element after the 50ms suppression
+ *      window expires → cancel back to the composer.
+ *
+ * 13.K had a 600ms outside-click grace window; 13.M drops it because it
+ * created silent ambiguity (clicks "swallowed" with no feedback). The 50ms
+ * suppression below is just enough to swallow the click that triggered
+ * arming — after that, clicks behave deterministically.
  *
  * Smart-snap walks ancestors to the closest `data-component` / `role="row"|
  * "button"` / `<button>` / `<dialog>`. Hold Alt to override and anchor to
@@ -51,7 +55,7 @@ export function SelectionOverlay() {
     if (!hover) return;
     const target = altHeldRef.current ? hover.atom : hover.snap;
     const route = window.location.hash || window.location.pathname || "/";
-    setFrictionAnchor(anchorFromElement(target, route), null);
+    setFrictionAnchor(anchorFromElement(target, route));
   }, [hover]);
 
   // Reset armed-at timestamp + clear stale hover whenever arming flips on.
@@ -113,14 +117,17 @@ export function SelectionOverlay() {
         // Let the FrictionButton/banner-cancel button handle their own clicks.
         return;
       }
+      const sinceArmed = Date.now() - armedAtRef.current;
+      // 50ms suppression: just enough to swallow the click that armed
+      // selection mode (e.g. a click on the 📍 button that the React
+      // synthetic-event system delivered AFTER the keydown that set
+      // mode=selecting). After that window, clicks behave deterministically:
+      // anchorable target → capture; everywhere else → cancel.
+      if (sinceArmed < 50) return;
       const atom = document.elementFromPoint(e.clientX, e.clientY);
       const snap = atom ? snapTarget(atom) : null;
-      // Clicks outside any anchorable element dismiss after grace.
-      const sinceArmed = Date.now() - armedAtRef.current;
       if (!snap && !altHeldRef.current) {
-        if (sinceArmed > 600) {
-          clearFriction();
-        }
+        exitFrictionSelecting();
         return;
       }
       e.preventDefault();
@@ -131,7 +138,7 @@ export function SelectionOverlay() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        clearFriction();
+        exitFrictionSelecting();
       } else if (e.key === "Alt") {
         altHeldRef.current = true;
       }
@@ -163,12 +170,14 @@ export function SelectionOverlay() {
         role="status"
         aria-live="polite"
       >
-        <span className="friction-banner__title">Click anything to anchor feedback</span>
-        <span className="friction-banner__hint">Alt to anchor exactly · ESC to cancel</span>
+        <span className="friction-banner__title">Click element to anchor</span>
+        <span className="friction-banner__hint">
+          Alt: anchor exact child · ESC to cancel
+        </span>
         <button
           type="button"
           className="friction-banner__cancel"
-          onClick={toggleFrictionSelecting}
+          onClick={exitFrictionSelecting}
         >
           Cancel
         </button>

@@ -13,20 +13,21 @@ import {
 export type PaletteDensity = "bounded" | "open";
 export type AppDialog = "settings" | "help" | "create-project" | null;
 
-// Track 13.K — Friction selection state machine. Locked by spec; the three
-// states are "off" (idle), "selecting" (armed, hovering for an anchor), and
-// "editing" (anchor captured, widget visible).
-export type FrictionMode = "off" | "selecting" | "editing";
-
-/**
- * Optional auto-captured screenshot for the friction widget. Captured at
- * click-anchor time (BEFORE the widget overlays the element) so the
- * "screenshot of the thing being reported" doesn't include the widget.
- */
-export interface FrictionAutoCapture {
-  bytes: Uint8Array;
-  filename: string;
-}
+// Track 13.M — Friction trivial-by-default UX. The state machine flips so
+// "composing" (the typed-sentence path) is the default surface. Selection
+// mode demotes to opt-in.
+//
+//   off        — idle, nothing on screen but the demoted FrictionButton.
+//   composing  — composer mounted bottom-right; body textarea autofocused.
+//   selecting  — opt-in anchor mode; composer hides, overlay arms.
+//
+// Transitions:
+//   off → composing             (⌘⇧F or click on FrictionButton)
+//   composing → selecting       (⌘. or 📍 button in the composer)
+//   selecting → composing       (anchor captured; or ESC w/ existing draft? no — ESC clears entirely)
+//   composing → off             (ESC, submit success, ⌘⇧F again)
+//   selecting → off             (ESC, click outside after 50ms suppression)
+export type FrictionMode = "off" | "composing" | "selecting";
 
 export const PANE_MIN_WIDTH = 180;
 export const PANE_MAX_WIDTH = 480;
@@ -87,10 +88,9 @@ export interface AppState {
    * feel responsive instead of being a false affordance. When IPC lands
    * we swap the reader to prefer the server value. */
   autonomyOverrides: Record<ProjectId, Autonomy>;
-  // Track 13.K — Friction.
+  // Track 13.K / 13.M — Friction.
   frictionMode: FrictionMode;
   frictionAnchor: Anchor | null;
-  frictionAutoCapture: FrictionAutoCapture | null;
   /**
    * Phase 21.A1.1 — Designer noticed unread badge state.
    *
@@ -122,7 +122,6 @@ export const appStore = createStore<AppState>({
   autonomyOverrides: {},
   frictionMode: "off",
   frictionAnchor: null,
-  frictionAutoCapture: null,
   noticedLastViewedSeq: 0,
 });
 
@@ -241,64 +240,61 @@ export const closeCreateProject = () =>
     s.dialog === "create-project" ? { ...s, dialog: null } : s,
   );
 
-// ---- Track 13.K Friction actions ----------------------------------------
+// ---- Track 13.K / 13.M Friction actions ---------------------------------
 
-/** Toggle the selection-mode state machine. ⌘⇧F or the floating button. */
-export const toggleFrictionSelecting = () => {
+/**
+ * Primary trigger for the composer. ⌘⇧F or click on FrictionButton. Toggles
+ * between "off" and "composing"; if the user is already in selection mode,
+ * a second invocation cancels everything.
+ *
+ * This replaces 13.K's `toggleFrictionSelecting` — the typed-sentence path
+ * is now the default; selection demotes to an opt-in `enterFrictionSelecting`.
+ */
+export const toggleFrictionComposer = () => {
   appStore.set((s) => {
-    // Inert when any modal scrim is open — prevents the user from arming
-    // selection mode while a settings page or dialog covers the viewport.
+    // Inert when any modal scrim is open — prevents the user from opening
+    // the composer while a settings page or dialog covers the viewport.
     if (s.dialog !== null) return s;
-    if (s.frictionMode === "off") {
-      return { ...s, frictionMode: "selecting", frictionAnchor: null };
-    }
-    // From "selecting" or "editing" → off. Submit/cancel use explicit
-    // setters (`setFrictionAnchor` / `clearFriction`).
-    return {
-      ...s,
-      frictionMode: "off",
-      frictionAnchor: null,
-      frictionAutoCapture: null,
-    };
+    const next: FrictionMode = s.frictionMode === "off" ? "composing" : "off";
+    return { ...s, frictionMode: next, frictionAnchor: null };
   });
 };
 
-/** Anchor captured. Optionally bundle an auto-screenshot taken at click time. */
-export const setFrictionAnchor = (
-  anchor: Anchor,
-  autoCapture: FrictionAutoCapture | null = null,
-) =>
-  appStore.set((s) => ({
-    ...s,
-    frictionMode: "editing",
-    frictionAnchor: anchor,
-    frictionAutoCapture: autoCapture,
-  }));
-
-/** Cancel out of the widget but stay armed (user often re-anchors). */
-export const cancelFrictionEditing = () =>
+/** Opt-in selection mode. Called from inside the composer (⌘. or 📍 button). */
+export const enterFrictionSelecting = () =>
   appStore.set((s) =>
-    s.frictionMode === "editing"
-      ? {
-          ...s,
-          frictionMode: "selecting",
-          frictionAnchor: null,
-          frictionAutoCapture: null,
-        }
-      : s,
+    s.frictionMode === "composing" ? { ...s, frictionMode: "selecting" } : s,
   );
 
-/** Fully clear friction state — submit success, ESC from editing, etc. */
+/** Bail out of selection mode back to the composer (ESC inside the overlay). */
+export const exitFrictionSelecting = () =>
+  appStore.set((s) =>
+    s.frictionMode === "selecting" ? { ...s, frictionMode: "composing" } : s,
+  );
+
+/**
+ * Anchor captured from the overlay. Returns the user to the composer with
+ * the descriptor showing as a chip.
+ */
+export const setFrictionAnchor = (anchor: Anchor) =>
+  appStore.set((s) => ({
+    ...s,
+    frictionMode: "composing",
+    frictionAnchor: anchor,
+  }));
+
+/** Clear the anchor while keeping the composer open (× on the chip). */
+export const clearFrictionAnchor = () =>
+  appStore.set((s) =>
+    s.frictionAnchor === null ? s : { ...s, frictionAnchor: null },
+  );
+
+/** Fully clear friction state — submit success, ESC, ⌘⇧F again. */
 export const clearFriction = () =>
   appStore.set((s) =>
     s.frictionMode === "off" && s.frictionAnchor === null
       ? s
-      : {
-          ...s,
-          frictionMode: "off",
-          frictionAnchor: null,
-          frictionAutoCapture: null,
-        },
+      : { ...s, frictionMode: "off", frictionAnchor: null },
   );
 
 // ---- Phase 21.A1.1 Designer noticed unread badge ------------------------

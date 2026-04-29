@@ -69,12 +69,15 @@ export interface IpcClient {
   getKeychainStatus(): Promise<KeychainStatus>;
   getCostChipPreference(): Promise<CostChipPreferences>;
   setCostChipPreference(enabled: boolean): Promise<CostChipPreferences>;
-  // Friction (Tracks 13.K + 13.L)
+  // Friction (Tracks 13.K + 13.L + 13.M)
   reportFriction(req: ReportFrictionRequest): Promise<ReportFrictionResponse>;
   listFriction(): Promise<FrictionEntry[]>;
   resolveFriction(req: FrictionTransitionRequest): Promise<void>;
   addressFriction(req: AddressFrictionRequest): Promise<void>;
   reopenFriction(req: FrictionTransitionRequest): Promise<void>;
+  /// Capture the focused webview window's region as PNG bytes (Track 13.M).
+  /// macOS-only in v1; non-macOS hosts reject with a clear message.
+  captureViewport(): Promise<Uint8Array>;
   /// Reveal `path` in Finder (macOS) — selects the file. Falls back to a
   /// clipboard copy when the Tauri runtime isn't available so the user
   /// can paste the path into a Finder "Go to Folder" prompt.
@@ -207,6 +210,13 @@ class TauriIpcClient implements IpcClient {
   }
   reopenFriction(req: FrictionTransitionRequest) {
     return invoke<void>("cmd_reopen_friction", { req });
+  }
+  async captureViewport() {
+    // Tauri serializes `Vec<u8>` as a JSON array of numbers; lift it back
+    // to a `Uint8Array` so callers can hand it to `Blob`/`URL.createObjectURL`
+    // without re-coercing.
+    const bytes = await invoke<number[]>("cmd_capture_viewport");
+    return new Uint8Array(bytes);
   }
   async revealInFinder(path: string) {
     try {
@@ -349,6 +359,19 @@ class MockIpcClient implements IpcClient {
   }
   reopenFriction(_req: FrictionTransitionRequest) {
     return Promise.resolve();
+  }
+  captureViewport() {
+    // 1×1 transparent PNG so dev/test runs of the friction widget produce
+    // a non-empty preview without a Tauri runtime.
+    const transparentPng = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+    return Promise.resolve(transparentPng);
   }
   async revealInFinder(path: string) {
     // Web/test runtime: copy the path so the user can paste into Finder.

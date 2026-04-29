@@ -212,6 +212,7 @@ export interface StreamEvent {
 export const EVENT_KIND = {
   FINDING_RECORDED: "finding_recorded",
   FINDING_SIGNALED: "finding_signaled",
+  FRICTION_REPORTED: "friction_reported",
 } as const;
 
 // ---- Friction (Tracks 13.K + 13.L) ----
