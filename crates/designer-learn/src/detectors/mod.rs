@@ -1,5 +1,11 @@
-//! Phase 21.A2 detector implementations. Each detector lives in its own
-//! sibling module so authors land in parallel without stepping on each
-//! other's files.
+//! Phase 21.A2 detectors. Each detector lives in its own sibling module
+//! so authors land in parallel without stepping on each other's files.
+//! The registry is intentionally a flat `pub mod` list (not a global) so
+//! every detector remains unit-testable in isolation; parallel A2 PRs
+//! only touch this module's `pub mod` list and the `lib.rs` re-exports.
 
 pub mod repeated_correction;
+pub mod scope_false_positive;
+
+pub use repeated_correction::RepeatedCorrectionDetector;
+pub use scope_false_positive::ScopeFalsePositiveDetector;
