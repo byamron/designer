@@ -154,9 +154,13 @@ describe("FrictionWidget — Track 13.M composer-default flow", () => {
   });
 
   it("upgrades the toast from 'Filed locally' → 'Filed as #N' on stream confirmation", async () => {
+    // Friction id is chosen so its last 6 chars contain at least one
+    // non-hex character — otherwise the toast text "Filed as #xyzxyz"
+    // would match the no-hex-literals-in-tsx invariant regex.
+    const fid = "frc_test_xyzxyz";
     let streamHandler: ((event: StreamEvent) => void) | null = null;
     const reportFriction = vi.fn(() =>
-      Promise.resolve({ friction_id: "frc_aaaa_bbbcde", local_path: "" }),
+      Promise.resolve({ friction_id: fid, local_path: "" }),
     );
     __setIpcClient(
       stubClient({
@@ -184,10 +188,10 @@ describe("FrictionWidget — Track 13.M composer-default flow", () => {
         stream_id: "system",
         sequence: 1,
         timestamp: new Date().toISOString(),
-        payload: { friction_id: "frc_aaaa_bbbcde" },
+        payload: { friction_id: fid },
       });
     });
-    await screen.findByText(/filed as #bbbcde/i);
+    await screen.findByText(new RegExp(`filed as #${fid.slice(-6)}`, "i"));
   });
 });
 
