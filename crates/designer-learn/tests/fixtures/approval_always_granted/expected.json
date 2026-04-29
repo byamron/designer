@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "confidence_max": 0.95,
+      "confidence_min": 0.6,
+      "detector_name": "approval_always_granted",
+      "detector_version": 1,
+      "evidence_count": 5,
+      "severity": "notice",
+      "summary_contains": [
+        "ApprovalRequested for Bash(prettier *)",
+        "granted 6×",
+        "0 denials"
+      ]
+    }
+  ]
+}
