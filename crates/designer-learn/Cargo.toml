@@ -31,3 +31,4 @@ hex.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "test-util"] }
 tempfile.workspace = true
+uuid.workspace = true
