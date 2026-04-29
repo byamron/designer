@@ -445,7 +445,7 @@ fn approval_id_from_payload(body: &str) -> Option<ApprovalId> {
 #[cfg(target_os = "macos")]
 mod keychain {
     use super::KeychainStatus;
-    use security_framework::passwords::get_generic_password;
+    use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
     use std::sync::OnceLock;
 
     /// Service name Claude Code uses for its OAuth credential. Verified by
@@ -468,15 +468,22 @@ mod keychain {
         static LAST_VERIFIED: OnceLock<parking_lot::Mutex<Option<String>>> = OnceLock::new();
         let cell = LAST_VERIFIED.get_or_init(|| parking_lot::Mutex::new(None));
 
+        // Search by service alone — Claude Code stores its credential under
+        // the macOS account name (e.g. `acct=$USER`), so the previous
+        // empty-string-account lookup never matched on real installs and
+        // returned a false-negative "Not connected". We never request the
+        // password data (`load_data` stays default-false), so the gate that
+        // would prompt the user for Keychain access is not triggered — we
+        // only check for *presence* of an item with the expected service.
         let service = service_name();
-        // We try a wildcard account by passing the empty string; on macOS
-        // `SecItemCopyMatching` will return the first matching item. If
-        // Claude later switches to per-account scoping, env override above
-        // remains a backstop.
-        let result = get_generic_password(&service, "");
+        let result = ItemSearchOptions::new()
+            .class(ItemClass::generic_password())
+            .service(&service)
+            .limit(Limit::Max(1))
+            .search();
 
         match result {
-            Ok(_secret) => {
+            Ok(items) if !items.is_empty() => {
                 let now = super::format_now();
                 *cell.lock() = Some(now.clone());
                 KeychainStatus {
@@ -486,7 +493,7 @@ mod keychain {
                         .into(),
                 }
             }
-            Err(_) => {
+            _ => {
                 let last = cell.lock().clone();
                 KeychainStatus {
                     state: "disconnected".into(),
