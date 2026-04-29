@@ -595,3 +595,22 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - frontend: `lib/modal.ts` gains `useFocusTrap`. `IpcClient` gains a clipboard fallback in `revealInFinder`. `IpcClient.{resolve,reopen}Friction` now accept `FrictionTransitionRequest` (carries `workspace_id`).
 - deviations: state-machine validation moved from backend to FE (server trusts the client to gate buttons by `entry.state`). Acceptable for a single-user local app where the cost of validation (full event-log scan per click) outweighs the defense.
 - feedback: pending (PR awaiting user dogfood signal)
+
+## 2026-04-29T07:00:00Z — manual (first-launch unblock)
+
+- prompt: "the create workspace button does nothing… in settings, it says i need to run claude login… all this information is still placeholder — unacceptable for running the actual app. let's go with option A (minimum viable cleanup)."
+- trigger: manual (no skill matched — three small surgical fixes spanning Rust + TS + CSS)
+- archetype-reused: none
+- components-reused: `IconButton`, `Section`, `SegmentedToggle`, `WorkspaceStatusIcon`, `DesignerNoticedHome`
+- components-new: none
+- primitives: none (CSS-only deletion + handler rewire)
+- tokens: none introduced; tokens previously referenced by `.home-a__steps` are still in use elsewhere
+- invariants: `cargo fmt --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace --lib` green; `npm test` 55/55; `tsc --noEmit` clean
+- review-pass: four perspectives (staff engineer, staff UX, staff UI, staff design engineer) — found three follow-ups, all addressed before PR.
+  - **WorkspaceSidebar create-flow**: replaced `window.prompt("Workspace name?")` (a no-op in Tauri's prod WebView — silently returned `null`, leaving the user with a button that "did nothing") with one-click create + immediate `Tab 1` thread + select. Auto-name `Workspace ${workspaces.length + 1}` (renamable when rename lands). Added `useRef`-backed busy guard so rapid double-clicks can't compute the same `Workspace N` twice; button disables via `isCreating` while the IPC round-trip is in flight. `try/finally` ensures the guard releases on error; `console.error` surfaces failures (the old prompt path silently swallowed them too — same UX bug, different cause).
+  - **Keychain detection**: switched `core_safety::keychain::query_claude_credential` from `get_generic_password(service, "")` to `ItemSearchOptions::new().class(generic_password()).service(...).limit(1).search()`. The previous wildcard-account query was a false claim — macOS requires an exact `kSecAttrAccount` match, but Claude Code's entry has `acct=$USER` (e.g. `benyamron`), so every check returned "Not connected" even when the credential existed. The new path only checks for *presence* (no `load_data`), preserving the spec invariant that Designer never reads the token.
+  - **HomeTabA placeholder strip**: deleted hardcoded `Near-term focus` (steps `Draft plan + reviewable artifacts` / `Design exploration with variants` / `Implementation + audit-checked PR`) and `Recent reports` (`Monday recap · team-lead`, `Audit: scope on auth module · auditor`). Per `core-docs/roadmap.md` §16 these were always intended to be wired to `LocalOps::recap` and `core-docs/plan.md` parsing; until those land the honest empty state (Active workspaces → Autonomy → Designer noticed) reads better than fake content. Dead `.home-a__steps` selectors removed from `home.css` (no longer referenced).
+- backend: keychain probe rewrite (`use security_framework::passwords::get_generic_password` → `use security_framework::item::{ItemClass, ItemSearchOptions, Limit}`); no schema changes, no test additions (path is `#[cfg(target_os = "macos")]` and depends on real Keychain state — covered by manual verification on the dev machine).
+- frontend: `WorkspaceSidebar` gains `useRef` import + busy guard; `HomeTabA` loses two `<Section>` blocks; `home.css` loses 4 selectors (29 LOC).
+- deviations: none.
+- feedback: pending

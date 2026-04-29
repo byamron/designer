@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { House } from "lucide-react";
 import {
   PANE_DEFAULT_WIDTH,
@@ -44,17 +44,43 @@ export function WorkspaceSidebar() {
     [projects, activeProjectId],
   );
 
+  // Guards against rapid double-clicks: `workspaces.length` only updates
+  // after `refreshWorkspaces` resolves, so two synchronous clicks would
+  // otherwise both compute the same `Workspace N` name and create two
+  // identically-named workspaces. The ref also disables the button while
+  // the IPC round-trip is in flight.
+  const creatingRef = useRef(false);
+  const [isCreating, setIsCreating] = useState(false);
+
   const onCreate = async () => {
-    if (!activeProjectId) return;
-    const name = window.prompt("Workspace name?")?.trim();
-    if (!name) return;
-    const summary = await ipcClient().createWorkspace({
-      project_id: activeProjectId,
-      name,
-      base_branch: "main",
-    });
-    await refreshWorkspaces(activeProjectId);
-    selectWorkspace(summary.workspace.id);
+    if (!activeProjectId || creatingRef.current) return;
+    creatingRef.current = true;
+    setIsCreating(true);
+    try {
+      const name = `Workspace ${workspaces.length + 1}`;
+      const summary = await ipcClient().createWorkspace({
+        project_id: activeProjectId,
+        name,
+        base_branch: "main",
+      });
+      const tab = await ipcClient().openTab({
+        workspace_id: summary.workspace.id,
+        title: "Tab 1",
+        template: "thread",
+      });
+      await refreshWorkspaces(activeProjectId);
+      selectWorkspace(summary.workspace.id);
+      selectTab(summary.workspace.id, tab.id);
+    } catch (err) {
+      // Surface the failure — the previous prompt-based flow swallowed
+      // errors silently, which is exactly the "button does nothing" bug
+      // the user reported. Log so devs can diagnose; a toast surface is
+      // tracked separately.
+      console.error("create_workspace failed", err);
+    } finally {
+      creatingRef.current = false;
+      setIsCreating(false);
+    }
   };
 
   const onHome = () => selectWorkspace(null);
@@ -135,7 +161,7 @@ export function WorkspaceSidebar() {
             label="New workspace"
             shortcut="⌘⇧N"
             onClick={onCreate}
-            disabled={!activeProjectId}
+            disabled={!activeProjectId || isCreating}
           >
             <IconPlus />
           </IconButton>
