@@ -95,37 +95,6 @@
   border-radius: var(--radius-badge);
 }
 
-.home-a__steps {
-  list-style: none;
-  counter-reset: step;
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-}
-
-.home-a__steps > li {
-  counter-increment: step;
-  display: grid;
-  grid-template-columns: var(--space-4) 1fr;
-  align-items: baseline;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  color: var(--color-foreground);
-  font-size: var(--type-body-size);
-}
-
-.home-a__steps > li::before {
-  content: counter(step);
-  font-family: var(--type-family-mono);
-  font-size: var(--type-caption-size);
-  color: var(--color-muted);
-}
-
-.home-a__steps > li[data-done="true"] {
-  color: var(--color-muted);
-}
-
 .home-a__list {
   list-style: none;
   margin: 0;

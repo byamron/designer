@@ -86,14 +86,6 @@ export function HomeTabA({ project }: { project: Project }) {
           </Section>
         )}
 
-        <Section label="Near-term focus">
-          <ol className="home-a__steps">
-            <li data-done="true">Draft plan + reviewable artifacts</li>
-            <li data-done="true">Design exploration with variants</li>
-            <li>Implementation + audit-checked PR</li>
-          </ol>
-        </Section>
-
         <Section
           label="Active workspaces"
           trailing={<span className="home-a__count">{projectWorkspaces.length}</span>}
@@ -119,19 +111,6 @@ export function HomeTabA({ project }: { project: Project }) {
                 </span>
               </li>
             ))}
-          </ul>
-        </Section>
-
-        <Section label="Recent reports">
-          <ul className="home-a__list">
-            <li>
-              <span className="home-a__row-title">Monday recap</span>
-              <span className="home-a__row-meta">team-lead · 8:42</span>
-            </li>
-            <li>
-              <span className="home-a__row-title">Audit: scope on auth module</span>
-              <span className="home-a__row-meta">auditor · yesterday</span>
-            </li>
           </ul>
         </Section>
 
