@@ -81,6 +81,12 @@ id_type!(FrictionId, "frc");
 // and `FindingSignaled`; the learning-layer crate (`designer-learn`)
 // re-exports it via `Finding`'s `id` field.
 id_type!(FindingId, "fnd");
+// Phase 21.A1.2 — proposal identifier. A proposal is the user-facing
+// recommendation synthesized from one or more findings; see
+// `crate::proposal::Proposal`. Carried on
+// `EventPayload::ProposalEmitted`, `ProposalResolved`, and
+// `ProposalSignaled`.
+id_type!(ProposalId, "prp");
 
 /// A stream is the logical append-only log for a given aggregate. Every event
 /// belongs to exactly one stream; streams are replayed to build projections.

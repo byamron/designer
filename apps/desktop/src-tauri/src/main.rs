@@ -18,6 +18,7 @@ use designer_desktop::commands_local;
 use designer_desktop::commands_safety;
 use designer_desktop::core::AppCoreBoot;
 use designer_desktop::core_agents::{coalesce_window_from_env, spawn_message_coalescer};
+use designer_desktop::core_proposals::spawn_track_completed_subscriber;
 use designer_desktop::events::spawn_event_bridge;
 use designer_desktop::menu::{build_menu, MENU_ID_FEEDBACK, MENU_ID_NEW_PROJECT};
 use designer_desktop::settings::{ResolvedTheme, Settings};
@@ -169,7 +170,11 @@ fn main() {
             commands_git::cmd_request_merge,
             commands_git::cmd_start_track,
             commands_learn::cmd_list_findings,
+            commands_learn::cmd_list_proposals,
+            commands_learn::cmd_resolve_proposal,
+            #[allow(deprecated)]
             commands_learn::cmd_signal_finding,
+            commands_learn::cmd_signal_proposal,
             commands_local::cmd_audit_artifact,
             commands_local::cmd_recap_workspace,
             commands_safety::cmd_get_cost_chip_preference,
@@ -197,6 +202,14 @@ fn main() {
             // Message }` per (workspace, author_role) once idle. Window
             // overridable via `DESIGNER_MESSAGE_COALESCE_MS` for tests.
             spawn_message_coalescer(core.inner().clone(), coalesce_window_from_env());
+
+            // Phase 21.A1.2: subscribe to the event store for
+            // `TrackCompleted` events. Each one schedules a debounced
+            // proposal-synthesis pass for the track's project. Runs at
+            // boundaries (track-complete + first-view-of-day) so the
+            // user-facing surface refreshes between contexts, not
+            // mid-task.
+            spawn_track_completed_subscriber(core.inner().clone());
 
             Ok(())
         })

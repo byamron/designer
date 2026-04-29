@@ -376,11 +376,113 @@ pub async fn cmd_list_findings(
 
 /// Record the user's thumbs-up/down on a specific finding. Phase B's
 /// calibration loop reads them later; Phase A only records.
+///
+/// Soft-deprecated in Phase 21.A1.2 — calibration thumbs move to
+/// proposals via `cmd_signal_proposal`. Kept working during the
+/// transition window; the frontend rewrite stops calling it.
 pub async fn cmd_signal_finding(
     core: &Arc<AppCore>,
     req: SignalFindingRequest,
 ) -> Result<(), IpcError> {
     core.signal_finding(req.finding_id, req.signal)
+        .await
+        .map_err(IpcError::from)
+}
+
+// ---- Phase 21.A1.2 — proposals over findings ---------------------------
+
+/// List the proposals for `project_id`, joined with the latest
+/// resolution + calibration projections plus the source-finding
+/// evidence each one synthesizes from. The surface reads this for
+/// both the workspace-home open list (`status_filter: Open`) and the
+/// Settings archive (`status_filter: None`).
+pub async fn cmd_list_proposals(
+    core: &Arc<AppCore>,
+    req: designer_ipc::ListProposalsRequest,
+) -> Result<Vec<designer_ipc::ProposalDto>, IpcError> {
+    let project_id = req.project_id;
+    let (proposals, findings, signals, resolutions, finding_signals) = tokio::try_join!(
+        async {
+            core.list_proposals(project_id)
+                .await
+                .map_err(IpcError::from)
+        },
+        async { core.list_findings(project_id).await.map_err(IpcError::from) },
+        async { core.list_proposal_signals().await.map_err(IpcError::from) },
+        async { core.list_resolutions().await.map_err(IpcError::from) },
+        async { core.list_signals().await.map_err(IpcError::from) },
+    )?;
+
+    let findings_by_id: std::collections::HashMap<_, _> =
+        findings.into_iter().map(|f| (f.id, f)).collect();
+
+    let mut dtos = Vec::with_capacity(proposals.len());
+    for proposal in proposals {
+        let resolution = resolutions.get(&proposal.id).cloned();
+        let status = resolution
+            .as_ref()
+            .map(|r| r.status())
+            .unwrap_or(designer_core::ProposalStatus::Open);
+        if let Some(filter) = req.status_filter {
+            if status != filter {
+                continue;
+            }
+        }
+        let calibration =
+            signals
+                .get(&proposal.id)
+                .map(|(signal, ts)| designer_ipc::ProposalCalibration {
+                    signal: *signal,
+                    timestamp: designer_core::rfc3339(*ts),
+                });
+
+        let evidence: Vec<designer_ipc::FindingDto> = proposal
+            .source_findings
+            .iter()
+            .filter_map(|fid| findings_by_id.get(fid).cloned())
+            .map(|f| {
+                let calibration = finding_signals.get(&f.id).map(|(signal, ts)| {
+                    designer_ipc::FindingCalibration {
+                        signal: *signal,
+                        timestamp: designer_core::rfc3339(*ts),
+                    }
+                });
+                let mut dto = designer_ipc::FindingDto::from(f);
+                dto.calibration = calibration;
+                dto
+            })
+            .collect();
+
+        let mut dto = designer_ipc::ProposalDto::from(proposal);
+        dto.status = status;
+        dto.resolution = resolution;
+        dto.calibration = calibration;
+        dto.evidence = evidence;
+        dtos.push(dto);
+    }
+    Ok(dtos)
+}
+
+/// Persist the user's resolution (Accept / Edit / Dismiss / Snooze)
+/// on a proposal. Emits `ProposalResolved`; the projection collapses
+/// Edited into the same `Accepted` bucket for filter purposes.
+pub async fn cmd_resolve_proposal(
+    core: &Arc<AppCore>,
+    req: designer_ipc::ResolveProposalRequest,
+) -> Result<(), IpcError> {
+    core.resolve_proposal(req.proposal_id, req.resolution)
+        .await
+        .map_err(IpcError::from)
+}
+
+/// Record the user's thumbs-up/down on a specific proposal. Phase B's
+/// calibration loop reads them; Phase 21.A1.2 just persists the
+/// signal so the surface can render the calibrated badge.
+pub async fn cmd_signal_proposal(
+    core: &Arc<AppCore>,
+    req: designer_ipc::SignalProposalRequest,
+) -> Result<(), IpcError> {
+    core.signal_proposal(req.proposal_id, req.signal)
         .await
         .map_err(IpcError::from)
 }

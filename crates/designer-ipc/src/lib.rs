@@ -6,8 +6,9 @@
 
 use designer_core::{
     Anchor, Artifact, ArtifactId, ArtifactKind, Autonomy, Finding, FindingId, FrictionId,
-    PayloadRef, Project, ProjectId, Severity, TabTemplate, ThumbSignal, Track, TrackId, TrackState,
-    Workspace, WorkspaceId, WorkspaceState,
+    PayloadRef, Project, ProjectId, Proposal, ProposalId, ProposalKind, ProposalResolution,
+    ProposalStatus, Severity, TabTemplate, ThumbSignal, Track, TrackId, TrackState, Workspace,
+    WorkspaceId, WorkspaceState,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -656,4 +657,96 @@ impl From<Finding> for FindingDto {
 pub struct SignalFindingRequest {
     pub finding_id: FindingId,
     pub signal: ThumbSignal,
+}
+
+// ---- Phase 21.A1.2 — proposals over findings ---------------------------
+
+/// Latest persisted thumbs-up/down for a proposal, projected from the
+/// System stream's `ProposalSignaled` events. `None` when the user
+/// hasn't calibrated the proposal yet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProposalCalibration {
+    pub signal: ThumbSignal,
+    pub timestamp: String,
+}
+
+/// Wire shape for a proposal rendered on the workspace home and in
+/// the Settings → Activity → Designer noticed archive. Mirrors
+/// `designer_core::Proposal`; timestamp is RFC3339-stringified so
+/// the TS side gets a primitive, and the resolution + calibration
+/// projections are joined in for the renderer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProposalDto {
+    pub id: ProposalId,
+    pub project_id: ProjectId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<WorkspaceId>,
+    pub source_findings: Vec<FindingId>,
+    pub title: String,
+    pub summary: String,
+    pub severity: Severity,
+    pub kind: ProposalKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_diff: Option<String>,
+    pub created_at: String,
+    /// Open / Accepted / Dismissed / Snoozed — projected from the
+    /// latest `ProposalResolved` event for this id. `Open` when no
+    /// resolution event exists.
+    pub status: ProposalStatus,
+    /// The full resolution payload (carries the dismissal reason or
+    /// snooze deadline) if one exists. `None` for open proposals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<ProposalResolution>,
+    /// Present when the user has thumbed this proposal; the row
+    /// renders a `calibrated 👍/👎` badge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calibration: Option<ProposalCalibration>,
+    /// Source-finding evidence, attached so the surface can render
+    /// the "from N observations" disclosure inline without a second
+    /// IPC round-trip per row.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<FindingDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListProposalsRequest {
+    pub project_id: ProjectId,
+    /// `None` returns all proposals (any status). `Some(s)` filters to
+    /// the matching status only. The surface uses `Open` for the home
+    /// tab and the unfiltered call for the archive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_filter: Option<ProposalStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolveProposalRequest {
+    pub proposal_id: ProposalId,
+    pub resolution: ProposalResolution,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalProposalRequest {
+    pub proposal_id: ProposalId,
+    pub signal: ThumbSignal,
+}
+
+impl From<Proposal> for ProposalDto {
+    fn from(p: Proposal) -> Self {
+        ProposalDto {
+            id: p.id,
+            project_id: p.project_id,
+            workspace_id: p.workspace_id,
+            source_findings: p.source_findings,
+            title: p.title,
+            summary: p.summary,
+            severity: p.severity,
+            kind: p.kind,
+            suggested_diff: p.suggested_diff,
+            created_at: designer_core::rfc3339(p.created_at),
+            status: ProposalStatus::Open,
+            resolution: None,
+            calibration: None,
+            evidence: Vec::new(),
+        }
+    }
 }

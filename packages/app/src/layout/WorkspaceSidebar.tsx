@@ -28,10 +28,14 @@ export function WorkspaceSidebar() {
   const workspaces = useDataState<WorkspaceSummary[]>((s) =>
     activeProjectId ? s.workspaces[activeProjectId] ?? emptyArray() : emptyArray(),
   );
+  // Phase 21.A1.2 — badge counts proposals, not findings. Findings
+  // are scratch buffer state (continuous, evidence-shaped); proposals
+  // are the boundary-driven user-facing unit. Counting findings would
+  // make the badge increment per-event, against the boundary cadence.
   const noticedUnread = useDataState((s) =>
     s.events.reduce(
       (acc, e) =>
-        e.kind === EVENT_KIND.FINDING_RECORDED &&
+        e.kind === EVENT_KIND.PROPOSAL_EMITTED &&
         e.sequence > noticedLastViewedSeq
           ? acc + 1
           : acc,

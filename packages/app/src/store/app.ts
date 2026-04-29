@@ -92,15 +92,20 @@ export interface AppState {
   frictionMode: FrictionMode;
   frictionAnchor: Anchor | null;
   /**
-   * Phase 21.A1.1 — Designer noticed unread badge state.
+   * Phase 21.A1.2 — Designer noticed unread badge state.
    *
    * `noticedLastViewedSeq` is the highest event-stream sequence the
    * user has seen (set when the workspace home or the Settings
-   * archive is opened). `noticedUnreadCount` is derived in the UI
-   * from `events.filter(e => e.kind === "finding_recorded" &&
-   * e.sequence > noticedLastViewedSeq).length`. Stored as a sequence
-   * cursor (not a timestamp) so the read state survives clock skew
-   * and matches the same monotonic ordering the event store uses.
+   * archive is opened). The unread count is derived in the UI from
+   * `events.filter(e => e.kind === "proposal_emitted" &&
+   * e.sequence > noticedLastViewedSeq).length` — proposals, **not**
+   * findings. The 21.A1.1 model that counted `finding_recorded` is
+   * superseded: findings are scratch buffer state, not user-facing
+   * units, so they never increment the badge.
+   *
+   * Stored as a sequence cursor (not a timestamp) so the read state
+   * survives clock skew and matches the same monotonic ordering the
+   * event store uses.
    */
   noticedLastViewedSeq: number;
 }
@@ -297,7 +302,7 @@ export const clearFriction = () =>
       : { ...s, frictionMode: "off", frictionAnchor: null },
   );
 
-// ---- Phase 21.A1.1 Designer noticed unread badge ------------------------
+// ---- Phase 21.A1.2 Designer noticed unread badge ------------------------
 
 /**
  * Mark the noticed feed as viewed. Called when the user opens the

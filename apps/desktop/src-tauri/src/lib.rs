@@ -19,6 +19,7 @@ pub mod core_friction;
 pub mod core_git;
 pub mod core_learn;
 pub mod core_local;
+pub mod core_proposals;
 pub mod core_safety;
 pub mod crash;
 pub mod events;

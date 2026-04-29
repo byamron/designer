@@ -6,9 +6,10 @@ use crate::anchor::Anchor;
 use crate::domain::{Actor, ArtifactKind, Autonomy, PayloadRef, TabTemplate, WorkspaceState};
 use crate::finding::{Finding, ThumbSignal};
 use crate::ids::{
-    AgentId, ApprovalId, ArtifactId, EventId, FindingId, FrictionId, ProjectId, StreamId, TabId,
-    TaskId, TrackId, WorkspaceId,
+    AgentId, ApprovalId, ArtifactId, EventId, FindingId, FrictionId, ProjectId, ProposalId,
+    StreamId, TabId, TaskId, TrackId, WorkspaceId,
 };
+use crate::proposal::{Proposal, ProposalResolution};
 use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -317,6 +318,27 @@ pub enum EventPayload {
         finding_id: FindingId,
         signal: ThumbSignal,
     },
+
+    // Phase 21.A1.2 — proposals over findings (additive per the Lane 0
+    // ADR addendum 2026-04-26). A proposal is the user-facing
+    // recommendation synthesized from one or more findings; the
+    // synthesizer runs at boundaries (`TrackCompleted` + first
+    // workspace-home view of the day), never per event. See
+    // `apps/desktop/src-tauri/src/core_proposals.rs`.
+    ProposalEmitted {
+        proposal: Proposal,
+    },
+    ProposalResolved {
+        proposal_id: ProposalId,
+        resolution: ProposalResolution,
+    },
+    /// Calibration thumb on a proposal. Phase B reads these to retune
+    /// detector / synthesizer thresholds; Phase 21.A1.2 just persists
+    /// the signal so the surface can render the calibrated badge.
+    ProposalSignaled {
+        proposal_id: ProposalId,
+        signal: ThumbSignal,
+    },
 }
 
 /// Where a friction record's screenshot lives. `Local` is the only state
@@ -437,6 +459,9 @@ pub enum EventKind {
     FrictionResolved,
     FindingRecorded,
     FindingSignaled,
+    ProposalEmitted,
+    ProposalResolved,
+    ProposalSignaled,
 }
 
 impl EventPayload {
@@ -487,6 +512,9 @@ impl EventPayload {
             EventPayload::FrictionResolved { .. } => EventKind::FrictionResolved,
             EventPayload::FindingRecorded { .. } => EventKind::FindingRecorded,
             EventPayload::FindingSignaled { .. } => EventKind::FindingSignaled,
+            EventPayload::ProposalEmitted { .. } => EventKind::ProposalEmitted,
+            EventPayload::ProposalResolved { .. } => EventKind::ProposalResolved,
+            EventPayload::ProposalSignaled { .. } => EventKind::ProposalSignaled,
         }
     }
 }
@@ -698,5 +726,46 @@ mod tests {
         }
         assert_eq!(recorded.kind(), EventKind::FindingRecorded);
         assert_eq!(signaled.kind(), EventKind::FindingSignaled);
+    }
+
+    /// Phase 21.A1.2 — proposal events round-trip through serde and report
+    /// the right `EventKind`. Mirrors `finding_events_roundtrip_through_serde`
+    /// for the proposal-side payloads.
+    #[test]
+    fn proposal_events_roundtrip_through_serde() {
+        use crate::finding::Severity;
+        use crate::ids::ProposalId;
+        use crate::proposal::{Proposal, ProposalKind, ProposalResolution};
+        let proposal = Proposal {
+            id: ProposalId::new(),
+            project_id: ProjectId::new(),
+            workspace_id: None,
+            source_findings: vec![],
+            title: "Repeated correction".into(),
+            summary: "User corrected the same pattern 3x.".into(),
+            severity: Severity::Notice,
+            kind: ProposalKind::Hint,
+            suggested_diff: None,
+            created_at: Timestamp::UNIX_EPOCH,
+        };
+        let emitted = EventPayload::ProposalEmitted {
+            proposal: proposal.clone(),
+        };
+        let resolved = EventPayload::ProposalResolved {
+            proposal_id: proposal.id,
+            resolution: ProposalResolution::Accepted,
+        };
+        let signaled = EventPayload::ProposalSignaled {
+            proposal_id: proposal.id,
+            signal: ThumbSignal::Up,
+        };
+        for payload in [emitted.clone(), resolved.clone(), signaled.clone()] {
+            let json = serde_json::to_string(&payload).expect("serialize");
+            let back: EventPayload = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(payload, back, "round-trip mismatch for {json}");
+        }
+        assert_eq!(emitted.kind(), EventKind::ProposalEmitted);
+        assert_eq!(resolved.kind(), EventKind::ProposalResolved);
+        assert_eq!(signaled.kind(), EventKind::ProposalSignaled);
     }
 }

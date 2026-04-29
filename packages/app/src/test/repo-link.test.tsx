@@ -71,6 +71,9 @@ function makeClient() {
     revealInFinder: () => Promise.resolve(),
     listFindings: () => Promise.resolve([]),
     signalFinding: () => Promise.resolve(),
+    listProposals: () => Promise.resolve([]),
+    resolveProposal: () => Promise.resolve(),
+    signalProposal: () => Promise.resolve(),
   });
   const project = core.listProjects()[0];
   const workspace = core.listWorkspaces(project.project.id)[0];
