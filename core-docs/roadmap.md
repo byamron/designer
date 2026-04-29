@@ -1314,7 +1314,9 @@ FindingSignaled { finding_id: FindingId, signal: ThumbSignal }   // Up | Down �
 
 **Done when:** all ten Phase A detectors ship, the Settings → Activity → "Designer noticed" page renders findings, thumbs-up/down emits calibration events, and at least one Designer-unique detector (recommended: `approval_always_granted`) has fired against the user's real session data.
 
-### Phase 21.A1.1 — Workspace-home placement + architectural fixes *(post-21.A1 polish; ~1 day, one agent; Lane 1.5 Wave 1; lands before 21.A2)*
+### Phase 21.A1.1 — Workspace-home placement + architectural fixes *(shipped 2026-04-27, PR #37; the live-feed surface model is partially superseded by 21.A1.2 below — see callout)*
+
+> **Surface model superseded by Phase 21.A1.2 (2026-04-28 architecture review).** The live-feed-of-findings model below ("Designer noticed" updates per-event with thumbs on individual findings) is the wrong shape: it asks the user to grade evidence rather than recommendations and it competes for attention continuously. The detector + cap + dedup infrastructure stays. The user-facing surface — what gets shown, when, and what gets thumbed — is rebuilt in 21.A1.2 to be **proposals at boundaries** (track-complete + daily) rather than findings live. Read 21.A1.2 first; it overrides every "live feed" claim below.
 
 **Why:** the four-perspective review of PR #33 surfaced three gaps in 21.A1's landing. Land them before A2 ships ten detectors on top.
 
@@ -1358,6 +1360,71 @@ FindingSignaled { finding_id: FindingId, signal: ThumbSignal }   // Up | Down �
 - Findings carry a `calibrated` badge after thumbing.
 - A detector cannot flood the feed beyond its session cap; duplicate `window_digest` writes no-op.
 - A2 agents have explicit severity guidance in `CONTRIBUTING.md`.
+
+### Phase 21.A1.2 — Surface rework: proposals over findings, boundary-driven cadence *(architecture correction; ~2 days, one agent; lands in parallel with 21.A2)*
+
+**Why:** the 2026-04-28 architecture review surfaced two principle violations in the 21.A1.1 surface model. (1) Surfacing raw findings asks the user to grade *evidence*, which is engineering work — directly against the "Manager, not engineer" principle in CLAUDE.md. (2) Updating the surface per-event creates a continuous attention tax — directly against "Summarize by default, drill on demand." The fix is structural, not visual: detectors keep firing continuously (their output is genuinely cheap and streaming detection is more accurate than batch replay), but the user-facing surface only updates at natural boundaries, and what it shows is *proposals*, not findings.
+
+The detector code shipped in 21.A1 stays unchanged. The detector PRs landing in 21.A2 stay unchanged. What changes is downstream: where findings flow, when the surface refreshes, and what the user thumbs.
+
+#### Architecture
+
+**Findings become evidence, not artifacts.** Detectors continue to call `core_learn::report_finding`. The cap (`max_findings_per_session: 5`) and write-time dedup stay — same chokepoint, same protection. But the rationale shifts from "cap how many user-facing items appear" to "cap how many findings reach the scratch buffer." Findings are no longer rendered individually on any user-facing surface.
+
+**Scratch buffer.** Findings live in the existing event store (`FindingRecorded` events) but are read only by the synthesis pass. No UI subscribes to `FindingRecorded` directly. The "Designer noticed" sidebar badge stops counting `FindingRecorded` and starts counting unviewed *proposals*.
+
+**Proposals are the user-facing surface.** A proposal is what the user sees, accepts/edits/dismisses, and thumbs. Each proposal cites the findings that produced it as collapsible evidence underneath. Phase 21.A1.2 ships the proposal *surface* against a stub synthesizer (groups findings by `detector_name + workspace_id`, picks the highest-severity finding's summary as the proposal headline, attaches the rest as evidence). Real LLM synthesis lands in Phase B; the surface contract is forward-compatible.
+
+**Cadence: track-complete + daily, never per-event.** The synthesis pass runs at exactly two triggers:
+
+1. `TrackCompleted` event — natural "what did I learn from this work" moment; user is between contexts.
+2. First Designer launch each day OR first workspace-home view of the day, whichever fires first — catches anything that didn't tie cleanly to a track.
+
+Never mid-task. Never on a `MessagePosted` or `ToolUsed` event. The synthesis pass debounces 30s after the trigger to absorb burst events from a multi-step track close.
+
+#### Changes
+
+**Backend (`apps/desktop/src-tauri/src/core_learn.rs` + new `core_proposals.rs`)**
+- New `EventPayload::ProposalEmitted { proposal: Proposal }` and `ProposalResolved { proposal_id, resolution }` per the Lane 0 ADR (additive — no version bump).
+- New `Proposal` struct in `designer-core`: `{ id, source_findings: Vec<FindingId>, title, summary, severity, kind: ProposalKind, suggested_diff: Option<String>, created_at }`. `ProposalKind` enumerates the kinds from the §"Proposal kinds" table; Phase 21.A1.2 ships the enum but only the `Hint` variant (no auto-edits) is wired.
+- New `core_proposals::synthesize_pending(project_id)` that reads unprocessed `FindingRecorded` events, groups by `(detector_name, workspace_id, window_digest)`, emits one `ProposalEmitted` per group with the source-finding IDs attached. Idempotent — replays are safe.
+- New `core_proposals::on_track_completed(track_id)` and `core_proposals::on_first_view_of_day(project_id)` hook points; both call `synthesize_pending` after a 30s debounce.
+- The `report_finding` chokepoint stays exactly as shipped. The cap rationale comment shifts from "live feed protection" to "scratch buffer protection."
+
+**IPC (`crates/designer-ipc/src/lib.rs` + `commands_learn.rs`)**
+- New `cmd_list_proposals(project_id, status_filter) -> Vec<ProposalDto>` (status: open / accepted / dismissed / snoozed).
+- New `cmd_resolve_proposal(proposal_id, resolution: ProposalResolution)` — emits `ProposalResolved`.
+- `cmd_signal_finding` is **kept but soft-deprecated** — calibration thumbs move to proposals. Document the deprecation in the IPC; keep working for the existing 21.A1.1 surface during the transition.
+- New `cmd_signal_proposal(proposal_id, signal: ThumbSignal)` — Phase B will use this for calibration; Phase 21.A1.2 just persists the signal.
+
+**Frontend**
+- `packages/app/src/components/Workspace/DesignerNoticedHome.tsx` — rewrite to render *proposals*, not findings. Each row: severity dot, proposal title, "from N observations" disclosure (expandable evidence drawer with the source findings), Accept / Edit / Dismiss / Snooze actions, optional `calibrated 👍/👎` badge after thumbing.
+- Empty state copy updates: "Nothing to suggest yet — Designer reviews patterns when you finish a track or once per day." Removes the implication of continuous watching.
+- `packages/app/src/components/DesignerNoticed/DesignerNoticedPage.tsx` (Settings → Activity → Designer noticed) — same row-component reuse pattern. Settings becomes the proposal archive (all proposals across projects + statuses + filters); the *findings* archive sits behind a "Show evidence" disclosure on each proposal, not as its own list.
+- `packages/app/src/store/app.ts` — `noticedUnreadCount` derives from `ProposalEmitted` events since `noticedLastViewedSeq`, not `FindingRecorded`. Cleared on home/archive view.
+
+**Removed**
+- The per-event sidebar badge increment from 21.A1.1. Badge updates only on `ProposalEmitted`, which only fires at boundaries.
+- The standalone `<FindingRow />` user-facing component (kept internally as a sub-component of the evidence drawer; never rendered as a top-level row).
+
+#### Tests
+- Workspace home renders proposals (not findings); empty state copy passes accessibility audit.
+- Sidebar badge increments on `ProposalEmitted`, not on `FindingRecorded`. Verified by emitting 10 findings without a track-complete trigger and asserting badge stays at 0.
+- `synthesize_pending` is idempotent: running it twice with no new findings produces no duplicate proposals.
+- `on_track_completed` debounces — burst of 5 `FindingRecorded` within 10s of a `TrackCompleted` produces exactly one synthesis pass.
+- `on_first_view_of_day` fires once per calendar day per project; subsequent views in the same day no-op.
+- Calibration thumbs persist via `cmd_signal_proposal`; the deprecated `cmd_signal_finding` keeps working for the transition window.
+
+#### Done when
+- Detectors continue to fire on every event (unchanged), but the user never sees an individual finding rendered on the workspace home or in Settings as a top-level item.
+- "Designer noticed" updates at exactly two cadences: after a `TrackCompleted` event (debounced 30s) and on first workspace-home view of each calendar day. Nothing else triggers a refresh.
+- The unit a user thumbs is a **proposal** (a recommendation), not a finding (an observation). Findings are visible only as collapsed evidence under each proposal.
+- The cap and dedup logic from 21.A1.1 is preserved — runaway protection still works, just on the scratch buffer instead of on a live feed.
+- 21.A2 detectors (any that have shipped at the time 21.A1.2 lands) integrate transparently — no detector PR needs to be amended.
+
+#### Coordination with 21.A2
+- 21.A1.2 and 21.A2 land in parallel (different layers). Detector PRs continue to follow the original prompts; only the *summary copy* convention changes (write clinical evidence text, not user-facing prose — see updated CONTRIBUTING.md addendum below).
+- Append to `crates/designer-learn/CONTRIBUTING.md`: a "Summary copy" section explaining that detector summaries are evidence text rendered under proposals, not user-facing lines. Use passive voice, describe the pattern (not the user), no second-person address.
 
 ### Analysis inputs — what the layer reads
 
