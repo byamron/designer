@@ -1,100 +1,52 @@
 //! `cost_hot_streak` — Designer-unique detector.
 //!
 //! Catches a token-spend outlier on a recurring task class against the
-//! project's rolling baseline. Output kind (Phase B): `model-tier-suggestion`
-//! ("this class of task is expensive — consider a cheaper model").
+//! project's rolling baseline. Output kind (Phase B):
+//! `model-tier-suggestion` ("this class of task is expensive — consider
+//! a cheaper model").
 //!
-//! ## Why Designer-unique
-//!
-//! Forge has no analog: it never sees `CostRecorded` events. Designer owns
-//! the cost-tracker stream natively, so this detector always runs (no
-//! [`crate::FORGE_OVERLAP_DETECTORS`] entry).
+//! Forge has no analog — it never sees `CostRecorded` events. Designer
+//! owns the cost-tracker stream natively, so this detector always runs
+//! (no [`crate::FORGE_OVERLAP_DETECTORS`] entry).
 //!
 //! ## Algorithm
 //!
-//! Streaming pass over `input.events`:
-//!
-//! 1. For each [`EventPayload::CostRecorded`] event, derive its **task
-//!    class** from the sibling event surface (see below).
-//! 2. Compute the rolling p90 of `dollars_cents` over the
-//!    [`COST_HOT_STREAK_WINDOW`]-bounded prior window (nearest-rank).
-//! 3. Emit a [`Finding`] when **all** of the following hold:
-//!    - the window has at least [`COST_HOT_STREAK_MIN_BASELINE`] entries
-//!      (otherwise the p90 is meaningless);
-//!    - the same task class has appeared at least
-//!      [`COST_HOT_STREAK_MIN_CLASS_OCCURRENCES`] times in the window
-//!      (otherwise this is a one-off, not a hot streak);
-//!    - the new cost exceeds [`COST_HOT_STREAK_RATIO`] × p90.
-//! 4. Push the new event into the rolling window, evicting the oldest
-//!    entry when the cap is hit. State is bounded by `COST_HOT_STREAK_WINDOW`
-//!    entries; nothing else is retained across iterations.
+//! Streaming pass over `input.events` with a bounded rolling window
+//! capped at [`COST_HOT_STREAK_WINDOW`] entries. For each
+//! [`EventPayload::CostRecorded`] event, derive its task class, compute
+//! rolling p90 (nearest-rank), and emit a [`Finding`] when **all** of:
+//! the window has at least [`COST_HOT_STREAK_MIN_BASELINE`] entries; the
+//! same class has appeared at least
+//! [`COST_HOT_STREAK_MIN_CLASS_OCCURRENCES`] times in the window; and the
+//! new cost exceeds [`COST_HOT_STREAK_RATIO`] × p90.
 //!
 //! ## Task class
 //!
-//! "Task class" is a deterministic two-tuple derived from the most recent
-//! [`EventPayload::MessagePosted`] preceding the `CostRecorded` event:
+//! A two-tuple of [`BodyTier`] × [`ToolTier`] derived from the most
+//! recent [`EventPayload::MessagePosted`] preceding the `CostRecorded`,
+//! within [`CLASSIFY_LOOKBACK_LIMIT`] events. Costs without a preceding
+//! message are uncategorized — they still feed the rolling baseline but
+//! never trigger.
 //!
-//! - **Body length tier** of that message body, in `chars()`:
-//!   `short` (<200), `medium` (200–1000), `long` (>1000).
-//! - **Tool-churn tier** = number of intermediate non-cost, non-message
-//!   events between that message and this `CostRecorded`:
-//!   `low` (0–2), `medium` (3–7), `high` (8+).
-//!
-//! Encoded as `<body_tier>:<tool_tier>` (e.g., `long:medium`). The
-//! tool-churn tier is a proxy for the "tool_use count tier" called out in
-//! the roadmap: typed tool-call events don't yet have an
-//! [`EventPayload`] variant (see `session_input.rs` module note), so this
-//! detector counts intermediate non-cost, non-message events — bash and
-//! file edits show up here once the typed events land. The detector's
-//! [`CostHotStreakDetector::VERSION`] will bump when that happens; old
-//! findings stay attached to the prior version per CONTRIBUTING §3.
-//!
-//! Lookback for the preceding `MessagePosted` is capped at
-//! [`CLASSIFY_LOOKBACK_LIMIT`] events to keep classification O(1)
-//! per event in the worst case. A `CostRecorded` with no
-//! `MessagePosted` in that window is tagged `unclassified` — it still
-//! contributes to the rolling baseline but is never the trigger.
-//!
-//! ## Severity
-//!
-//! [`Severity::Info`]. Model-tier hints are informational, not
-//! safety-perimeter signal — per CONTRIBUTING §"Severity calibration".
-//!
-//! ## Confidence
-//!
-//! Linear in `cost / p90` ratio above the trigger threshold, clamped to
-//! `[0.4, 0.8]`. Ratio of 1.5 (the trigger floor) → 0.4. Ratio of 3.0+ → 0.8.
+//! Tool-churn is a proxy for the "tool_use count tier" called out in the
+//! roadmap: typed tool-call events don't yet have an [`EventPayload`]
+//! variant (see `session_input.rs` module note), so this detector counts
+//! intermediate non-cost, non-message events. The detector's
+//! [`CostHotStreakDetector::VERSION`] bumps when typed tool events land;
+//! old findings stay attached to the prior version per CONTRIBUTING §3.
 
 use crate::{Detector, DetectorConfig, DetectorError, SessionAnalysisInput};
 use async_trait::async_trait;
 use designer_core::{Anchor, EventEnvelope, EventPayload, Finding, FindingId, Severity};
 use std::collections::VecDeque;
+use std::fmt;
 
-/// Hard cap on the rolling window. State stays bounded regardless of
-/// how many events are streamed through.
-pub const COST_HOT_STREAK_WINDOW: usize = 50;
+pub(crate) const COST_HOT_STREAK_WINDOW: usize = 50;
+pub(crate) const COST_HOT_STREAK_MIN_BASELINE: usize = 10;
+pub(crate) const COST_HOT_STREAK_MIN_CLASS_OCCURRENCES: usize = 3;
+pub(crate) const COST_HOT_STREAK_RATIO: f64 = 1.5;
+pub(crate) const CLASSIFY_LOOKBACK_LIMIT: usize = 100;
 
-/// Minimum entries in the rolling window before any emission.
-/// Below this, the p90 is dominated by the first few samples and
-/// flagging is noise.
-pub const COST_HOT_STREAK_MIN_BASELINE: usize = 10;
-
-/// Minimum prior occurrences of the same task class in the window
-/// before the detector treats it as recurring.
-pub const COST_HOT_STREAK_MIN_CLASS_OCCURRENCES: usize = 3;
-
-/// Trigger ratio over rolling p90.
-pub const COST_HOT_STREAK_RATIO: f64 = 1.5;
-
-/// Maximum events the classifier walks back to find a preceding
-/// `MessagePosted`. Caps worst-case O(N) classification at O(K) per
-/// `CostRecorded`.
-pub const CLASSIFY_LOOKBACK_LIMIT: usize = 100;
-
-const CLASS_UNCLASSIFIED: &str = "unclassified";
-
-/// The detector itself. Stateless across `analyze` calls — the rolling
-/// window is local to each invocation, scoped to `input.events`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CostHotStreakDetector;
 
@@ -103,36 +55,82 @@ impl CostHotStreakDetector {
     pub const VERSION: u32 = 1;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyTier {
+    Short,  // <200 chars
+    Medium, // 200..=1000 chars
+    Long,   // >1000 chars
+}
+
+impl BodyTier {
+    fn from_chars(n: usize) -> Self {
+        if n < 200 {
+            Self::Short
+        } else if n <= 1000 {
+            Self::Medium
+        } else {
+            Self::Long
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Short => "short",
+            Self::Medium => "medium",
+            Self::Long => "long",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolTier {
+    Low,    // 0..=2 intermediate events
+    Medium, // 3..=7
+    High,   // 8+
+}
+
+impl ToolTier {
+    fn from_count(churn: usize) -> Self {
+        if churn <= 2 {
+            Self::Low
+        } else if churn <= 7 {
+            Self::Medium
+        } else {
+            Self::High
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TaskClass {
+    body: BodyTier,
+    tool: ToolTier,
+}
+
+impl fmt::Display for TaskClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.body.as_str(), self.tool.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 struct WindowEntry {
     cents: u64,
-    class: String,
+    class: Option<TaskClass>,
 }
 
-fn body_tier(char_len: usize) -> &'static str {
-    if char_len < 200 {
-        "short"
-    } else if char_len <= 1000 {
-        "medium"
-    } else {
-        "long"
-    }
-}
-
-fn tool_tier(churn: usize) -> &'static str {
-    if churn <= 2 {
-        "low"
-    } else if churn <= 7 {
-        "medium"
-    } else {
-        "high"
-    }
-}
-
-/// Walk backwards from `idx` looking for the most recent `MessagePosted`.
-/// Returns the task class, or `None` when no preceding message exists
-/// within `CLASSIFY_LOOKBACK_LIMIT` events.
-fn classify_at(events: &[EventEnvelope], idx: usize) -> Option<String> {
+/// Walk backwards from `idx` looking for the most recent `MessagePosted`
+/// within the lookback budget. `None` when no preceding message exists
+/// in the window.
+fn classify_at(events: &[EventEnvelope], idx: usize) -> Option<TaskClass> {
     let mut churn = 0usize;
     let mut steps = 0usize;
     let mut i = idx;
@@ -141,13 +139,14 @@ fn classify_at(events: &[EventEnvelope], idx: usize) -> Option<String> {
         steps += 1;
         match &events[i].payload {
             EventPayload::MessagePosted { body, .. } => {
-                let body_t = body_tier(body.chars().count());
-                let tool_t = tool_tier(churn);
-                return Some(format!("{}:{}", body_t, tool_t));
+                return Some(TaskClass {
+                    body: BodyTier::from_chars(body.chars().count()),
+                    tool: ToolTier::from_count(churn),
+                });
             }
-            // CostRecorded events don't count toward churn (they're
-            // observations, not work) and don't act as a boundary —
-            // multiple costs may share one task class.
+            // CostRecorded events are observations, not work — neither a
+            // boundary nor part of the churn count, so multiple costs may
+            // share a single task class.
             EventPayload::CostRecorded { .. } => {}
             _ => churn += 1,
         }
@@ -174,6 +173,96 @@ fn confidence_for_ratio(ratio: f64) -> f32 {
     raw.clamp(0.4, 0.8) as f32
 }
 
+fn class_count(window: &VecDeque<WindowEntry>, class: TaskClass) -> usize {
+    window.iter().filter(|e| e.class == Some(class)).count()
+}
+
+fn build_finding(
+    input: &SessionAnalysisInput,
+    env: &EventEnvelope,
+    cents: u64,
+    class: TaskClass,
+    p90: f64,
+    window_len: usize,
+    severity: Severity,
+) -> Finding {
+    let cost = cents as f64;
+    let ratio = cost / p90;
+    let summary = format!(
+        "Task class '{}' cost ${:.2}, {:.1}× rolling p90 of ${:.2} over last {} events",
+        class,
+        cost / 100.0,
+        ratio,
+        p90 / 100.0,
+        window_len,
+    );
+
+    let trigger_key = format!("trigger:{}", env.id);
+    let class_key = format!("class:{}", class);
+    let p90_key = format!("p90_cents:{}", p90 as u64);
+    let cost_key = format!("cost_cents:{}", cents);
+    let digest_keys = [
+        trigger_key.as_str(),
+        class_key.as_str(),
+        p90_key.as_str(),
+        cost_key.as_str(),
+    ];
+
+    Finding {
+        id: FindingId::new(),
+        detector_name: CostHotStreakDetector::NAME.to_string(),
+        detector_version: CostHotStreakDetector::VERSION,
+        project_id: input.project_id,
+        workspace_id: input.workspace_id,
+        timestamp: env.timestamp,
+        severity,
+        confidence: confidence_for_ratio(ratio),
+        summary,
+        // `Anchor::ToolCall` is the closest fit per CONTRIBUTING — there
+        // is no generic "event in stream" variant, and adding one is an
+        // ADR-level decision. The renderer reads `tool_name` as a label.
+        evidence: vec![Anchor::ToolCall {
+            event_id: env.id.to_string(),
+            tool_name: "cost_recorded".into(),
+        }],
+        suggested_action: None,
+        window_digest: crate::window_digest(CostHotStreakDetector::NAME, &digest_keys),
+    }
+}
+
+/// Returns `Some(Finding)` when the new cost trips every gate, else
+/// `None`. Pure read of the existing window — caller pushes the new
+/// entry afterwards regardless.
+fn try_emit(
+    input: &SessionAnalysisInput,
+    env: &EventEnvelope,
+    cents: u64,
+    class: Option<TaskClass>,
+    window: &VecDeque<WindowEntry>,
+    severity: Severity,
+) -> Option<Finding> {
+    let class = class?;
+    if window.len() < COST_HOT_STREAK_MIN_BASELINE {
+        return None;
+    }
+    if class_count(window, class) < COST_HOT_STREAK_MIN_CLASS_OCCURRENCES {
+        return None;
+    }
+    let p90 = p90_cents(window)?;
+    if p90 <= 0.0 || (cents as f64) <= COST_HOT_STREAK_RATIO * p90 {
+        return None;
+    }
+    Some(build_finding(
+        input,
+        env,
+        cents,
+        class,
+        p90,
+        window.len(),
+        severity,
+    ))
+}
+
 fn run(
     input: &SessionAnalysisInput,
     config: &DetectorConfig,
@@ -182,6 +271,7 @@ fn run(
         return Ok(Vec::new());
     }
 
+    let severity = config.impact_override.unwrap_or(Severity::Info);
     let mut window: VecDeque<WindowEntry> = VecDeque::with_capacity(COST_HOT_STREAK_WINDOW);
     let mut findings: Vec<Finding> = Vec::new();
 
@@ -189,76 +279,17 @@ fn run(
         let EventPayload::CostRecorded { dollars_cents, .. } = &env.payload else {
             continue;
         };
+        let cents = *dollars_cents;
+        let class = classify_at(&input.events, idx);
 
-        let class =
-            classify_at(&input.events, idx).unwrap_or_else(|| CLASS_UNCLASSIFIED.to_string());
-        let is_classified = class != CLASS_UNCLASSIFIED;
-
-        if is_classified && window.len() >= COST_HOT_STREAK_MIN_BASELINE {
-            let class_count = window.iter().filter(|e| e.class == class).count();
-            if class_count >= COST_HOT_STREAK_MIN_CLASS_OCCURRENCES {
-                if let Some(p90) = p90_cents(&window) {
-                    let cost = *dollars_cents as f64;
-                    if p90 > 0.0 && cost > COST_HOT_STREAK_RATIO * p90 {
-                        let ratio = cost / p90;
-                        let confidence = confidence_for_ratio(ratio);
-                        let summary = format!(
-                            "Task class '{}' cost ${:.2}, {:.1}× rolling p90 of ${:.2} over last {} events",
-                            class,
-                            cost / 100.0,
-                            ratio,
-                            p90 / 100.0,
-                            window.len(),
-                        );
-
-                        let trigger_key = format!("trigger:{}", env.id);
-                        let class_key = format!("class:{}", class);
-                        let p90_key = format!("p90_cents:{}", p90 as u64);
-                        let cost_key = format!("cost_cents:{}", *dollars_cents);
-                        let digest_keys = [
-                            trigger_key.as_str(),
-                            class_key.as_str(),
-                            p90_key.as_str(),
-                            cost_key.as_str(),
-                        ];
-                        let window_digest =
-                            crate::window_digest(CostHotStreakDetector::NAME, &digest_keys);
-
-                        let evidence = vec![Anchor::ToolCall {
-                            event_id: env.id.to_string(),
-                            tool_name: "cost_recorded".into(),
-                        }];
-
-                        let severity = config.impact_override.unwrap_or(Severity::Info);
-
-                        findings.push(Finding {
-                            id: FindingId::new(),
-                            detector_name: CostHotStreakDetector::NAME.to_string(),
-                            detector_version: CostHotStreakDetector::VERSION,
-                            project_id: input.project_id,
-                            workspace_id: input.workspace_id,
-                            timestamp: env.timestamp,
-                            severity,
-                            confidence,
-                            summary,
-                            evidence,
-                            suggested_action: None,
-                            window_digest,
-                        });
-                    }
-                }
-            }
+        if let Some(finding) = try_emit(input, env, cents, class, &window, severity) {
+            findings.push(finding);
         }
 
-        // Always push: classified or not, the cost contributes to the
-        // baseline. Window stays bounded by `COST_HOT_STREAK_WINDOW`.
         if window.len() >= COST_HOT_STREAK_WINDOW {
             window.pop_front();
         }
-        window.push_back(WindowEntry {
-            cents: *dollars_cents,
-            class,
-        });
+        window.push_back(WindowEntry { cents, class });
     }
 
     Ok(findings)
@@ -342,28 +373,40 @@ mod tests {
 
     #[test]
     fn body_tier_buckets() {
-        assert_eq!(body_tier(0), "short");
-        assert_eq!(body_tier(199), "short");
-        assert_eq!(body_tier(200), "medium");
-        assert_eq!(body_tier(1000), "medium");
-        assert_eq!(body_tier(1001), "long");
+        assert_eq!(BodyTier::from_chars(0), BodyTier::Short);
+        assert_eq!(BodyTier::from_chars(199), BodyTier::Short);
+        assert_eq!(BodyTier::from_chars(200), BodyTier::Medium);
+        assert_eq!(BodyTier::from_chars(1000), BodyTier::Medium);
+        assert_eq!(BodyTier::from_chars(1001), BodyTier::Long);
     }
 
     #[test]
     fn tool_tier_buckets() {
-        assert_eq!(tool_tier(0), "low");
-        assert_eq!(tool_tier(2), "low");
-        assert_eq!(tool_tier(3), "medium");
-        assert_eq!(tool_tier(7), "medium");
-        assert_eq!(tool_tier(8), "high");
+        assert_eq!(ToolTier::from_count(0), ToolTier::Low);
+        assert_eq!(ToolTier::from_count(2), ToolTier::Low);
+        assert_eq!(ToolTier::from_count(3), ToolTier::Medium);
+        assert_eq!(ToolTier::from_count(7), ToolTier::Medium);
+        assert_eq!(ToolTier::from_count(8), ToolTier::High);
+    }
+
+    #[test]
+    fn task_class_displays_as_body_colon_tool() {
+        let c = TaskClass {
+            body: BodyTier::Long,
+            tool: ToolTier::Low,
+        };
+        assert_eq!(c.to_string(), "long:low");
     }
 
     #[test]
     fn confidence_clamps_to_band() {
         assert!((confidence_for_ratio(1.5) - 0.4).abs() < 1e-6);
         assert!((confidence_for_ratio(3.0) - 0.8).abs() < 1e-6);
-        assert!((confidence_for_ratio(10.0) - 0.8).abs() < 1e-6); // clamp
-        assert!((confidence_for_ratio(1.0) - 0.4).abs() < 1e-6); // floor (below threshold but called anyway)
+        // ratio above the upper end clamps to 0.8.
+        assert!((confidence_for_ratio(10.0) - 0.8).abs() < 1e-6);
+        // ratio below the trigger floor clamps to 0.4 (defensive — `try_emit`
+        // never calls into here for sub-threshold ratios).
+        assert!((confidence_for_ratio(1.0) - 0.4).abs() < 1e-6);
     }
 
     #[test]
@@ -372,7 +415,7 @@ mod tests {
         for c in 1..=10u64 {
             win.push_back(WindowEntry {
                 cents: c,
-                class: "x".into(),
+                class: None,
             });
         }
         // ceil(0.9 * 10) - 1 = 8 → 9th-smallest = 9.
@@ -384,7 +427,6 @@ mod tests {
         let project = ProjectId::new();
         let ws = WorkspaceId::new();
         let mut events = Vec::new();
-        // 5 (message, cost) pairs — below MIN_BASELINE.
         for i in 0..5 {
             events.push(message(i * 2 + 1, ws, 1500));
             events.push(cost(i * 2 + 2, ws, 100));
@@ -401,7 +443,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn classify_handles_no_preceding_message() {
+    async fn unclassified_cost_never_triggers() {
         let project = ProjectId::new();
         let ws = WorkspaceId::new();
         // Cost with no preceding MessagePosted at all.
@@ -439,13 +481,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rolling_window_stays_bounded() {
+    async fn analyze_does_not_panic_past_window_cap() {
+        // Eviction-path smoke test — the detector's deque is private,
+        // so we just push more events than the cap and check the run
+        // completes cleanly.
         let project = ProjectId::new();
         let ws = WorkspaceId::new();
         let mut events = Vec::new();
-        // Push more events than the window cap; the detector must not
-        // grow state past COST_HOT_STREAK_WINDOW. We can't observe the
-        // deque directly, so this just exercises the eviction path.
         let n = COST_HOT_STREAK_WINDOW + 20;
         let mut seq = 0u64;
         for _ in 0..n {

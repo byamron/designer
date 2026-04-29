@@ -169,23 +169,17 @@ fn fixture_dir(name: &str) -> PathBuf {
 
 fn load_input(name: &str) -> Vec<EventEnvelope> {
     let path = fixture_dir(name).join("input.jsonl");
-    let raw =
-        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    let raw = fs::read_to_string(&path).expect("read input.jsonl");
     raw.lines()
         .filter(|l| !l.trim().is_empty())
-        .map(|line| {
-            serde_json::from_str::<EventEnvelope>(line)
-                .unwrap_or_else(|err| panic!("parse line `{line}`: {err}"))
-        })
+        .map(|line| serde_json::from_str::<EventEnvelope>(line).expect("parse envelope line"))
         .collect()
 }
 
 fn load_expected(name: &str) -> Vec<serde_json::Value> {
     let path = fixture_dir(name).join("expected.json");
-    let raw =
-        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
-    let parsed: ExpectedFile =
-        serde_json::from_str(&raw).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()));
+    let raw = fs::read_to_string(&path).expect("read expected.json");
+    let parsed: ExpectedFile = serde_json::from_str(&raw).expect("parse expected.json");
     parsed.findings
 }
 
@@ -206,24 +200,35 @@ async fn run_detector(input: &SessionAnalysisInput) -> Vec<designer_core::Findin
     findings
 }
 
-#[tokio::test]
-async fn trigger_fixture_emits_one_finding() {
-    let on_disk = load_input("cost_hot_streak");
-    let programmatic = fixture_data::trigger_events();
+/// Loads the on-disk fixture, asserts parity with the programmatic
+/// builder, runs the detector, and returns the findings + the expected
+/// count from `expected.json`. Each fixture test then asserts whatever
+/// detector-stable fields it cares about.
+async fn run_fixture(
+    name: &str,
+    expected_events: Vec<EventEnvelope>,
+) -> (Vec<designer_core::Finding>, usize) {
+    let on_disk = load_input(name);
     assert_eq!(
-        on_disk, programmatic,
-        "fixture out of date — run with `--ignored regenerate_fixtures`"
+        on_disk, expected_events,
+        "{name} fixture out of date — run with `--ignored regenerate_fixtures`"
     );
-    let expected = load_expected("cost_hot_streak");
-
+    let expected_count = load_expected(name).len();
     let input = build_input(on_disk);
     let findings = run_detector(&input).await;
-
     assert_eq!(
         findings.len(),
-        expected.len(),
-        "fixture-asserted finding count"
+        expected_count,
+        "{name}: detector emitted {} findings, expected.json has {}",
+        findings.len(),
+        expected_count,
     );
+    (findings, expected_count)
+}
+
+#[tokio::test]
+async fn trigger_fixture_emits_one_finding() {
+    let (findings, _) = run_fixture("cost_hot_streak", fixture_data::trigger_events()).await;
     assert_eq!(findings.len(), 1);
 
     let f = &findings[0];
@@ -241,52 +246,32 @@ async fn trigger_fixture_emits_one_finding() {
         "summary {} chars > 100",
         f.summary.len()
     );
-    assert!(f.confidence >= 0.4 && f.confidence <= 0.8);
+    assert!((0.4..=0.8).contains(&f.confidence));
 }
 
 #[tokio::test]
 async fn one_off_fixture_does_not_fire() {
-    let on_disk = load_input("cost_hot_streak_one_off");
-    let programmatic = fixture_data::one_off_events();
-    assert_eq!(
-        on_disk, programmatic,
-        "fixture out of date — run with `--ignored regenerate_fixtures`"
-    );
-    let expected = load_expected("cost_hot_streak_one_off");
-    assert!(expected.is_empty());
-
-    let input = build_input(on_disk);
-    let findings = run_detector(&input).await;
-    assert!(
-        findings.is_empty(),
-        "outlier on a never-seen task class is not a hot streak: {findings:?}"
-    );
+    let (findings, expected) =
+        run_fixture("cost_hot_streak_one_off", fixture_data::one_off_events()).await;
+    assert_eq!(expected, 0);
+    assert!(findings.is_empty());
 }
 
 #[tokio::test]
 async fn even_spend_fixture_does_not_fire() {
-    let on_disk = load_input("cost_hot_streak_even_spend");
-    let programmatic = fixture_data::even_spend_events();
-    assert_eq!(
-        on_disk, programmatic,
-        "fixture out of date — run with `--ignored regenerate_fixtures`"
-    );
-    let expected = load_expected("cost_hot_streak_even_spend");
-    assert!(expected.is_empty());
-
-    let input = build_input(on_disk);
-    let findings = run_detector(&input).await;
-    assert!(
-        findings.is_empty(),
-        "even spend across classes is not an outlier: {findings:?}"
-    );
+    let (findings, expected) = run_fixture(
+        "cost_hot_streak_even_spend",
+        fixture_data::even_spend_events(),
+    )
+    .await;
+    assert_eq!(expected, 0);
+    assert!(findings.is_empty());
 }
 
 /// Writes the canonical JSONL + expected.json files for the three
 /// fixtures from `fixture_data`. Run with
 /// `cargo test -p designer-learn --test cost_hot_streak -- \
-///   --ignored regenerate_fixtures` whenever the envelope shape
-/// changes.
+///   --ignored regenerate_fixtures` whenever the envelope shape changes.
 #[tokio::test]
 #[ignore = "writes fixture files; regenerate manually and commit"]
 async fn regenerate_fixtures() {
@@ -303,7 +288,6 @@ async fn write_fixture(name: &str, events: Vec<EventEnvelope>) {
     let dir = fixture_dir(name);
     fs::create_dir_all(&dir).expect("mkdir fixture dir");
 
-    // input.jsonl
     let mut jsonl = String::new();
     for env in &events {
         jsonl.push_str(&serde_json::to_string(env).expect("serialize envelope"));
@@ -311,15 +295,27 @@ async fn write_fixture(name: &str, events: Vec<EventEnvelope>) {
     }
     fs::write(dir.join("input.jsonl"), jsonl).expect("write input.jsonl");
 
-    // expected.json
     let input = build_input(events);
     let findings = run_detector(&input).await;
-    let body = serde_json::json!({
-        "findings": findings.iter().map(|f| serde_json::to_value(f).unwrap()).collect::<Vec<_>>(),
-    });
+    let stable: Vec<serde_json::Value> = findings.iter().map(stable_finding_view).collect();
+    let body = serde_json::json!({ "findings": stable });
     fs::write(
         dir.join("expected.json"),
         serde_json::to_string_pretty(&body).expect("serialize expected"),
     )
     .expect("write expected.json");
+}
+
+/// Strips volatile fields (`id`, `timestamp`, `window_digest`) from a
+/// Finding's serde-value form. Volatile fields rot between regenerations
+/// — the disk fixture stays useful as documentation only when it pins
+/// the stable detector-output surface.
+fn stable_finding_view(f: &designer_core::Finding) -> serde_json::Value {
+    let mut v = serde_json::to_value(f).expect("serialize finding");
+    if let Some(obj) = v.as_object_mut() {
+        for k in ["id", "timestamp", "window_digest"] {
+            obj.remove(k);
+        }
+    }
+    v
 }
