@@ -37,3 +37,4 @@ tokio = { workspace = true, features = ["time", "macros"] }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "test-util"] }
 tempfile.workspace = true
+uuid = { workspace = true, features = ["v4", "serde"] }
