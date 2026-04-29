@@ -1,0 +1,55 @@
+{
+  "findings": [
+    {
+      "confidence": 0.5,
+      "detector_name": "repeated_correction",
+      "detector_version": 1,
+      "evidence": [
+        {
+          "charRange": [
+            0,
+            9
+          ],
+          "kind": "message-span",
+          "messageId": "evt_019dd6f4-0f83-7333-9b6d-39fb46d15f24",
+          "quote": "Don't use moment.js — pick date-fns instead."
+        },
+        {
+          "charRange": [
+            7,
+            16
+          ],
+          "kind": "message-span",
+          "messageId": "evt_019dd6f4-0f83-7333-9b6d-3a1978861815",
+          "quote": "don't use moment.js, that bundles 70KB into the client."
+        },
+        {
+          "charRange": [
+            0,
+            9
+          ],
+          "kind": "message-span",
+          "messageId": "evt_019dd6f4-0f83-7333-9b6d-3a2fa72e10ad",
+          "quote": "don't use moment.js anywhere in this repo."
+        }
+      ],
+      "id": "019dd6f4-0f83-7333-9b6d-3a789f3fc4b6",
+      "project_id": "019dd6f4-0f83-7333-9b6d-3a5073ac5753",
+      "severity": "notice",
+      "summary": "Same correction phrasing observed 3× across 2 sessions",
+      "timestamp": [
+        2026,
+        119,
+        1,
+        56,
+        52,
+        227991000,
+        0,
+        0,
+        0
+      ],
+      "window_digest": "af90acad0f95702c4ac009109a234152dc9645f62988e98a0d126334eb67f6b1",
+      "workspace_id": null
+    }
+  ]
+}

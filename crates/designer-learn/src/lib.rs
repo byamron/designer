@@ -36,8 +36,11 @@
 //! a *list*, not a global, so detectors can be unit-tested in isolation).
 
 pub mod defaults;
+pub mod detectors;
 pub mod example_detector;
 pub mod session_input;
+
+pub use detectors::repeated_correction::RepeatedCorrectionDetector;
 
 pub use designer_core::{Anchor, Finding, FindingId, Severity, ThumbSignal};
 pub use session_input::{
