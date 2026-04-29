@@ -7,7 +7,7 @@
 //! (`id`, `timestamp`, `evidence` event ids, `window_digest`) aren't
 //! asserted; the harness mirrors the example detector's pattern.
 
-use designer_core::{EventEnvelope, ProjectId};
+use designer_core::{EventEnvelope, ProjectId, Severity};
 use designer_learn::{
     defaults::SCOPE_FALSE_POSITIVE_DEFAULTS, detectors::ScopeFalsePositiveDetector, Detector,
     Finding, SessionAnalysisInput,
@@ -24,7 +24,7 @@ struct ExpectedFile {
 struct ExpectedFinding {
     detector_name: String,
     detector_version: u32,
-    severity: String,
+    severity: Severity,
     summary: String,
 }
 
@@ -90,14 +90,9 @@ async fn fires_on_three_denials_followed_by_overrides() {
     for (got, want) in findings.iter().zip(expected.iter()) {
         assert_eq!(got.detector_name, want.detector_name);
         assert_eq!(got.detector_version, want.detector_version);
-        let severity_str = serde_json::to_string(&got.severity)
-            .unwrap()
-            .trim_matches('"')
-            .to_string();
-        assert_eq!(severity_str, want.severity);
+        assert_eq!(got.severity, want.severity);
         assert_eq!(got.summary, want.summary);
-        // Summary-copy convention: passive voice, ≤100 chars, no
-        // second-person address.
+        // Pin the "Summary copy" convention from CONTRIBUTING §"Summary copy".
         assert!(
             got.summary.chars().count() <= 100,
             "summary >100 chars: {}",

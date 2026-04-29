@@ -11,10 +11,22 @@
 //! user, and stays under ~100 chars. Phase B's synthesis pass turns the
 //! observation into the user-facing recommendation; this detector only
 //! produces clean evidence under a `scope-rule-relaxation` proposal.
+//!
+//! ## Threshold scope
+//!
+//! Reads `config.min_occurrences` (default 3 per
+//! [`crate::defaults::SCOPE_FALSE_POSITIVE_DEFAULTS`]). The companion
+//! `config.min_sessions` knob is **not** consumed in Phase A — the
+//! `SessionAnalysisInput` bundle does not yet expose per-session
+//! boundaries, and the default ships with `min_sessions: 1` so the
+//! observable behavior matches the configured policy. If the bundle
+//! gains a session-split view, bump `VERSION` and start filtering on it.
 
 use crate::{window_digest, Detector, DetectorConfig, DetectorError, SessionAnalysisInput};
 use async_trait::async_trait;
-use designer_core::{Anchor, EventPayload, Finding, FindingId, Severity, Timestamp};
+use designer_core::{
+    Anchor, ApprovalId, EventId, EventPayload, Finding, FindingId, Severity, Timestamp,
+};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -25,6 +37,12 @@ pub struct ScopeFalsePositiveDetector;
 impl ScopeFalsePositiveDetector {
     pub const NAME: &'static str = "scope_false_positive";
     pub const VERSION: u32 = 1;
+    /// `Anchor::ToolCall.tool_name` value for the denial events. Tests
+    /// and downstream consumers can match against this constant instead
+    /// of the literal string.
+    pub const TOOL_NAME_DENIAL: &'static str = "ScopeDenied";
+    /// `Anchor::ToolCall.tool_name` value for the user-override events.
+    pub const TOOL_NAME_OVERRIDE: &'static str = "ApprovalGranted";
     /// Confidence floor — a single override after the threshold of
     /// denials is suggestive but the user may have made a one-off
     /// mistake. Roadmap §"21.A2 / scope_false_positive" pins this floor.
@@ -71,28 +89,30 @@ impl Detector for ScopeFalsePositiveDetector {
 
 #[derive(Default)]
 struct PathEvidence {
-    denial_event_ids: Vec<String>,
+    denial_event_ids: Vec<EventId>,
     last_denial_ts: Option<Timestamp>,
-    override_event_ids: Vec<String>,
+    override_event_ids: Vec<EventId>,
 }
 
 fn detect(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding> {
-    if !config.enabled {
+    if !config.enabled || config.max_findings_per_session == 0 {
         return Vec::new();
     }
 
     let mut by_path: HashMap<String, PathEvidence> = HashMap::new();
-    // approval_id (string form) -> request summary, kept until the matching
-    // grant or denial resolves it. ApprovalDenied drops the entry without
-    // crediting any path; only ApprovalGranted counts as a user override.
-    let mut pending_approvals: HashMap<String, String> = HashMap::new();
+    // ApprovalRequested → ApprovalGranted is correlated by `approval_id`.
+    // Entries live until the matching `Granted` (counted as a user
+    // override) or `Denied` (dropped — a denied approval is not a
+    // false-positive signal). Orphaned requests stay in the map for
+    // the rest of the pass; the analysis window is bounded by the
+    // caller, so this is O(events) memory.
+    let mut pending_approvals: HashMap<ApprovalId, String> = HashMap::new();
 
     for env in &input.events {
         match &env.payload {
             EventPayload::ScopeDenied { path, .. } => {
-                let canonical = canonicalize_in_spirit(path);
-                let entry = by_path.entry(canonical).or_default();
-                entry.denial_event_ids.push(env.id.to_string());
+                let entry = by_path.entry(canonicalize_in_spirit(path)).or_default();
+                entry.denial_event_ids.push(env.id);
                 entry.last_denial_ts = Some(env.timestamp);
             }
             EventPayload::ApprovalRequested {
@@ -100,114 +120,93 @@ fn detect(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding>
                 summary,
                 ..
             } => {
-                pending_approvals.insert(approval_id.to_string(), summary.clone());
+                // Skip the summary allocation when no denial has been
+                // observed yet — the granted-arm scan will find nothing
+                // to credit, so the summary is dead weight in the map.
+                if by_path.is_empty() {
+                    continue;
+                }
+                pending_approvals.insert(*approval_id, summary.clone());
             }
             EventPayload::ApprovalGranted { approval_id } => {
-                if let Some(summary) = pending_approvals.remove(&approval_id.to_string()) {
+                if let Some(summary) = pending_approvals.remove(approval_id) {
                     for (canonical, evidence) in by_path.iter_mut() {
-                        if evidence.denial_event_ids.is_empty() {
-                            continue;
-                        }
                         if summary_mentions_path(&summary, canonical) {
-                            evidence.override_event_ids.push(env.id.to_string());
+                            evidence.override_event_ids.push(env.id);
                         }
                     }
                 }
             }
             EventPayload::ApprovalDenied { approval_id, .. } => {
-                pending_approvals.remove(&approval_id.to_string());
+                pending_approvals.remove(approval_id);
             }
             _ => {}
         }
     }
 
-    let mut findings = Vec::new();
-    let cap = config.max_findings_per_session;
-    if cap == 0 {
-        return findings;
-    }
+    // Drain the map so `build_finding` can consume the evidence without
+    // re-cloning. Sort gives deterministic emission order across runs.
+    let mut entries: Vec<(String, PathEvidence)> = by_path.into_iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Deterministic emission order: by canonical path string.
-    let mut keys: Vec<String> = by_path.keys().cloned().collect();
-    keys.sort();
-
-    for canonical in keys {
-        if (findings.len() as u32) >= cap {
-            break;
-        }
-        let Some(evidence) = by_path.get(&canonical) else {
-            continue;
-        };
-        let denial_count = evidence.denial_event_ids.len() as u32;
-        if denial_count < config.min_occurrences {
-            continue;
-        }
-        if evidence.override_event_ids.is_empty() {
-            continue;
-        }
-        findings.push(build_finding(
-            input,
-            config,
-            &canonical,
-            evidence,
-            denial_count,
-        ));
-    }
-
-    findings
+    let cap = config.max_findings_per_session as usize;
+    entries
+        .into_iter()
+        .filter(|(_, ev)| {
+            (ev.denial_event_ids.len() as u32) >= config.min_occurrences
+                && !ev.override_event_ids.is_empty()
+        })
+        .take(cap)
+        .map(|(canonical, evidence)| build_finding(input, config, &canonical, evidence))
+        .collect()
 }
 
 fn build_finding(
     input: &SessionAnalysisInput,
     config: &DetectorConfig,
     canonical: &str,
-    evidence: &PathEvidence,
-    denial_count: u32,
+    evidence: PathEvidence,
 ) -> Finding {
-    let above_threshold = denial_count.saturating_sub(config.min_occurrences) as f32;
+    let denial_count = evidence.denial_event_ids.len() as u32;
+    let above = denial_count.saturating_sub(config.min_occurrences) as f32;
     let confidence = (ScopeFalsePositiveDetector::CONFIDENCE_MIN
-        + ScopeFalsePositiveDetector::CONFIDENCE_STEP * above_threshold)
+        + ScopeFalsePositiveDetector::CONFIDENCE_STEP * above)
         .clamp(
             ScopeFalsePositiveDetector::CONFIDENCE_MIN,
             ScopeFalsePositiveDetector::CONFIDENCE_MAX,
         );
 
-    let severity = config.impact_override.unwrap_or(Severity::Notice);
+    let denial_strs: Vec<String> = evidence
+        .denial_event_ids
+        .iter()
+        .map(EventId::to_string)
+        .collect();
+    let override_strs: Vec<String> = evidence
+        .override_event_ids
+        .iter()
+        .map(EventId::to_string)
+        .collect();
 
-    let summary = trim_summary(format!(
-        "ScopeDenied for {canonical} observed {denial_count}\u{00d7}, then user-approved override"
-    ));
-
-    let mut anchors: Vec<Anchor> = Vec::with_capacity(2 + evidence.denial_event_ids.len());
+    let mut anchors: Vec<Anchor> = Vec::with_capacity(1 + denial_strs.len() + override_strs.len());
     anchors.push(Anchor::FilePath {
         path: canonical.to_string(),
         line_range: None,
     });
-    for event_id in &evidence.denial_event_ids {
-        anchors.push(Anchor::ToolCall {
-            event_id: event_id.clone(),
-            tool_name: "ScopeDenied".into(),
-        });
-    }
-    for event_id in &evidence.override_event_ids {
-        anchors.push(Anchor::ToolCall {
-            event_id: event_id.clone(),
-            tool_name: "ApprovalGranted".into(),
-        });
-    }
+    anchors.extend(denial_strs.iter().map(|id| Anchor::ToolCall {
+        event_id: id.clone(),
+        tool_name: ScopeFalsePositiveDetector::TOOL_NAME_DENIAL.into(),
+    }));
+    anchors.extend(override_strs.iter().map(|id| Anchor::ToolCall {
+        event_id: id.clone(),
+        tool_name: ScopeFalsePositiveDetector::TOOL_NAME_OVERRIDE.into(),
+    }));
 
-    let evidence_keys: Vec<&str> = evidence
-        .denial_event_ids
+    let key_refs: Vec<&str> = denial_strs
         .iter()
-        .chain(evidence.override_event_ids.iter())
+        .chain(override_strs.iter())
         .map(String::as_str)
         .collect();
-    let digest = window_digest(ScopeFalsePositiveDetector::NAME, &evidence_keys);
-
-    let timestamp = evidence
-        .last_denial_ts
-        .or_else(|| input.events.last().map(|e| e.timestamp))
-        .unwrap_or(Timestamp::UNIX_EPOCH);
+    let digest = window_digest(ScopeFalsePositiveDetector::NAME, &key_refs);
 
     Finding {
         id: FindingId::new(),
@@ -215,10 +214,15 @@ fn build_finding(
         detector_version: ScopeFalsePositiveDetector::VERSION,
         project_id: input.project_id,
         workspace_id: input.workspace_id,
-        timestamp,
-        severity,
+        timestamp: evidence
+            .last_denial_ts
+            .or_else(|| input.events.last().map(|e| e.timestamp))
+            .unwrap_or(Timestamp::UNIX_EPOCH),
+        severity: config.impact_override.unwrap_or(Severity::Notice),
         confidence,
-        summary,
+        summary: trim_summary(format!(
+            "ScopeDenied for {canonical} observed {denial_count}\u{00d7}, then user-approved override"
+        )),
         evidence: anchors,
         suggested_action: None,
         window_digest: digest,
@@ -247,16 +251,11 @@ fn canonicalize_in_spirit(p: &Path) -> String {
         }
     }
     let body = parts.join("/");
-    if absolute {
-        if body.is_empty() {
-            "/".into()
-        } else {
-            format!("/{body}")
-        }
-    } else if body.is_empty() {
-        ".".into()
-    } else {
-        body
+    match (absolute, body.is_empty()) {
+        (true, true) => "/".into(),
+        (true, false) => format!("/{body}"),
+        (false, true) => ".".into(),
+        (false, false) => body,
     }
 }
 
