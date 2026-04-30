@@ -11,24 +11,24 @@
           "quote": "session 0: please refactor"
         },
         {
-          "eventId": "evt_20000000-0000-0000-0000-000000000002",
-          "kind": "tool-call",
-          "toolName": "Read → Edit → Bash"
-        },
-        {
           "kind": "message-span",
           "messageId": "evt_20000000-0000-0000-0000-000000000005",
           "quote": "session 1: please refactor"
         },
         {
-          "eventId": "evt_20000000-0000-0000-0000-000000000006",
+          "kind": "message-span",
+          "messageId": "evt_20000000-0000-0000-0000-000000000009",
+          "quote": "session 2: please refactor"
+        },
+        {
+          "eventId": "evt_20000000-0000-0000-0000-000000000002",
           "kind": "tool-call",
           "toolName": "Read → Edit → Bash"
         },
         {
-          "kind": "message-span",
-          "messageId": "evt_20000000-0000-0000-0000-000000000009",
-          "quote": "session 2: please refactor"
+          "eventId": "evt_20000000-0000-0000-0000-000000000006",
+          "kind": "tool-call",
+          "toolName": "Read → Edit → Bash"
         },
         {
           "eventId": "evt_20000000-0000-0000-0000-00000000000a",

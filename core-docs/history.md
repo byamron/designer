@@ -37,6 +37,51 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 21.A2 — `multi_step_tool_sequence` detector (Forge-overlap)
+**Date:** 2026-04-29
+**Branch:** multi-step-tool-seq
+**PR:** #55
+
+**What was done:**
+
+Phase 21.A2's first Forge-overlap detector. Surfaces the "same N-tool sequence repeated across multiple sessions" pattern that Phase B's synthesizer turns into a `skill-candidate` (or `agent-candidate`) proposal. Walks the workspace event stream, treats user `MessagePosted` events as session boundaries, and emits length-3 sliding windows over runs of agent tool-use `ArtifactCreated` artifacts. A finding fires once per tuple identity that hits both `min_sessions` distinct sessions and `min_occurrences` total occurrences.
+
+- **Tool-name extraction is a string parse, not a typed read.** Designer doesn't yet have a typed `ToolCalled` event variant; the closest signal is the verb-first `ArtifactCreated` title produced by `tool_use_card` in `crates/designer-claude/src/stream.rs` (Phase 13.H F5). The detector parses the leading verb back to a canonical tool identifier (`Read`/`Write`/`Edit`/`Search`/`Bash`/`Used <X>`). Lossy on the way in by design — `MultiEdit`/`NotebookEdit` collapse to `Edit`, `Glob`/`Grep` collapse to `Search` — so two sessions invoking the same logical workflow fold to one tuple identity. `MultiStepToolSequenceDetector::VERSION` bumps to 2 when the typed event lands.
+- **Pre-message tool runs are discarded.** Tools that arrive before the first user `MessagePosted` have no session anchor — there is no `Anchor::MessageSpan` target. The detector's session counter stays `None` until the first user message, so pre-message events neither inflate the distinct-session count nor leak phantom evidence. Caught during the staff-engineer review pass.
+- **Anchor cap.** Both `MessageSpan` and `ToolCall` anchor lists cap at `MAX_ANCHORS_PER_KIND = 5` per finding. The summary keeps the uncapped session + occurrence counts. Matches the `approval_always_granted` cap convention so a busy workspace doesn't ship a finding with hundreds of evidence anchors.
+- **Defaults from Forge.** Reuses `defaults::SKILL_DEFAULTS` (4 occurrences / 3 sessions) — the docstring already named this detector as a consumer when the constant was migrated from Forge's `THRESHOLDS["skill"]`. Already in `FORGE_OVERLAP_DETECTORS`; AppCore disables it when Forge is co-installed.
+- **Fixtures.** Three: positive (3 sessions × `(Read, Edit, Bash)` → one finding), distinct (3 sessions, all different tuples → no finding), under-threshold (same tuple in only 2 of 3 sessions → no finding). Disk-driven harness mirrors the `cost_hot_streak` `--ignored regenerate_fixtures` pattern; fixture config pins `min_occurrences: 3 / min_sessions: 3` to land exactly on the roadmap floor while production keeps the SKILL_DEFAULTS 4/3.
+
+**Why:**
+
+`multi_step_tool_sequence` is the canonical "did this turn into a workflow?" signal — the user can promote a recurring sequence into a skill or sub-agent so the lead doesn't re-derive it every session. Forge already ships an analog, hence the Forge-overlap registration; Designer runs it on the workspace event log instead of the plugin transcript.
+
+**Design decisions:**
+
+- **Sliding-window granularity, not whole-run identity.** A run `[A, B, C, D]` produces two windows (`A→B→C`, `B→C→D`) rather than one whole-run tuple. Captures recurring 3-grams even when the surrounding workflow length differs across sessions.
+- **`Severity: Notice`** — per CONTRIBUTING.md §6, the A2 default. A `Warn` would crowd out three `Notice` findings on the workspace home, and a "you're repeating this workflow" observation is suggestive rather than action-worthy on its own.
+- **Confidence clamped to `[0.5, 0.9]`** — three identical sequences across three sessions is rare by chance, so the floor sits high; but the user could plausibly be drilling on the same task in three back-to-back sessions for unrelated reasons, so the ceiling sits below 1.0.
+- **Tool-name canonicalization is opinionated.** Folding `Edit`/`MultiEdit`/`NotebookEdit` to `Edit` and `Glob`/`Grep` to `Search` means `(Read, Edit, Bash)` and `(Read, MultiEdit, Bash)` register as the same workflow. Two alternatives considered: (a) preserve the precise tool variant, splitting near-identical workflows; (b) collapse all "read-shaped" tools into one bucket, over-merging. Picked the middle path.
+
+**Technical decisions:**
+
+- **`extract_tool_name` returns `Option<&str>`.** Borrows from the input title rather than allocating; the callsite decides when to allocate. Keeps the per-artifact path allocation-free for known verbs.
+- **Drop the synthetic session-0 bucket.** First draft created a default `SessionInfo` for events before any user message. The post-review refactor tracks `current_session: Option<usize>` instead, so pre-message events don't need a phantom anchor and don't count toward `min_sessions`. The summary's session count and the evidence's `MessageSpan` count now agree by construction.
+- **`Vec<Cow<'static, str>>` rejected for HashMap keys.** Tuple keys store owned `Vec<String>` since the hash + compare by value matches HashMap's standard contract. The borrow-vs-own optimization for static tool names would only save allocations on tuples that never make it into the HashMap (i.e., runs shorter than 3) — academic. The `extract_tool_name` borrow change is the hot-path win.
+
+**Tradeoffs discussed:**
+
+- **Cap evidence anchors at 5 per kind** vs. **emit one anchor per occurrence.** Reviewers (efficiency + UX) flagged uncapped emission as both a memory pressure and a UI-noise concern — a workspace with 50 sessions running the same tuple would attach 50 anchors per kind. The summary's count keeps the full picture; anchors are spot-check pointers.
+- **Lift `truncate_with_ellipsis` into shared crate utility** vs. **keep private.** Sibling `scope_false_positive::trim_summary` does the same thing under a different name, so a future PR could DRY them up alongside any third caller. CLAUDE.md's "three similar lines is better than a premature abstraction" pushes the cross-detector refactor outside this PR's scope.
+- **Use the spec floor (3/3)** vs. **use Forge's calibration (4/3).** Roadmap text says "3+ identical sequences across 3+ sessions"; Forge ships 4/3. Picked Forge's calibration for the production default (the `defaults.rs` docstring already named this detector as a consumer) and pinned the fixture config at 3/3 so a regression that *raises* the production floor surfaces in the unit tests instead of the fixtures.
+
+**Lessons learned:**
+
+- Title-prefix parsing is a stand-in for a typed `ToolCalled` event. The `(Read|Wrote|Edited|Searched|Ran|Used)` set is small and audit-friendly today, but every new tool-use card variant in `tool_use_card` needs a parser-side update or it becomes invisible to this detector. The `VERSION` bump-on-typed-event-landing is the long-term fix; until then, the parser table is the coordination point.
+- The pre-message bucket bug was only catchable by reading the data model end-to-end (summary count vs. evidence count). Test cases that look at "did the detector fire" wouldn't surface it; the new `pre_message_tool_runs_are_discarded` regression test pins the fix.
+
+---
+
 ### Phase 21.A2 — `scope_false_positive` detector (Designer-unique)
 **Date:** 2026-04-29
 **Branch:** detector-scope-false-pos
