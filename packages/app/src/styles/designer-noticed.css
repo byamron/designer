@@ -182,7 +182,7 @@
   cursor: pointer;
   text-decoration: underline;
   text-decoration-style: dotted;
-  text-underline-offset: 2px;
+  text-underline-offset: var(--space-1);
 }
 
 .designer-noticed__evidence-toggle:hover,
