@@ -174,22 +174,32 @@ async fn permission_prompt_round_trip() {
         "TeamSpawned did not land within 15s"
     );
 
-    // Default permission policy gates Write/Edit; our handler is the only
-    // path Claude has to ask, so the prompt round-trip starts here.
+    // Default permission policy auto-accepts read-class tools
+    // (Read/Glob/Grep/LS) without firing `decide()` — only state-changing
+    // tools (Write/Edit/Bash) prompt. The prompt has to be directive
+    // enough that the model jumps straight to a gated tool, otherwise
+    // the test can run out the clock on auto-accepted recon calls.
     orch.post_message(
         ws,
         "user".into(),
-        "Create a file named 'hello.txt' in the current working directory containing exactly the text 'hi'. Then stop.".into(),
+        "Use the Bash tool right now to run exactly: `touch hello.txt`. \
+         Do not use any other tool first. Do not call Read, Glob, Grep, \
+         or LS. Do not narrate. Just invoke the Bash tool with that \
+         command immediately, then stop."
+            .into(),
     )
     .await
     .expect("post_message should succeed");
 
-    // Live model latency varies; 90s headroom keeps this stable on the
-    // self-hosted runner without masking real regressions.
-    let woken = timeout(Duration::from_secs(90), notify.notified()).await;
+    // Live model latency under serialized test execution: typical run is
+    // 30–90s, but cold-start + multi-step reasoning can stretch further.
+    // 240s gives margin without masking a real wire regression (which
+    // would manifest as zero `decide()` calls regardless of how long we
+    // wait).
+    let woken = timeout(Duration::from_secs(240), notify.notified()).await;
     assert!(
         woken.is_ok(),
-        "permission handler.decide() did not fire within 90s — round-trip broken"
+        "permission handler.decide() did not fire within 240s — round-trip broken"
     );
 
     let calls = received.lock().await;
@@ -200,11 +210,14 @@ async fn permission_prompt_round_trip() {
         Some(ws),
         "PermissionRequest.workspace_id must round-trip"
     );
-    // The exact tool depends on which path the model picks (Write vs.
-    // Edit vs. shell-out); any of those is a valid permission-gated tool.
+    // The exact tool depends on which path the model picks (Bash is what
+    // the prompt asks for; Write/Edit are accepted fallbacks the model
+    // sometimes substitutes). Any state-changing tool is a valid round-
+    // trip — what we're testing is the orchestrator's wire path, not the
+    // model's tool choice.
     assert!(
-        ["Write", "Edit", "MultiEdit", "Bash"].contains(&req.tool.as_str()),
-        "unexpected tool {} for the create-file prompt",
+        ["Bash", "Write", "Edit", "MultiEdit"].contains(&req.tool.as_str()),
+        "unexpected tool {} for the bash-touch prompt",
         req.tool
     );
     drop(calls);

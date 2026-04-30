@@ -60,5 +60,10 @@ jobs:
       - name: cargo test --features claude_live
         run: |
           set -euo pipefail
+          # `--test-threads=1` serializes the two live tests. They each
+          # spawn their own `claude` subprocess; running in parallel
+          # produces resource and rate-limit contention on the runner
+          # that pushes `permission_prompt_round_trip` past its budget.
           cargo test --locked --features claude_live \
-            -p designer-claude --test claude_live -- --nocapture
+            -p designer-claude --test claude_live \
+            -- --test-threads=1 --nocapture
