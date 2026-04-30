@@ -1,0 +1,42 @@
+{
+  "findings": [
+    {
+      "confidence": 0.550000011920929,
+      "detector_name": "compaction_pressure",
+      "detector_version": 1,
+      "evidence": [
+        {
+          "charRange": [
+            0,
+            8
+          ],
+          "kind": "message-span",
+          "messageId": "evt_20000000-0000-0000-0000-000000000001",
+          "quote": "/compact"
+        },
+        {
+          "charRange": [
+            0,
+            15
+          ],
+          "kind": "message-span",
+          "messageId": "evt_20000000-0000-0000-0000-000000000002",
+          "quote": "/compact please"
+        },
+        {
+          "charRange": [
+            0,
+            8
+          ],
+          "kind": "message-span",
+          "messageId": "evt_20000000-0000-0000-0000-000000000003",
+          "quote": "/compact"
+        }
+      ],
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "severity": "notice",
+      "summary": "/compact invoked across 3 sessions in 7 days (3 occurrences)",
+      "workspace_id": "00000000-0000-0000-0000-000000000002"
+    }
+  ]
+}
