@@ -40,6 +40,7 @@ pub mod detectors;
 pub mod example_detector;
 pub mod session_input;
 
+pub use detectors::cost_hot_streak::CostHotStreakDetector;
 pub use detectors::repeated_correction::RepeatedCorrectionDetector;
 pub use detectors::scope_false_positive::ScopeFalsePositiveDetector;
 

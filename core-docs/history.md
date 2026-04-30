@@ -77,6 +77,48 @@ Per `roadmap.md` §"Phase 21.A2 — Detector squad", `scope_false_positive` is t
 
 - The locked `Anchor` enum's `ToolCall { event_id, tool_name }` variant is doing double duty as the only event-reference variant. Every Phase 21.A2 detector that wants to point at a non-tool event (`ApprovalGranted`, `ScopeDenied`, `CostRecorded`, …) will exercise this same stretch. Worth flagging if a third detector wants the same thing — the variant docstring should be widened to "an event in the workspace stream" rather than "a tool-call event."
 
+---
+
+### Phase 21.A2 — `approval_always_granted` detector (Designer-unique)
+**Date:** 2026-04-29
+**Branch:** detector-approval-granted
+**Commit:** range starting `2e6f3dd` on `detector-approval-granted`
+
+**What was done:**
+
+First Designer-unique Phase A detector (`crates/designer-learn/src/detectors/approval_always_granted.rs`). Walks an event slice once, groups `ApprovalRequested/Granted/Denied` triples by approval class, and emits a `Severity::Notice` finding when a class has ≥5 grants and 0 denials. Three fixtures (positive trigger, under-threshold, mixed-denial) plus 16 unit tests pin the behavior. Designer-unique → not in `FORGE_OVERLAP_DETECTORS`; always runs.
+
+**Why:**
+
+Designer's owning the approval gate is a structural advantage over Forge: the gate stream is invisible to plugins. Detecting "this approval class is always granted" is the single highest-signal Phase A pattern that Forge cannot replicate, so it's the right detector to land first after `repeated_correction` (a Forge-overlap detector with mature thresholds).
+
+**Design decisions:**
+- **Approval class = `(workspace_id, tool, canonical_input)`.** Workspace is part of the key so a project-wide bundle doesn't merge unrelated workspaces' grants into one false-positive class. The tool comes from the gate's `tool:<Name>` prefix; canonical input is per-tool: parent directory for Write/Edit/MultiEdit/NotebookEdit, `verb *` for Bash, lowercased ≤80-char fallback otherwise. Phase B re-implements the rule on its side; the docstring is the contract.
+- **Clinical summary copy.** `"ApprovalRequested for Bash(prettier *) granted 6×, 0 denials"` — passive voice, pattern-described, ≤100 chars, no second-person address. Per the 21.A1.2 surface contract, summaries are evidence text rendered under proposals, not user-facing prose. Phase B's synthesis composes the recommendation.
+- **`suggested_action: None`.** Proposal kind (`auto-approve-hook` vs `scope-expansion`) is Phase B's call, not the detector's.
+- **Confidence band `[0.6, 0.95]`.** Zero-denial in N≥5 attempts is empirically strong, so the floor is high. Linear in extra grants above the threshold; saturates at 0.95.
+
+**Technical decisions:**
+- **`window_digest` keyed on class identity, not evidence.** First draft hashed the (capped) `grant_event_ids` list, which broke the `core_learn::report_finding` chokepoint dedup in two ways: (1) sliding the analysis window changed the digest and re-emitted the same finding; (2) grants beyond the cap left the digest unchanged, so an updated `granted 7×` finding was suppressed as a duplicate of the earlier `granted 6×`. Switched to `sha256("approval_always_granted" + workspace_id + tool + canonical_input)` so the digest tracks class identity. Per-class dedup behaves correctly across runs.
+- **Workspace_id in `ClassKey`.** First draft pulled `workspace_id` for the finding from `input.workspace_id` (which is `None` for project-wide bundles) and didn't include it in the class key, so cross-workspace grants merged. Now `ClassKey { workspace_id, tool, input }`; the finding's `workspace_id` is set from the key.
+- **Orphan resolutions logged + dropped.** A `Granted`/`Denied` whose request scrolled out of the window can't be attributed to a class. Counting it would bias toward "always granted" (denials in a truncated head, grants in the visible tail). Logged at `tracing::debug!` so calibration data shows when callers pass too-narrow windows; production callers pass the full project log so this is an edge case.
+- **Tool casing preserved separately from the class key.** `tool:MultiEdit` lowercases to `multiedit` for the hash key; the original cased form is captured per-request and cached on `ClassAggregate::display_tool` so summaries render `"MultiEdit"`, not `"Multiedit"`.
+- **Path canonicalizer rejects flag args and URLs.** First draft's `tok.contains('/')` matched `--write=/tmp/old` and `https://example.com`. Now requires `!tok.starts_with('-')` and `!tok.contains("://")`.
+- **Bash canonicalizer strips `Label:` prefixes.** Real summaries like `"Bash: prettier src/foo.js"` were collapsing to a `bash *` self-class, swallowing the actual command. Now strips one or more leading `Foo:` tokens before parsing.
+- **`min_sessions` is advisory in v1.** This detector treats each workspace stream as one session. Tuners setting `min_sessions > 1` get a `tracing::debug!` line; multi-session aggregation is Phase 21.A3.
+
+**Tradeoffs discussed:**
+- **Path parsing on summaries vs `Path::parent()`.** Summaries are arbitrary text containing path *tokens* mixed with verbs and arguments, not real `Path` values. `rsplit_once('/')` handles the token-extraction job; using `Path::parent()` would require re-parsing each whitespace-separated token as a `Path` first. Stuck with `rsplit_once`.
+- **Per-detector fixture harness vs shared driver.** CONTRIBUTING.md picks the per-detector copy-rename pattern explicitly: the fixture *behavior* is the canonical reference, so abstracting a shared driver would hide what the detector actually does. Followed.
+- **Fixture format.** Custom assertion fields (`summary_contains`, `evidence_count`, `confidence_min/max`) instead of full `Finding` shape, because `id` and `timestamp` are volatile. Inspired by the example_fixture pattern; mirrors what the CONTRIBUTING.md "expected.json" guidance suggests.
+
+**Lessons learned:**
+- A Detector-trait + Finding contract isn't enough — `window_digest` semantics live one layer down (in the chokepoint dedup), and getting the digest right matters more than getting the finding shape right. Documented the digest-as-class-identity rule in the module docstring so the second Designer-unique detector author doesn't repeat the bug.
+- Cross-workspace bleed is a foreseeable bug for any class-keyed detector when the input bundle is project-wide. Future detectors with class-style keys should default to including `workspace_id` in the key unless they're explicitly project-wide aggregations.
+- The four-perspective review (staff engineer + UX + UI + design engineer) caught six bugs the first-pass implementation shipped: `window_digest` keying, cross-workspace bleed, orphan-resolution bias, flag-arg path mismatch, label-prefix swallow, silent `min_sessions` ignore. Worth running before merge on every detector PR.
+
+---
+
 ### Track 13.M — Friction trivial-by-default UX
 **Date:** 2026-04-28
 **Branch:** friction-trivial-ux
