@@ -22,6 +22,16 @@
   --type-heading-size: var(--type-h3-size);
 }
 
+/* The thread is wrapped so the Jump-to-latest pill can position itself
+ * relative to the scroll container without participating in scroll. B6. */
+.thread-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .thread {
   display: flex;
   flex-direction: column;
@@ -30,6 +40,292 @@
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+  /* iOS-style elastic scroll feels wrong in a desktop chrome with a
+   * sticky compose dock; a hard stop reads more like a terminal. */
+  overscroll-behavior: contain;
+  /* Smooth scroll for the auto-pin nudge — collapses to instant when
+   * the user has prefers-reduced-motion. The user's own scrolling is
+   * unaffected; this only applies when we set scrollTop programmatically. */
+  scroll-behavior: smooth;
+}
+
+/* CC2 — every direct child of the thread fades + slides in on arrival.
+ * The animation should fire ONLY for newly-arriving artifacts, not for
+ * every child on initial mount (tab switch remounts the whole thread,
+ * which would otherwise stampede 50 simultaneous animations).
+ *
+ * `.thread--initial` suppresses the animation for one paint after
+ * mount; the parent React component clears the modifier on the next
+ * frame so subsequent children that mount after that animate in.
+ *
+ * The shorthand uses `--motion-standard` + `--ease-out-enter`
+ * directly: `--motion-enter` is a transition-shorthand value
+ * (`<duration> <timing>`), and combining it with extra animation-only
+ * tokens parses inconsistently across engines.
+ * Reduced-motion collapses to instant. */
+.thread > * {
+  animation: thread-message-in var(--motion-standard) var(--ease-out-enter)
+    both;
+}
+
+.thread--initial > * {
+  animation: none;
+}
+
+@keyframes thread-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-2));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread > * { animation: none; }
+}
+
+/* CC5 — conversation rhythm. Tight gap between consecutive messages
+ * from the same author (those read as one continued turn); wider
+ * default gap when the author switches (those read as a turn-taking
+ * boundary). The thread's parent `gap` is the wide value; same-author
+ * runs pull up via negative top margin. Tool-call groups attached to
+ * an agent message read as the agent's working notes, so they tighten
+ * the same way. */
+.block--message[data-author="you"] + .block--message[data-author="you"],
+.block--message[data-author="agent"] + .block--message[data-author="agent"],
+.block--message[data-author="agent"] + .tool-group,
+.tool-group + .block--message[data-author="agent"],
+.tool-group + .tool-group {
+  margin-top: calc(-1 * var(--space-2));
+}
+
+/* CC5 (continued) — Slack/Linear pattern: only the first message in a
+ * same-author run shows the author + timestamp header. Subsequent
+ * messages in the run drop the header entirely so the eye reads them
+ * as one continuous thought. The header reappears whenever an
+ * intervening artifact (tool group, spec card, user message) breaks
+ * the run. CSS-only — no React props plumbing required. */
+.block--message[data-author="agent"]
+  + .block--message[data-author="agent"]
+  .block__message-meta {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread { scroll-behavior: auto; }
+}
+
+/* Floating pill above the compose dock, anchored to the thread-wrap.
+ * Mirrors the Slack / iMessage / Linear "you scrolled up — there's
+ * something new" affordance. Only mounts when `behind === true`. */
+.thread__jump-latest {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  box-shadow: var(--surface-shadow);
+  transition: background var(--motion-interactive),
+    transform var(--motion-interactive);
+  z-index: var(--layer-raised);
+}
+
+.thread__jump-latest:hover {
+  background: var(--color-surface-raised);
+  transform: translate(-50%, calc(-1 * var(--space-1)));
+}
+
+.thread__jump-latest:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread__jump-latest { transition: none; }
+  .thread__jump-latest:hover { transform: translateX(-50%); }
+}
+
+/* --- tool-call group (B5) ---------------------------------------------
+ * A run of consecutive `report` artifacts collapses into a single
+ * disclosure row. The collapsed register is one thin line: chevron +
+ * tool icon + "Used N tools" + a comma-separated verb list. Expanded,
+ * it's a flat list of single-line tool rows — no card chrome — so the
+ * surface stays calm even during a long tool sequence. */
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tool-group__head {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* `--space-2 --space-3` (4 × 8) keeps the row dense as a footnote
+   * but lifts the click target to ~28 px high — comfortable on
+   * trackpad without breaking the calm-by-default rhythm of the
+   * thread. */
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  color: var(--color-muted);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--motion-interactive),
+    background var(--motion-interactive);
+}
+
+.tool-group__head:hover {
+  color: var(--color-foreground);
+  background: var(--color-surface-hover);
+}
+
+.tool-group__head:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.tool-group__chevron {
+  flex-shrink: 0;
+  transition: transform var(--motion-interactive);
+}
+
+.tool-group[data-expanded="true"] .tool-group__chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-group__chevron { transition: none; }
+}
+
+.tool-group__icon {
+  flex-shrink: 0;
+}
+
+.tool-group__count {
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+  flex-shrink: 0;
+}
+
+.tool-group__verbs {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-muted);
+}
+
+.tool-group__list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0 var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tool-group__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+}
+
+.tool-group__row-title {
+  color: var(--color-foreground);
+  font-family: var(--type-family-mono);
+  flex-shrink: 0;
+}
+
+.tool-group__row-summary {
+  color: var(--color-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- thread activity indicator (B7) -----------------------------------
+ * Three-dot pulsing row that mounts at the tail of the thread when the
+ * agent is working. `data-state="submitting"` reads as the agent is
+ * thinking; `data-state="stuck"` swaps the label to the "still working"
+ * copy and tints the dots toward muted so the surface reads as "this
+ * is taking longer than expected" without alarming. */
+.thread__activity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  font-family: var(--type-family-sans);
+}
+
+.thread__activity-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.thread__activity-dots > span {
+  /* 8 px dots — 4 px reads as punctuation; 8 px reads as a thinking
+   * indicator at typical reading distances. Scale animation ranges
+   * 85–100 % so even at peak the dots stay below the cap height of
+   * the adjacent caption text and don't feel like buttons. */
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-foreground);
+  opacity: 0.4;
+  animation: thread-activity-pulse var(--motion-pulse) infinite ease-in-out;
+}
+
+.thread__activity-dots > span:nth-child(2) {
+  animation-delay: calc(var(--motion-pulse) / 6);
+}
+
+.thread__activity-dots > span:nth-child(3) {
+  animation-delay: calc(var(--motion-pulse) / 3);
+}
+
+.thread__activity[data-state="stuck"] .thread__activity-dots > span {
+  background: var(--color-muted);
+  animation-duration: calc(var(--motion-pulse) * 1.5);
+}
+
+@keyframes thread-activity-pulse {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.85); }
+  40%           { opacity: 1;    transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread__activity-dots > span {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 /* Suggestions view — shown for a fresh tab before the user has sent
@@ -95,26 +391,58 @@
   transform: translateX(var(--space-1));
 }
 
+/* CC4 — artifact cards (spec, code-change, pr, approval, prototype,
+ * etc.) read as the agent's "attachments" inside the conversation,
+ * not as standalone documents. Recessed fill so they sit under the
+ * message stream visually; soft border so they don't carry the same
+ * outline weight as a real surface. Width caps at the agent-message
+ * column so they don't span edge to edge — the conversation stays
+ * readable as a single column even when artifacts stack. */
 .block {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   background: var(--color-surface-raised);
-  border: var(--border-thin) solid var(--color-border);
+  border: var(--border-thin) solid var(--color-border-soft);
   border-radius: var(--radius-card);
   color: var(--color-foreground);
+  align-self: stretch;
+  max-width: min(48rem, 100%);
 }
 
-.block--message,
-.block--comment {
+/* Message blocks default to flat-on-surface (agent register). User
+ * messages opt into the bubble register via [data-author="you"] —
+ * paint asymmetry only, so the agent's reply reads like content
+ * while the user's prompt reads like a quoted question. B4. */
+.block--message {
   padding: var(--space-3) var(--space-4);
   background: transparent;
   border: none;
   gap: var(--space-1);
 }
 
+.block--message[data-author="you"] {
+  align-self: flex-end;
+  max-width: 80%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+
+.block--message[data-author="agent"] {
+  align-self: stretch;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
 .block--comment {
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: none;
+  gap: var(--space-1);
   border-left: var(--border-thin) solid var(--color-border);
   padding-left: var(--space-4);
   margin-left: var(--space-4);
@@ -207,11 +535,29 @@
   border-radius: var(--radius-button);
 }
 
+/* Agent meta header: name + timestamp. Sits tight above the body so
+ * the eye reads "agent → message" as one unit. The timestamp is
+ * tertiary chrome — same color register as muted captions, with a
+ * tabular variant so adjacent messages line up vertically. */
+.block__message-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+}
+
 .block__message-author,
 .block__comment-author {
   font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+}
+
+.block__message-time {
+  font-size: var(--type-caption-size);
   color: var(--color-muted);
-  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
 }
 
 .block__message-body,
@@ -219,6 +565,44 @@
   color: var(--color-foreground);
   font-size: var(--type-body-size);
   line-height: var(--line-height-body);
+  /* Inline whitespace renders verbatim so manual newlines from the
+   * agent show up; word-break protects against pasted long URLs from
+   * stretching the column. */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.block__message-line {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.block__message-body code {
+  font-family: var(--type-family-mono);
+  font-size: 0.92em;
+  background: var(--color-surface-sunken);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-button);
+  padding: 0 var(--space-1);
+}
+
+.block__message-body strong {
+  font-weight: var(--weight-semibold);
+}
+
+.block__message-body em {
+  font-style: italic;
+}
+
+.block__message-body a {
+  color: var(--color-foreground);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: var(--border-thin);
+}
+
+.block__message-body a:hover {
+  text-decoration-thickness: calc(var(--border-thin) * 2);
 }
 
 .block__link {

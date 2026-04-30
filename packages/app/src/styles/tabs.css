@@ -44,7 +44,9 @@
   padding-right: calc(var(--space-6) + var(--space-2));
   /* Unselected tab fill: main-tab color faded by --dev-tab-opacity.
    * Border picks up the same fade so the border weight tracks the
-   * fill weight. */
+   * fill weight. The fill at 70% is a polite recessed register; the
+   * active state delta is carried by font weight + label color + the
+   * active-tab background swap below (B2). */
   background: color-mix(
     in srgb,
     var(--color-content-surface) var(--dev-tab-opacity),
@@ -55,12 +57,16 @@
    * gives top > bottom; symmetric variants keep them equal. */
   border-radius: var(--dev-tab-radius-top) var(--dev-tab-radius-top)
     var(--dev-tab-radius-bottom) var(--dev-tab-radius-bottom);
+  /* Inactive labels use the muted-most register so the active tab's
+   * full-strength foreground reads as the "this is where you are"
+   * cue from across the canvas (B2). */
   color: var(--color-muted);
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-leading);
   font-family: var(--type-family-sans);
+  font-weight: var(--weight-regular);
   cursor: pointer;
-  transition: color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive), border-color var(--motion-interactive);
+  transition: color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive), border-color var(--motion-interactive), font-weight var(--motion-interactive);
   position: relative;
 }
 
@@ -77,10 +83,15 @@
   color: var(--color-foreground);
   /* Active tab matches the main-tab container exactly: same fill, same
    * border, same shadow — the two read as the same material at the
-   * same elevation, separated only by --surface-tab-gap. */
+   * same elevation, separated only by --surface-tab-gap.
+   *
+   * Semibold (was medium) widens the active/inactive font-weight delta
+   * so the active tab is recognizable even when the bar is dense and
+   * each tab is compressed to its min-width — the case from B2's
+   * regression screenshot. */
   background: var(--color-content-surface);
   border-color: var(--surface-border-color);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
   box-shadow: var(--surface-shadow);
 }
 

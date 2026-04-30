@@ -50,8 +50,14 @@ export const ComposeDock = forwardRef<
   {
     onSend?: (payload: ComposeSendPayload) => void;
     placeholder?: string;
+    /** B14/B17 — while a send is in flight the dock disables its
+     *  primary submit and surfaces aria-busy on the textarea so AT
+     *  users hear that the input is awaiting confirmation. The
+     *  textarea stays editable so the user can keep refining a
+     *  follow-up — only the dispatch is gated. */
+    busy?: boolean;
   }
->(function ComposeDock({ onSend, placeholder }, ref) {
+>(function ComposeDock({ onSend, placeholder, busy = false }, ref) {
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -81,6 +87,7 @@ export const ComposeDock = forwardRef<
   };
 
   const send = () => {
+    if (busy) return;
     const trimmed = draft.trim();
     if (!trimmed && attachments.length === 0) return;
     onSend?.({
@@ -97,7 +104,9 @@ export const ComposeDock = forwardRef<
       className="compose"
       data-component="ComposeDock"
       data-dragging={dragging}
+      data-busy={busy || undefined}
       aria-label="Send a message"
+      aria-busy={busy || undefined}
       onSubmit={(e) => {
         e.preventDefault();
         send();
@@ -209,9 +218,11 @@ export const ComposeDock = forwardRef<
           </IconButton>
           <IconButton
             type="submit"
-            label="Send"
+            label={busy ? "Sending…" : "Send"}
             shortcut="⌘↵"
             className="btn-icon--primary"
+            disabled={busy}
+            aria-busy={busy || undefined}
           >
             <IconSend />
           </IconButton>
