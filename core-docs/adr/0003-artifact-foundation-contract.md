@@ -56,6 +56,23 @@ Each track owns one Rust sibling pair (`core_X.rs` + `commands_X.rs`) and the ar
   `ArtifactDetail`, `TogglePinRequest`); adding non-artifact request
   / response shapes is the intended growth path for new IPC
   commands.
+- **13.J — `OrchestratorEvent::ArtifactProduced.artifact_id`
+  + new `ArtifactUpdated` variant** (added 2026-04-30 in
+  `crates/designer-claude/src/orchestrator.rs`). F5+1 tool_use →
+  tool_result correlation requires both events to reference the same
+  artifact id, so the translator now mints a deterministic
+  `ArtifactId` (UUIDv5 from `tool_use_id` within the workspace
+  namespace) and threads it through `ArtifactProduced`. The new
+  `ArtifactUpdated { workspace_id, artifact_id, summary }` variant is
+  emitted when the matching `tool_result` arrives in a later turn.
+  Both stay broadcast-only — `event_to_payload` returns `None` for
+  either, and the AppCore coalescer is still the single writer of
+  the frozen `EventPayload::ArtifactCreated` /
+  `EventPayload::ArtifactUpdated`. Non-breaking: additive field on an
+  internal-only enum, additive variant on the same enum; the
+  `Orchestrator` trait is unchanged, the domain event vocabulary is
+  unchanged. `MockOrchestrator` (and any future caller without a
+  correlation need) generates a fresh `ArtifactId::new()` per emit.
 
 ### Out-of-scope hooks
 

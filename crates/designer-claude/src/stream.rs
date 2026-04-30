@@ -275,10 +275,32 @@ impl ClaudeStreamTranslator {
             };
             let Some(artifact_id) = self.tool_uses.get(tool_use_id) else {
                 // No producing `tool_use` recorded — skip rather than
-                // synthesise a phantom artifact.
+                // synthesise a phantom artifact. The most common cause is
+                // LRU eviction of a multi-day-old tool_use; see
+                // `TRANSLATOR_STATE_MAX_ENTRIES`.
+                debug!(
+                    ?tool_use_id,
+                    "tool_result with no matching tool_use; dropping"
+                );
                 continue;
             };
-            let summary = tool_result_summary(block.get("content"));
+            let Some(mut summary) = tool_result_summary(block.get("content")) else {
+                // Non-text result (image-only, unrecognised shape) carries
+                // no rail-altitude line to surface; skip the update rather
+                // than emit a blank summary that overwrites the produced
+                // card with whitespace.
+                continue;
+            };
+            if block
+                .get("is_error")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                // Anthropic API marks failed tool invocations with
+                // `is_error: true`. Surface that explicitly so the rail
+                // doesn't render an error result identically to a success.
+                summary = format!("Failed: {summary}");
+            }
             outputs.push(TranslatorOutput::Event(
                 OrchestratorEvent::ArtifactUpdated {
                     workspace_id: self.workspace_id,
@@ -336,11 +358,13 @@ impl ClaudeStreamTranslator {
 /// move the touched key to the back (most-recently-used); when `insert`
 /// would push the size past `cap`, the least-recently-used key is evicted.
 ///
-/// `position`-based bumps are O(n) on the deque, which is acceptable at our
-/// `TRANSLATOR_STATE_MAX_ENTRIES = 1024` cap (one tool call per translate
-/// is a tiny fraction of the per-line JSON parse cost). We deliberately
-/// do not pull in `lru` / `linked-hash-map` for this — the workspace has
-/// neither as a direct dep, and the API surface needed here is two methods.
+/// PERF: `position`-based bumps are O(n) on the deque. Acceptable at the
+/// translator's `TRANSLATOR_STATE_MAX_ENTRIES = 1024` cap because each call
+/// runs once per stream-json line, dwarfed by `serde_json::from_str`. A
+/// future caller using `BoundedMap` for a hotter path should switch to a
+/// generation-counter shape (`HashMap<K, (V, u64)>` + tick + scan-on-evict)
+/// or pull `lru` / `linked-hash-map` as a direct dep. Neither is in the
+/// tree today — the API surface needed here is two methods.
 struct BoundedMap<K, V> {
     cap: usize,
     map: HashMap<K, V>,
@@ -364,9 +388,12 @@ impl<K: Clone + Eq + Hash, V: Copy> BoundedMap<K, V> {
         Q: ?Sized + Eq + Hash,
     {
         let v = *self.map.get(k)?;
-        // Bump to most-recently-used.
+        // Bump to most-recently-used. The `unwrap` documents the
+        // post-condition of `position`: we just walked the deque and
+        // found `pos`, so removing at that index can't fail without a
+        // concurrent mutation — and `&mut self` rules that out.
         if let Some(pos) = self.order.iter().position(|x| x.borrow() == k) {
-            let key = self.order.remove(pos).expect("position just verified");
+            let key = self.order.remove(pos).unwrap();
             self.order.push_back(key);
         }
         Some(v)
@@ -397,17 +424,16 @@ impl<K: Clone + Eq + Hash, V: Copy> BoundedMap<K, V> {
 }
 
 /// Reduce a `tool_result.content` Value (string OR Anthropic content-block
-/// array) to a single short summary. Empty / unrecognized shapes return an
-/// empty string so the downstream update is deterministic.
-fn tool_result_summary(content: Option<&Value>) -> String {
-    let Some(content) = content else {
-        return String::new();
-    };
-    if let Some(s) = content.as_str() {
-        return truncate(s, TOOL_SUMMARY_MAX);
-    }
-    if let Some(arr) = content.as_array() {
-        let joined: String = arr
+/// array) to a single short summary. Returns `None` for empty / non-text
+/// shapes (image-only results, unrecognised payloads) so the caller can
+/// skip the `ArtifactUpdated` emission rather than blanking the produced
+/// card with whitespace.
+fn tool_result_summary(content: Option<&Value>) -> Option<String> {
+    let content = content?;
+    let raw = if let Some(s) = content.as_str() {
+        s.to_string()
+    } else if let Some(arr) = content.as_array() {
+        let texts: Vec<&str> = arr
             .iter()
             .filter_map(|b| {
                 if b.get("type").and_then(Value::as_str) == Some("text") {
@@ -416,11 +442,16 @@ fn tool_result_summary(content: Option<&Value>) -> String {
                     None
                 }
             })
-            .collect::<Vec<_>>()
-            .join("\n");
-        return truncate(&joined, TOOL_SUMMARY_MAX);
+            .collect();
+        texts.join("\n")
+    } else {
+        return None;
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
     }
-    String::new()
+    Some(truncate_with_ellipsis(trimmed, TOOL_SUMMARY_MAX))
 }
 
 /// Char-count truncate that returns the input unchanged when it already fits,
@@ -430,6 +461,23 @@ fn truncate(s: &str, max_chars: usize) -> String {
         return s.to_string();
     }
     s.chars().take(max_chars).collect()
+}
+
+/// Like `truncate`, but appends a `…` (single-char) ellipsis when the
+/// input was actually trimmed. Used by `tool_result_summary` so a
+/// mid-word cut doesn't read as a bug at the rail altitude. Mirrors the
+/// grammar of `core_agents::first_line_truncate`, keeping rail surfaces
+/// consistent. Total length stays bounded — the ellipsis displaces one
+/// character of content, never grows past `max_chars`.
+fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
+    debug_assert!(max_chars > 0);
+    if s.chars().nth(max_chars).is_none() {
+        return s.to_string();
+    }
+    let keep = max_chars.saturating_sub(1);
+    let mut out: String = s.chars().take(keep).collect();
+    out.push('…');
+    out
 }
 
 /// Strip directory components from a `/`-style path; falls back to the input
@@ -954,6 +1002,97 @@ mod tests {
         assert_eq!(m.get("a"), Some(1));
         assert_eq!(m.get("c"), Some(3));
         assert_eq!(m.get("d"), Some(4));
+    }
+
+    /// `tool_result.is_error: true` (Anthropic API spec) flows through
+    /// the translator with a `Failed:` prefix on the summary so the rail
+    /// can render error and success results distinguishably without an
+    /// event-shape change.
+    #[test]
+    fn tool_result_is_error_prefixes_failed() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let _ = t.translate(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_err","name":"Read","input":{"file_path":"/missing.txt"}}]}}"#,
+        );
+        let user = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_err","content":"ENOENT: no such file or directory","is_error":true}]}}"#;
+        let out = t.translate(user);
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated { summary, .. }) => {
+                assert!(
+                    summary.starts_with("Failed: "),
+                    "expected error prefix, got {summary:?}"
+                );
+                assert!(summary.contains("ENOENT"));
+            }
+            other => panic!("expected ArtifactUpdated, got {other:?}"),
+        }
+    }
+
+    /// A `tool_result` whose only content blocks are non-text
+    /// (e.g. images) carries no rail-altitude line. The translator
+    /// drops the update rather than emit a blank `ArtifactUpdated`
+    /// that would whitespace-overwrite the produced card's summary.
+    #[test]
+    fn tool_result_with_only_image_drops_update() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let _ = t.translate(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_img","name":"Read","input":{"file_path":"/a.png"}}]}}"#,
+        );
+        let user = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_img","content":[{"type":"image","source":{"type":"base64","data":"...","media_type":"image/png"}}]}]}}"#;
+        assert!(t.translate(user).is_empty());
+    }
+
+    /// A long `tool_result.content` is truncated *with* an ellipsis so a
+    /// mid-word cut reads as "more available, drill in" instead of a
+    /// rendering bug. Mirrors `core_agents::first_line_truncate`.
+    #[test]
+    fn tool_result_long_content_appends_ellipsis() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let _ = t.translate(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_long","name":"Read","input":{"file_path":"/big.txt"}}]}}"#,
+        );
+        // 200 chars, well past TOOL_SUMMARY_MAX = 120.
+        let body = "a".repeat(200);
+        let line = format!(
+            r##"{{"type":"user","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_long","content":"{body}"}}]}}}}"##
+        );
+        let out = t.translate(&line);
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated { summary, .. }) => {
+                assert!(summary.ends_with('…'));
+                assert_eq!(summary.chars().count(), 120);
+            }
+            other => panic!("expected ArtifactUpdated, got {other:?}"),
+        }
+    }
+
+    /// Locks the produce → evict → tool_result interaction: when a
+    /// `tool_use_id` falls out of the bounded LRU before its matching
+    /// `tool_result` arrives, the translator must drop silently rather
+    /// than mint a phantom `ArtifactId`. Catches a "fix the orphan"
+    /// regression that would silently spawn sibling artifacts.
+    #[test]
+    fn evicted_tool_use_then_tool_result_drops_silently() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        // Insert the producing tool_use, then push >cap distinct ids so
+        // the original is evicted under LRU pressure.
+        let producer = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_evicted","name":"Read","input":{"file_path":"/0.txt"}}]}}"#;
+        let _ = t.translate(producer);
+        for i in 1..=TRANSLATOR_STATE_MAX_ENTRIES {
+            let line = format!(
+                r#"{{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"tool_use","id":"toolu_pad_{i}","name":"Read","input":{{"file_path":"/{i}.txt"}}}}]}}}}"#
+            );
+            t.translate(&line);
+        }
+        assert!(
+            t.tool_uses.get("toolu_evicted").is_none(),
+            "test setup invariant: producer must have been evicted"
+        );
+        // Late-arriving tool_result for the evicted id: must drop.
+        let user = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_evicted","content":"late result"}]}}"#;
+        assert!(t.translate(user).is_empty());
     }
 
     /// Updating the same `tool_use_id` twice (rare but possible if Claude

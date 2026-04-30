@@ -213,6 +213,7 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
                     .options
                     .setting_sources
                     .as_deref()
+                    .filter(|s| !s.is_empty())
                     .map(|s| s.join(","))
                     .unwrap_or_else(|| "user,project,local".to_string()),
             ])

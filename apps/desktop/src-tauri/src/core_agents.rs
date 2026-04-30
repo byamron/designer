@@ -229,6 +229,13 @@ impl AppCore {
     /// version can't be resolved (e.g. the producing event was dropped by
     /// the coalescer or never materialised) the update is logged and
     /// dropped.
+    ///
+    /// The appended `ArtifactUpdated` event reuses the producing
+    /// artifact's `author_role` for the envelope `Actor` so any future
+    /// per-author rail filter, mention surface, or audit query sees a
+    /// consistent provenance chain across produce → update. Hard-coding
+    /// `team-lead` here would silently misattribute updates whenever a
+    /// teammate (e.g. `researcher@dir-recon`) was the original author.
     pub async fn update_agent_artifact_summary(
         &self,
         artifact_id: ArtifactId,
@@ -241,12 +248,16 @@ impl AppCore {
         let payload = artifact.payload.clone();
         let parent_version = artifact.version;
         let stream = StreamId::Workspace(artifact.workspace_id);
+        let actor = Actor::agent(
+            "workspace-lead",
+            artifact.author_role.as_deref().unwrap_or("team-lead"),
+        );
         let env = self
             .store
             .append(
                 stream,
                 None,
-                Actor::agent("workspace-lead", "team-lead"),
+                actor,
                 EventPayload::ArtifactUpdated {
                     artifact_id,
                     summary,
