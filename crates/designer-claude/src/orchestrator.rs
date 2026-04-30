@@ -4,7 +4,7 @@
 
 use crate::claude_code::ClaudeSignal;
 use async_trait::async_trait;
-use designer_core::{AgentId, ArtifactKind, TaskId, WorkspaceId};
+use designer_core::{AgentId, ArtifactId, ArtifactKind, TaskId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -100,13 +100,31 @@ pub enum OrchestratorEvent {
     /// orchestrator does **not** persist this — the AppCore coalescer is
     /// the single writer for `EventPayload::ArtifactCreated` so we don't
     /// double-write or race the projector.
+    ///
+    /// `artifact_id` is supplied by the emitter so subsequent
+    /// `ArtifactUpdated` events (e.g. tool_use → tool_result correlation
+    /// in the translator) can target the original artifact. Emitters
+    /// without a correlation need (mock, ad-hoc) generate a fresh
+    /// [`ArtifactId::new`].
     ArtifactProduced {
         workspace_id: WorkspaceId,
+        artifact_id: ArtifactId,
         artifact_kind: ArtifactKind,
         title: String,
         summary: String,
         body: String,
         author_role: Option<String>,
+    },
+    /// Update to a previously-emitted [`OrchestratorEvent::ArtifactProduced`].
+    /// Phase 13.H+1 emits this when a tool_use's matching tool_result lands
+    /// in a later turn — the original "Used Read" Report card gets the
+    /// result's summary appended in place. Broadcast-only, like
+    /// `ArtifactProduced`; AppCore's coalescer is the single writer of the
+    /// persisted `EventPayload::ArtifactUpdated`.
+    ArtifactUpdated {
+        workspace_id: WorkspaceId,
+        artifact_id: ArtifactId,
+        summary: String,
     },
 }
 

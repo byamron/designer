@@ -558,10 +558,13 @@ fn event_to_payload(
                 author,
             ))
         }
-        // ArtifactProduced is broadcast-only — AppCore's coalescer is the
-        // single writer for ArtifactCreated, so we deliberately don't
-        // persist a duplicate `EventPayload::ArtifactCreated` here.
-        OrchestratorEvent::ArtifactProduced { .. } => None,
+        // ArtifactProduced / ArtifactUpdated are broadcast-only — AppCore's
+        // coalescer is the single writer for ArtifactCreated /
+        // ArtifactUpdated, so we deliberately don't persist a duplicate
+        // `EventPayload` here.
+        OrchestratorEvent::ArtifactProduced { .. } | OrchestratorEvent::ArtifactUpdated { .. } => {
+            None
+        }
     }
 }
 
@@ -831,11 +834,24 @@ mod tests {
     fn event_to_payload_artifact_produced_is_broadcast_only() {
         let ev = OrchestratorEvent::ArtifactProduced {
             workspace_id: WorkspaceId::new(),
+            artifact_id: designer_core::ArtifactId::new(),
             artifact_kind: designer_core::ArtifactKind::Diagram,
             title: "Sequence diagram".into(),
             summary: "summary".into(),
             body: "body".into(),
             author_role: Some("team-lead".into()),
+        };
+        assert!(event_to_payload(&ev, "t", "team-lead").is_none());
+    }
+
+    /// `ArtifactUpdated` is broadcast-only for the same reason as
+    /// `ArtifactProduced` (see `event_to_payload_artifact_produced_is_broadcast_only`).
+    #[test]
+    fn event_to_payload_artifact_updated_is_broadcast_only() {
+        let ev = OrchestratorEvent::ArtifactUpdated {
+            workspace_id: WorkspaceId::new(),
+            artifact_id: designer_core::ArtifactId::new(),
+            summary: "result summary".into(),
         };
         assert!(event_to_payload(&ev, "t", "team-lead").is_none());
     }

@@ -12,7 +12,7 @@
 //! `tests/fixtures/stream_json/` cover every variant this module translates.
 
 use crate::orchestrator::OrchestratorEvent;
-use designer_core::{author_roles, AgentId, ArtifactKind, TaskId, WorkspaceId};
+use designer_core::{author_roles, AgentId, ArtifactId, ArtifactKind, TaskId, WorkspaceId};
 use serde_json::Value;
 use std::collections::HashMap;
 use tracing::debug;
@@ -49,6 +49,13 @@ pub struct ClaudeStreamTranslator {
     team_name: String,
     tasks: HashMap<String, TaskId>,
     agents: HashMap<String, AgentId>,
+    /// Maps an assistant `tool_use` block's `id` to the deterministic
+    /// `ArtifactId` we minted when emitting its `ArtifactProduced`. The
+    /// matching `tool_result` content block (in a later user-typed message)
+    /// looks the id up here and emits `ArtifactUpdated` against the same
+    /// artifact, so the rail's "Read CLAUDE.md" card gains a result summary
+    /// in place rather than spawning a sibling artifact.
+    tool_uses: HashMap<String, ArtifactId>,
 }
 
 impl ClaudeStreamTranslator {
@@ -61,6 +68,7 @@ impl ClaudeStreamTranslator {
             team_name: team_name.into(),
             tasks: HashMap::new(),
             agents: HashMap::new(),
+            tool_uses: HashMap::new(),
         }
     }
 
@@ -80,14 +88,15 @@ impl ClaudeStreamTranslator {
         match ty {
             "system" => self.translate_system(v),
             "assistant" => self.translate_assistant(v),
+            "user" => self.translate_user(v),
             "result" => self.translate_result(v),
             "rate_limit_event" => v
                 .get("rate_limit_info")
                 .map(|info| vec![TranslatorOutput::RateLimit(info.clone())])
                 .unwrap_or_default(),
             "control_request" => translate_control_request(v),
-            // user / stream_event / unknown: drop (partials broadcast is a
-            // separate concern; see 120ms coalesce in ADR 0001).
+            // stream_event / unknown: drop (partials broadcast is a separate
+            // concern; see 120ms coalesce in ADR 0001).
             _ => Vec::new(),
         }
     }
@@ -172,9 +181,6 @@ impl ClaudeStreamTranslator {
     }
 
     fn translate_assistant(&mut self, v: &Value) -> Vec<TranslatorOutput> {
-        // TODO(13.H+1): correlate `tool_use_id` → eventual `tool_result` and
-        // emit `ArtifactUpdated` on the original Report with the result's
-        // summary (~50 LOC stateful pass).
         let Some(content) = v
             .get("message")
             .and_then(|m| m.get("content"))
@@ -198,9 +204,18 @@ impl ClaudeStreamTranslator {
                     let input = block.get("input").cloned().unwrap_or(Value::Null);
                     let (title, summary) = tool_use_card(tool, &input);
                     let body = serde_json::to_string(&input).unwrap_or_default();
+                    let tool_use_id = block.get("id").and_then(Value::as_str);
+                    let artifact_id = match tool_use_id {
+                        Some(id) => self.artifact_id_for(id),
+                        // Defensive fallback. Anthropic's stream-json always
+                        // populates `id`, but a fresh UUID keeps downstream
+                        // contracts intact if the field is ever missing.
+                        None => ArtifactId::new(),
+                    };
                     outputs.push(TranslatorOutput::Event(
                         OrchestratorEvent::ArtifactProduced {
                             workspace_id: self.workspace_id,
+                            artifact_id,
                             artifact_kind: ArtifactKind::Report,
                             title,
                             summary,
@@ -222,6 +237,45 @@ impl ClaudeStreamTranslator {
             }));
         }
 
+        outputs
+    }
+
+    /// Translate a `user` typed envelope. The `user` line carries the
+    /// turn-result echoes that complete the assistant's `tool_use` blocks
+    /// (`tool_result` content blocks). Per F5+1 we match those back to the
+    /// originating `ArtifactProduced` and emit `ArtifactUpdated` with the
+    /// result summary.
+    fn translate_user(&mut self, v: &Value) -> Vec<TranslatorOutput> {
+        let Some(content) = v
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(Value::as_array)
+        else {
+            return Vec::new();
+        };
+
+        let mut outputs = Vec::new();
+        for block in content {
+            if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+                continue;
+            }
+            let Some(tool_use_id) = block.get("tool_use_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(artifact_id) = self.tool_uses.get(tool_use_id).copied() else {
+                // No producing `tool_use` recorded — skip rather than
+                // synthesise a phantom artifact.
+                continue;
+            };
+            let summary = tool_result_summary(block.get("content"));
+            outputs.push(TranslatorOutput::Event(
+                OrchestratorEvent::ArtifactUpdated {
+                    workspace_id: self.workspace_id,
+                    artifact_id,
+                    summary,
+                },
+            ));
+        }
         outputs
     }
 
@@ -255,6 +309,43 @@ impl ClaudeStreamTranslator {
         self.tasks.insert(claude_id.to_string(), id);
         id
     }
+
+    fn artifact_id_for(&mut self, tool_use_id: &str) -> ArtifactId {
+        if let Some(id) = self.tool_uses.get(tool_use_id) {
+            return *id;
+        }
+        let ns = *self.workspace_id.as_uuid();
+        let id = ArtifactId::from_uuid(Uuid::new_v5(&ns, tool_use_id.as_bytes()));
+        self.tool_uses.insert(tool_use_id.to_string(), id);
+        id
+    }
+}
+
+/// Reduce a `tool_result.content` Value (string OR Anthropic content-block
+/// array) to a single short summary. Empty / unrecognized shapes return an
+/// empty string so the downstream update is deterministic.
+fn tool_result_summary(content: Option<&Value>) -> String {
+    let Some(content) = content else {
+        return String::new();
+    };
+    if let Some(s) = content.as_str() {
+        return truncate(s, TOOL_SUMMARY_MAX);
+    }
+    if let Some(arr) = content.as_array() {
+        let joined: String = arr
+            .iter()
+            .filter_map(|b| {
+                if b.get("type").and_then(Value::as_str) == Some("text") {
+                    b.get("text").and_then(Value::as_str)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        return truncate(&joined, TOOL_SUMMARY_MAX);
+    }
+    String::new()
 }
 
 /// Char-count truncate that returns the input unchanged when it already fits,
@@ -662,7 +753,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_init_status_user_and_stream_events() {
+    fn ignores_init_status_empty_user_and_stream_events() {
         let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
         let lines = [
             r#"{"type":"system","subtype":"init","cwd":"/x"}"#,
@@ -674,6 +765,104 @@ mod tests {
         for line in lines {
             assert!(t.translate(line).is_empty(), "expected empty for {line}");
         }
+    }
+
+    /// F5+1: an assistant `tool_use` followed (in a later user-typed line)
+    /// by the matching `tool_result` block produces one `ArtifactProduced`
+    /// then one `ArtifactUpdated` against the *same* artifact id, so the
+    /// rail's "Read CLAUDE.md" card gains a result summary in place.
+    #[test]
+    fn tool_use_followed_by_tool_result_emits_correlated_update() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+
+        let assistant = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_corr","name":"Read","input":{"file_path":"/repo/CLAUDE.md"}}]}}"#;
+        let produced = t.translate(assistant);
+        assert_eq!(produced.len(), 1);
+        let original_id = match &produced[0] {
+            TranslatorOutput::Event(OrchestratorEvent::ArtifactProduced {
+                artifact_id,
+                title,
+                ..
+            }) => {
+                assert_eq!(title, "Read CLAUDE.md");
+                *artifact_id
+            }
+            other => panic!("expected ArtifactProduced, got {other:?}"),
+        };
+
+        let user = r##"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_corr","content":"# Designer\n\nLocal-first cockpit..."}]}}"##;
+        let updated = t.translate(user);
+        assert_eq!(updated.len(), 1);
+        match &updated[0] {
+            TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated {
+                artifact_id,
+                summary,
+                ..
+            }) => {
+                assert_eq!(*artifact_id, original_id);
+                assert!(summary.contains("Designer"));
+            }
+            other => panic!("expected ArtifactUpdated, got {other:?}"),
+        }
+    }
+
+    /// `tool_result.content` may be an array of content blocks (Anthropic
+    /// API shape). Text blocks concatenate; non-text blocks (image refs)
+    /// drop. Same artifact-id correlation as the string case.
+    #[test]
+    fn tool_result_with_content_block_array_concatenates_text() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let _ = t.translate(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_arr","name":"Bash","input":{"command":"ls"}}]}}"#,
+        );
+        let user = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_arr","content":[{"type":"text","text":"file_a.rs"},{"type":"text","text":"file_b.rs"}]}]}}"#;
+        let out = t.translate(user);
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated { summary, .. }) => {
+                assert!(summary.contains("file_a.rs"));
+                assert!(summary.contains("file_b.rs"));
+            }
+            other => panic!("expected ArtifactUpdated, got {other:?}"),
+        }
+    }
+
+    /// A `tool_result` whose `tool_use_id` was never seen drops silently —
+    /// the translator never invents a phantom artifact id.
+    #[test]
+    fn unmatched_tool_result_drops() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ghost","content":"orphaned"}]}}"#;
+        assert!(t.translate(line).is_empty());
+    }
+
+    /// Updating the same `tool_use_id` twice (rare but possible if Claude
+    /// repeats the result) targets the same artifact id both times.
+    #[test]
+    fn artifact_id_is_stable_per_tool_use_id() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let assistant = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_stable","name":"Read","input":{"file_path":"/a.txt"}}]}}"#;
+        let user = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_stable","content":"ok"}]}}"#;
+        let p = match &t.translate(assistant)[0] {
+            TranslatorOutput::Event(OrchestratorEvent::ArtifactProduced {
+                artifact_id, ..
+            }) => *artifact_id,
+            _ => panic!("expected ArtifactProduced"),
+        };
+        let u1 = match &t.translate(user)[0] {
+            TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated { artifact_id, .. }) => {
+                *artifact_id
+            }
+            _ => panic!("expected ArtifactUpdated"),
+        };
+        let u2 = match &t.translate(user)[0] {
+            TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated { artifact_id, .. }) => {
+                *artifact_id
+            }
+            _ => panic!("expected ArtifactUpdated"),
+        };
+        assert_eq!(p, u1);
+        assert_eq!(u1, u2);
     }
 
     #[test]

@@ -10,7 +10,8 @@ use crate::orchestrator::{
 };
 use async_trait::async_trait;
 use designer_core::{
-    Actor, AgentId, ArtifactKind, EventPayload, EventStore, StreamId, TaskId, WorkspaceId,
+    Actor, AgentId, ArtifactId, ArtifactKind, EventPayload, EventStore, StreamId, TaskId,
+    WorkspaceId,
 };
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -283,6 +284,7 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
                 };
                 self.emit(OrchestratorEvent::ArtifactProduced {
                     workspace_id,
+                    artifact_id: ArtifactId::new(),
                     artifact_kind: kind,
                     title,
                     summary,
