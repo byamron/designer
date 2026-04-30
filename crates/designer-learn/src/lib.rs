@@ -41,6 +41,7 @@ pub mod example_detector;
 pub mod session_input;
 
 pub use detectors::compaction_pressure::CompactionPressureDetector;
+pub use detectors::config_gap::ConfigGapDetector;
 pub use detectors::cost_hot_streak::CostHotStreakDetector;
 pub use detectors::multi_step_tool_sequence::MultiStepToolSequenceDetector;
 pub use detectors::repeated_correction::RepeatedCorrectionDetector;

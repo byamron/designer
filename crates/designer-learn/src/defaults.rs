@@ -307,6 +307,205 @@ pub const DETERMINISTIC_POST_TOOL_COMMANDS: &[&str] = &[
 /// in the workspace stream.
 pub const COMPACTION_KEYWORDS: &[&str] = &["/compact", "/clear"];
 
+// ---------------------------------------------------------------------------
+// `config_gap` — config-file → hook-pattern table.
+//
+// Each entry is `(filename_pattern, expected_event, expected_command_substr,
+// human_label)`. The `filename_pattern` is matched as a glob-ish suffix
+// against entries in `<project_root>/`: a leading `*` is wildcard prefix
+// match, otherwise it's an exact filename match. `expected_event` is the
+// Claude Code hook trigger (`PostToolUse`, `PrePush`, etc.). The detector
+// reports a gap when no `hooks.<expected_event>[*].command` field in
+// `.claude/settings.json` substring-contains `expected_command_substr`.
+//
+// Filename patterns are intentionally lenient — `.prettierrc` matches both
+// `.prettierrc` and `.prettierrc.json`; the matcher is pure-string so a
+// `prettier.config.cjs` is caught by `prettier.config.*` without spinning
+// up a glob engine.
+//
+// Forge has an analog (`config_gap` is in `FORGE_OVERLAP_DETECTORS`); the
+// table is Designer's own and migrates the *intent* of Forge's check
+// rather than its data structure. When Forge bumps a recognized
+// formatter family, mirror it here and bump the detector `VERSION`.
+// ---------------------------------------------------------------------------
+
+/// Hook-event names emitted by Claude Code's settings file. The JSON
+/// shape is `hooks.<event_name>[*].command`; Claude Code requires exact
+/// case at runtime, so the enum's `as_str()` is the canonical spelling
+/// the detector compares against and renders in summaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookEvent {
+    PostToolUse,
+    PreCommit,
+    PrePush,
+}
+
+impl HookEvent {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            HookEvent::PostToolUse => "PostToolUse",
+            HookEvent::PreCommit => "PreCommit",
+            HookEvent::PrePush => "PrePush",
+        }
+    }
+
+    /// Parse the wire form back to the enum. Unknown / typo'd event
+    /// names return `None` — `config_gap` treats them as "no hook
+    /// registered" so the user gets the gap surfaced instead of the
+    /// detector silently claiming coverage for an event Claude Code
+    /// will never fire.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "PostToolUse" => Some(HookEvent::PostToolUse),
+            "PreCommit" => Some(HookEvent::PreCommit),
+            "PrePush" => Some(HookEvent::PrePush),
+            _ => None,
+        }
+    }
+}
+
+/// How a config-file name is matched against direct children of the
+/// project root. The roadmap's spec uses prefix patterns
+/// (`.prettierrc*`, `prettier.config.*`); enumerating every extension
+/// would lock the table to a particular point-in-time list of formats.
+#[derive(Debug, Clone, Copy)]
+pub enum FileMatch {
+    /// Match the filename verbatim (e.g. `biome.json`).
+    Exact(&'static str),
+    /// Match any filename starting with the given prefix
+    /// (e.g. `Prefix(".prettierrc")` matches `.prettierrc`,
+    /// `.prettierrc.json`, `.prettierrc.toml`, …).
+    Prefix(&'static str),
+}
+
+impl FileMatch {
+    /// Return `true` when `name` (a single path component, not a
+    /// full path) matches this pattern.
+    pub fn matches(&self, name: &str) -> bool {
+        match self {
+            FileMatch::Exact(s) => name == *s,
+            FileMatch::Prefix(s) => name.starts_with(s),
+        }
+    }
+}
+
+/// Single row of the [`CONFIG_GAP_HOOK_PATTERNS`] table.
+pub struct ConfigGapPattern {
+    /// How to match this row's config file against the project root.
+    pub file: FileMatch,
+    /// Claude Code hook event the missing hook would register under.
+    pub event: HookEvent,
+    /// Substring that must appear in the hook's `command` field for the
+    /// hook to count as "covers this config." Matched case-insensitively.
+    pub command_substr: &'static str,
+    /// Human-readable family label for the summary. Lowercase, short.
+    pub label: &'static str,
+    /// Optional file-content substring that must also be present for the
+    /// pattern to apply. `None` means "filename match is sufficient";
+    /// `Some("[tool.ruff]")` means "only flag a `pyproject.toml` that
+    /// declares a `[tool.ruff]` section." Designer-unique gating —
+    /// `pyproject.toml` and `Cargo.toml` are too common to flag wholesale.
+    pub require_content: Option<&'static str>,
+}
+
+/// Designer-unique. Each row encodes one (config file → expected hook)
+/// relationship. Adding a new family requires a `VERSION` bump on the
+/// detector per CONTRIBUTING §3 because old findings stay attached to
+/// the prior shape.
+pub const CONFIG_GAP_HOOK_PATTERNS: &[ConfigGapPattern] = &[
+    ConfigGapPattern {
+        file: FileMatch::Prefix(".prettierrc"),
+        event: HookEvent::PostToolUse,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Prefix("prettier.config."),
+        event: HookEvent::PostToolUse,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Prefix(".eslintrc"),
+        event: HookEvent::PostToolUse,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Prefix("eslint.config."),
+        event: HookEvent::PostToolUse,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Exact("biome.json"),
+        event: HookEvent::PostToolUse,
+        command_substr: "biome",
+        label: "biome",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Exact("rustfmt.toml"),
+        event: HookEvent::PostToolUse,
+        command_substr: "cargo fmt",
+        label: "cargo fmt",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Exact(".rustfmt.toml"),
+        event: HookEvent::PostToolUse,
+        command_substr: "cargo fmt",
+        label: "cargo fmt",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Exact("pyproject.toml"),
+        event: HookEvent::PostToolUse,
+        command_substr: "ruff",
+        label: "ruff",
+        require_content: Some("[tool.ruff]"),
+    },
+    ConfigGapPattern {
+        file: FileMatch::Exact("pyproject.toml"),
+        event: HookEvent::PostToolUse,
+        command_substr: "black",
+        label: "black",
+        require_content: Some("[tool.black]"),
+    },
+    ConfigGapPattern {
+        file: FileMatch::Prefix("jest.config."),
+        event: HookEvent::PrePush,
+        command_substr: "jest",
+        label: "jest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Prefix("vitest.config."),
+        event: HookEvent::PrePush,
+        command_substr: "vitest",
+        label: "vitest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Exact("pytest.ini"),
+        event: HookEvent::PrePush,
+        command_substr: "pytest",
+        label: "pytest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        file: FileMatch::Exact("Cargo.toml"),
+        event: HookEvent::PrePush,
+        command_substr: "cargo test",
+        label: "cargo test",
+        require_content: Some("[[test]]"),
+    },
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
