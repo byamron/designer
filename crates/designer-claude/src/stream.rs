@@ -14,9 +14,20 @@
 use crate::orchestrator::OrchestratorEvent;
 use designer_core::{author_roles, AgentId, ArtifactId, ArtifactKind, TaskId, WorkspaceId};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
 use tracing::debug;
 use uuid::Uuid;
+
+/// Cap applied to every per-translator id map (`tasks`, `agents`,
+/// `tool_uses`). One entry ≈ 32-byte key + 16-byte UUID, so 1024 entries
+/// per map keeps the worst-case footprint well under 256 KB even when all
+/// three maps are saturated. A multi-day session that issues thousands of
+/// tool calls will recycle the oldest entries; the user-visible artifacts
+/// have already been written to the event store, so the cap only loses
+/// the in-memory correlation handle for very old tool_use_ids whose
+/// matching tool_result will never arrive.
+const TRANSLATOR_STATE_MAX_ENTRIES: usize = 1024;
 
 /// Outputs emitted by the translator. Not every stream-json line produces an
 /// `OrchestratorEvent` — some carry side-channel information (capacity
@@ -47,15 +58,15 @@ pub enum TranslatorOutput {
 pub struct ClaudeStreamTranslator {
     workspace_id: WorkspaceId,
     team_name: String,
-    tasks: HashMap<String, TaskId>,
-    agents: HashMap<String, AgentId>,
+    tasks: BoundedMap<String, TaskId>,
+    agents: BoundedMap<String, AgentId>,
     /// Maps an assistant `tool_use` block's `id` to the deterministic
     /// `ArtifactId` we minted when emitting its `ArtifactProduced`. The
     /// matching `tool_result` content block (in a later user-typed message)
     /// looks the id up here and emits `ArtifactUpdated` against the same
     /// artifact, so the rail's "Read CLAUDE.md" card gains a result summary
     /// in place rather than spawning a sibling artifact.
-    tool_uses: HashMap<String, ArtifactId>,
+    tool_uses: BoundedMap<String, ArtifactId>,
 }
 
 impl ClaudeStreamTranslator {
@@ -66,9 +77,9 @@ impl ClaudeStreamTranslator {
         Self {
             workspace_id,
             team_name: team_name.into(),
-            tasks: HashMap::new(),
-            agents: HashMap::new(),
-            tool_uses: HashMap::new(),
+            tasks: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
+            agents: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
+            tool_uses: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
         }
     }
 
@@ -262,7 +273,7 @@ impl ClaudeStreamTranslator {
             let Some(tool_use_id) = block.get("tool_use_id").and_then(Value::as_str) else {
                 continue;
             };
-            let Some(artifact_id) = self.tool_uses.get(tool_use_id).copied() else {
+            let Some(artifact_id) = self.tool_uses.get(tool_use_id) else {
                 // No producing `tool_use` recorded — skip rather than
                 // synthesise a phantom artifact.
                 continue;
@@ -292,7 +303,7 @@ impl ClaudeStreamTranslator {
 
     fn agent_id_for(&mut self, name: &str) -> AgentId {
         if let Some(id) = self.agents.get(name) {
-            return *id;
+            return id;
         }
         let ns = *self.workspace_id.as_uuid();
         let id = AgentId::from_uuid(Uuid::new_v5(&ns, name.as_bytes()));
@@ -302,7 +313,7 @@ impl ClaudeStreamTranslator {
 
     fn task_id_for(&mut self, claude_id: &str) -> TaskId {
         if let Some(id) = self.tasks.get(claude_id) {
-            return *id;
+            return id;
         }
         let ns = *self.workspace_id.as_uuid();
         let id = TaskId::from_uuid(Uuid::new_v5(&ns, claude_id.as_bytes()));
@@ -312,12 +323,76 @@ impl ClaudeStreamTranslator {
 
     fn artifact_id_for(&mut self, tool_use_id: &str) -> ArtifactId {
         if let Some(id) = self.tool_uses.get(tool_use_id) {
-            return *id;
+            return id;
         }
         let ns = *self.workspace_id.as_uuid();
         let id = ArtifactId::from_uuid(Uuid::new_v5(&ns, tool_use_id.as_bytes()));
         self.tool_uses.insert(tool_use_id.to_string(), id);
         id
+    }
+}
+
+/// Tiny bounded LRU built on `HashMap` + `VecDeque<K>`. `get` and `insert`
+/// move the touched key to the back (most-recently-used); when `insert`
+/// would push the size past `cap`, the least-recently-used key is evicted.
+///
+/// `position`-based bumps are O(n) on the deque, which is acceptable at our
+/// `TRANSLATOR_STATE_MAX_ENTRIES = 1024` cap (one tool call per translate
+/// is a tiny fraction of the per-line JSON parse cost). We deliberately
+/// do not pull in `lru` / `linked-hash-map` for this — the workspace has
+/// neither as a direct dep, and the API surface needed here is two methods.
+struct BoundedMap<K, V> {
+    cap: usize,
+    map: HashMap<K, V>,
+    /// Front = least recently used, back = most recently used.
+    order: VecDeque<K>,
+}
+
+impl<K: Clone + Eq + Hash, V: Copy> BoundedMap<K, V> {
+    fn with_capacity(cap: usize) -> Self {
+        debug_assert!(cap > 0, "BoundedMap cap must be > 0");
+        Self {
+            cap,
+            map: HashMap::with_capacity(cap),
+            order: VecDeque::with_capacity(cap),
+        }
+    }
+
+    fn get<Q>(&mut self, k: &Q) -> Option<V>
+    where
+        K: std::borrow::Borrow<Q>,
+        Q: ?Sized + Eq + Hash,
+    {
+        let v = *self.map.get(k)?;
+        // Bump to most-recently-used.
+        if let Some(pos) = self.order.iter().position(|x| x.borrow() == k) {
+            let key = self.order.remove(pos).expect("position just verified");
+            self.order.push_back(key);
+        }
+        Some(v)
+    }
+
+    fn insert(&mut self, k: K, v: V) {
+        if self.map.contains_key(&k) {
+            if let Some(pos) = self.order.iter().position(|x| x == &k) {
+                self.order.remove(pos);
+            }
+            self.order.push_back(k.clone());
+            self.map.insert(k, v);
+            return;
+        }
+        if self.map.len() >= self.cap {
+            if let Some(old) = self.order.pop_front() {
+                self.map.remove(&old);
+            }
+        }
+        self.order.push_back(k.clone());
+        self.map.insert(k, v);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.map.len()
     }
 }
 
@@ -834,6 +909,51 @@ mod tests {
         let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
         let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ghost","content":"orphaned"}]}}"#;
         assert!(t.translate(line).is_empty());
+    }
+
+    /// Inserting more than `TRANSLATOR_STATE_MAX_ENTRIES` distinct task
+    /// ids must keep the map bounded; the oldest entry must be evicted.
+    /// Locks Step 2's bounded-state guarantee.
+    #[test]
+    fn translator_state_is_bounded_at_cap() {
+        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let first_assistant = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_first","name":"Read","input":{"file_path":"/0.txt"}}]}}"#;
+        t.translate(first_assistant);
+
+        let overflow = TRANSLATOR_STATE_MAX_ENTRIES + 50;
+        for i in 1..=overflow {
+            let line = format!(
+                r#"{{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"tool_use","id":"toolu_{i}","name":"Read","input":{{"file_path":"/{i}.txt"}}}}]}}}}"#
+            );
+            t.translate(&line);
+        }
+        assert!(t.tool_uses.len() <= TRANSLATOR_STATE_MAX_ENTRIES);
+        // The first inserted key must have been evicted.
+        assert!(
+            t.tool_uses.get("toolu_first").is_none(),
+            "oldest key should have been evicted under LRU pressure"
+        );
+        // A recently-inserted key must still resolve.
+        let recent = format!("toolu_{overflow}");
+        assert!(t.tool_uses.get(&recent).is_some());
+    }
+
+    /// LRU contract: a hit on the *oldest* key bumps it to the back, so
+    /// the next eviction targets the second-oldest instead.
+    #[test]
+    fn bounded_map_get_bumps_to_most_recently_used() {
+        let mut m = BoundedMap::<String, u32>::with_capacity(3);
+        m.insert("a".into(), 1);
+        m.insert("b".into(), 2);
+        m.insert("c".into(), 3);
+        // Touch "a" so it becomes MRU; "b" is now LRU.
+        assert_eq!(m.get("a"), Some(1));
+        m.insert("d".into(), 4);
+        assert_eq!(m.len(), 3);
+        assert_eq!(m.get("b"), None, "b should have been evicted");
+        assert_eq!(m.get("a"), Some(1));
+        assert_eq!(m.get("c"), Some(3));
+        assert_eq!(m.get("d"), Some(4));
     }
 
     /// Updating the same `tool_use_id` twice (rare but possible if Claude
