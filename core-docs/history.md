@@ -37,6 +37,45 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 21.A2 — `compaction_pressure` detector (Designer-unique)
+**Date:** 2026-04-29
+**Branch:** compaction-pressure-detector
+**PR:** #54
+
+**What was done:**
+
+Fourth Designer-unique Phase A detector. Catches the pattern *the user types `/compact` (Claude Code's built-in slash command) regularly across multiple Designer sessions in a short window*. Lives at `crates/designer-learn/src/detectors/compaction_pressure.rs`. Single pass over `input.events`: group `MessagePosted` by payload `workspace_id`, segment per-workspace into sessions via a 60-minute idle gap on adjacent message timestamps, mark a session **qualifying** when it contains a `/compact` body inside the trailing-7-day window anchored on the most-recent input event, and emit one `Severity::Notice` `Finding` per workspace whose qualifying-session count meets `config.min_sessions` (default 3). Evidence: `Anchor::MessageSpan` per `/compact`, capped at `MAX_EVIDENCE_ANCHORS = 5`. Two on-disk fixtures (trigger + under-threshold) plus 11 in-module tests.
+
+**Why:**
+
+Per `roadmap.md` L1476: *`/compact` invoked ≥1×/session consistently. Threshold: 3+ sessions in a week. Output kind: `context-restructuring` (Phase B).* Forge's analyzer never sees the slash commands the user types into Claude Code; Designer captures them natively as `MessagePosted` events. The detector's signal feeds a future `context-restructuring` proposal — usually "demote a long CLAUDE.md block to a reference doc," "lift conversation-only context into a memory note," or "trim a runaway agent transcript so the user no longer needs to manually compact mid-session."
+
+**Design decisions:**
+
+- **Idle-gap session segmentation, not a typed boundary.** Designer doesn't yet emit a `SessionStarted` payload, so the detector can't read process-boundary events directly. The 60-minute idle gap on `MessagePosted` events is the cheapest correct proxy. When a typed boundary lands, bump `CompactionPressureDetector::VERSION` per CONTRIBUTING.md §3 and switch — old findings stay attached to v1.
+- **Trailing window anchored on input, not wall-clock.** `latest_ts` is `input.events.iter().map(|e| e.timestamp).max()` rather than `OffsetDateTime::now_utc()`, so the detector is reproducible from a frozen event log and replay is deterministic.
+- **Per-workspace finding emission.** The detector loops a `BTreeMap<WorkspaceId, ...>` and emits one `Finding` per qualifying workspace, with `workspace_id: Some(ws)` from the loop key — not `input.workspace_id`. This is the first detector to behave correctly on project-wide bundles (`input.workspace_id == None`), which Phase 21.A3 will rely on.
+- **Severity `Notice`** per CONTRIBUTING.md §6 — A2 default. Raising to `Warning` would need <5% measured FP rate on the fixture suite, which would require Phase B's synthesis pass to be live first.
+- **Anchor cap at 5** (matches `approval_always_granted`'s convention). The exact `/compact` count is in the summary; anchors are spot-check pointers for the proposal evidence drawer, so the drawer stays scannable. The `window_digest` keys on **every** qualifying compact's event id (not the capped anchor list) so dedupe stays stable as more sessions pile on inside the same trailing-7-day window.
+- **`config.min_occurrences` advisory in v1.** The roadmap pins the threshold on session breadth, not raw `/compact` count, so the detector counts sessions and ignores `min_occurrences`. The default is set to 3 to mirror `min_sessions` so a user override of either knob alone behaves intuitively.
+
+**Technical decisions:**
+
+- **`Finding.timestamp` pins the last qualifying compact**, not the latest input event — semantically tighter and avoids a trailing non-compact message bumping the finding's timestamp into unrelated activity.
+- **`is_compact_command` matches `/compact` only at body head, terminated by EOF or whitespace** — `/compactify` and `/compact-foo` don't trigger.
+- **`build_anchor` is gated by `is_compact_command`** at the call site. The fallback arm (non-`MessagePosted` envelope) is unreachable in practice but degrades to a usable anchor instead of panicking — defenses go cheap when the runtime cost is one match arm.
+
+**Tradeoffs discussed:**
+
+- **Lift `trim_summary` into a shared helper** vs. **keep per-detector copies.** `scope_false_positive` made the same call (CLAUDE.md's "three similar lines is better than a premature abstraction"); deferred until a third caller appears with the same budget.
+- **One pass for `latest_ts` + grouping** vs. **two clean O(n) passes.** Two passes is clearer, the cost is bounded (analysis windows are small), and the early-return-on-empty-input guard wants `latest_ts` in hand before the grouping loop. Code clarity wins.
+
+**Lessons learned:**
+
+- First detector to loop per-workspace inside `detect()` to support project-wide bundles. The `Some(workspace_id)` from the loop key (vs. `input.workspace_id`) is the right pattern; reviewers should watch for this in future detectors that aggregate across workspaces.
+
+---
+
 ### Phase 21.A2 — `scope_false_positive` detector (Designer-unique)
 **Date:** 2026-04-29
 **Branch:** detector-scope-false-pos

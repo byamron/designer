@@ -40,7 +40,22 @@
 //! 5. Emit one [`Finding`] per workspace whose qualifying-session
 //!    count inside the window is at least `config.min_sessions`
 //!    (default 3 per [`crate::defaults::COMPACTION_PRESSURE_DEFAULTS`]).
-//!    Evidence is one [`Anchor::MessageSpan`] per `/compact` message.
+//!    Evidence is one [`Anchor::MessageSpan`] per `/compact` message,
+//!    capped at [`CompactionPressureDetector::MAX_EVIDENCE_ANCHORS`]
+//!    so the proposal's evidence drawer stays scannable.
+//!
+//! ## Config knobs read
+//!
+//! - `config.enabled`, `config.max_findings_per_session` — standard.
+//! - `config.min_sessions` — the qualifying-session gate (the
+//!   roadmap's "3 sessions in a week").
+//! - `config.impact_override` — defaults to `Severity::Notice` per
+//!   [`crate::defaults::COMPACTION_PRESSURE_DEFAULTS`].
+//! - `config.min_occurrences` is **advisory in v1**: this detector
+//!   counts sessions, not raw `/compact` invocations, since the
+//!   roadmap pins the threshold on session breadth. The default is
+//!   3 to mirror `min_sessions` so a user override of either knob
+//!   alone behaves intuitively.
 
 use crate::defaults::{COMPACTION_PRESSURE_LOOKBACK_DAYS, COMPACTION_PRESSURE_SESSION_GAP_MINUTES};
 use crate::{window_digest, Detector, DetectorConfig, DetectorError, SessionAnalysisInput};
@@ -75,6 +90,10 @@ impl CompactionPressureDetector {
     const CONFIDENCE_STEP: f32 = 0.05;
     /// Summary char budget per CONTRIBUTING §"Summary copy".
     const SUMMARY_BUDGET: usize = 100;
+    /// Cap on attached `MessageSpan` anchors per finding. The exact
+    /// `/compact` count is in the summary; the anchors are spot-check
+    /// pointers, so the drawer stays scannable.
+    const MAX_EVIDENCE_ANCHORS: usize = 5;
 }
 
 #[async_trait]
@@ -135,12 +154,11 @@ struct WorkspaceState<'a> {
 
 impl<'a> WorkspaceState<'a> {
     fn close_session(&mut self) {
-        if !self.pending_compacts.is_empty() {
-            self.qualifying_sessions += 1;
-            self.qualifying_compacts.append(&mut self.pending_compacts);
-        } else {
-            self.pending_compacts.clear();
+        if self.pending_compacts.is_empty() {
+            return;
         }
+        self.qualifying_sessions += 1;
+        self.qualifying_compacts.append(&mut self.pending_compacts);
     }
 }
 
@@ -168,7 +186,7 @@ fn detect(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding>
     let cap = config.max_findings_per_session as usize;
     let mut findings: Vec<Finding> = Vec::new();
 
-    for (_ws, mut messages) in by_ws {
+    for (ws, mut messages) in by_ws {
         messages.sort_by_key(|e| (e.timestamp, e.sequence));
 
         let mut state = WorkspaceState::default();
@@ -193,7 +211,7 @@ fn detect(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding>
         state.close_session();
 
         if state.qualifying_sessions >= config.min_sessions {
-            findings.push(build_finding(input, &state, latest_ts, config));
+            findings.push(build_finding(input, ws, &state, config));
             if findings.len() >= cap {
                 break;
             }
@@ -205,8 +223,8 @@ fn detect(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding>
 
 fn build_finding(
     input: &SessionAnalysisInput,
+    workspace_id: WorkspaceId,
     state: &WorkspaceState<'_>,
-    latest_ts: Timestamp,
     config: &DetectorConfig,
 ) -> Finding {
     let total_compacts = state.qualifying_compacts.len() as u32;
@@ -220,12 +238,18 @@ fn build_finding(
             CompactionPressureDetector::CONFIDENCE_MAX,
         );
 
-    let evidence: Vec<Anchor> = state
+    // Anchor on the most recent `/compact` so the finding's
+    // `timestamp` reflects the freshest supporting evidence rather
+    // than an unrelated tail event in the input.
+    let last_compact_ts = state
         .qualifying_compacts
-        .iter()
-        .map(|env| build_anchor(env))
-        .collect();
+        .last()
+        .map(|env| env.timestamp)
+        .unwrap_or(Timestamp::UNIX_EPOCH);
 
+    // `window_digest` keys on **every** qualifying compact's event id
+    // (not just the capped anchor list) so dedupe is stable as more
+    // sessions pile on inside the same trailing-7-day window.
     let evidence_keys: Vec<String> = state
         .qualifying_compacts
         .iter()
@@ -234,13 +258,20 @@ fn build_finding(
     let key_refs: Vec<&str> = evidence_keys.iter().map(String::as_str).collect();
     let digest = window_digest(CompactionPressureDetector::NAME, &key_refs);
 
+    let evidence: Vec<Anchor> = state
+        .qualifying_compacts
+        .iter()
+        .take(CompactionPressureDetector::MAX_EVIDENCE_ANCHORS)
+        .map(|env| build_anchor(env))
+        .collect();
+
     Finding {
         id: FindingId::new(),
         detector_name: CompactionPressureDetector::NAME.to_string(),
         detector_version: CompactionPressureDetector::VERSION,
         project_id: input.project_id,
-        workspace_id: input.workspace_id,
-        timestamp: latest_ts,
+        workspace_id: Some(workspace_id),
+        timestamp: last_compact_ts,
         severity: config.impact_override.unwrap_or(Severity::Notice),
         confidence,
         summary: trim_summary(format!(
@@ -256,37 +287,32 @@ fn build_finding(
 }
 
 /// Build a `MessageSpan` anchor pointing at the `/compact` token inside
-/// the message body. The `quote` is the full slash-command-and-args
-/// substring so a stale `char_range` can be re-found by string search
-/// after a downstream message edit.
+/// the message body. The `quote` is the slash-command + any trailing
+/// args on the same line, so a stale `char_range` can be re-found by
+/// string search after a downstream message edit. Caller invariant
+/// (enforced via `is_compact_command`): every envelope passed in is a
+/// `MessagePosted`. The fallback below is unreachable in practice;
+/// it exists so a future caller bug degrades to a usable anchor
+/// instead of a runtime panic.
 fn build_anchor(env: &EventEnvelope) -> Anchor {
-    let (quote, char_range) = match &env.payload {
-        EventPayload::MessagePosted { body, .. } => slash_command_span(body),
-        _ => (CompactionPressureDetector::SLASH_COMMAND.to_string(), None),
+    let EventPayload::MessagePosted { body, .. } = &env.payload else {
+        return Anchor::MessageSpan {
+            message_id: env.id.to_string(),
+            quote: CompactionPressureDetector::SLASH_COMMAND.to_string(),
+            char_range: None,
+        };
     };
+    let trimmed = body.trim_start();
+    let leading = body.chars().count() - trimmed.chars().count();
+    let line_end = trimmed.find('\n').unwrap_or(trimmed.len());
+    let quote = trimmed[..line_end].to_string();
+    let start = leading as u32;
+    let end = (leading + quote.chars().count()) as u32;
     Anchor::MessageSpan {
         message_id: env.id.to_string(),
         quote,
-        char_range,
+        char_range: Some((start, end)),
     }
-}
-
-/// Locate the `/compact` token inside `body` and return the verbatim
-/// quote (the slash-command + any trailing args on the same line) plus
-/// its `(start, end)` character offsets. `None` for the range when the
-/// token isn't found (defensive — `is_compact_command` already gated
-/// the caller).
-fn slash_command_span(body: &str) -> (String, Option<(u32, u32)>) {
-    let trimmed = body.trim_start();
-    let leading = body.chars().count() - trimmed.chars().count();
-    let token_chars = CompactionPressureDetector::SLASH_COMMAND.chars().count();
-    // Capture the slash command + any args on the same line for context.
-    let line_end = trimmed.find('\n').unwrap_or(trimmed.len());
-    let quote = trimmed[..line_end].to_string();
-    let quote_chars = quote.chars().count();
-    let start = leading as u32;
-    let end = (leading + quote_chars.max(token_chars)) as u32;
-    (quote, Some((start, end)))
 }
 
 fn trim_summary(summary: String) -> String {
@@ -349,10 +375,18 @@ mod tests {
     }
 
     #[test]
-    fn slash_command_span_pins_offsets_after_leading_whitespace() {
-        let (quote, range) = slash_command_span("  /compact please");
-        assert_eq!(quote, "/compact please");
-        assert_eq!(range, Some((2, 17)));
+    fn build_anchor_pins_offsets_after_leading_whitespace() {
+        let ws = WorkspaceId::new();
+        let env = message(1, Timestamp::UNIX_EPOCH, ws, "  /compact please");
+        match build_anchor(&env) {
+            Anchor::MessageSpan {
+                quote, char_range, ..
+            } => {
+                assert_eq!(quote, "/compact please");
+                assert_eq!(char_range, Some((2, 17)));
+            }
+            other => panic!("expected MessageSpan, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -493,5 +527,82 @@ mod tests {
             .build();
         let findings = detect(&input, &COMPACTION_PRESSURE_DEFAULTS);
         assert!(findings.is_empty());
+    }
+
+    #[tokio::test]
+    async fn project_wide_bundle_emits_finding_carrying_workspace_id() {
+        // Project-wide input (`workspace_id: None`); the per-workspace
+        // finding must carry the loop-key workspace id, not the bundle's
+        // None. Three qualifying sessions in workspace A.
+        let project = ProjectId::new();
+        let ws_a = WorkspaceId::new();
+        let day = Duration::days(1);
+        let base = Timestamp::UNIX_EPOCH + Duration::days(30);
+        let events = vec![
+            message(1, base, ws_a, "/compact"),
+            message(2, base + day, ws_a, "/compact"),
+            message(3, base + day * 2, ws_a, "/compact"),
+        ];
+        let input = SessionAnalysisInput::builder(project)
+            .events(events)
+            .build();
+        let findings = detect(&input, &COMPACTION_PRESSURE_DEFAULTS);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].workspace_id, Some(ws_a));
+    }
+
+    #[tokio::test]
+    async fn evidence_anchors_cap_at_max() {
+        // 8 qualifying sessions → 8 `/compact` events; the anchor list
+        // should still be capped at MAX_EVIDENCE_ANCHORS (5). The
+        // summary's "(N occurrences)" still reports the true count.
+        let project = ProjectId::new();
+        let ws = WorkspaceId::new();
+        let day = Duration::days(1);
+        let base = Timestamp::UNIX_EPOCH + Duration::days(30);
+        let mut events = Vec::new();
+        for i in 0..8 {
+            events.push(message(i + 1, base + day * i as i32, ws, "/compact"));
+        }
+        let input = SessionAnalysisInput::builder(project)
+            .workspace(ws)
+            .events(events)
+            .build();
+        let findings = detect(&input, &COMPACTION_PRESSURE_DEFAULTS);
+        assert_eq!(findings.len(), 1);
+        let f = &findings[0];
+        assert_eq!(
+            f.evidence.len(),
+            CompactionPressureDetector::MAX_EVIDENCE_ANCHORS
+        );
+        assert!(
+            f.summary.contains("(8 occurrences)"),
+            "summary should report the true compact count: {}",
+            f.summary
+        );
+    }
+
+    #[tokio::test]
+    async fn finding_timestamp_pins_last_qualifying_compact() {
+        let project = ProjectId::new();
+        let ws = WorkspaceId::new();
+        let day = Duration::days(1);
+        let base = Timestamp::UNIX_EPOCH + Duration::days(30);
+        let last_compact_ts = base + day * 2;
+        let events = vec![
+            message(1, base, ws, "/compact"),
+            message(2, base + day, ws, "/compact"),
+            message(3, last_compact_ts, ws, "/compact"),
+            // Trailing non-compact message — must NOT bump the finding's
+            // timestamp past the last `/compact`.
+            message(4, base + day * 3, ws, "thanks"),
+        ];
+        let input = SessionAnalysisInput::builder(project)
+            .workspace(ws)
+            .events(events)
+            .build();
+        let findings = detect(&input, &COMPACTION_PRESSURE_DEFAULTS);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].timestamp, last_compact_ts);
     }
 }
