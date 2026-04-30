@@ -11,8 +11,10 @@
 
 #![cfg(feature = "claude_live")]
 
+use async_trait::async_trait;
 use designer_claude::{
-    ClaudeCodeOptions, ClaudeCodeOrchestrator, Orchestrator, OrchestratorEvent, TeamSpec,
+    ClaudeCodeOptions, ClaudeCodeOrchestrator, Orchestrator, OrchestratorEvent, PermissionDecision,
+    PermissionHandler, PermissionRequest, TeamSpec,
 };
 use designer_core::{SqliteEventStore, WorkspaceId};
 use std::sync::Arc;
@@ -93,5 +95,121 @@ async fn spawn_team_and_observe_lifecycle() {
         shutdown.is_ok(),
         "shutdown did not complete within 90s; orchestrator may be stuck"
     );
+    shutdown.unwrap().expect("shutdown should not error");
+}
+
+/// Records every `decide()` call into a shared `Vec` and signals
+/// `notify.notify_one()` so the test can wake when at least one prompt
+/// has landed. Always returns `Accept` — under the round-trip path that
+/// causes the orchestrator to encode `{"behavior":"allow"}` and write it
+/// through the lead's stdin, which is what unblocks `claude` to continue.
+struct RecordingHandler {
+    received: Arc<tokio::sync::Mutex<Vec<PermissionRequest>>>,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl PermissionHandler for RecordingHandler {
+    async fn decide(&self, req: PermissionRequest) -> PermissionDecision {
+        self.received.lock().await.push(req);
+        self.notify.notify_one();
+        PermissionDecision::Accept
+    }
+}
+
+/// Live round-trip for `--permission-prompt-tool stdio`. Asks `claude` to
+/// perform an operation that the default permission policy gates (a
+/// `Write`); the orchestrator forwards the prompt to our
+/// [`RecordingHandler`], which returns `Accept`; the orchestrator encodes
+/// `{"behavior":"allow"}` and writes it through stdin; the agent unblocks
+/// and the test exits cleanly.
+///
+/// Skipped on hermetic CI; runs on the self-hosted runner via
+/// `cargo test --features claude_live` (see `claude-live.yml`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn permission_prompt_round_trip() {
+    let store = Arc::new(SqliteEventStore::open_in_memory().unwrap());
+    let received = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let notify = Arc::new(tokio::sync::Notify::new());
+    let handler: Arc<dyn PermissionHandler> = Arc::new(RecordingHandler {
+        received: received.clone(),
+        notify: notify.clone(),
+    });
+
+    let workdir = tempfile::tempdir().expect("tempdir");
+    let orch = ClaudeCodeOrchestrator::new(
+        store,
+        ClaudeCodeOptions {
+            cwd: Some(workdir.path().to_path_buf()),
+            ..Default::default()
+        },
+    )
+    .with_permission_handler(handler);
+
+    let mut events = orch.subscribe();
+    let ws = WorkspaceId::new();
+    let spec = TeamSpec {
+        workspace_id: ws,
+        team_name: "designer-permission-probe".into(),
+        lead_role: "team-lead".into(),
+        teammates: vec![],
+        env: Default::default(),
+        cwd: Some(workdir.path().to_path_buf()),
+    };
+    orch.spawn_team(spec)
+        .await
+        .expect("spawn_team should succeed");
+
+    // Block until the synthetic TeamSpawned echo lands so the lead is
+    // initialized before we drive a prompt at it.
+    let team_spawned = await_event(&mut events, Duration::from_secs(15), |e| {
+        matches!(
+            e,
+            OrchestratorEvent::TeamSpawned { team, .. } if team == "designer-permission-probe"
+        )
+    })
+    .await;
+    assert!(
+        team_spawned.is_some(),
+        "TeamSpawned did not land within 15s"
+    );
+
+    // Default permission policy gates Write/Edit; our handler is the only
+    // path Claude has to ask, so the prompt round-trip starts here.
+    orch.post_message(
+        ws,
+        "user".into(),
+        "Create a file named 'hello.txt' in the current working directory containing exactly the text 'hi'. Then stop.".into(),
+    )
+    .await
+    .expect("post_message should succeed");
+
+    // Live model latency varies; 90s headroom keeps this stable on the
+    // self-hosted runner without masking real regressions.
+    let woken = timeout(Duration::from_secs(90), notify.notified()).await;
+    assert!(
+        woken.is_ok(),
+        "permission handler.decide() did not fire within 90s — round-trip broken"
+    );
+
+    let calls = received.lock().await;
+    assert!(!calls.is_empty(), "expected at least one PermissionRequest");
+    let req = &calls[0];
+    assert_eq!(
+        req.workspace_id,
+        Some(ws),
+        "PermissionRequest.workspace_id must round-trip"
+    );
+    // The exact tool depends on which path the model picks (Write vs.
+    // Edit vs. shell-out); any of those is a valid permission-gated tool.
+    assert!(
+        ["Write", "Edit", "MultiEdit", "Bash"].contains(&req.tool.as_str()),
+        "unexpected tool {} for the create-file prompt",
+        req.tool
+    );
+    drop(calls);
+
+    let shutdown = timeout(Duration::from_secs(90), orch.shutdown(ws)).await;
+    assert!(shutdown.is_ok(), "shutdown timed out");
     shutdown.unwrap().expect("shutdown should not error");
 }
