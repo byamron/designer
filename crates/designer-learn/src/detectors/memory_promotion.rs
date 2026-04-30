@@ -83,6 +83,10 @@ impl MemoryPromotionDetector {
     /// note to be a candidate at all. Notes shorter than this are scratch
     /// regardless of any keyword match.
     const MIN_BODY_CHARS: usize = 20;
+    /// Minimum probe length after trimming trailing punctuation. Kept
+    /// separate from `MIN_BODY_CHARS` so tuning the candidate floor
+    /// can't silently relax the coverage check.
+    const MIN_PROBE_CHARS: usize = 20;
 }
 
 #[async_trait]
@@ -142,11 +146,11 @@ fn run(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding> {
         return Vec::new();
     }
 
-    let infra_lower = input
-        .project_root
-        .as_deref()
-        .map(collect_infra_blob)
-        .unwrap_or_default();
+    let project_root = input.project_root.as_deref();
+    // Lazy: only read CLAUDE.md / rules / skills when at least one note
+    // survives the persistence + classify gates. A session full of
+    // ephemeral or uncategorized notes does no infra I/O.
+    let mut infra_lower: Option<String> = None;
 
     let cap = config.max_findings_per_session as usize;
     let mut findings = Vec::new();
@@ -164,7 +168,14 @@ fn run(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding> {
         let Some(class) = classify(body) else {
             continue;
         };
-        if covered_by_infra(body, &infra_lower) {
+        let covered = match project_root {
+            Some(root) => {
+                let blob = infra_lower.get_or_insert_with(|| collect_infra_blob(root));
+                covered_by_infra(body, blob)
+            }
+            None => false,
+        };
+        if covered {
             continue;
         }
         findings.push(build_finding(input, note, class, body));
@@ -174,54 +185,53 @@ fn run(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding> {
 }
 
 /// Returns the body content after a leading YAML frontmatter block, or
-/// `None` when the note has no frontmatter (treated as ephemeral). Both
-/// LF and CRLF line endings are accepted; the closing `---` is matched
-/// when it sits at the start of any line.
+/// `None` when the note has no frontmatter (treated as ephemeral).
+/// Recognizes both LF and CRLF line endings, and handles empty
+/// frontmatter (`---\n---\n`).
 fn strip_frontmatter(body: &str) -> Option<&str> {
-    let trimmed = body.trim_start_matches(|c: char| {
-        c == '\u{FEFF}' || c == ' ' || c == '\t' || c == '\n' || c == '\r'
-    });
-    let after_open = trimmed.strip_prefix("---")?;
-    let after_open = after_open
-        .strip_prefix('\n')
-        .or_else(|| after_open.strip_prefix("\r\n"))?;
+    let trimmed = body.trim_start();
+    let after_first = trimmed.strip_prefix("---")?;
+    // Skip the rest of the opening fence line. Anything between `---` and
+    // the newline is treated as part of the fence (e.g., a trailing space).
+    let (_, rest) = after_first.split_once('\n')?;
 
-    let close_lf = after_open.find("\n---");
-    let close_crlf = after_open.find("\r\n---");
-    let (close_idx, marker_len) = match (close_lf, close_crlf) {
-        (Some(a), Some(b)) if b < a => (b, "\r\n---".len()),
-        (Some(a), _) => (a, "\n---".len()),
-        (None, Some(b)) => (b, "\r\n---".len()),
-        (None, None) => return None,
-    };
-
-    let after_close = &after_open[close_idx + marker_len..];
-    let after_close = after_close
-        .strip_prefix('\n')
-        .or_else(|| after_close.strip_prefix("\r\n"))
-        .unwrap_or(after_close);
-    Some(after_close.trim_start())
-}
-
-fn classify(body: &str) -> Option<MemoryClass> {
-    let lower = body.to_lowercase();
-    if matches_any(&lower, MEMORY_PROMOTION_PREFERENCE_KEYWORDS) {
-        return Some(MemoryClass::Preference);
-    }
-    if matches_any(&lower, MEMORY_PROMOTION_CONVENTION_KEYWORDS) {
-        return Some(MemoryClass::Convention);
-    }
-    if matches_any(&lower, MEMORY_PROMOTION_WORKFLOW_KEYWORDS) {
-        return Some(MemoryClass::Workflow);
-    }
-    if matches_any(&lower, MEMORY_PROMOTION_DEBUGGING_KEYWORDS) {
-        return Some(MemoryClass::DebuggingKnowledge);
+    // Walk lines (with their trailing `\n` preserved so byte offsets sum
+    // back to slice positions in `rest`) looking for a closing fence —
+    // a line whose trimmed content is exactly `---`.
+    let mut consumed = 0;
+    for line in rest.split_inclusive('\n') {
+        if line.trim().trim_end_matches('\r').trim() == "---" {
+            return Some(rest[consumed + line.len()..].trim_start());
+        }
+        consumed += line.len();
     }
     None
 }
 
-fn matches_any(haystack: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|kw| haystack.contains(kw))
+/// First-match-wins classification across the four corpora, in
+/// preference → convention → workflow → debugging-knowledge order.
+const CLASS_CORPORA: &[(MemoryClass, &[&str])] = &[
+    (
+        MemoryClass::Preference,
+        MEMORY_PROMOTION_PREFERENCE_KEYWORDS,
+    ),
+    (
+        MemoryClass::Convention,
+        MEMORY_PROMOTION_CONVENTION_KEYWORDS,
+    ),
+    (MemoryClass::Workflow, MEMORY_PROMOTION_WORKFLOW_KEYWORDS),
+    (
+        MemoryClass::DebuggingKnowledge,
+        MEMORY_PROMOTION_DEBUGGING_KEYWORDS,
+    ),
+];
+
+fn classify(body: &str) -> Option<MemoryClass> {
+    let lower = body.to_lowercase();
+    CLASS_CORPORA
+        .iter()
+        .find(|(_, kws)| kws.iter().any(|kw| lower.contains(kw)))
+        .map(|(class, _)| *class)
 }
 
 /// Read CLAUDE.md, every `.claude/rules/*.md`, and every
@@ -289,7 +299,7 @@ fn covered_by_infra(body: &str, infra_lower: &str) -> bool {
     let trimmed = probe
         .trim()
         .trim_end_matches(|c: char| !c.is_alphanumeric());
-    if trimmed.chars().count() < MemoryPromotionDetector::MIN_BODY_CHARS {
+    if trimmed.chars().count() < MemoryPromotionDetector::MIN_PROBE_CHARS {
         return false;
     }
     infra_lower.contains(trimmed)
@@ -318,9 +328,8 @@ fn build_finding(
 ) -> Finding {
     let snippet = first_substantive_line(body);
     let summary = summary_line(class, snippet);
-    let path_str = display_path(note);
-    let class_key = class.label();
-    let digest_keys = [class_key, path_str.as_str()];
+    let path_str = note.path.to_string_lossy().into_owned();
+    let digest_keys = [class.label(), path_str.as_str()];
     let window_digest = window_digest(MemoryPromotionDetector::NAME, &digest_keys);
 
     Finding {
@@ -355,23 +364,26 @@ fn summary_line(class: MemoryClass, snippet: &str) -> String {
     )
 }
 
+/// Truncate `s` to at most `budget` chars (visible width including the
+/// trailing ellipsis). Cuts at the last word boundary at-or-before the
+/// budget so the inline quote never ends mid-word; falls back to a hard
+/// cut for inputs with no whitespace (rare — a long URL, an identifier).
+/// Internal newlines collapse to spaces so the inline quote stays on one
+/// line in the renderer.
 fn truncate_inline(s: &str, budget: usize) -> String {
     let normalized: String = s
         .chars()
         .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
         .collect();
-    let count = normalized.chars().count();
-    if count <= budget {
+    if normalized.chars().count() <= budget {
         return normalized;
     }
     let take = budget.saturating_sub(1);
-    let mut out: String = normalized.chars().take(take).collect();
+    let prefix: String = normalized.chars().take(take).collect();
+    let cut = prefix.rfind(char::is_whitespace).unwrap_or(prefix.len());
+    let mut out = prefix[..cut].trim_end().to_string();
     out.push('\u{2026}');
     out
-}
-
-fn display_path(note: &MemoryNote) -> String {
-    note.path.to_string_lossy().into_owned()
 }
 
 #[cfg(test)]
@@ -637,18 +649,34 @@ mod tests {
     }
 
     #[test]
-    fn truncate_inline_adds_ellipsis_past_budget() {
-        let long = "abcdefghijklmnop";
-        let out = truncate_inline(long, 5);
-        let count = out.chars().count();
-        assert_eq!(count, 5);
+    fn truncate_inline_falls_back_to_hard_cut_without_whitespace() {
+        // No whitespace in input → fallback path: take `budget - 1`
+        // chars and append the ellipsis.
+        let out = truncate_inline("abcdefghijklmnop", 5);
+        assert_eq!(out.chars().count(), 5);
         assert!(out.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn truncate_inline_cuts_at_word_boundary() {
+        // "I prefer two-space indentation in TypeScript files." budget 40.
+        // Last whitespace at-or-before position 39 lands between "in" and
+        // "TypeScript", so the ellipsis attaches after "in".
+        let out = truncate_inline("I prefer two-space indentation in TypeScript files.", 40);
+        assert_eq!(out, "I prefer two-space indentation in\u{2026}");
+        assert!(out.chars().count() <= 40);
     }
 
     #[test]
     fn truncate_inline_passes_short_input_through() {
         let out = truncate_inline("hi", 10);
         assert_eq!(out, "hi");
+    }
+
+    #[test]
+    fn truncate_inline_collapses_internal_newlines() {
+        let out = truncate_inline("ab\ncd", 10);
+        assert_eq!(out, "ab cd");
     }
 
     #[test]
@@ -661,8 +689,28 @@ mod tests {
     }
 
     #[test]
+    fn strip_frontmatter_handles_empty_block() {
+        // `---\n---\n` is a syntactically valid empty frontmatter; the
+        // closing fence sits on the line right after the opening one.
+        let stripped = strip_frontmatter("---\n---\nbody\n").unwrap();
+        assert_eq!(stripped, "body\n");
+    }
+
+    #[test]
+    fn strip_frontmatter_handles_trailing_whitespace_on_fence() {
+        let stripped = strip_frontmatter("---\nname: x\n--- \n\nbody\n").unwrap();
+        assert_eq!(stripped, "body\n");
+    }
+
+    #[test]
     fn strip_frontmatter_returns_none_without_block() {
         assert!(strip_frontmatter("plain note body").is_none());
+    }
+
+    #[test]
+    fn strip_frontmatter_returns_none_when_unterminated() {
+        // Open fence with no closing `---` is treated as ephemeral.
+        assert!(strip_frontmatter("---\nname: x\nbody without close\n").is_none());
     }
 
     #[test]
