@@ -1,8 +1,16 @@
-//! Phase 21.A2 detectors. One module per detector.
+//! Phase 21.A2 detector implementations. Each detector lives in its own
+//! sibling module so authors land in parallel without stepping on each
+//! other's files.
 //!
-//! Each detector lives in its own file under `src/detectors/<name>.rs`,
-//! implements the locked [`crate::Detector`] trait, and ships with a
-//! fixture pair under `tests/fixtures/<name>/`. See
-//! `crates/designer-learn/CONTRIBUTING.md` for the procedure.
+//! Detectors are registered for runtime use by consumers (today:
+//! tests, plus the AppCore wiring in Phase 21.A2's integration step).
+//! There is no global registry inside this crate so detectors stay
+//! unit-testable in isolation.
 
+pub mod approval_always_granted;
 pub mod cost_hot_streak;
+pub mod repeated_correction;
+
+pub use approval_always_granted::ApprovalAlwaysGrantedDetector;
+pub use cost_hot_streak::CostHotStreakDetector;
+pub use repeated_correction::RepeatedCorrectionDetector;

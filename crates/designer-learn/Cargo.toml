@@ -27,8 +27,14 @@ tracing.workspace = true
 time.workspace = true
 sha2.workspace = true
 hex.workspace = true
+# `time` feature needed for the per-detector 250ms timeout per the
+# roadmap §"Partial-failure containment" rule. Detectors call
+# `tokio::time::timeout`; the runtime that hosts them already pulls
+# tokio with `full`, but we declare what we use here so the crate is
+# self-contained.
+tokio = { workspace = true, features = ["time", "macros"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "test-util"] }
 tempfile.workspace = true
-uuid.workspace = true
+uuid = { workspace = true, features = ["v4", "serde"] }
