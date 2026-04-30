@@ -68,6 +68,9 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     revealInFinder: () => Promise.resolve(),
     listFindings: () => Promise.resolve([]),
     signalFinding: () => Promise.resolve(),
+    listProposals: () => Promise.resolve([]),
+    resolveProposal: () => Promise.resolve(),
+    signalProposal: () => Promise.resolve(),
   };
   return { ...base, ...overrides };
 }

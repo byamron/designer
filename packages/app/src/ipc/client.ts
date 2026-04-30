@@ -13,15 +13,19 @@ import type {
   FrictionEntry,
   FrictionTransitionRequest,
   LinkRepoRequest,
+  ListProposalsRequest,
   OpenTabRequest,
   PostMessageRequest,
   PostMessageResponse,
   ProjectId,
   ProjectSummary,
+  ProposalDto,
   ReportFrictionRequest,
   ReportFrictionResponse,
   RequestMergeRequest,
+  ResolveProposalRequest,
   SignalFindingRequest,
+  SignalProposalRequest,
   SpineRow,
   StartTrackRequest,
   Tab,
@@ -84,7 +88,12 @@ export interface IpcClient {
   revealInFinder(path: string): Promise<void>;
   // Learning layer (Phase 21.A1)
   listFindings(projectId: ProjectId): Promise<FindingDto[]>;
+  /** @deprecated Phase 21.A1.2 — calibration thumbs move to `signalProposal`. */
   signalFinding(req: SignalFindingRequest): Promise<void>;
+  // Proposals over findings (Phase 21.A1.2)
+  listProposals(req: ListProposalsRequest): Promise<ProposalDto[]>;
+  resolveProposal(req: ResolveProposalRequest): Promise<void>;
+  signalProposal(req: SignalProposalRequest): Promise<void>;
 }
 
 // ---- Phase 13.G safety DTOs -----------------------------------------------
@@ -234,6 +243,15 @@ class TauriIpcClient implements IpcClient {
   signalFinding(req: SignalFindingRequest) {
     return invoke<void>("cmd_signal_finding", { req });
   }
+  listProposals(req: ListProposalsRequest) {
+    return invoke<ProposalDto[]>("cmd_list_proposals", { req });
+  }
+  resolveProposal(req: ResolveProposalRequest) {
+    return invoke<void>("cmd_resolve_proposal", { req });
+  }
+  signalProposal(req: SignalProposalRequest) {
+    return invoke<void>("cmd_signal_proposal", { req });
+  }
 }
 
 class MockIpcClient implements IpcClient {
@@ -381,6 +399,15 @@ class MockIpcClient implements IpcClient {
     return Promise.resolve<FindingDto[]>([]);
   }
   signalFinding(_req: SignalFindingRequest) {
+    return Promise.resolve();
+  }
+  listProposals(_req: ListProposalsRequest) {
+    return Promise.resolve<ProposalDto[]>([]);
+  }
+  resolveProposal(_req: ResolveProposalRequest) {
+    return Promise.resolve();
+  }
+  signalProposal(_req: SignalProposalRequest) {
     return Promise.resolve();
   }
 }

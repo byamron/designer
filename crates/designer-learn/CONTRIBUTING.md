@@ -256,7 +256,56 @@ archive.
 
 ---
 
-## 7. References
+## 7. Summary copy (Phase 21.A1.2)
+
+Phase 21.A1.2 reshapes the "Designer noticed" surface around
+*proposals* (recommendations) rather than findings (observations).
+Findings now live behind each proposal's "from N observations"
+disclosure as evidence — never as their own row on the workspace
+home or in the Settings archive. That changes what `Finding.summary`
+should read like.
+
+A finding's `summary` is **evidence text**, not user-facing prose.
+Phase B's synthesizer reads it (along with the sibling findings in
+the same proposal) to compose the proposal's headline + body. The
+text never reaches the user verbatim except inside an evidence
+drawer the user has explicitly opened.
+
+Write summaries that describe **the pattern**, not the user, and
+not what the user should do. The synthesizer is the one with
+permission to say "you" or "this fix"; the detector says "what
+happened":
+
+- **Passive voice.** "The same correction was issued 3 times" — not
+  "you corrected the same pattern 3 times." The detector hasn't
+  earned the second-person address yet; the proposal will speak for
+  it.
+- **Describe the pattern, not the user.** "Auto-format hook missing"
+  — not "your project is missing an auto-format hook." Lifts cleanly
+  into a feedback-rule proposal (which can address the user) without
+  an extra pronoun-rewriting pass.
+- **No second-person address.** "Three identical tool sequences in
+  5 sessions" — not "you ran the same three tools." Same reason.
+- **No directives.** "CLAUDE.md is 214 lines, above the 200-line
+  budget" — not "demote this CLAUDE.md block to a reference doc."
+  Directives belong on the proposal, not the finding; if a directive
+  leaks into the summary, the synthesizer will end up echoing it
+  awkwardly.
+- **Short.** Aim for one clause, ≤80 chars. Anything longer competes
+  for attention inside the evidence drawer.
+
+This convention is a coordination point with the parallel detector
+squad (Phase 21.A2). Detector reviewers should block-merge a
+detector whose summaries break it; subsequent re-tuning to match
+the proposal-shaped surface is a Phase B concern, not a 21.A2
+deliverable. If you're unsure whether a phrase reads as evidence or
+as user-facing prose, imagine it rendered under "from 3
+observations" with nothing else around it — if it sounds like it's
+addressing the reader, rewrite.
+
+---
+
+## 8. References
 
 - **Spec:** `core-docs/roadmap.md` §"Phase 21.A — Frontloadable
   detectors". Frozen contracts are §"Locked contracts (frozen by

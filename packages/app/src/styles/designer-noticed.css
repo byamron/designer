@@ -153,3 +153,154 @@
 .activity-section__tabs {
   margin-bottom: var(--space-3);
 }
+
+/* --- Phase 21.A1.2 — proposals over findings ---------------------------- */
+/* Proposal rows extend the finding-row layout: a title above the summary,
+ * an "from N observations" disclosure that expands an evidence drawer, and
+ * a small primary/secondary action group on the right. Severity tinting
+ * and the calibrated badge are inherited unchanged.
+ */
+.designer-noticed__proposal[data-status="dismissed"],
+.designer-noticed__proposal[data-status="snoozed"] {
+  opacity: 0.7;
+}
+
+.designer-noticed__row-title {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+  line-height: var(--type-body-leading);
+}
+
+.designer-noticed__evidence-toggle {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: var(--space-1);
+}
+
+.designer-noticed__evidence-toggle:hover,
+.designer-noticed__evidence-toggle:focus-visible {
+  color: var(--color-foreground);
+}
+
+.designer-noticed__evidence-toggle:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-1);
+}
+
+.designer-noticed__evidence {
+  list-style: none;
+  margin: var(--space-2) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.designer-noticed__evidence-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: var(--border-strong) solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius-2);
+}
+
+.designer-noticed__evidence-item[data-severity="warn"] {
+  border-left-color: var(--warning-9);
+}
+
+.designer-noticed__evidence-item[data-severity="notice"] {
+  border-left-color: var(--accent-9, var(--color-accent));
+}
+
+.designer-noticed__evidence-summary {
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
+  line-height: var(--type-body-leading);
+}
+
+.designer-noticed__evidence-meta {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.designer-noticed__action {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-2);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.designer-noticed__action[data-variant="primary"] {
+  background: var(--accent-9, var(--color-accent));
+  border-color: var(--accent-9, var(--color-accent));
+  color: var(--accent-contrast, var(--color-foreground));
+}
+
+.designer-noticed__action:hover {
+  border-color: var(--color-foreground);
+}
+
+.designer-noticed__action:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.designer-noticed__status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  line-height: 1.4;
+  text-transform: capitalize;
+}
+
+.designer-noticed__filters {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.designer-noticed__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.designer-noticed__filter select {
+  appearance: none;
+  background: var(--color-surface);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-2);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-foreground);
+  font: inherit;
+}
+
+.designer-noticed__filter select:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-outline-offset);
+}

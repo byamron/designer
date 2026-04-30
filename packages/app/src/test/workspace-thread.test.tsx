@@ -88,6 +88,9 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       revealInFinder: () => Promise.resolve(),
       listFindings: () => Promise.resolve([]),
       signalFinding: () => Promise.resolve(),
+      listProposals: () => Promise.resolve([]),
+      resolveProposal: () => Promise.resolve(),
+      signalProposal: () => Promise.resolve(),
     });
   });
 

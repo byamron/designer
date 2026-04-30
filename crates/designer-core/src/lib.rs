@@ -12,6 +12,7 @@ pub mod event;
 pub mod finding;
 pub mod ids;
 pub mod projection;
+pub mod proposal;
 pub mod store;
 pub mod time;
 
@@ -24,9 +25,10 @@ pub use error::{CoreError, Result};
 pub use event::{Event, EventEnvelope, EventKind, EventPayload, FrictionFileError, ScreenshotRef};
 pub use finding::{Finding, Severity, ThumbSignal};
 pub use ids::{
-    AgentId, ApprovalId, ArtifactId, EventId, FindingId, FrictionId, ProjectId, StreamId, TabId,
-    TaskId, TrackId, WorkspaceId,
+    AgentId, ApprovalId, ArtifactId, EventId, FindingId, FrictionId, ProjectId, ProposalId,
+    StreamId, TabId, TaskId, TrackId, WorkspaceId,
 };
 pub use projection::{Projection, ProjectionError, Projector};
+pub use proposal::{Proposal, ProposalKind, ProposalResolution, ProposalStatus};
 pub use store::{EventStore, SqliteEventStore, StreamOptions};
 pub use time::{monotonic_now, rfc3339, Timestamp};

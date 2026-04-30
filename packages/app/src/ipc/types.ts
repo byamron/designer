@@ -212,6 +212,13 @@ export interface StreamEvent {
 export const EVENT_KIND = {
   FINDING_RECORDED: "finding_recorded",
   FINDING_SIGNALED: "finding_signaled",
+  /// Phase 21.A1.2 — proposal events. The sidebar "Designer noticed"
+  /// badge increments on `PROPOSAL_EMITTED`, NOT `FINDING_RECORDED`,
+  /// because findings are evidence (continuous) and proposals are
+  /// what the user thumbs (boundary-driven).
+  PROPOSAL_EMITTED: "proposal_emitted",
+  PROPOSAL_RESOLVED: "proposal_resolved",
+  PROPOSAL_SIGNALED: "proposal_signaled",
   FRICTION_REPORTED: "friction_reported",
 } as const;
 
@@ -297,6 +304,77 @@ export interface FindingDto {
 
 export interface SignalFindingRequest {
   finding_id: FindingId;
+  signal: ThumbSignal;
+}
+
+// ---- Phase 21.A1.2 — proposals over findings ----
+export type ProposalId = string;
+
+export type ProposalKind =
+  | "hint"
+  | "claude_md_entry"
+  | "feedback_rule"
+  | "rule"
+  | "hook"
+  | "skill_candidate"
+  | "agent_candidate"
+  | "reference_doc"
+  | "rule_extraction"
+  | "demotion"
+  | "removal_candidate"
+  | "conflict_resolution"
+  | "scope_rule_relaxation"
+  | "auto_approve_hook"
+  | "context_trim"
+  | "context_restructuring"
+  | "model_tier_suggestion"
+  | "team_composition_change"
+  | "routing_policy_tune"
+  | "prompt_template";
+
+export type ProposalStatus = "open" | "accepted" | "dismissed" | "snoozed";
+
+export type ProposalResolution =
+  | { kind: "accepted" }
+  | { kind: "edited"; diff?: string | null }
+  | { kind: "dismissed"; reason?: string | null }
+  | { kind: "snoozed"; until?: string | null };
+
+export interface ProposalCalibration {
+  signal: ThumbSignal;
+  timestamp: string;
+}
+
+export interface ProposalDto {
+  id: ProposalId;
+  project_id: ProjectId;
+  workspace_id?: WorkspaceId;
+  source_findings: FindingId[];
+  title: string;
+  summary: string;
+  severity: Severity;
+  kind: ProposalKind;
+  suggested_diff?: string | null;
+  created_at: string;
+  status: ProposalStatus;
+  resolution?: ProposalResolution | null;
+  calibration?: ProposalCalibration | null;
+  /** Source-finding evidence for the "from N observations" disclosure. */
+  evidence?: FindingDto[];
+}
+
+export interface ListProposalsRequest {
+  project_id: ProjectId;
+  status_filter?: ProposalStatus | null;
+}
+
+export interface ResolveProposalRequest {
+  proposal_id: ProposalId;
+  resolution: ProposalResolution;
+}
+
+export interface SignalProposalRequest {
+  proposal_id: ProposalId;
   signal: ThumbSignal;
 }
 

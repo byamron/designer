@@ -294,8 +294,12 @@ pub struct AppCore {
     /// `core_learn::report_finding` enforces
     /// [`designer_learn::DetectorConfig::max_findings_per_session`]
     /// against this map so a runaway detector cannot flood the
-    /// workspace-home feed.
+    /// scratch buffer the synthesizer reads from.
     pub(crate) finding_session_counts: parking_lot::Mutex<std::collections::HashMap<String, u32>>,
+    /// Phase 21.A1.2 — boundary-driven proposal synthesis state.
+    /// Track-complete debouncing + first-view-of-day guarding live
+    /// here; see `core_proposals::ProposalState`.
+    pub proposal_state: crate::core_proposals::ProposalState,
 }
 
 #[async_trait]
@@ -394,6 +398,7 @@ impl AppCore {
             helper_events,
             summary_debounce: Arc::new(SummaryDebounce::new()),
             finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
+            proposal_state: crate::core_proposals::ProposalState::new(),
         });
         spawn_cost_subscriber(Arc::downgrade(&core), signal_rx);
         core.spawn_projector_task();
