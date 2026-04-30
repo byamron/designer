@@ -154,6 +154,18 @@ pub const COMPACTION_PRESSURE_LOOKBACK_DAYS: i64 = 7;
 /// definition until a `SessionStarted` payload lands. **Designer-unique**.
 pub const COMPACTION_PRESSURE_SESSION_GAP_MINUTES: i64 = 60;
 
+/// Jaccard-similarity floor for `repeated_prompt_opening`. Two
+/// session-opening user messages count as a match when their token
+/// sets intersect ≥ this fraction of their union.
+///
+/// Forge: `forge/scripts/analyze-transcripts.py` L1231 ships 0.30 as
+/// its `find_repeated_prompts` clustering floor. Designer tunes
+/// stricter (0.50) per `core-docs/roadmap.md` §"Phase 21.A2 /
+/// repeated_prompt_opening" — the cockpit surface is more attention-
+/// scarce than Forge's CI log, so a higher-precision/lower-recall
+/// floor keeps the proposal feed clean.
+pub const REPEATED_PROMPT_OPENING_JACCARD_MIN: f32 = 0.5;
+
 // ---------------------------------------------------------------------------
 // Keyword corpora — `forge/scripts/analyze-transcripts.py` L141-L201.
 //

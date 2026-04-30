@@ -153,6 +153,51 @@ Per `roadmap.md` L1476: *`/compact` invoked ≥1×/session consistently. Thresho
 
 ---
 
+### Phase 21.A2 — `repeated_prompt_opening` detector
+**Date:** 2026-04-29
+**Branch:** repeated-prompt-opening
+**PR:** #53
+
+**What was done:**
+
+First Forge-overlap detector in the Phase 21.A2 squad. Walks the event stream, picks the first user `MessagePosted` per `WorkspaceId` (the "session opener"), tokenizes each opener (lowercased, punctuation-stripped), and clusters by Jaccard similarity over the token sets. A cluster of `min_occurrences` (default 4 per `SKILL_DEFAULTS`) openers emits one `Severity::Notice` finding intended for a `skill-candidate` proposal under Phase B's synthesis pass.
+
+- **Workspace-as-session heuristic.** `SessionAnalysisInput` doesn't yet expose explicit session boundaries. Sibling Phase 21.A2 detectors converge on workspace-as-session (`repeated_correction.rs` counts distinct `WorkspaceId`s for its `min_sessions` gate), so this detector follows suit. Each opener is the first user message of a unique workspace, which means cluster size *is* the distinct-session count — `min_occurrences` and `min_sessions` collapse to one threshold check.
+- **Greedy connected-components clustering.** A new opener joins the *first* cluster whose any existing member shares Jaccard ≥ `REPEATED_PROMPT_OPENING_JACCARD_MIN` (0.5); otherwise it seeds a new cluster. Deterministic given the event stream's sequence ordering. O(N·K·M) where N is openers, K clusters, M average cluster size — bounded by the analysis-window size (~50 events).
+- **Listed in `FORGE_OVERLAP_DETECTORS`.** Forge ships `find_repeated_prompts` in `analyze-transcripts.py` L1199–L1252. AppCore's `core_learn::probe_for_forge` defaults the config to `DetectorConfig::DISABLED` when `~/.claude/plugins/forge/` is present; the detector logic stays correct so the user can re-enable it explicitly.
+- **Defaults reuse `SKILL_DEFAULTS` plus a Designer-unique Jaccard floor.** `min_occurrences: 4, min_sessions: 3` come from Forge's `THRESHOLDS["skill"]` via the existing `SKILL_DEFAULTS` constant. The new `REPEATED_PROMPT_OPENING_JACCARD_MIN: f32 = 0.5` constant in `defaults.rs` cites Forge `analyze-transcripts.py` L1231 (Forge ships 0.30) and explains the tightening: the cockpit surface is more attention-scarce than Forge's CI log, so a higher-precision/lower-recall floor keeps the proposal feed clean.
+- **`tokio::time::timeout` belt-and-braces.** Wraps the analysis pass in a 250 ms inner timeout per CONTRIBUTING §"partial-failure containment", matching `repeated_correction.rs`. The orchestrator wraps detectors at the outer level too; the inner timeout protects the pipeline if the outer harness regresses.
+- **Fixtures.** Three: positive (4 paraphrased openers across 4 workspaces — clusters above 0.5 Jaccard); negative-similarity (4 distinct openers — no pair clusters); negative-count (3 matching openers — under `min_occurrences=4`). Disk-driven harness at `tests/repeated_prompt_opening.rs` plus seven in-module unit tests covering tokenizer, Jaccard edges, confidence band, summary copy, opener-per-workspace semantics, disabled config, and non-user-author skip.
+
+**Why:**
+
+Per `roadmap.md` row L1465 (`Session-opening user messages with >0.5 Jaccard similarity. Threshold: 4+ sessions. Output kind: skill-candidate`). The signal is "the user keeps starting sessions the same way" — a strong candidate for promoting that opener into a reusable skill. Forge has a less-strict version (0.30 floor); the Designer version cites and tightens.
+
+**Design decisions:**
+
+- **No stopword filtering.** Forge's `analyze-transcripts.py` runs a stopword pass (`STOPWORDS` at L70) before tokenizing. Designer skips it — the higher Jaccard floor compensates for the noise stopwords would add. Simpler tokenizer earns its keep against the stricter threshold.
+- **Severity `Notice`, not `Warn`.** Per CONTRIBUTING §6: A2 default is `Notice` unless the detector's measured FPR is <5% on the fixture suite. The clustering can over-merge near the threshold (e.g. "review the diff" matches "review the docs" if both share enough scaffolding tokens), so `Notice` is the conservative pick.
+- **Cluster size is the only count gate.** Because each opener is the first user message of a unique workspace, `cluster.len() == distinct_workspaces`. The `min_sessions` check collapses to redundant defense; kept the gate for forward-compatibility if the bundle gains finer session boundaries later (bump `VERSION` per CONTRIBUTING §3 then).
+- **Quote budget 160 chars + ellipsis.** Long openers (paragraph-sized initial prompts) truncate for evidence-drawer skim-readability. The `char_range` still anchors to the full source-body byte length so the renderer can highlight back into the original message.
+
+**Technical decisions:**
+
+- **Byte-indexed `char_range`.** Matches `repeated_correction.rs`'s convention (its `char_range` is computed from `str::find` byte offsets). Consistent across detectors so the renderer can treat the field uniformly.
+- **`Opener` struct dropped its `workspace_id` field.** First draft tracked workspace_id per opener for a `BTreeSet` distinct-count. After review noticed the redundancy (one opener per workspace, count == distinct_workspaces by construction), the field and the BTreeSet went away.
+- **Greedy clustering returns `Vec<Vec<Opener>>` with clones.** For N=50, max ~100 KB of cloned data. An indices-based `Vec<Vec<usize>>` would save the clones but require lifetime gymnastics; not worth the complexity at this scale.
+
+**Tradeoffs discussed:**
+
+- **Confidence-score helper extraction.** `repeated_correction.rs:377` and this detector ship the same `0.5 + above × 0.10` clamp. Reuse reviewer flagged it as a candidate. CONTRIBUTING §3 documents per-detector calibration as the convention (sibling detectors `cost_hot_streak` and `scope_false_positive` ship different formulas), so kept private. If a third detector lands the same shape, lift it to `lib.rs`.
+- **Test-helper extraction.** Sibling integration tests (`tests/repeated_correction.rs`, `tests/scope_false_positive.rs`, `tests/cost_hot_streak.rs`) ship near-identical `fixture_dir` / `load_input` / `load_expected` / `user_msg` / `write_fixture` helpers. Per `tests/example_fixture.rs` design notes, this is intentional duplication so each detector's fixture harness stays self-contained when copy-renamed.
+
+**Lessons learned:**
+
+- Reviewer caught that the original summary copy (`"... in N sessions across M workspaces"`) was tautological since N == M for this detector. Multi-perspective review (staff engineer + UX + UI + design engineer) keeps catching copy-vs-implementation drift; cheaper to run before merge than to amend.
+- The `tokio::time::timeout` wrap was missed in the first draft — only `repeated_correction.rs` shipped it among the existing four detectors. Worth adding to the CONTRIBUTING checklist as a per-detector requirement, not a "as needed" pattern.
+
+---
+
 ### Phase 21.A2 — `scope_false_positive` detector (Designer-unique)
 **Date:** 2026-04-29
 **Branch:** detector-scope-false-pos
