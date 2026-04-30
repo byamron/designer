@@ -6,10 +6,12 @@
 
 pub mod approval_always_granted;
 pub mod cost_hot_streak;
+pub mod multi_step_tool_sequence;
 pub mod repeated_correction;
 pub mod scope_false_positive;
 
 pub use approval_always_granted::ApprovalAlwaysGrantedDetector;
 pub use cost_hot_streak::CostHotStreakDetector;
+pub use multi_step_tool_sequence::MultiStepToolSequenceDetector;
 pub use repeated_correction::RepeatedCorrectionDetector;
 pub use scope_false_positive::ScopeFalsePositiveDetector;

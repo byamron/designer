@@ -1,0 +1,45 @@
+{
+  "findings": [
+    {
+      "confidence": 0.5,
+      "detector_name": "multi_step_tool_sequence",
+      "detector_version": 1,
+      "evidence": [
+        {
+          "kind": "message-span",
+          "messageId": "evt_20000000-0000-0000-0000-000000000001",
+          "quote": "session 0: please refactor"
+        },
+        {
+          "eventId": "evt_20000000-0000-0000-0000-000000000002",
+          "kind": "tool-call",
+          "toolName": "Read → Edit → Bash"
+        },
+        {
+          "kind": "message-span",
+          "messageId": "evt_20000000-0000-0000-0000-000000000005",
+          "quote": "session 1: please refactor"
+        },
+        {
+          "eventId": "evt_20000000-0000-0000-0000-000000000006",
+          "kind": "tool-call",
+          "toolName": "Read → Edit → Bash"
+        },
+        {
+          "kind": "message-span",
+          "messageId": "evt_20000000-0000-0000-0000-000000000009",
+          "quote": "session 2: please refactor"
+        },
+        {
+          "eventId": "evt_20000000-0000-0000-0000-00000000000a",
+          "kind": "tool-call",
+          "toolName": "Read → Edit → Bash"
+        }
+      ],
+      "project_id": "00000000-0000-0000-0000-000000000011",
+      "severity": "notice",
+      "summary": "Tool sequence Read → Edit → Bash repeated 3× across 3 sessions",
+      "workspace_id": "00000000-0000-0000-0000-000000000012"
+    }
+  ]
+}
