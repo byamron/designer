@@ -37,6 +37,48 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 21.A2 — `scope_false_positive` detector (Designer-unique)
+**Date:** 2026-04-29
+**Branch:** detector-scope-false-pos
+**PR:** #46
+
+**What was done:**
+
+Third detector in the Phase 21.A2 squad and the second Designer-unique one. Reads `ScopeDenied` events (Designer's gate log; invisible to plugin tooling) and pairs each canonical denial path with a subsequent `ApprovalRequested` + `ApprovalGranted` whose request summary names the same path. Three or more same-path denials with at least one matching override → one `Severity::Notice` finding with confidence clamped to `[0.5, 0.85]`, intended for a `scope-rule-relaxation` proposal under Phase B's synthesis pass.
+
+- **New module tree.** `crates/designer-learn/src/detectors/{mod.rs,scope_false_positive.rs}` — the canonical place every Phase 21.A2 detector now drops itself into. Prior to this PR there was no `detectors/` directory; the example detector lives at the crate root and the registry is intentionally a flat `pub mod` list rather than a global, per `CONTRIBUTING.md` §2.
+- **Lexical path canonicalization.** `canonicalize_in_spirit()` strips empty / `.` components, resolves `..` against the running stack, drops trailing slashes — *without* touching the filesystem. Events may reference paths that don't exist on the analysis host (especially after a worktree is cleaned up), so Phase 13.I's filesystem `canonicalize()` is the wrong tool here. The function is private to the detector; if a second detector needs it, lift it next to `window_digest` in `lib.rs`.
+- **Glob handling on summary match.** When the denial path is a glob (`src/foo/*` or `src/foo/**`), the trailing wildcard is stripped and the prefix substring-matched against the approval summary so a concrete-path approval (`Allow write to src/foo/bar.rs`) still credits the rule.
+- **Anchor variant choice.** `ToolCall { event_id, tool_name }` is the closest fit for a domain (non-tool) event reference under the locked Anchor enum (no new variants per CONTRIBUTING.md §1). The `tool_name` values `"ScopeDenied"` and `"ApprovalGranted"` are exposed as `pub const` on the detector type so tests and downstream consumers can reference the symbol instead of magic strings.
+- **Fixtures.** Positive trigger (3 denials → 3 grants, with one `./src/foo/bar.rs` form to exercise the canonicalizer in fixture-land, not just unit tests) and negative (3 denials, no overrides → no findings). Disk-driven harness at `tests/scope_false_positive.rs` plus four in-module unit tests covering canonicalization, glob-prefix matching, the threshold edge, and quiet-without-override.
+
+**Why:**
+
+Per `roadmap.md` §"Phase 21.A2 — Detector squad", `scope_false_positive` is the third in the recommended order — it leverages Designer's event-store advantage over Forge's plugin position (Forge can't see `ScopeDenied`). The detector's signal is "the user keeps overriding this rule" — the input to a future `scope-rule-relaxation` proposal, which is safety-gated (re-type-to-confirm + risk-note required) downstream.
+
+**Design decisions:**
+
+- **Confidence clamp `[0.5, 0.85]`** — repeated overrides strengthen the signal (suggests the rule is too tight), but the user could equally be widening scope by mistake. Capping below 0.9 keeps the Phase B synthesizer from promoting this finding into auto-applied recommendations.
+- **`min_sessions` not consumed in Phase A** — `SessionAnalysisInput` doesn't yet expose per-session boundaries. Default ships at `min_sessions: 1` so observed behavior matches the configured policy. When the bundle gains a session-split view, bump `VERSION` per the threshold-defaults convention in `CONTRIBUTING.md` §3 and start filtering on it.
+- **Severity `Notice`, not `Warn`** — per CONTRIBUTING.md §6: "Designer's noise tolerance is much lower than Forge's." A `Warn` would crowd out three `Notice` findings on the workspace home, and the override pattern is suggestive rather than action-worthy on its own.
+
+**Technical decisions:**
+
+- **Typed `ApprovalId` / `EventId` keys.** First draft used `String` keys for the pending-approval map and string event IDs in `PathEvidence`. The post-review refactor switched to the typed `Copy` IDs and deferred stringification to `build_finding`, where the strings are computed once and reused for both `Anchor` event_ids and the `window_digest` key list.
+- **Drain-and-sort emission.** `by_path.into_iter().collect::<Vec<_>>()` + `sort_by` + `filter().take().map().collect()` rather than re-locking the map with `keys().cloned() / by_path.get()`. Lets `build_finding` consume `PathEvidence` by value, no clones.
+- **`by_path.is_empty()` short-circuit on `ApprovalRequested`.** Skips `summary.clone()` and the iter scan for any approval whose request precedes any denial in the session. Common case in early-session windows.
+
+**Tradeoffs discussed:**
+
+- **Lift `trim_summary` into a shared `truncate_with_ellipsis`** vs. **keep it private.** `crates/designer-claude/src/stream.rs::truncate` is a near-duplicate but lives in a different crate and doesn't append an ellipsis. CLAUDE.md's "three similar lines is better than a premature abstraction" wins — leave private until a third caller appears.
+- **Unify the two `anchors.extend(...)` calls behind a closure** vs. **leave the duplication.** Reviewer flagged it as marginal; the explicit form reads cleaner.
+
+**Lessons learned:**
+
+- The locked `Anchor` enum's `ToolCall { event_id, tool_name }` variant is doing double duty as the only event-reference variant. Every Phase 21.A2 detector that wants to point at a non-tool event (`ApprovalGranted`, `ScopeDenied`, `CostRecorded`, …) will exercise this same stretch. Worth flagging if a third detector wants the same thing — the variant docstring should be widened to "an event in the workspace stream" rather than "a tool-call event."
+
+---
+
 ### Phase 21.A2 — `approval_always_granted` detector (Designer-unique)
 **Date:** 2026-04-29
 **Branch:** detector-approval-granted

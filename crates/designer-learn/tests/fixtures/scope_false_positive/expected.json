@@ -1,0 +1,10 @@
+{
+  "findings": [
+    {
+      "detector_name": "scope_false_positive",
+      "detector_version": 1,
+      "severity": "notice",
+      "summary": "ScopeDenied for src/foo/bar.rs observed 3×, then user-approved override"
+    }
+  ]
+}

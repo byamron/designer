@@ -1,16 +1,15 @@
-//! Phase 21.A2 detector implementations. Each detector lives in its own
-//! sibling module so authors land in parallel without stepping on each
-//! other's files.
-//!
-//! Detectors are registered for runtime use by consumers (today:
-//! tests, plus the AppCore wiring in Phase 21.A2's integration step).
-//! There is no global registry inside this crate so detectors stay
-//! unit-testable in isolation.
+//! Phase 21.A2 detectors. Each detector lives in its own sibling module
+//! so authors land in parallel without stepping on each other's files.
+//! The registry is intentionally a flat `pub mod` list (not a global) so
+//! every detector remains unit-testable in isolation; parallel A2 PRs
+//! only touch this module's `pub mod` list and the `lib.rs` re-exports.
 
 pub mod approval_always_granted;
 pub mod cost_hot_streak;
 pub mod repeated_correction;
+pub mod scope_false_positive;
 
 pub use approval_always_granted::ApprovalAlwaysGrantedDetector;
 pub use cost_hot_streak::CostHotStreakDetector;
 pub use repeated_correction::RepeatedCorrectionDetector;
+pub use scope_false_positive::ScopeFalsePositiveDetector;

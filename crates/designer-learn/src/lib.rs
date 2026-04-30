@@ -42,6 +42,7 @@ pub mod session_input;
 
 pub use detectors::cost_hot_streak::CostHotStreakDetector;
 pub use detectors::repeated_correction::RepeatedCorrectionDetector;
+pub use detectors::scope_false_positive::ScopeFalsePositiveDetector;
 
 pub use designer_core::{Anchor, Finding, FindingId, Severity, ThumbSignal};
 pub use session_input::{
