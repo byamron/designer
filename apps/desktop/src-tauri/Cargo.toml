@@ -3,6 +3,7 @@ name = "designer-desktop"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 description = "Designer — local-first AI product cockpit (Tauri shell)"
 
 [lib]
