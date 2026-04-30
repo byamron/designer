@@ -1,0 +1,20 @@
+{
+  "findings": [
+    {
+      "confidence": 0.6666666865348816,
+      "detector_name": "cost_hot_streak",
+      "detector_version": 1,
+      "evidence": [
+        {
+          "eventId": "evt_10000000-0000-0000-0000-000000000016",
+          "kind": "tool-call",
+          "toolName": "cost_recorded"
+        }
+      ],
+      "project_id": "00000000-0000-0000-0000-000000000001",
+      "severity": "info",
+      "summary": "Task class 'long:low' cost $2.50, 2.5× rolling p90 of $1.00 over last 10 events",
+      "workspace_id": "00000000-0000-0000-0000-000000000002"
+    }
+  ]
+}

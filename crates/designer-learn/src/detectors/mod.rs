@@ -8,6 +8,9 @@
 //! unit-testable in isolation.
 
 pub mod approval_always_granted;
+pub mod cost_hot_streak;
 pub mod repeated_correction;
 
 pub use approval_always_granted::ApprovalAlwaysGrantedDetector;
+pub use cost_hot_streak::CostHotStreakDetector;
+pub use repeated_correction::RepeatedCorrectionDetector;
