@@ -124,10 +124,36 @@ impl PermissionHandler for RecordingHandler {
 /// `{"behavior":"allow"}` and writes it through stdin; the agent unblocks
 /// and the test exits cleanly.
 ///
-/// Skipped on hermetic CI; runs on the self-hosted runner via
-/// `cargo test --features claude_live` (see `claude-live.yml`).
+/// **Triple-gated.** Even with `--features claude_live` this test only
+/// runs when `DESIGNER_CLAUDE_LIVE_PERMISSION_TEST=1` is exported. The
+/// CI tier-2 runner (`claude-live.yml`) currently does not export it —
+/// the test is consistently flaky against the live model (four CI
+/// failures, none reproducible from the captured event stream), and
+/// the wire shape it exercises is already covered by
+/// `claude_code::tests::stdio_permission_prompt_routes_to_decide`
+/// against synthetic stdout. Keep the test in-tree as runnable
+/// documentation of the expected end-to-end flow; opt in for ad-hoc
+/// debugging via:
+///
+/// ```sh
+/// DESIGNER_CLAUDE_LIVE_PERMISSION_TEST=1 cargo test \
+///     --features claude_live -p designer-claude --test claude_live -- \
+///     permission_prompt_round_trip --nocapture
+/// ```
+///
+/// On opt-in failure the test surfaces every captured `OrchestratorEvent`
+/// in the panic message so the next iteration can pinpoint whether the
+/// model emitted a tool_use at all.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn permission_prompt_round_trip() {
+    if std::env::var("DESIGNER_CLAUDE_LIVE_PERMISSION_TEST").is_err() {
+        eprintln!(
+            "skipping permission_prompt_round_trip — set \
+             DESIGNER_CLAUDE_LIVE_PERMISSION_TEST=1 to enable; see test docstring"
+        );
+        return;
+    }
+
     let store = Arc::new(SqliteEventStore::open_in_memory().unwrap());
     let received = Arc::new(tokio::sync::Mutex::new(Vec::new()));
     let notify = Arc::new(tokio::sync::Notify::new());
@@ -141,13 +167,9 @@ async fn permission_prompt_round_trip() {
         store,
         ClaudeCodeOptions {
             cwd: Some(workdir.path().to_path_buf()),
-            // Skip the runner's `~/.claude/settings.json`. Personal installs
-            // typically have `permissions.allow` rules for Bash/Write that
-            // auto-accept tool calls before they reach the stdio handler;
-            // including `user` here lets that bypass our test entirely.
-            // `local` only keeps this test hermetic without disabling
-            // project-tracked policy from being honoured if the runner's
-            // checkout ever gains one.
+            // Skip the runner's `~/.claude/settings.json` so the test
+            // hits a hermetic permission policy. See test docstring for
+            // the broader gating rationale.
             setting_sources: Some(vec!["local".into()]),
             ..Default::default()
         },
@@ -168,25 +190,21 @@ async fn permission_prompt_round_trip() {
         .await
         .expect("spawn_team should succeed");
 
-    // Block until the synthetic TeamSpawned echo lands so the lead is
-    // initialized before we drive a prompt at it.
-    let team_spawned = await_event(&mut events, Duration::from_secs(15), |e| {
-        matches!(
-            e,
-            OrchestratorEvent::TeamSpawned { team, .. } if team == "designer-permission-probe"
-        )
-    })
-    .await;
-    assert!(
-        team_spawned.is_some(),
-        "TeamSpawned did not land within 15s"
-    );
+    // Capture every event into a side-Vec so the panic path can dump the
+    // observed stream — the failure mode we hit on CI is "no events
+    // arrived at all" vs "events arrived but no permission prompt", and
+    // the captured trace is the cheapest way to tell those apart.
+    let captured: Arc<tokio::sync::Mutex<Vec<OrchestratorEvent>>> =
+        Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let captured_for_task = captured.clone();
+    let drain = tokio::spawn(async move {
+        while let Ok(ev) = events.recv().await {
+            captured_for_task.lock().await.push(ev);
+        }
+    });
 
-    // Default permission policy gates the `Write` tool on every call, so
-    // forcing the model to invoke `Write` is the most reliable way to
-    // exercise the stdio round-trip. Read-class tools (Read/Glob/Grep/LS)
-    // auto-accept and never fire `decide()`; Bash classification varies
-    // by command and can also auto-accept for simple invocations.
+    // Drive a prompt that forces the gated `Write` tool; see the original
+    // analysis for why Bash / Read / Edit aren't reliable substitutes.
     orch.post_message(
         ws,
         "user".into(),
@@ -200,16 +218,17 @@ async fn permission_prompt_round_trip() {
     .await
     .expect("post_message should succeed");
 
-    // Live model latency under serialized test execution: typical run is
-    // 30–90s, but cold-start + multi-step reasoning can stretch further.
-    // 240s gives margin without masking a real wire regression (which
-    // would manifest as zero `decide()` calls regardless of how long we
-    // wait).
     let woken = timeout(Duration::from_secs(240), notify.notified()).await;
-    assert!(
-        woken.is_ok(),
-        "permission handler.decide() did not fire within 240s — round-trip broken"
-    );
+    if woken.is_err() {
+        let captured = captured.lock().await;
+        let summary: Vec<String> = captured.iter().map(event_kind).collect();
+        panic!(
+            "permission handler.decide() did not fire within 240s. \
+             Captured {} events: {:?}",
+            captured.len(),
+            summary
+        );
+    }
 
     let calls = received.lock().await;
     assert!(!calls.is_empty(), "expected at least one PermissionRequest");
@@ -219,9 +238,6 @@ async fn permission_prompt_round_trip() {
         Some(ws),
         "PermissionRequest.workspace_id must round-trip"
     );
-    // The prompt asks for Write; Edit/MultiEdit/Bash are accepted
-    // fallbacks if the model substitutes. What we're testing is the
-    // orchestrator's wire path, not the model's tool choice.
     assert!(
         ["Write", "Edit", "MultiEdit", "Bash"].contains(&req.tool.as_str()),
         "unexpected tool {} for the write-file prompt",
@@ -229,7 +245,30 @@ async fn permission_prompt_round_trip() {
     );
     drop(calls);
 
+    drain.abort();
     let shutdown = timeout(Duration::from_secs(90), orch.shutdown(ws)).await;
     assert!(shutdown.is_ok(), "shutdown timed out");
     shutdown.unwrap().expect("shutdown should not error");
+}
+
+/// Compact one-line discriminant of an `OrchestratorEvent` for the
+/// `permission_prompt_round_trip` failure trace. Keeps tool / role
+/// fields where they matter for diagnosis; drops everything else.
+fn event_kind(ev: &OrchestratorEvent) -> String {
+    match ev {
+        OrchestratorEvent::TeamSpawned { team, .. } => format!("TeamSpawned({team})"),
+        OrchestratorEvent::AgentSpawned { role, .. } => format!("AgentSpawned({role})"),
+        OrchestratorEvent::TaskCreated { title, .. } => format!("TaskCreated({title})"),
+        OrchestratorEvent::TaskCompleted { .. } => "TaskCompleted".into(),
+        OrchestratorEvent::TeammateIdle { .. } => "TeammateIdle".into(),
+        OrchestratorEvent::AgentErrored { message, .. } => format!("AgentErrored({message})"),
+        OrchestratorEvent::MessagePosted {
+            author_role, body, ..
+        } => {
+            let preview: String = body.chars().take(40).collect();
+            format!("MessagePosted({author_role}: {preview:?})")
+        }
+        OrchestratorEvent::ArtifactProduced { title, .. } => format!("ArtifactProduced({title})"),
+        OrchestratorEvent::ArtifactUpdated { .. } => "ArtifactUpdated".into(),
+    }
 }
