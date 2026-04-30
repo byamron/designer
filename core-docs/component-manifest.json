@@ -423,35 +423,46 @@
     {
       "name": "DesignerNoticedPage",
       "path": "packages/app/src/components/DesignerNoticed/DesignerNoticedPage.tsx",
-      "purpose": "Phase 21.A1 / 21.A1.1 read-only archive of findings the learning layer has recorded for the active project, lived in Settings → Activity → \"Designer noticed\" (sibling to Friction). Row shape and thumbs-up / thumbs-down behavior are now extracted into FindingRow; data fetch + signal optimism live in the useFindings hook. The page is the historian — full list, ordered. The workspace-home `DesignerNoticedHome` surfaces a top-N severity-sorted live feed against the same hook. Severity drives the left-border accent only — info / notice / warn map to border tokens, not background fills, per the calm-by-default axiom. The proposal-acceptance / accept-edit-dismiss surface is Phase 21.B.",
+      "purpose": "Phase 21.A1.2 proposal archive at Settings → Activity → \"Designer noticed\" (sibling to Friction). Renders proposals — recommendations the synthesis pass produces at boundaries — across all statuses with severity / kind / status filters. Findings appear only as collapsed evidence under each proposal's \"from N observations\" disclosure (never as their own list). Composes `ProposalRow` + `useProposals`. Severity drives the left-border accent only — info / notice / warn map to border tokens, not background fills, per the calm-by-default axiom.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-2", "space-3", "space-4", "color-foreground", "color-muted", "color-border", "color-accent", "warning-9", "type-body-size", "type-caption-size", "weight-medium", "border-thin", "border-strong", "radius-button", "motion-interactive", "focus-outline-width", "focus-outline-color"],
       "css_prefix": "designer-noticed__",
-      "last_updated": "2026-04-27"
+      "last_updated": "2026-04-29"
     },
     {
       "name": "DesignerNoticedHome",
       "path": "packages/app/src/components/DesignerNoticed/DesignerNoticedHome.tsx",
-      "purpose": "Phase 21.A1.1 workspace-home live feed for findings. Renders the top-N severity-sorted findings (Warn > Notice > Info, then most-recent within each bucket) for the active project at the bottom of HomeTabA; the Settings → Activity → Designer noticed page remains the full archive. Capped at MAX_HOME_FINDINGS (8) so a runaway detector can't dominate the surface — paired with the per-detector session cap (`DetectorConfig::max_findings_per_session`) on the backend. Composes `FindingRow` and `useFindings` so the row shape stays consistent with the archive page.",
+      "purpose": "Phase 21.A1.2 workspace-home surface for proposals. Renders the top-N severity-sorted *open* proposals (Warn > Notice > Info, then most-recent) for the active project at the bottom of HomeTabA; the Settings → Activity → Designer noticed page is the full archive across statuses. Boundary-cadence: refreshes only on `ProposalEmitted` events (track-complete + first-view-of-day), never on `FindingRecorded`. Capped at MAX_HOME_PROPOSALS (8); composes `ProposalRow` + `useProposals` so the row shape stays consistent with the archive.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-2", "space-3", "color-foreground", "color-muted", "type-body-size", "type-caption-size"],
       "css_prefix": "designer-noticed-home designer-noticed__",
-      "last_updated": "2026-04-27"
+      "last_updated": "2026-04-29"
     },
     {
       "name": "FindingRow",
       "path": "packages/app/src/components/DesignerNoticed/FindingRow.tsx",
-      "purpose": "Phase 21.A1.1 shared row used by both `DesignerNoticedPage` (archive) and `DesignerNoticedHome` (live feed). Renders the finding title + summary + confidence + thumbs-up / thumbs-down controls, plus the calibrated `👍/👎` badge that surfaces persistently for any finding with a `FindingSignaled` event in its projection. Optimistic local thumb wins over the persisted projection so the badge flips the instant the user clicks. Severity is carried as a `data-severity` attribute on the row element; visual treatment lives entirely in CSS so the renderer stays free of color logic. Exports `sortFindingsForHome` for the home feed's severity-then-recency ordering.",
+      "purpose": "Retired in Phase 21.A1.2 (surface rework: proposals over findings). The row shape that surfaced individual findings as user-facing units was replaced by `ProposalRow`, which renders proposals (recommendations) and inlines source-finding evidence behind a \"from N observations\" disclosure. No live consumers remain; this entry is a tombstone so the manifest's path-coverage check still recognizes the historical name.",
+      "status": "retired",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": [],
+      "css_prefix": "designer-noticed__",
+      "last_updated": "2026-04-29"
+    },
+    {
+      "name": "ProposalRow",
+      "path": "packages/app/src/components/DesignerNoticed/ProposalRow.tsx",
+      "purpose": "Phase 21.A1.2 shared row used by both `DesignerNoticedPage` (archive) and `DesignerNoticedHome` (workspace-home open list). Renders a proposal — severity dot, title, summary, \"from N observations\" disclosure (expandable evidence drawer with source `Finding.summary` lines), Accept / Edit / Dismiss / Snooze actions, optional `calibrated 👍/👎` badge after thumbing. The user thumbs the *proposal*, never the finding; findings appear inline only inside the evidence drawer. Severity carries as a `data-severity` attribute on the row element; visual treatment lives entirely in CSS. Exports `sortProposalsForHome` for the home surface's severity-then-recency ordering.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "color-foreground", "color-muted", "color-border", "type-body-size", "type-caption-size", "weight-medium", "border-thin", "radius-pill", "type-family-sans"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "color-foreground", "color-muted", "color-border", "color-accent", "color-surface", "warning-9", "accent-9", "accent-contrast", "type-body-size", "type-caption-size", "type-body-leading", "type-family-sans", "type-family-mono", "weight-medium", "border-thin", "border-strong", "radius-1", "radius-2", "radius-pill", "focus-ring", "focus-outline-offset"],
       "css_prefix": "designer-noticed__",
-      "last_updated": "2026-04-27"
+      "last_updated": "2026-04-29"
     }
   ]
 }
