@@ -130,14 +130,29 @@ pub const COST_HOT_STREAK_DEFAULTS: DetectorConfig = DetectorConfig {
 
 /// `compaction_pressure`: `/compact` invoked ≥1×/session consistently.
 /// Forge ships nothing equivalent; threshold "3 sessions in a week" is
-/// expressed as min_occurrences=3 across min_sessions=3.
+/// expressed as min_occurrences=3 across min_sessions=3. Severity
+/// defaults to `Notice` per CONTRIBUTING §6 (A2 default; raising to
+/// `Warning` would need a <5% FP rate on the fixture suite).
 pub const COMPACTION_PRESSURE_DEFAULTS: DetectorConfig = DetectorConfig {
     enabled: true,
     min_occurrences: 3,
     min_sessions: 3,
-    impact_override: None,
+    impact_override: Some(Severity::Notice),
     max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
+
+/// `compaction_pressure`: trailing-window length, in days, used to
+/// scope the qualifying-session count from the most-recent event. The
+/// roadmap pins "3 sessions in a week"; this constant is the "week"
+/// half. **Designer-unique** — Forge has no analog detector.
+pub const COMPACTION_PRESSURE_LOOKBACK_DAYS: i64 = 7;
+
+/// `compaction_pressure`: idle-gap (in minutes) between adjacent
+/// `MessagePosted` events that segments one Designer session from the
+/// next. Designer process boundaries aren't observable as a typed
+/// event yet, so the idle-window proxy is the cheapest correct
+/// definition until a `SessionStarted` payload lands. **Designer-unique**.
+pub const COMPACTION_PRESSURE_SESSION_GAP_MINUTES: i64 = 60;
 
 // ---------------------------------------------------------------------------
 // Keyword corpora — `forge/scripts/analyze-transcripts.py` L141-L201.
