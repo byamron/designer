@@ -37,6 +37,58 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 21.A2 — `domain_specific_in_claude_md` detector (Forge-overlap)
+**Date:** 2026-04-30
+**Branch:** domain-specific-claude-md
+**PR:** #57
+
+**What was done:**
+
+Eighth detector in the Phase 21.A2 squad. Reads `<project_root>/CLAUDE.md` from disk once and emits one `Severity::Notice` finding per line that substring-matches a keyword in the new `DOMAIN_SPECIFIC_CLAUDE_MD_KEYWORDS` corpus in `defaults.rs`. Confidence fixed at 0.6 — the signal is heuristic, not structural. Output kind is `rule-extraction` per `roadmap.md` L1468; Phase B's synthesizer will turn each finding into a scoped `.claude/rules/<name>.md` proposal with `paths:` frontmatter narrowing the rule to the file family it concerns.
+
+- **Three keyword families.** File-extension hints (`.tsx`, `.rs`, `.py`, `.go`), framework names (`tailwind`, `radix`, `tokio`, `pytest`, `vite`), directory anchors (`packages/app/`, `apps/desktop/`, `src-tauri/`, `crates/`). Lowercased, anchor-free, no regex metacharacters per CONTRIBUTING §4. Iteration order is stable so the same line always reports the same keyword — keeps `window_digest` deterministic across runs.
+- **Listed in `FORGE_OVERLAP_DETECTORS`.** Forge ships an analog (`domain_specific` in `analyze-transcripts.py`); AppCore's `core_learn::probe_for_forge` wiring defaults the config to `DetectorConfig::DISABLED` when `~/.claude/plugins/forge/` is present. The detector logic stays correct so the user can opt back in explicitly. The list itself was already populated in 21.A1; this PR did not modify `FORGE_OVERLAP_DETECTORS`.
+- **No internal cap enforcement.** Per the task spec for this row, the detector emits one finding per matching line and lets `core_learn::report_finding` enforce `max_findings_per_session` at the chokepoint. CLAUDE.md is bounded by the project's own `claude_md_demotion` budget (≤200 lines), so producing the full list is cheap.
+- **Anchors.** `Anchor::FilePath { path: "CLAUDE.md", line_range: Some((line, line)) }` per finding — single-line range, relative path. The path is intentionally a bare filename rather than a project-relative path because Designer's evidence drawer renders the anchor inline next to the file's own header; a leading `./` would read awkwardly.
+- **Summary copy.** `"CLAUDE.md L<n> references <keyword>"`. Length bounded by construction at ≤46 chars; the prior `trim_summary` helper was dropped on the simplify pass (dead code by construction). Passive voice, no second-person, no directive — matches the 21.A1.2 evidence-text rule.
+- **Fixtures.** Two on-disk project trees under `tests/fixtures/domain_specific_in_claude_md/`: positive (CLAUDE.md with six lines that each substring-match a corpus keyword across all three families) and negative_generic (principles / axioms only, no extension or framework token). Plus eight in-module unit tests covering case-insensitive matching, one-finding-per-line semantics, line-number indexing, disabled config, missing CLAUDE.md, no project root, and `window_digest` stability.
+
+**Why:**
+
+Per `roadmap.md` row L1468 (`CLAUDE.md lines tied to a specific file extension / framework / directory. Heuristic keyword match. Output kind: rule-extraction (move to scoped .claude/rules/<name>.md)`). The signal is "this line in CLAUDE.md only applies to a narrow file family — stop loading it for every prompt and demote it to a scoped rule." Forge has the same intent (different scoring); the Designer version cites the spec and ships the keyword list as a flat `&[&str]` so a future MLX backend has the same vocabulary.
+
+**Design decisions:**
+
+- **Severity `Notice`, not `Warning`.** Per CONTRIBUTING §6 the A2 default is `Notice` unless the detector's measured FPR is <5% on the fixture suite. Keyword-substring matching has obvious failure modes (a sentence about "Backend code" that happens to mention `crates/` in passing); `Notice` is the conservative pick. The synthesizer is expected to filter further when it composes the proposal.
+- **Confidence 0.6 — heuristic.** Lower than `config_gap`'s 0.7 (which is structural — either the hook entry is in the JSON or it isn't) and higher than `cost_hot_streak`'s clamped band (which is a noisy probability). 0.6 says "candidate signal, not certainty."
+- **Trim corpus to the spec'd list.** First pass added `react`, `next.js`, `tauri`, `.ts`, `.jsx`, `.swift` for symmetry. Multi-perspective review caught two FP risks: `react` substrings into `interact` and `reaction`, so any sentence about reacting to feedback fires; `tauri` shadows the more-specific `src-tauri/` directory anchor due to corpus iteration order. Trimmed to exactly the keywords listed in the task spec — 4 + 5 + 4 = 13 entries.
+- **No code-fence guard.** Lines inside fenced shell blocks (e.g. `pytest -q` inside a triple-backtick block) still fire. That's wanted behavior — a CLAUDE.md shell block is exactly the kind of domain-specific instruction that belongs in a scoped rule.
+
+**Technical decisions:**
+
+- **`first_keyword_hit` returns `Option<&'static str>`.** The corpus is a `&'static [&'static str]`, so the matched keyword can borrow from the binary instead of allocating. Keeps `build_finding` zero-allocation past the format string and the digest hash.
+- **Per-line `to_ascii_lowercase()` allocation.** Allocates a `String` per line scanned (200 lines × ~80 chars ≈ 16 KB total). Considered a byte-iterator case-insensitive matcher and Aho-Corasick; rejected both — at 200 lines × 13 keywords the linear scan finishes in microseconds, and a custom matcher would add complexity without proportional gain. The CLAUDE.md size is bounded by the project's own demotion threshold, so the cost is small and capped.
+- **No timeout wrapper.** Unlike `repeated_correction.rs` and `repeated_prompt_opening.rs`, this detector doesn't wrap `analyze` in `tokio::time::timeout`. The two listed detectors walk the full event stream (potentially 10k+ events); this one reads a single ≤200-line file. The orchestrator's outer timeout is sufficient — adding an inner timeout for a millisecond-scale detector is theater. Sibling `config_gap.rs` follows the same convention.
+
+**Tradeoffs discussed:**
+
+- **Spec-listed corpus vs symmetric extension set.** Adding `.ts`, `.jsx`, `.swift` for symmetry seemed natural during the first pass — Designer ships a Swift helper, so `.swift` lines in CLAUDE.md are real. Cut on review because the user spec explicitly listed four extensions, and unauthorized scope creep on a corpus-defining PR causes calibration drift across detectors. Re-add via a separate PR if the empty-fixture FPR data later supports it; bump `VERSION` per CONTRIBUTING §3.
+- **Detector-internal cap vs chokepoint cap.** `config_gap.rs` short-circuits its own loop when `findings.len() >= cap`. This detector emits unconditionally and lets the chokepoint refuse the overflow, per the task spec. Trade-off: a CLAUDE.md with 50 matching lines wastes a few microseconds building findings the chokepoint immediately drops, but the code path is uniform with the rest of the squad and the chokepoint's per-session ledger is the single source of truth. The waste is bounded by the file's own line cap.
+
+**Lessons learned:**
+
+- **Keyword corpora are calibration surfaces.** Adding a keyword silently changes detector behavior across every project; doing it under the cover of a "symmetric extension set" rationale is the kind of small drift that compounds. Future detector authors should treat the corpus as a separate review surface even when bundled with the detector PR.
+- **Multi-perspective review caught two FPs the inline tests missed.** `react` and `tauri` both passed every test in the first-pass fixture suite because the fixture's wording happened not to contain `interact`/`reaction` and the fixture used `apps/desktop/src-tauri/` (where `apps/desktop/` won iteration order). The negative-fixture catches "no domain references at all" but doesn't catch "a domain reference that *also* substrings into common English." Review caught it; consider a dedicated "high-FP edge fixture" pattern in CONTRIBUTING when corpora carry English-overlap risk.
+- **Dead code from defensive copy.** `trim_summary` + `SUMMARY_BUDGET` were copied from `config_gap.rs` without re-checking whether the new summary template could overflow. Since this detector's summary is `"CLAUDE.md L<u32> references <≤13-char>"` ≤ 46 chars, the truncation branch is unreachable — confirmed by counting the format components. Removed on simplify; saved a function and a const.
+
+**Quality gates:**
+
+- `cargo fmt --all -- --check` ✅
+- `cargo clippy --workspace --all-targets -- -D warnings` ✅
+- `cargo test -p designer-learn` ✅ (106 lib tests + 2 fixture-driven harness tests)
+
+---
+
 ### Bugfix — `tokio::spawn` from Tauri `setup` panics bundled .app on launch
 **Date:** 2026-04-29
 **Branch:** build-issue

@@ -64,9 +64,6 @@ impl DomainSpecificInClaudeMdDetector {
     /// not a structural certainty. Bump `VERSION` if calibration
     /// suggests a different floor.
     const CONFIDENCE: f32 = 0.6;
-    /// Char budget for the evidence summary. Matches the 21.A1.2
-    /// "Summary copy" guidance (≤80 chars).
-    const SUMMARY_BUDGET: usize = 80;
     /// Filename relative to `project_root` the detector reads.
     const CLAUDE_MD: &'static str = "CLAUDE.md";
 }
@@ -136,11 +133,11 @@ fn first_keyword_hit(lower: &str) -> Option<&'static str> {
 }
 
 fn build_finding(input: &SessionAnalysisInput, line_number: u32, keyword: &str) -> Finding {
-    let summary = trim_summary(format!(
-        "CLAUDE.md L{line_number} references {keyword}",
-        line_number = line_number,
-        keyword = keyword,
-    ));
+    // Summary length is bounded by construction: `"CLAUDE.md L"` (11) +
+    // u32 decimal width (≤10) + `" references "` (12) + max corpus
+    // keyword length (13) = ≤46 chars, comfortably under the 80-char
+    // CONTRIBUTING §7 budget — no truncation branch needed.
+    let summary = format!("CLAUDE.md L{line_number} references {keyword}");
     let line_str = line_number.to_string();
     let digest_keys = [keyword, line_str.as_str()];
     let window_digest = window_digest(DomainSpecificInClaudeMdDetector::NAME, &digest_keys);
@@ -166,18 +163,6 @@ fn build_finding(input: &SessionAnalysisInput, line_number: u32, keyword: &str) 
         suggested_action: None,
         window_digest,
     }
-}
-
-fn trim_summary(summary: String) -> String {
-    if summary.chars().count() <= DomainSpecificInClaudeMdDetector::SUMMARY_BUDGET {
-        return summary;
-    }
-    let mut out: String = summary
-        .chars()
-        .take(DomainSpecificInClaudeMdDetector::SUMMARY_BUDGET - 1)
-        .collect();
-    out.push('\u{2026}');
-    out
 }
 
 #[cfg(test)]

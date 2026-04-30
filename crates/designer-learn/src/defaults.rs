@@ -321,6 +321,13 @@ pub const COMPACTION_KEYWORDS: &[&str] = &["/compact", "/clear"];
 /// no regex metacharacters per CONTRIBUTING §4 — the detector composes
 /// case-insensitive substring matching on top.
 ///
+/// Each entry is chosen for **discriminative substring power** — a
+/// match has to be unlikely outside of a domain-specific rule. `react`
+/// is intentionally absent because it substrings into `interact` and
+/// `reaction`; `tauri` is absent because the directory anchor
+/// `src-tauri/` already catches Tauri-scoped lines and is more
+/// specific.
+///
 /// Forge-overlap detector. Forge ships an analog (`domain_specific` in
 /// `analyze-transcripts.py`); the corpus here intentionally trades
 /// Forge's regex weights for a flat keyword list so a future MLX
@@ -328,21 +335,15 @@ pub const COMPACTION_KEYWORDS: &[&str] = &["/compact", "/clear"];
 pub const DOMAIN_SPECIFIC_CLAUDE_MD_KEYWORDS: &[&str] = &[
     // File-extension hints.
     ".tsx",
-    ".ts",
-    ".jsx",
     ".rs",
     ".py",
     ".go",
-    ".swift",
     // Framework / library / runtime names.
     "tailwind",
     "radix",
     "tokio",
     "pytest",
     "vite",
-    "next.js",
-    "react",
-    "tauri",
     // Directory anchors (path-shaped tokens).
     "packages/app/",
     "apps/desktop/",
