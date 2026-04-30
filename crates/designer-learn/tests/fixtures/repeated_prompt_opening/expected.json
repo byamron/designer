@@ -1,0 +1,64 @@
+{
+  "findings": [
+    {
+      "confidence": 0.5,
+      "detector_name": "repeated_prompt_opening",
+      "detector_version": 1,
+      "evidence": [
+        {
+          "charRange": [
+            0,
+            43
+          ],
+          "kind": "message-span",
+          "messageId": "evt_019ddcc0-1486-7d52-86ee-358f7e4fcf2d",
+          "quote": "review the diff for the recent pull request"
+        },
+        {
+          "charRange": [
+            0,
+            44
+          ],
+          "kind": "message-span",
+          "messageId": "evt_019ddcc0-1486-7d52-86ee-35a264cd51e9",
+          "quote": "please review the diff for this pull request"
+        },
+        {
+          "charRange": [
+            0,
+            35
+          ],
+          "kind": "message-span",
+          "messageId": "evt_019ddcc0-1486-7d52-86ee-35cdcfe1d8e0",
+          "quote": "review the recent pull request diff"
+        },
+        {
+          "charRange": [
+            0,
+            43
+          ],
+          "kind": "message-span",
+          "messageId": "evt_019ddcc0-1486-7d52-86ee-35ef565873d2",
+          "quote": "look at the pull request diff and review it"
+        }
+      ],
+      "id": "019ddcc0-1486-7d52-86ee-367410f9ffea",
+      "project_id": "019ddcc0-1486-7d52-86ee-364e33d6e085",
+      "severity": "notice",
+      "summary": "Similar opening prompt observed in 4 sessions across 4 workspaces",
+      "timestamp": [
+        2026,
+        120,
+        4,
+        57,
+        48,
+        934673000,
+        0,
+        0,
+        0
+      ],
+      "window_digest": "5067c298f36028e2d696c8322efcd8186b64579d318ef1e78e28dd841bc82ca0",
+      "workspace_id": null
+    }
+  ]
+}
