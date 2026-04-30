@@ -307,6 +307,50 @@ pub const DETERMINISTIC_POST_TOOL_COMMANDS: &[&str] = &[
 /// in the workspace stream.
 pub const COMPACTION_KEYWORDS: &[&str] = &["/compact", "/clear"];
 
+/// Keyword corpus for `domain_specific_in_claude_md`. Lines in the
+/// project's `CLAUDE.md` that substring-match any of these are flagged
+/// as candidates for extraction into a scoped `.claude/rules/<name>.md`
+/// (the `paths:` frontmatter narrows the rule to the file family it
+/// actually concerns, instead of polluting every prompt).
+///
+/// The list is split into three families per the roadmap row:
+/// **file-extension hints** (a literal extension is a strong scope
+/// signal), **framework names** (rule applies only when the named
+/// library / runtime is involved), and **directory anchors** (rule
+/// concerns a specific subtree of the repo). Lowercased, anchor-free,
+/// no regex metacharacters per CONTRIBUTING §4 — the detector composes
+/// case-insensitive substring matching on top.
+///
+/// Each entry is chosen for **discriminative substring power** — a
+/// match has to be unlikely outside of a domain-specific rule. `react`
+/// is intentionally absent because it substrings into `interact` and
+/// `reaction`; `tauri` is absent because the directory anchor
+/// `src-tauri/` already catches Tauri-scoped lines and is more
+/// specific.
+///
+/// Forge-overlap detector. Forge ships an analog (`domain_specific` in
+/// `analyze-transcripts.py`); the corpus here intentionally trades
+/// Forge's regex weights for a flat keyword list so a future MLX
+/// backend has the same vocabulary.
+pub const DOMAIN_SPECIFIC_CLAUDE_MD_KEYWORDS: &[&str] = &[
+    // File-extension hints.
+    ".tsx",
+    ".rs",
+    ".py",
+    ".go",
+    // Framework / library / runtime names.
+    "tailwind",
+    "radix",
+    "tokio",
+    "pytest",
+    "vite",
+    // Directory anchors (path-shaped tokens).
+    "packages/app/",
+    "apps/desktop/",
+    "src-tauri/",
+    "crates/",
+];
+
 // ---------------------------------------------------------------------------
 // `memory_promotion` — classification keyword corpora.
 //

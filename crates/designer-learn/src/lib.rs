@@ -43,6 +43,7 @@ pub mod session_input;
 pub use detectors::compaction_pressure::CompactionPressureDetector;
 pub use detectors::config_gap::ConfigGapDetector;
 pub use detectors::cost_hot_streak::CostHotStreakDetector;
+pub use detectors::domain_specific_in_claude_md::DomainSpecificInClaudeMdDetector;
 pub use detectors::memory_promotion::MemoryPromotionDetector;
 pub use detectors::multi_step_tool_sequence::MultiStepToolSequenceDetector;
 pub use detectors::repeated_correction::RepeatedCorrectionDetector;
