@@ -5,11 +5,13 @@
 //! only touch this module's `pub mod` list and the `lib.rs` re-exports.
 
 pub mod approval_always_granted;
+pub mod config_gap;
 pub mod cost_hot_streak;
 pub mod repeated_correction;
 pub mod scope_false_positive;
 
 pub use approval_always_granted::ApprovalAlwaysGrantedDetector;
+pub use config_gap::ConfigGapDetector;
 pub use cost_hot_streak::CostHotStreakDetector;
 pub use repeated_correction::RepeatedCorrectionDetector;
 pub use scope_false_positive::ScopeFalsePositiveDetector;

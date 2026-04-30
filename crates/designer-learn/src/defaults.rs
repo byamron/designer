@@ -280,6 +280,290 @@ pub const DETERMINISTIC_POST_TOOL_COMMANDS: &[&str] = &[
 /// in the workspace stream.
 pub const COMPACTION_KEYWORDS: &[&str] = &["/compact", "/clear"];
 
+// ---------------------------------------------------------------------------
+// `config_gap` — config-file → hook-pattern table.
+//
+// Each entry is `(filename_pattern, expected_event, expected_command_substr,
+// human_label)`. The `filename_pattern` is matched as a glob-ish suffix
+// against entries in `<project_root>/`: a leading `*` is wildcard prefix
+// match, otherwise it's an exact filename match. `expected_event` is the
+// Claude Code hook trigger (`PostToolUse`, `PrePush`, etc.). The detector
+// reports a gap when no `hooks.<expected_event>[*].command` field in
+// `.claude/settings.json` substring-contains `expected_command_substr`.
+//
+// Filename patterns are intentionally lenient — `.prettierrc` matches both
+// `.prettierrc` and `.prettierrc.json`; the matcher is pure-string so a
+// `prettier.config.cjs` is caught by `prettier.config.*` without spinning
+// up a glob engine.
+//
+// Forge has an analog (`config_gap` is in `FORGE_OVERLAP_DETECTORS`); the
+// table is Designer's own and migrates the *intent* of Forge's check
+// rather than its data structure. When Forge bumps a recognized
+// formatter family, mirror it here and bump the detector `VERSION`.
+// ---------------------------------------------------------------------------
+
+/// Hook-event names emitted by Claude Code's settings file. Keep in sync
+/// with the Claude Code docs §"Hook Events" — the JSON shape is
+/// `hooks.<event_name>[*].command`.
+pub const CONFIG_GAP_EVENT_POST_TOOL_USE: &str = "PostToolUse";
+pub const CONFIG_GAP_EVENT_PRE_COMMIT: &str = "PreCommit";
+pub const CONFIG_GAP_EVENT_PRE_PUSH: &str = "PrePush";
+
+/// Single row of the [`CONFIG_GAP_HOOK_PATTERNS`] table. Tuple form keeps
+/// the table readable as a `pub const &[…]`; the detector reads positionally.
+pub struct ConfigGapPattern {
+    /// Filename or glob suffix matched against direct children of
+    /// `<project_root>/`. `*.toml` = "ends with `.toml`"; an exact name
+    /// like `biome.json` only matches `biome.json`.
+    pub filename: &'static str,
+    /// Claude Code hook event the missing hook would register under.
+    pub event: &'static str,
+    /// Substring that must appear in the hook's `command` field for the
+    /// hook to count as "covers this config." Matched case-insensitively
+    /// against the trimmed command.
+    pub command_substr: &'static str,
+    /// Human-readable family label for the summary. Lowercase, short.
+    pub label: &'static str,
+    /// Optional file-content substring that must also be present for the
+    /// pattern to apply. `None` means "filename match is sufficient";
+    /// `Some("[tool.ruff]")` means "only flag a `pyproject.toml` that
+    /// declares a `[tool.ruff]` section." Designer-unique gating —
+    /// `pyproject.toml` is too common to flag wholesale.
+    pub require_content: Option<&'static str>,
+}
+
+/// Designer-unique. Each row encodes one (config file → expected hook)
+/// relationship. The table is intentionally short — it covers the
+/// formatters / linters / test runners every Designer dogfooder uses.
+/// Adding a new family requires a `VERSION` bump on the detector per
+/// CONTRIBUTING §3 because old findings stay attached to the prior shape.
+pub const CONFIG_GAP_HOOK_PATTERNS: &[ConfigGapPattern] = &[
+    ConfigGapPattern {
+        filename: ".prettierrc",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".prettierrc.json",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".prettierrc.js",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".prettierrc.cjs",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".prettierrc.yaml",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".prettierrc.yml",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "prettier.config.js",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "prettier.config.cjs",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "prettier.config.mjs",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "prettier",
+        label: "prettier",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "eslint.config.js",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "eslint.config.cjs",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "eslint.config.mjs",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".eslintrc",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".eslintrc.json",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".eslintrc.js",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".eslintrc.cjs",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".eslintrc.yaml",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".eslintrc.yml",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "eslint",
+        label: "eslint",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "biome.json",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "biome",
+        label: "biome",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "rustfmt.toml",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "cargo fmt",
+        label: "cargo fmt",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: ".rustfmt.toml",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "cargo fmt",
+        label: "cargo fmt",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "pyproject.toml",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "ruff",
+        label: "ruff",
+        require_content: Some("[tool.ruff]"),
+    },
+    ConfigGapPattern {
+        filename: "pyproject.toml",
+        event: CONFIG_GAP_EVENT_POST_TOOL_USE,
+        command_substr: "black",
+        label: "black",
+        require_content: Some("[tool.black]"),
+    },
+    ConfigGapPattern {
+        filename: "jest.config.js",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "jest",
+        label: "jest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "jest.config.cjs",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "jest",
+        label: "jest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "jest.config.mjs",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "jest",
+        label: "jest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "jest.config.ts",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "jest",
+        label: "jest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "vitest.config.js",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "vitest",
+        label: "vitest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "vitest.config.ts",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "vitest",
+        label: "vitest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "vitest.config.mjs",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "vitest",
+        label: "vitest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "pytest.ini",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "pytest",
+        label: "pytest",
+        require_content: None,
+    },
+    ConfigGapPattern {
+        filename: "Cargo.toml",
+        event: CONFIG_GAP_EVENT_PRE_PUSH,
+        command_substr: "cargo test",
+        label: "cargo test",
+        require_content: Some("[[test]]"),
+    },
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
