@@ -85,6 +85,15 @@ pub struct ClaudeCodeOptions {
     /// Conductor's observed invocation).
     #[serde(default = "default_max_turns")]
     pub max_turns: u32,
+    /// Override the `--setting-sources` argument. `None` keeps the default
+    /// (`user,project,local`) so production picks up the user's keychain-
+    /// authed install. Tests that need a hermetic permission policy (e.g.
+    /// the live `permission_prompt_round_trip`) pass `Some(vec!["local"])`
+    /// to skip the runner's `~/.claude/settings.json` — otherwise the
+    /// user-level allow-rules auto-accept tool calls before they reach
+    /// our stdio handler and the round-trip never fires.
+    #[serde(default)]
+    pub setting_sources: Option<Vec<String>>,
 }
 
 fn default_max_turns() -> u32 {
@@ -198,7 +207,15 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
             .args(["--session-id", &session_id.to_string()])
             .args(["--permission-prompt-tool", "stdio"])
             .args(["--disallowedTools", "AskUserQuestion"])
-            .args(["--setting-sources", "user,project,local"])
+            .args([
+                "--setting-sources",
+                &self
+                    .options
+                    .setting_sources
+                    .as_deref()
+                    .map(|s| s.join(","))
+                    .unwrap_or_else(|| "user,project,local".to_string()),
+            ])
             .args(["--max-turns", &self.options.max_turns.to_string()])
             .args(["--permission-mode", "default"]);
 

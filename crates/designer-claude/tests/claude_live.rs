@@ -141,6 +141,14 @@ async fn permission_prompt_round_trip() {
         store,
         ClaudeCodeOptions {
             cwd: Some(workdir.path().to_path_buf()),
+            // Skip the runner's `~/.claude/settings.json`. Personal installs
+            // typically have `permissions.allow` rules for Bash/Write that
+            // auto-accept tool calls before they reach the stdio handler;
+            // including `user` here lets that bypass our test entirely.
+            // `local` only keeps this test hermetic without disabling
+            // project-tracked policy from being honoured if the runner's
+            // checkout ever gains one.
+            setting_sources: Some(vec!["local".into()]),
             ..Default::default()
         },
     )
@@ -174,18 +182,19 @@ async fn permission_prompt_round_trip() {
         "TeamSpawned did not land within 15s"
     );
 
-    // Default permission policy auto-accepts read-class tools
-    // (Read/Glob/Grep/LS) without firing `decide()` — only state-changing
-    // tools (Write/Edit/Bash) prompt. The prompt has to be directive
-    // enough that the model jumps straight to a gated tool, otherwise
-    // the test can run out the clock on auto-accepted recon calls.
+    // Default permission policy gates the `Write` tool on every call, so
+    // forcing the model to invoke `Write` is the most reliable way to
+    // exercise the stdio round-trip. Read-class tools (Read/Glob/Grep/LS)
+    // auto-accept and never fire `decide()`; Bash classification varies
+    // by command and can also auto-accept for simple invocations.
     orch.post_message(
         ws,
         "user".into(),
-        "Use the Bash tool right now to run exactly: `touch hello.txt`. \
-         Do not use any other tool first. Do not call Read, Glob, Grep, \
-         or LS. Do not narrate. Just invoke the Bash tool with that \
-         command immediately, then stop."
+        "Invoke the Write tool exactly once with these arguments: \
+         file_path = \"hello.txt\", content = \"hi\". \
+         Do not call any other tool. Do not call Read, Glob, Grep, LS, \
+         or Bash first. Do not narrate. Just emit the Write tool call \
+         immediately and stop."
             .into(),
     )
     .await
@@ -210,14 +219,12 @@ async fn permission_prompt_round_trip() {
         Some(ws),
         "PermissionRequest.workspace_id must round-trip"
     );
-    // The exact tool depends on which path the model picks (Bash is what
-    // the prompt asks for; Write/Edit are accepted fallbacks the model
-    // sometimes substitutes). Any state-changing tool is a valid round-
-    // trip — what we're testing is the orchestrator's wire path, not the
-    // model's tool choice.
+    // The prompt asks for Write; Edit/MultiEdit/Bash are accepted
+    // fallbacks if the model substitutes. What we're testing is the
+    // orchestrator's wire path, not the model's tool choice.
     assert!(
-        ["Bash", "Write", "Edit", "MultiEdit"].contains(&req.tool.as_str()),
-        "unexpected tool {} for the bash-touch prompt",
+        ["Write", "Edit", "MultiEdit", "Bash"].contains(&req.tool.as_str()),
+        "unexpected tool {} for the write-file prompt",
         req.tool
     );
     drop(calls);
