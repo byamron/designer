@@ -37,6 +37,38 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Bugfix — `tokio::spawn` from Tauri `setup` panics bundled .app on launch
+**Date:** 2026-04-29
+**Branch:** build-issue
+**PR:** #56
+
+**What was done:**
+
+Swapped `tokio::spawn` → `tauri::async_runtime::spawn` in `apps/desktop/src-tauri/src/core_proposals.rs` (the new Phase 21.A1.2 module added in #49). Two call sites: `spawn_track_completed_subscriber` (the boot-time subscriber wired from `main.rs::setup`) and `schedule_track_synthesis` (the debounced synthesis spawn). Added a docstring on the boot-time function calling out the constraint, and pointed back to the original 13.D fix.
+
+Same PR adds a regression test (`apps/desktop/src-tauri/src/core_proposals.rs::tests::spawn_subscribers_do_not_require_caller_runtime`) that exercises both call sites from a plain `#[test]` (no Tokio context entered), proving the spawn does not require `Handle::current()`. This test would have caught both this occurrence and the prior 13.D one.
+
+A workspace-scoped `clippy.toml` `disallowed-methods` ban on `tokio::spawn` in `apps/desktop/src-tauri/` is a strong follow-up — the lint is per-crate and trips every existing `tokio::spawn` call site in `core.rs` / `core_learn.rs` / `core_local.rs`, which would each need an audit + `#[allow(clippy::disallowed_methods)]` with justification (each is reached from inside an entered runtime context). Out of scope for the bugfix PR; tracked separately.
+
+**Why:**
+
+A locally-built `Designer.app` from `cargo tauri build` crashed on launch with `SIGABRT` ~400 ms after spawn. The macOS crash report (`~/Library/Logs/DiagnosticReports/designer-desktop-*.ips`) showed the faulting thread top-frames inside `__CFNOTIFICATIONCENTER_IS_CALLING_OUT_TO_AN_OBSERVER__` → `-[NSApplication _postDidFinishNotification]`, abort'd from a Rust panic. The user's panic hook captured the actual message: `panicked at apps/desktop/src-tauri/src/core_proposals.rs:61:5: there is no reactor running, must be called from the context of a Tokio 1.x runtime`.
+
+This is the **third occurrence** of this bug pattern in the project (see entry below for #2 in 13.D's `spawn_message_coalescer`, and the 13.0 fix for `spawn_event_bridge`). Tauri's `setup` callback runs on the main thread *before* a Tokio runtime context is bound — `tokio::spawn` panics there. `tauri::async_runtime::spawn` is the supported API and works regardless of caller context, because Designer registers its tokio runtime with Tauri at boot via `tauri::async_runtime::set` (`main.rs:131`).
+
+**Why this slipped through CI:**
+
+Phase 21.A1.2 unit and integration tests (`crates/designer-learn/tests/...` + `apps/desktop/src-tauri/src/core_proposals.rs::tests`) all use `#[tokio::test]`, which sets up a runtime before the test body runs. The boot-from-`setup` path is not exercised by the test suite — the panic only surfaces against a real bundled launch. The new `#[test]` (not `#[tokio::test]`) regression test plugs that gap.
+
+**Quality gates:**
+
+- `cargo fmt --check` ✅
+- `cargo clippy --workspace --all-targets -- -D warnings` ✅
+- `cargo test --workspace` ✅
+- Local `cargo tauri build` produces a `.app` that opens to the main window without abort ✅
+
+---
+
 ### Phase 21.A2 — `multi_step_tool_sequence` detector (Forge-overlap)
 **Date:** 2026-04-29
 **Branch:** multi-step-tool-seq
