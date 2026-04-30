@@ -293,14 +293,16 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         let reader_task = tokio::spawn(async move {
             run_reader_loop(
                 BufReader::new(stdout),
-                ws,
-                team_name,
-                lead_role,
-                store_for_reader,
-                tx,
-                signal_tx,
-                permission_handler,
-                stdin_tx_for_reader,
+                ReaderLoopCtx {
+                    workspace_id: ws,
+                    team_name,
+                    lead_role,
+                    store: store_for_reader,
+                    tx,
+                    signal_tx,
+                    permission_handler,
+                    stdin_tx: stdin_tx_for_reader,
+                },
             )
             .await;
             debug!("claude stdout reader task exiting");
@@ -568,6 +570,24 @@ fn event_to_payload(
     }
 }
 
+/// Construction-time bundle of the reader-loop's collaborators. Replaces
+/// the 9-positional-arg form so callers (`spawn_team` and unit tests) read
+/// as a struct literal instead of a wall of arguments. Pure refactor — no
+/// behaviour change.
+pub(crate) struct ReaderLoopCtx<S>
+where
+    S: EventStore + 'static,
+{
+    pub workspace_id: WorkspaceId,
+    pub team_name: String,
+    pub lead_role: String,
+    pub store: Arc<S>,
+    pub tx: broadcast::Sender<OrchestratorEvent>,
+    pub signal_tx: broadcast::Sender<ClaudeSignal>,
+    pub permission_handler: Arc<dyn PermissionHandler>,
+    pub stdin_tx: mpsc::Sender<Vec<u8>>,
+}
+
 /// Drain a stream-json reader until EOF, persisting and broadcasting each
 /// translated event. Permission prompts route to the installed
 /// [`PermissionHandler`] in a *spawned* task — the reader must stay
@@ -575,21 +595,21 @@ fn event_to_payload(
 /// event from Claude during the approval window is stalled. Extracted from
 /// `spawn_team` so the unit tests can drive it with a synthetic stdout
 /// without spinning up a real subprocess.
-#[allow(clippy::too_many_arguments)]
-async fn run_reader_loop<R, S>(
-    mut reader: BufReader<R>,
-    workspace_id: WorkspaceId,
-    team_name: String,
-    lead_role: String,
-    store: Arc<S>,
-    tx: broadcast::Sender<OrchestratorEvent>,
-    signal_tx: broadcast::Sender<ClaudeSignal>,
-    permission_handler: Arc<dyn PermissionHandler>,
-    stdin_tx: mpsc::Sender<Vec<u8>>,
-) where
+async fn run_reader_loop<R, S>(mut reader: BufReader<R>, ctx: ReaderLoopCtx<S>)
+where
     R: tokio::io::AsyncRead + Unpin,
     S: EventStore + 'static,
 {
+    let ReaderLoopCtx {
+        workspace_id,
+        team_name,
+        lead_role,
+        store,
+        tx,
+        signal_tx,
+        permission_handler,
+        stdin_tx,
+    } = ctx;
     let mut translator = ClaudeStreamTranslator::new(workspace_id, team_name.clone());
     let mut buf = String::new();
     loop {
@@ -904,14 +924,16 @@ mod tests {
         let h: Arc<dyn PermissionHandler> = handler.clone();
         run_reader_loop(
             BufReader::new(cursor),
-            ws,
-            "team-h".into(),
-            "team-lead".into(),
-            store,
-            tx,
-            signal_tx,
-            h,
-            stdin_tx,
+            ReaderLoopCtx {
+                workspace_id: ws,
+                team_name: "team-h".into(),
+                lead_role: "team-lead".into(),
+                store,
+                tx,
+                signal_tx,
+                permission_handler: h,
+                stdin_tx,
+            },
         )
         .await;
 
@@ -964,14 +986,16 @@ mod tests {
         let h: Arc<dyn PermissionHandler> = handler.clone();
         run_reader_loop(
             BufReader::new(std::io::Cursor::new(bytes)),
-            ws,
-            "team-h".into(),
-            "team-lead".into(),
-            store,
-            tx,
-            signal_tx,
-            h,
-            stdin_tx,
+            ReaderLoopCtx {
+                workspace_id: ws,
+                team_name: "team-h".into(),
+                lead_role: "team-lead".into(),
+                store,
+                tx,
+                signal_tx,
+                permission_handler: h,
+                stdin_tx,
+            },
         )
         .await;
         // Yield once so the spawned decide-task can run.
@@ -1022,14 +1046,16 @@ mod tests {
         let task = tokio::spawn(async move {
             run_reader_loop(
                 BufReader::new(std::io::Cursor::new(bytes)),
-                ws,
-                team,
-                lead,
-                store_clone,
-                tx,
-                signal_tx,
-                h,
-                stdin_tx,
+                ReaderLoopCtx {
+                    workspace_id: ws,
+                    team_name: team,
+                    lead_role: lead,
+                    store: store_clone,
+                    tx,
+                    signal_tx,
+                    permission_handler: h,
+                    stdin_tx,
+                },
             )
             .await;
         });
