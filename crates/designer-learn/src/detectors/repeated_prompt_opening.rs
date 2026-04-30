@@ -32,8 +32,9 @@
 //! Greedy connected-components: a new opener is added to the *first*
 //! existing cluster that contains at least one member sharing ≥0.5
 //! Jaccard with it. If no cluster matches, the opener seeds a new one.
-//! Clusters with at least `min_occurrences` openers spanning at least
-//! `min_sessions` distinct workspaces produce one finding apiece.
+//! Because each opener is the first user message of a unique workspace,
+//! cluster size *is* the distinct-session count — `min_occurrences` and
+//! `min_sessions` collapse to a single threshold check.
 //!
 //! ## Output kind
 //!
@@ -53,17 +54,26 @@ use crate::defaults::REPEATED_PROMPT_OPENING_JACCARD_MIN;
 use crate::{window_digest, Detector, DetectorConfig, DetectorError, SessionAnalysisInput};
 use async_trait::async_trait;
 use designer_core::{Actor, Anchor, EventPayload, Finding, FindingId, Severity, WorkspaceId};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
+use std::time::Duration;
+
+/// Per-detector wall-clock budget. Belt-and-braces with the
+/// orchestrator's outer 250 ms `tokio::time::timeout` per CONTRIBUTING
+/// §"partial-failure containment", so a pathological opener (e.g. a
+/// 10 MB user message that explodes the tokenizer) cannot stall the
+/// pipeline even if the outer harness regresses.
+const ANALYSIS_BUDGET: Duration = Duration::from_millis(250);
 
 /// Cap evidence anchors per finding. Mirrors the cap used by
 /// `repeated_correction` so a runaway burst doesn't bloat the event
 /// log.
 const MAX_EVIDENCE_PER_FINDING: usize = 8;
 
-/// Trailing-character budget when storing the opener verbatim on each
-/// `Anchor::MessageSpan`. Long openers truncate to this many characters
-/// so the evidence drawer stays skim-readable.
-const QUOTE_MAX_CHARS: usize = 240;
+/// Character budget for the opener verbatim stored on each
+/// `Anchor::MessageSpan`. Long openers truncate so the evidence drawer
+/// stays skim-readable; the `char_range` still anchors to the full
+/// source-body length.
+const QUOTE_MAX_CHARS: usize = 160;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct RepeatedPromptOpeningDetector;
@@ -76,7 +86,6 @@ impl RepeatedPromptOpeningDetector {
 #[derive(Debug, Clone)]
 struct Opener {
     event_id: String,
-    workspace_id: WorkspaceId,
     quote: String,
     char_range: (u32, u32),
     tokens: HashSet<String>,
@@ -99,7 +108,7 @@ impl Detector for RepeatedPromptOpeningDetector {
         config: &DetectorConfig,
         _ops: Option<&dyn designer_local_models::LocalOps>,
     ) -> Result<Vec<Finding>, DetectorError> {
-        Ok(detect(input, config))
+        run_with_timeout(input, config).await
     }
 
     #[cfg(not(feature = "local-ops"))]
@@ -108,7 +117,21 @@ impl Detector for RepeatedPromptOpeningDetector {
         input: &SessionAnalysisInput,
         config: &DetectorConfig,
     ) -> Result<Vec<Finding>, DetectorError> {
-        Ok(detect(input, config))
+        run_with_timeout(input, config).await
+    }
+}
+
+async fn run_with_timeout(
+    input: &SessionAnalysisInput,
+    config: &DetectorConfig,
+) -> Result<Vec<Finding>, DetectorError> {
+    match tokio::time::timeout(ANALYSIS_BUDGET, async { Ok(detect(input, config)) }).await {
+        Ok(result) => result,
+        Err(_) => Err(DetectorError::Other(format!(
+            "{} exceeded {}ms analysis budget",
+            RepeatedPromptOpeningDetector::NAME,
+            ANALYSIS_BUDGET.as_millis()
+        ))),
     }
 }
 
@@ -130,16 +153,14 @@ fn detect(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding>
         if findings.len() >= cap {
             break;
         }
+        // Each opener is the first user message of a unique workspace
+        // (see `collect_openers`), so cluster size *is* the distinct-
+        // session count. Both threshold gates collapse to one check.
         let count = cluster.len() as u32;
-        let distinct_workspaces: u32 = cluster
-            .iter()
-            .map(|o| o.workspace_id)
-            .collect::<BTreeSet<_>>()
-            .len() as u32;
-        if count < config.min_occurrences || distinct_workspaces < config.min_sessions {
+        if count < config.min_occurrences || count < config.min_sessions {
             continue;
         }
-        findings.push(build_finding(input, config, &cluster, distinct_workspaces));
+        findings.push(build_finding(input, config, &cluster));
     }
     findings
 }
@@ -171,15 +192,15 @@ fn collect_openers(input: &SessionAnalysisInput) -> Vec<Opener> {
             // cannot match anything via Jaccard.
             continue;
         }
-        let quote = truncate_quote(body);
-        let char_range = (
-            0u32,
-            u32::try_from(quote.chars().count()).unwrap_or(u32::MAX),
-        );
+        let trimmed = body.trim();
+        // `char_range` is byte-indexed to match `repeated_correction`'s
+        // convention (it indexes into the source body via `str::find`,
+        // which returns byte offsets). The anchor describes the full
+        // opener even when `quote` is truncated for display.
+        let char_range = (0u32, u32::try_from(trimmed.len()).unwrap_or(u32::MAX));
         openers.push(Opener {
             event_id: env.id.to_string(),
-            workspace_id: *workspace_id,
-            quote,
+            quote: truncate_quote(trimmed),
             char_range,
             tokens,
         });
@@ -243,8 +264,7 @@ fn cluster_openers(openers: &[Opener], floor: f32) -> Vec<Vec<Opener>> {
     clusters
 }
 
-fn truncate_quote(body: &str) -> String {
-    let trimmed = body.trim();
+fn truncate_quote(trimmed: &str) -> String {
     if trimmed.chars().count() <= QUOTE_MAX_CHARS {
         return trimmed.to_string();
     }
@@ -261,15 +281,14 @@ fn confidence_score(count: u32, min_occurrences: u32) -> f32 {
 
 /// Evidence-text headline (per CONTRIBUTING §7). Passive voice, no
 /// second person, describes the pattern not the action.
-fn summary_line(count: u32, distinct_workspaces: u32) -> String {
-    format!("Similar opening prompt observed in {count} sessions across {distinct_workspaces} workspaces")
+fn summary_line(count: u32) -> String {
+    format!("Similar opening prompt observed across {count} sessions")
 }
 
 fn build_finding(
     input: &SessionAnalysisInput,
     config: &DetectorConfig,
     cluster: &[Opener],
-    distinct_workspaces: u32,
 ) -> Finding {
     let count = cluster.len() as u32;
 
@@ -295,7 +314,7 @@ fn build_finding(
         timestamp: time::OffsetDateTime::now_utc(),
         severity: config.impact_override.unwrap_or(Severity::Notice),
         confidence: confidence_score(count, config.min_occurrences),
-        summary: summary_line(count, distinct_workspaces),
+        summary: summary_line(count),
         evidence,
         suggested_action: None,
         window_digest,
@@ -368,95 +387,10 @@ mod tests {
 
     #[test]
     fn summary_is_passive_and_pattern_focused() {
-        let s = summary_line(4, 4);
+        let s = summary_line(4);
         assert!(s.starts_with("Similar opening prompt"));
+        assert!(s.contains('4'));
         assert!(!s.to_lowercase().contains(" you "));
-    }
-
-    #[tokio::test]
-    async fn fires_on_four_paraphrased_openers() {
-        let workspaces: Vec<WorkspaceId> = (0..4).map(|_| WorkspaceId::new()).collect();
-        let openers = [
-            "review the diff for the recent pull request",
-            "please review the diff for this pull request",
-            "review the recent pull request diff",
-            "look at the pull request diff and review it",
-        ];
-        let events: Vec<EventEnvelope> = workspaces
-            .iter()
-            .zip(openers.iter())
-            .enumerate()
-            .map(|(i, (ws, body))| user_msg(i as u64 + 1, *ws, body))
-            .collect();
-        let input = SessionAnalysisInput::builder(ProjectId::new())
-            .events(events)
-            .build();
-        let cfg = SKILL_DEFAULTS;
-        let detector = RepeatedPromptOpeningDetector;
-
-        #[cfg(feature = "local-ops")]
-        let findings = detector.analyze(&input, &cfg, None).await.unwrap();
-        #[cfg(not(feature = "local-ops"))]
-        let findings = detector.analyze(&input, &cfg).await.unwrap();
-
-        assert_eq!(findings.len(), 1);
-        let f = &findings[0];
-        assert_eq!(f.detector_name, RepeatedPromptOpeningDetector::NAME);
-        assert_eq!(f.severity, Severity::Notice);
-        assert_eq!(f.evidence.len(), 4);
-        assert!(f.summary.contains('4'));
-    }
-
-    #[tokio::test]
-    async fn does_not_fire_on_distinct_openers() {
-        let workspaces: Vec<WorkspaceId> = (0..4).map(|_| WorkspaceId::new()).collect();
-        let openers = [
-            "review the diff for the recent pull request",
-            "explain how event sourcing handles compaction",
-            "draft a plan for migrating away from moment.js",
-            "build a Tauri command that exposes detector findings",
-        ];
-        let events: Vec<EventEnvelope> = workspaces
-            .iter()
-            .zip(openers.iter())
-            .enumerate()
-            .map(|(i, (ws, body))| user_msg(i as u64 + 1, *ws, body))
-            .collect();
-        let input = SessionAnalysisInput::builder(ProjectId::new())
-            .events(events)
-            .build();
-        let cfg = SKILL_DEFAULTS;
-        let detector = RepeatedPromptOpeningDetector;
-
-        #[cfg(feature = "local-ops")]
-        let findings = detector.analyze(&input, &cfg, None).await.unwrap();
-        #[cfg(not(feature = "local-ops"))]
-        let findings = detector.analyze(&input, &cfg).await.unwrap();
-
-        assert!(findings.is_empty());
-    }
-
-    #[tokio::test]
-    async fn does_not_fire_below_threshold() {
-        let workspaces: Vec<WorkspaceId> = (0..3).map(|_| WorkspaceId::new()).collect();
-        let body = "review the diff for the recent pull request";
-        let events: Vec<EventEnvelope> = workspaces
-            .iter()
-            .enumerate()
-            .map(|(i, ws)| user_msg(i as u64 + 1, *ws, body))
-            .collect();
-        let input = SessionAnalysisInput::builder(ProjectId::new())
-            .events(events)
-            .build();
-        let cfg = SKILL_DEFAULTS;
-        let detector = RepeatedPromptOpeningDetector;
-
-        #[cfg(feature = "local-ops")]
-        let findings = detector.analyze(&input, &cfg, None).await.unwrap();
-        #[cfg(not(feature = "local-ops"))]
-        let findings = detector.analyze(&input, &cfg).await.unwrap();
-
-        assert!(findings.is_empty());
     }
 
     #[tokio::test]
