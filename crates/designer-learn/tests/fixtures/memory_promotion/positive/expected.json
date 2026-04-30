@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "confidence": 0.6,
+      "detector_name": "memory_promotion",
+      "detector_version": 1,
+      "evidence": [
+        {
+          "kind": "file-path",
+          "path": "/Users/u/.claude/projects/abc/memory/code-style.md"
+        }
+      ],
+      "severity": "notice",
+      "summary": "Persistent preference note not in CLAUDE.md or rules: 'I prefer two-space indentation in…'"
+    }
+  ]
+}

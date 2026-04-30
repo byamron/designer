@@ -1,0 +1,319 @@
+name: supply-chain
+
+# Phase 16.S — supply-chain CI gates (audits + SBOM only).
+#
+# Severity policy (mirrors core-docs/security.md §16.S "Supply-chain CI policy"):
+#   - HIGH/CRITICAL advisories block the PR.
+#   - MEDIUM/LOW warn but don't block.
+#   - Daily scheduled run drifts against newly-published advisories; on failure
+#     we open / update a tracking Issue so the dep tree doesn't silently rot.
+#
+# Each tool is its own job so a single-source failure is diagnosable in
+# isolation. Out of scope here: signing, SLSA L3 provenance, updater dual-key
+# (those land with 16.R / later 16.S work).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # 07:17 UTC daily — odd minute to dodge the top-of-hour cron herd.
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    name: cargo audit (Rust advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache RustSec advisory-db
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/advisory-db
+          key: cargo-advisory-db-${{ github.run_id }}
+          restore-keys: |
+            cargo-advisory-db-
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-audit
+        run: cargo binstall -y cargo-audit
+
+      # Run cargo audit in JSON mode so we can apply the severity gate
+      # ourselves. Default `cargo audit` exits 0 on warnings (unmaintained,
+      # unsound) and non-zero on vulnerabilities — fine for the block path.
+      # Below we additionally inspect the JSON to enforce HIGH/CRITICAL
+      # blocking even when CVSS is parsed from RUSTSEC metadata.
+      - name: Run cargo audit
+        id: audit
+        run: |
+          set +e
+          cargo audit --json > audit.json
+          echo "audit_exit=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Apply severity gate (HIGH/CRITICAL block, MEDIUM/LOW warn)
+        run: |
+          python3 <<'PY'
+          import json, os, sys
+          with open("audit.json") as f:
+              data = json.load(f)
+          vulns = data.get("vulnerabilities", {}).get("list", [])
+          warnings = data.get("warnings", {})
+          blocking = []
+          warning_lines = []
+          for v in vulns:
+              adv = v.get("advisory", {})
+              cvss = adv.get("cvss") or ""
+              # RUSTSEC stores CVSS as a vector string; fall back to severity tag.
+              # We treat advisories with no CVSS as HIGH by default — the spec is
+              # "block on HIGH/CRITICAL", and an unscored CVE is safer to gate.
+              severity = "high"
+              if "/" in cvss:
+                  # CVSSv3 score is the trailing number after CVSS:3.x/...
+                  pass  # we don't parse score; rely on adv.severity if present
+              sev_field = (adv.get("severity") or "").lower()
+              if sev_field in ("low", "medium", "moderate"):
+                  severity = sev_field
+              line = f"{adv.get('id','?')} ({severity}) — {adv.get('title','')} :: {v.get('package',{}).get('name','?')}@{v.get('package',{}).get('version','?')}"
+              if severity in ("low", "medium", "moderate"):
+                  warning_lines.append(line)
+              else:
+                  blocking.append(line)
+          for kind, ws in warnings.items():
+              for w in ws:
+                  adv = w.get("advisory", {}) or {}
+                  warning_lines.append(f"{adv.get('id','?')} [{kind}] — {adv.get('title','')} :: {w.get('package',{}).get('name','?')}@{w.get('package',{}).get('version','?')}")
+          if warning_lines:
+              print("::group::cargo audit — informational warnings (MEDIUM/LOW + unmaintained/unsound)")
+              for line in warning_lines:
+                  print(f"::warning::{line}")
+              print("::endgroup::")
+          if blocking:
+              print("::group::cargo audit — BLOCKING advisories (HIGH/CRITICAL)")
+              for line in blocking:
+                  print(f"::error::{line}")
+              print("::endgroup::")
+              sys.exit(1)
+          print("cargo audit: no HIGH/CRITICAL advisories.")
+          PY
+
+      - name: Upload audit JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-audit-report
+          path: audit.json
+          if-no-files-found: warn
+
+  cargo-deny:
+    name: cargo deny (advisories, bans, licenses, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache RustSec advisory-db
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/advisory-db
+          key: cargo-advisory-db-${{ github.run_id }}
+          restore-keys: |
+            cargo-advisory-db-
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-deny
+        run: cargo binstall -y cargo-deny
+
+      - name: cargo deny check
+        run: cargo deny check
+
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-cyclonedx
+        run: cargo binstall -y cargo-cyclonedx
+
+      # Generate one CycloneDX SBOM per workspace member. Phase 16.S only
+      # requires per-PR availability for verification; release-time signing
+      # and attachment are 16.R's concern.
+      - name: Generate CycloneDX SBOM
+        run: cargo cyclonedx --all --format json --override-filename sbom
+
+      - name: Collect SBOMs
+        run: |
+          mkdir -p sbom-out
+          find . -name 'sbom.json' \
+            -not -path './sbom-out/*' \
+            -not -path './target/*' \
+            -not -path './node_modules/*' -print0 \
+            | xargs -0 -I{} bash -c 'cp "$1" "sbom-out/$(echo $1 | sed -e s,/,_,g -e s,^._,,)"' _ {}
+          ls -la sbom-out/
+
+      - name: Upload SBOM bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyclonedx-sbom
+          path: sbom-out/
+          if-no-files-found: error
+
+  npm-audit:
+    name: npm audit (production)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root workspace deps
+        run: npm ci --ignore-scripts
+
+      # `--audit-level=high` is the block threshold: npm exits non-zero only
+      # for HIGH/CRITICAL. Production-only scope ignores dev-tooling vulns
+      # which never ship to users. The companion warn step below surfaces
+      # MEDIUM/LOW for visibility without failing the gate.
+      - name: npm audit (production, block on HIGH/CRITICAL)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: npm audit (full, warn-only)
+        if: always()
+        run: |
+          set +e
+          npm audit --json > npm-audit.json
+          set -e
+          python3 <<'PY'
+          import json
+          try:
+              with open("npm-audit.json") as f:
+                  data = json.load(f)
+          except Exception as e:
+              print(f"::warning::npm audit JSON unavailable: {e}")
+              raise SystemExit(0)
+          meta = data.get("metadata", {}).get("vulnerabilities", {})
+          summary = ", ".join(f"{k}={v}" for k, v in meta.items() if v)
+          if summary:
+              print(f"::warning::npm audit summary (all severities): {summary}")
+          else:
+              print("npm audit: no advisories at any severity.")
+          PY
+
+      - name: Upload npm audit JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit.json
+          if-no-files-found: warn
+
+  lockfile-lint:
+    name: lockfile-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Validates registry, integrity hashes, and that no resolved-URL drift
+      # snuck into package-lock.json (e.g., a private registry or a tarball
+      # outside npm). The root lockfile covers both `packages/app/` and
+      # `packages/ui/` via the npm workspaces config.
+      - name: Run lockfile-lint
+        run: |
+          npx --yes lockfile-lint \
+            --path package-lock.json \
+            --type npm \
+            --allowed-schemes https: \
+            --validate-integrity \
+            --validate-package-names \
+            --allowed-hosts npm
+
+  drift-issue:
+    name: Open drift issue (scheduled only)
+    needs: [cargo-audit, cargo-deny, sbom, npm-audit, lockfile-lint]
+    if: always() && github.event_name == 'schedule' && (needs.cargo-audit.result == 'failure' || needs.cargo-deny.result == 'failure' || needs.npm-audit.result == 'failure' || needs.lockfile-lint.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Daily drift run failed — open or refresh a tracking Issue. Title is
+      # stable so subsequent runs update the same Issue rather than spamming.
+      - name: Create or update drift Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUDIT_RESULT: ${{ needs.cargo-audit.result }}
+          DENY_RESULT: ${{ needs.cargo-deny.result }}
+          NPM_RESULT: ${{ needs.npm-audit.result }}
+          LOCK_RESULT: ${{ needs.lockfile-lint.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="Supply-chain drift detected by daily CI"
+          BODY=$(cat <<EOF
+          The scheduled supply-chain workflow detected a regression on \`main\`.
+
+          | Job | Result |
+          | --- | --- |
+          | cargo audit | $AUDIT_RESULT |
+          | cargo deny | $DENY_RESULT |
+          | npm audit | $NPM_RESULT |
+          | lockfile-lint | $LOCK_RESULT |
+
+          Latest run: $RUN_URL
+
+          Per \`core-docs/security.md\` §16.S "Supply-chain CI policy", a
+          previously-passing dep has developed a new advisory or otherwise
+          drifted. Triage: pull the failing job log, decide whether to
+          upgrade, ignore-list with a citation in \`deny.toml\`, or accept
+          the warning if it is below the HIGH/CRITICAL bar.
+          EOF
+          )
+
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --search "$TITLE in:title" --state open --json number,title \
+            --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --label "supply-chain,drift" || \
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --body "$BODY"
+          fi

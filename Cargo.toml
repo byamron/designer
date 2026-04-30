@@ -20,6 +20,7 @@ edition = "2021"
 rust-version = "1.78"
 authors = ["Designer contributors"]
 license = "UNLICENSED"
+publish = false
 repository = "https://github.com/byamron/designer"
 
 [workspace.dependencies]

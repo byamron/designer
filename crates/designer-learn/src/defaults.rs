@@ -352,6 +352,109 @@ pub const DOMAIN_SPECIFIC_CLAUDE_MD_KEYWORDS: &[&str] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// `memory_promotion` — classification keyword corpora.
+//
+// Each persistent auto-memory note is classified into one of four classes
+// (preference / convention / workflow / debugging-knowledge) by the first
+// matching corpus. The classes are mutually exclusive in the detector's
+// first-match-wins iteration order; corpora may share words across classes
+// without producing duplicate findings.
+//
+// These corpora are Designer-authored — Forge's overlapping detector
+// classifies on a different axis (heuristic noise scoring), so the lists
+// don't migrate verbatim. Citation: `core-docs/roadmap.md` L1470 and the
+// auto-memory `<types>` block documented in this repo's `CLAUDE.md`.
+// **Designer-unique** corpora — no Forge analog.
+// ---------------------------------------------------------------------------
+
+/// Phrases marking a note as a personal preference. Highest-precedence
+/// class — first-person voice ("I prefer", "I like") usually outweighs
+/// the team / convention framing of a sibling phrase.
+pub const MEMORY_PROMOTION_PREFERENCE_KEYWORDS: &[&str] = &[
+    "i prefer",
+    "i like",
+    "i love",
+    "i hate",
+    "i don't like",
+    "i dont like",
+    "i don't want",
+    "i dont want",
+    "personal preference",
+    "my preference",
+    "always use",
+    "never use",
+    "stick with",
+    "favorite",
+    "favourite",
+];
+
+/// Phrases marking a note as a team / project convention. Second-person
+/// or plural framing ("we use", "team uses") that promotes well into a
+/// CLAUDE.md "Conventions" section.
+pub const MEMORY_PROMOTION_CONVENTION_KEYWORDS: &[&str] = &[
+    "we use",
+    "we prefer",
+    "team uses",
+    "team prefers",
+    "team convention",
+    "team standard",
+    "house style",
+    "by convention",
+    "convention is",
+    "naming convention",
+    "code convention",
+    "this codebase uses",
+    "this project uses",
+    "the codebase uses",
+    "the project uses",
+];
+
+/// Phrases marking a note as a workflow / sequence-of-steps. Promotes
+/// well into a Claude Code skill or a `.claude/rules/*.md` entry.
+pub const MEMORY_PROMOTION_WORKFLOW_KEYWORDS: &[&str] = &[
+    "every time",
+    "before each",
+    "after each",
+    "always run",
+    "first run",
+    "then run",
+    "step 1",
+    "step 2",
+    "workflow",
+    "before pushing",
+    "after pushing",
+    "before merging",
+    "after merging",
+    "before committing",
+    "after committing",
+    "every session",
+];
+
+/// Phrases marking a note as debugging-knowledge — recurring failure
+/// modes, workarounds, root-cause notes. Promotes well into a
+/// reference doc or a "common errors" section.
+pub const MEMORY_PROMOTION_DEBUGGING_KEYWORDS: &[&str] = &[
+    "common error",
+    "common bug",
+    "common pitfall",
+    "common gotcha",
+    "if you see",
+    "if you encounter",
+    "stack trace",
+    "error message",
+    "root cause",
+    "common cause",
+    "debugging tip",
+    "known issue",
+    "known bug",
+    "this fails when",
+    "fails when",
+    "breaks when",
+    "workaround",
+    "to debug",
+];
+
+// ---------------------------------------------------------------------------
 // `config_gap` — config-file → hook-pattern table.
 //
 // Each entry is `(filename_pattern, expected_event, expected_command_substr,
@@ -563,6 +666,10 @@ mod tests {
         assert!(!CONFIRMATION_KEYWORDS.is_empty());
         assert!(!DETERMINISTIC_POST_TOOL_COMMANDS.is_empty());
         assert!(!COMPACTION_KEYWORDS.is_empty());
+        assert!(!MEMORY_PROMOTION_PREFERENCE_KEYWORDS.is_empty());
+        assert!(!MEMORY_PROMOTION_CONVENTION_KEYWORDS.is_empty());
+        assert!(!MEMORY_PROMOTION_WORKFLOW_KEYWORDS.is_empty());
+        assert!(!MEMORY_PROMOTION_DEBUGGING_KEYWORDS.is_empty());
     }
 
     #[test]

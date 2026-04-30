@@ -104,6 +104,16 @@ Everything required before the first signed `.dmg` leaves the build server.
 - Third-party pentest scheduled to land before the first signed DMG (~$30–60k, 4–8 weeks; scope = IPC surface, webview and frontend, approval gates, supply chain, updater, helper IPC). Subsequent cadence is annual + on every major-version release, not every release.
 - Self-hosted CI runner hardening: ephemeral VM per job, egress allowlist, scoped short-lived GitHub tokens, quarterly rotation.
 
+#### Supply-chain CI policy (audits-only scope; landed via `.github/workflows/supply-chain.yml`)
+
+The blocking CI jobs above are sequenced. The first wave — `cargo audit`, `cargo deny`, CycloneDX SBOM, `npm audit --production`, `lockfile-lint` — landed as the audits-only gate; signing, SLSA L3 provenance, updater dual-key, and `cargo vet` calibration are deferred to follow-up 16.S/16.R work and do not gate this phase.
+
+- **Severity gate.** HIGH/CRITICAL advisories block the PR; MEDIUM/LOW warn but do not block. `cargo audit` runs in JSON mode and a post-processing step partitions findings by `advisory.severity` (defaulting unscored CVEs to HIGH so an unscored gap does not silently pass). `npm audit --omit=dev --audit-level=high` enforces the same threshold for production npm deps; a follow-up `npm audit` step surfaces moderate/low findings as GitHub warnings without failing the gate. Dev-only vulnerabilities never ship to users and stay informational.
+- **`cargo deny` scope.** The workspace `deny.toml` enforces licenses, banned sources, yanked crates, and external wildcard deps. License allowlist is exactly the set the dep tree resolves to today (recorded against the `aarch64-apple-darwin` / `x86_64-apple-darwin` macOS targets); broadening it requires a deliberate review. `unmaintained = "workspace"` means transitive unmaintained advisories (e.g. tauri's `unic-*` and `fxhash`) surface as warnings — fixing them requires upstream tauri to update — while a workspace-direct unmaintained dep would block.
+- **SBOM cadence.** CycloneDX SBOMs are generated per PR and attached to the workflow run as an artifact, so reviewers can verify the dep set independent of `Cargo.lock`. Release-time SBOM signing and GitHub Release attachment land with the signing work in 16.R, not here.
+- **Daily drift run.** A `cron: '17 7 * * *'` schedule re-runs every job against `main` to catch RUSTSEC advisories that land asynchronously of repo changes. If a previously-passing dep develops a new advisory (or any audit/lockfile job regresses), the workflow opens — or comments on — a tracking Issue titled `Supply-chain drift detected by daily CI` with run links and a per-job result table. Triage path: upgrade the offending dep, ignore-list with a citation comment in `deny.toml`, or accept the warning if it is below the HIGH/CRITICAL bar.
+- **Exemption discipline.** Any advisory we choose not to fix lands in `deny.toml`'s `[advisories].ignore` (or `[bans]`) with a comment citing the RUSTSEC ID, the upstream crate path, and the rationale. Silent passes are never acceptable.
+
 ### Phase 17.T — Team-tier trust (blocks team pricing)
 
 Everything required before Designer is pitched to teams with policy requirements.
