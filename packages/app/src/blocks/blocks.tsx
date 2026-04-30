@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { BlockProps } from "./registry";
-import { humanizeKind } from "../util/humanize";
+import { humanizeKind, humanizeRole } from "../util/humanize";
+import { formatRelativeTime } from "../util/time";
 import { ipcClient } from "../ipc/client";
 import type { StreamEvent } from "../ipc/types";
 import { PrototypePreview } from "../lab/PrototypePreview";
@@ -81,15 +82,126 @@ function BlockHeader({
 }
 
 // ---------------------------------------------------------------------------
-// MessageBlock — plain chat message in the thread.
+// MessageBlock — a single turn in the conversation.
+//
+// Asymmetric authorship is the canonical pattern (Claude, ChatGPT, Cursor,
+// Linear AI): user messages render as right-aligned bubbles ("I said
+// this") and agent messages render directly on the surface ("here's
+// the reply, no chrome"). The `data-author` attribute is the wire from
+// artifact role → CSS selector; without it both authorships look
+// identical (B4).
+//
+// Agent messages also carry a humanized role label and a relative
+// timestamp so the surface reads as a conversation with a named
+// teammate, not a dump of raw events. User messages keep the chrome
+// minimal — the bubble already differentiates them; a label would
+// double up.
 // ---------------------------------------------------------------------------
 
+function isUserAuthor(role: string | null): boolean {
+  if (!role) return true;
+  const r = role.toLowerCase();
+  return r === "user" || r === "you";
+}
+
 export function MessageBlock({ artifact }: BlockProps) {
+  const author = isUserAuthor(artifact.author_role) ? "you" : "agent";
+  const displayName = humanizeRole(artifact.author_role);
+  const relTime = formatRelativeTime(artifact.created_at);
   return (
-    <article className="block block--message" data-component="MessageBlock" aria-label={`Message by ${artifact.author_role ?? "user"}`}>
-      <div className="block__message-author">{artifact.author_role ?? "user"}</div>
-      <div className="block__message-body">{artifact.summary}</div>
+    <article
+      className="block block--message"
+      data-component="MessageBlock"
+      data-author={author}
+      aria-label={`Message by ${author === "you" ? "you" : displayName}`}
+    >
+      {author === "agent" && (
+        <header className="block__message-meta">
+          <span className="block__message-author">{displayName}</span>
+          {relTime && (
+            <time
+              className="block__message-time"
+              dateTime={artifact.created_at}
+              title={new Date(artifact.created_at).toLocaleString()}
+            >
+              {relTime}
+            </time>
+          )}
+        </header>
+      )}
+      <div className="block__message-body">
+        <MessageProse text={artifact.summary} />
+      </div>
     </article>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MessageProse — minimal markdown-ish renderer for chat messages.
+//
+// Real prose feels like a conversation. Plain `pre-wrap` text reads as a
+// wall. We support the ~5 inline formats agents actually emit: bold,
+// italic, inline code, line breaks, and bare URLs. Block-level markdown
+// (lists, headings, fences) is intentionally NOT handled here — those
+// land in their own artifact kinds (TaskListBlock, SpecBlock,
+// CodeChangeBlock) so the chat surface stays a chat surface, not a
+// markdown viewer. Same approach as Linear AI and Cursor.
+//
+// We hand-roll a tiny tokenizer instead of pulling react-markdown so
+// the bundle stays small and the parser doesn't surprise us with HTML
+// passthrough (which would be an XSS vector for any user-authored
+// message).
+// ---------------------------------------------------------------------------
+const INLINE_PATTERN =
+  /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|https?:\/\/[^\s)]+)/g;
+
+function MessageProse({ text }: { text: string }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  return (
+    <>
+      {lines.map((line, lineIdx) => {
+        const segments: React.ReactNode[] = [];
+        let lastIdx = 0;
+        let match: RegExpExecArray | null;
+        // Reset for each line so the regex iterates from the start.
+        INLINE_PATTERN.lastIndex = 0;
+        while ((match = INLINE_PATTERN.exec(line)) !== null) {
+          if (match.index > lastIdx) {
+            segments.push(line.slice(lastIdx, match.index));
+          }
+          const tok = match[0];
+          if (tok.startsWith("**") && tok.endsWith("**")) {
+            segments.push(<strong key={`b${match.index}`}>{tok.slice(2, -2)}</strong>);
+          } else if (tok.startsWith("*") && tok.endsWith("*")) {
+            segments.push(<em key={`i${match.index}`}>{tok.slice(1, -1)}</em>);
+          } else if (tok.startsWith("`") && tok.endsWith("`")) {
+            segments.push(<code key={`c${match.index}`}>{tok.slice(1, -1)}</code>);
+          } else if (tok.startsWith("http")) {
+            segments.push(
+              <a
+                key={`l${match.index}`}
+                href={tok}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {tok}
+              </a>,
+            );
+          }
+          lastIdx = match.index + tok.length;
+        }
+        if (lastIdx < line.length) {
+          segments.push(line.slice(lastIdx));
+        }
+        return (
+          <span key={lineIdx} className="block__message-line">
+            {segments.length > 0 ? segments : line}
+            {lineIdx < lines.length - 1 ? "\n" : null}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

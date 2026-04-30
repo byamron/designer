@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { openCreateProject, selectTab, useAppState } from "../store/app";
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
@@ -30,6 +30,68 @@ export function MainView() {
       workspaces[activeProjectId] ?? emptyArray();
     return group.find((w) => w.workspace.id === activeWorkspaceId)?.workspace ?? null;
   }, [activeProjectId, activeWorkspaceId, workspaces]);
+
+  // Hooks must run on every render — keep them above the early returns.
+  // The handlers below close over `workspace`; when no workspace is
+  // selected, the handler is a no-op that the chrome (the + button + ⌘T
+  // listener) only mounts inside the workspace branch anyway.
+  const openingRef = useRef(false);
+  const [opening, setOpening] = useState(false);
+  const openTabHandlerRef = useRef<() => Promise<void>>(async () => {});
+  // Synchronous re-entry guard. React state updates are batched, so two
+  // clicks within the same microtask both observe the prior state and
+  // both fire `ipcClient.openTab` — producing duplicate tabs. The ref is
+  // set synchronously so a burst click short-circuits before reaching
+  // the IPC call. Mirrors `WorkspaceThread.sendingRef`. The `opening`
+  // state mirror drives the visible disabled affordance on the + button.
+  const onOpenTab = async () => {
+    if (!workspace) return;
+    if (openingRef.current) return;
+    openingRef.current = true;
+    setOpening(true);
+    try {
+      // Title uses the highest existing index + 1 so closing a middle tab
+      // and opening a new one doesn't produce a duplicate "Tab N". See B10
+      // — we count from the underlying titles, not visibleTabs.length.
+      const tab = await ipcClient().openTab({
+        workspace_id: workspace.id,
+        title: nextTabTitle(workspace.tabs),
+        template: "thread",
+      });
+      if (workspace.project_id) {
+        await refreshWorkspaces(workspace.project_id);
+      }
+      selectTab(workspace.id, tab.id);
+    } finally {
+      openingRef.current = false;
+      setOpening(false);
+    }
+  };
+  openTabHandlerRef.current = onOpenTab;
+
+  // ⌘T global shortcut. The tooltip on the + button has advertised this
+  // since 13.0; it just wasn't wired. Skips when focus is in a text input
+  // so the user can still type a "t" anywhere a textbox is mounted. The
+  // handler ref keeps the closure fresh without re-registering the
+  // listener on every render.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() !== "t") return;
+      if (e.shiftKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) {
+          return;
+        }
+      }
+      e.preventDefault();
+      void openTabHandlerRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (!project) {
     // First-run (no projects) ships a primary CTA so the empty surface
@@ -93,20 +155,6 @@ export function MainView() {
       ? storedTab
       : visibleTabs[0]?.id ?? null;
 
-  const onOpenTab = async () => {
-    // Post-13.1: every new tab is a thread. No template picker.
-    const tabIndex = visibleTabs.length + 1;
-    const tab = await ipcClient().openTab({
-      workspace_id: workspace.id,
-      title: `Tab ${tabIndex}`,
-      template: "thread",
-    });
-    if (workspace.project_id) {
-      await refreshWorkspaces(workspace.project_id);
-    }
-    selectTab(workspace.id, tab.id);
-  };
-
   return (
     <main className="app-main" data-component="MainView" aria-label="Main" id="main-content" tabIndex={-1}>
       {/* Workspace chrome: the tabs bar is the top row. Workspace name,
@@ -120,17 +168,39 @@ export function MainView() {
             label={displayLabel(tab, idx)}
             active={activeTab === tab.id}
             onClose={async () => {
+              const wasActive = activeTab === tab.id;
+              const remaining = visibleTabs.filter((t) => t.id !== tab.id);
               await ipcClient().closeTab(workspace.id, tab.id);
               await refreshWorkspaces(workspace.project_id);
-              const remaining = visibleTabs.filter((t) => t.id !== tab.id);
-              if (activeTab === tab.id && remaining[0]) {
+              if (wasActive && remaining[0]) {
                 selectTab(workspace.id, remaining[0].id);
               }
+              // B11 — closing a tab via the X button leaves focus on a
+              // node that just unmounted; without an explicit move, the
+              // browser drops focus to <body> and keyboard users lose
+              // their place. Send focus to the next tab if there is one,
+              // otherwise to the new-tab button.
+              requestAnimationFrame(() => {
+                const next =
+                  document.querySelector<HTMLButtonElement>(
+                    `#tab-${workspace.id}-${remaining[0]?.id}`,
+                  ) ??
+                  document.querySelector<HTMLButtonElement>(
+                    ".new-tab button",
+                  );
+                next?.focus();
+              });
             }}
           />
         ))}
         <div className="new-tab">
-          <IconButton label="New tab" shortcut="⌘T" onClick={() => void onOpenTab()}>
+          <IconButton
+            label="New tab"
+            shortcut="⌘T"
+            onClick={() => void onOpenTab()}
+            disabled={opening}
+            aria-busy={opening || undefined}
+          >
             <IconPlus />
           </IconButton>
         </div>
@@ -178,6 +248,22 @@ function displayLabel(tab: Tab, index: number): string {
   // sequence tidy when intermediate tabs close.
   if (/^Tab \d+$/.test(tab.title)) return `Tab ${index + 1}`;
   return tab.title;
+}
+
+/** Pick a title for a freshly opened tab. We scan every tab the workspace
+ *  has ever held — including closed ones — so we never collide with a
+ *  prior title. Closing tab 2 of (1, 2, 3) and opening a new one yields
+ *  "Tab 4", not a second "Tab 3". B10. */
+function nextTabTitle(allTabs: ReadonlyArray<Tab>): string {
+  let max = 0;
+  for (const t of allTabs) {
+    const m = /^Tab (\d+)$/.exec(t.title);
+    if (m) {
+      const n = Number(m[1]);
+      if (n > max) max = n;
+    }
+  }
+  return `Tab ${max + 1}`;
 }
 
 function TabButton({
