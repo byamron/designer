@@ -54,11 +54,17 @@ use tracing::{debug, warn};
 /// `Weak<AppCore>` so it exits when the core drops.
 ///
 /// Wired in `main.rs` next to the message coalescer.
+///
+/// Uses `tauri::async_runtime::spawn` rather than `tokio::spawn` because
+/// this is invoked from Tauri's `setup` callback, which runs on the main
+/// thread *before* a Tokio runtime context is active — `tokio::spawn`
+/// panics there with "there is no reactor running". Same constraint as
+/// `spawn_message_coalescer` (see `history.md` Phase 13.D).
 pub fn spawn_track_completed_subscriber(core: Arc<AppCore>) {
     let mut rx = core.store.subscribe();
     let weak: Weak<AppCore> = Arc::downgrade(&core);
     drop(core);
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(env) => {
@@ -429,7 +435,7 @@ pub fn schedule_track_synthesis(core: &Arc<AppCore>, project_id: ProjectId, wind
     };
 
     let weak: Weak<AppCore> = Arc::downgrade(core);
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         tokio::time::sleep(window).await;
         let Some(core) = weak.upgrade() else {
             return;
@@ -539,6 +545,33 @@ mod tests {
         };
         std::mem::forget(dir);
         AppCore::boot(config).await.unwrap()
+    }
+
+    /// Regression test for the recurring "tokio::spawn from Tauri's setup
+    /// callback panics" bug. Tauri's `setup` runs on the main thread
+    /// without an entered Tokio runtime — `tokio::spawn` panics there
+    /// with "there is no reactor running"; `tauri::async_runtime::spawn`
+    /// dispatches to the runtime registered via `tauri::async_runtime::set`
+    /// (production: main.rs) or a lazily-initialized default (tests).
+    ///
+    /// This test deliberately uses `#[test]`, not `#[tokio::test]`. The
+    /// ambient Tokio context provided by `#[tokio::test]` masks the bug;
+    /// the call site under test must work without one. After
+    /// `bootstrap.block_on` returns, the test thread is no longer in any
+    /// runtime context — that's the same shape as Tauri's setup callback
+    /// at boot.
+    #[test]
+    fn spawn_subscribers_do_not_require_caller_runtime() {
+        let bootstrap = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("bootstrap runtime");
+        let core = bootstrap.block_on(boot_test_core());
+
+        // Test thread is now outside any entered runtime context. Both
+        // calls below must not panic; with the bug, either would.
+        spawn_track_completed_subscriber(core.clone());
+        schedule_track_synthesis(&core, ProjectId::new(), Duration::from_millis(10));
     }
 
     fn make_finding(

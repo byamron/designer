@@ -40,9 +40,12 @@ pub mod detectors;
 pub mod example_detector;
 pub mod session_input;
 
+pub use detectors::compaction_pressure::CompactionPressureDetector;
 pub use detectors::config_gap::ConfigGapDetector;
 pub use detectors::cost_hot_streak::CostHotStreakDetector;
+pub use detectors::multi_step_tool_sequence::MultiStepToolSequenceDetector;
 pub use detectors::repeated_correction::RepeatedCorrectionDetector;
+pub use detectors::repeated_prompt_opening::RepeatedPromptOpeningDetector;
 pub use detectors::scope_false_positive::ScopeFalsePositiveDetector;
 
 pub use designer_core::{Anchor, Finding, FindingId, Severity, ThumbSignal};

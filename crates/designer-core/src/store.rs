@@ -135,6 +135,15 @@ impl SqliteEventStore {
         // Fix: open every pooled connection against the same in-memory DB
         // via SQLite's shared-cache URI. A unique name per store keeps
         // separate `open_in_memory()` calls (e.g. parallel tests) isolated.
+        //
+        // Shared-cache mem DBs persist only as long as ≥1 connection has
+        // them open. r2d2's default `min_idle: 0` lets the pool transiently
+        // drop to zero idle connections (CI under load reproduced this),
+        // destroying the DB between an `append` and the subsequent
+        // `read_all`. Pin `min_idle: 1` and disable both the idle-reaper
+        // and max-lifetime so the pool always keeps at least one
+        // connection holding the named DB open for the lifetime of the
+        // store.
         static IN_MEMORY_COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = IN_MEMORY_COUNTER.fetch_add(1, Ordering::SeqCst);
         let uri = format!("file:designer-mem-{n}?mode=memory&cache=shared");
@@ -150,6 +159,9 @@ impl SqliteEventStore {
             });
         let pool = Pool::builder()
             .max_size(4)
+            .min_idle(Some(1))
+            .idle_timeout(None)
+            .max_lifetime(None)
             .build(manager)
             .map_err(|e| StoreError::Pool(e.to_string()))?;
         let store = SqliteEventStore {

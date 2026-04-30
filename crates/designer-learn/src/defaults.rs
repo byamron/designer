@@ -130,14 +130,41 @@ pub const COST_HOT_STREAK_DEFAULTS: DetectorConfig = DetectorConfig {
 
 /// `compaction_pressure`: `/compact` invoked ≥1×/session consistently.
 /// Forge ships nothing equivalent; threshold "3 sessions in a week" is
-/// expressed as min_occurrences=3 across min_sessions=3.
+/// expressed as min_occurrences=3 across min_sessions=3. Severity
+/// defaults to `Notice` per CONTRIBUTING §6 (A2 default; raising to
+/// `Warning` would need a <5% FP rate on the fixture suite).
 pub const COMPACTION_PRESSURE_DEFAULTS: DetectorConfig = DetectorConfig {
     enabled: true,
     min_occurrences: 3,
     min_sessions: 3,
-    impact_override: None,
+    impact_override: Some(Severity::Notice),
     max_findings_per_session: DEFAULT_MAX_FINDINGS_PER_SESSION,
 };
+
+/// `compaction_pressure`: trailing-window length, in days, used to
+/// scope the qualifying-session count from the most-recent event. The
+/// roadmap pins "3 sessions in a week"; this constant is the "week"
+/// half. **Designer-unique** — Forge has no analog detector.
+pub const COMPACTION_PRESSURE_LOOKBACK_DAYS: i64 = 7;
+
+/// `compaction_pressure`: idle-gap (in minutes) between adjacent
+/// `MessagePosted` events that segments one Designer session from the
+/// next. Designer process boundaries aren't observable as a typed
+/// event yet, so the idle-window proxy is the cheapest correct
+/// definition until a `SessionStarted` payload lands. **Designer-unique**.
+pub const COMPACTION_PRESSURE_SESSION_GAP_MINUTES: i64 = 60;
+
+/// Jaccard-similarity floor for `repeated_prompt_opening`. Two
+/// session-opening user messages count as a match when their token
+/// sets intersect ≥ this fraction of their union.
+///
+/// Forge: `forge/scripts/analyze-transcripts.py` L1231 ships 0.30 as
+/// its `find_repeated_prompts` clustering floor. Designer tunes
+/// stricter (0.50) per `core-docs/roadmap.md` §"Phase 21.A2 /
+/// repeated_prompt_opening" — the cockpit surface is more attention-
+/// scarce than Forge's CI log, so a higher-precision/lower-recall
+/// floor keeps the proposal feed clean.
+pub const REPEATED_PROMPT_OPENING_JACCARD_MIN: f32 = 0.5;
 
 // ---------------------------------------------------------------------------
 // Keyword corpora — `forge/scripts/analyze-transcripts.py` L141-L201.

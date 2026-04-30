@@ -37,6 +37,167 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Bugfix — `tokio::spawn` from Tauri `setup` panics bundled .app on launch
+**Date:** 2026-04-29
+**Branch:** build-issue
+**PR:** #56
+
+**What was done:**
+
+Swapped `tokio::spawn` → `tauri::async_runtime::spawn` in `apps/desktop/src-tauri/src/core_proposals.rs` (the new Phase 21.A1.2 module added in #49). Two call sites: `spawn_track_completed_subscriber` (the boot-time subscriber wired from `main.rs::setup`) and `schedule_track_synthesis` (the debounced synthesis spawn). Added a docstring on the boot-time function calling out the constraint, and pointed back to the original 13.D fix.
+
+Same PR adds a regression test (`apps/desktop/src-tauri/src/core_proposals.rs::tests::spawn_subscribers_do_not_require_caller_runtime`) that exercises both call sites from a plain `#[test]` (no Tokio context entered), proving the spawn does not require `Handle::current()`. This test would have caught both this occurrence and the prior 13.D one.
+
+A workspace-scoped `clippy.toml` `disallowed-methods` ban on `tokio::spawn` in `apps/desktop/src-tauri/` is a strong follow-up — the lint is per-crate and trips every existing `tokio::spawn` call site in `core.rs` / `core_learn.rs` / `core_local.rs`, which would each need an audit + `#[allow(clippy::disallowed_methods)]` with justification (each is reached from inside an entered runtime context). Out of scope for the bugfix PR; tracked separately.
+
+**Why:**
+
+A locally-built `Designer.app` from `cargo tauri build` crashed on launch with `SIGABRT` ~400 ms after spawn. The macOS crash report (`~/Library/Logs/DiagnosticReports/designer-desktop-*.ips`) showed the faulting thread top-frames inside `__CFNOTIFICATIONCENTER_IS_CALLING_OUT_TO_AN_OBSERVER__` → `-[NSApplication _postDidFinishNotification]`, abort'd from a Rust panic. The user's panic hook captured the actual message: `panicked at apps/desktop/src-tauri/src/core_proposals.rs:61:5: there is no reactor running, must be called from the context of a Tokio 1.x runtime`.
+
+This is the **third occurrence** of this bug pattern in the project (see entry below for #2 in 13.D's `spawn_message_coalescer`, and the 13.0 fix for `spawn_event_bridge`). Tauri's `setup` callback runs on the main thread *before* a Tokio runtime context is bound — `tokio::spawn` panics there. `tauri::async_runtime::spawn` is the supported API and works regardless of caller context, because Designer registers its tokio runtime with Tauri at boot via `tauri::async_runtime::set` (`main.rs:131`).
+
+**Why this slipped through CI:**
+
+Phase 21.A1.2 unit and integration tests (`crates/designer-learn/tests/...` + `apps/desktop/src-tauri/src/core_proposals.rs::tests`) all use `#[tokio::test]`, which sets up a runtime before the test body runs. The boot-from-`setup` path is not exercised by the test suite — the panic only surfaces against a real bundled launch. The new `#[test]` (not `#[tokio::test]`) regression test plugs that gap.
+
+**Quality gates:**
+
+- `cargo fmt --check` ✅
+- `cargo clippy --workspace --all-targets -- -D warnings` ✅
+- `cargo test --workspace` ✅
+- Local `cargo tauri build` produces a `.app` that opens to the main window without abort ✅
+
+---
+
+### Phase 21.A2 — `multi_step_tool_sequence` detector (Forge-overlap)
+**Date:** 2026-04-29
+**Branch:** multi-step-tool-seq
+**PR:** #55
+
+**What was done:**
+
+Phase 21.A2's first Forge-overlap detector. Surfaces the "same N-tool sequence repeated across multiple sessions" pattern that Phase B's synthesizer turns into a `skill-candidate` (or `agent-candidate`) proposal. Walks the workspace event stream, treats user `MessagePosted` events as session boundaries, and emits length-3 sliding windows over runs of agent tool-use `ArtifactCreated` artifacts. A finding fires once per tuple identity that hits both `min_sessions` distinct sessions and `min_occurrences` total occurrences.
+
+- **Tool-name extraction is a string parse, not a typed read.** Designer doesn't yet have a typed `ToolCalled` event variant; the closest signal is the verb-first `ArtifactCreated` title produced by `tool_use_card` in `crates/designer-claude/src/stream.rs` (Phase 13.H F5). The detector parses the leading verb back to a canonical tool identifier (`Read`/`Write`/`Edit`/`Search`/`Bash`/`Used <X>`). Lossy on the way in by design — `MultiEdit`/`NotebookEdit` collapse to `Edit`, `Glob`/`Grep` collapse to `Search` — so two sessions invoking the same logical workflow fold to one tuple identity. `MultiStepToolSequenceDetector::VERSION` bumps to 2 when the typed event lands.
+- **Pre-message tool runs are discarded.** Tools that arrive before the first user `MessagePosted` have no session anchor — there is no `Anchor::MessageSpan` target. The detector's session counter stays `None` until the first user message, so pre-message events neither inflate the distinct-session count nor leak phantom evidence. Caught during the staff-engineer review pass.
+- **Anchor cap.** Both `MessageSpan` and `ToolCall` anchor lists cap at `MAX_ANCHORS_PER_KIND = 5` per finding. The summary keeps the uncapped session + occurrence counts. Matches the `approval_always_granted` cap convention so a busy workspace doesn't ship a finding with hundreds of evidence anchors.
+- **Defaults from Forge.** Reuses `defaults::SKILL_DEFAULTS` (4 occurrences / 3 sessions) — the docstring already named this detector as a consumer when the constant was migrated from Forge's `THRESHOLDS["skill"]`. Already in `FORGE_OVERLAP_DETECTORS`; AppCore disables it when Forge is co-installed.
+- **Fixtures.** Three: positive (3 sessions × `(Read, Edit, Bash)` → one finding), distinct (3 sessions, all different tuples → no finding), under-threshold (same tuple in only 2 of 3 sessions → no finding). Disk-driven harness mirrors the `cost_hot_streak` `--ignored regenerate_fixtures` pattern; fixture config pins `min_occurrences: 3 / min_sessions: 3` to land exactly on the roadmap floor while production keeps the SKILL_DEFAULTS 4/3.
+
+**Why:**
+
+`multi_step_tool_sequence` is the canonical "did this turn into a workflow?" signal — the user can promote a recurring sequence into a skill or sub-agent so the lead doesn't re-derive it every session. Forge already ships an analog, hence the Forge-overlap registration; Designer runs it on the workspace event log instead of the plugin transcript.
+
+**Design decisions:**
+
+- **Sliding-window granularity, not whole-run identity.** A run `[A, B, C, D]` produces two windows (`A→B→C`, `B→C→D`) rather than one whole-run tuple. Captures recurring 3-grams even when the surrounding workflow length differs across sessions.
+- **`Severity: Notice`** — per CONTRIBUTING.md §6, the A2 default. A `Warn` would crowd out three `Notice` findings on the workspace home, and a "you're repeating this workflow" observation is suggestive rather than action-worthy on its own.
+- **Confidence clamped to `[0.5, 0.9]`** — three identical sequences across three sessions is rare by chance, so the floor sits high; but the user could plausibly be drilling on the same task in three back-to-back sessions for unrelated reasons, so the ceiling sits below 1.0.
+- **Tool-name canonicalization is opinionated.** Folding `Edit`/`MultiEdit`/`NotebookEdit` to `Edit` and `Glob`/`Grep` to `Search` means `(Read, Edit, Bash)` and `(Read, MultiEdit, Bash)` register as the same workflow. Two alternatives considered: (a) preserve the precise tool variant, splitting near-identical workflows; (b) collapse all "read-shaped" tools into one bucket, over-merging. Picked the middle path.
+
+**Technical decisions:**
+
+- **`extract_tool_name` returns `Option<&str>`.** Borrows from the input title rather than allocating; the callsite decides when to allocate. Keeps the per-artifact path allocation-free for known verbs.
+- **Drop the synthetic session-0 bucket.** First draft created a default `SessionInfo` for events before any user message. The post-review refactor tracks `current_session: Option<usize>` instead, so pre-message events don't need a phantom anchor and don't count toward `min_sessions`. The summary's session count and the evidence's `MessageSpan` count now agree by construction.
+- **`Vec<Cow<'static, str>>` rejected for HashMap keys.** Tuple keys store owned `Vec<String>` since the hash + compare by value matches HashMap's standard contract. The borrow-vs-own optimization for static tool names would only save allocations on tuples that never make it into the HashMap (i.e., runs shorter than 3) — academic. The `extract_tool_name` borrow change is the hot-path win.
+
+**Tradeoffs discussed:**
+
+- **Cap evidence anchors at 5 per kind** vs. **emit one anchor per occurrence.** Reviewers (efficiency + UX) flagged uncapped emission as both a memory pressure and a UI-noise concern — a workspace with 50 sessions running the same tuple would attach 50 anchors per kind. The summary's count keeps the full picture; anchors are spot-check pointers.
+- **Lift `truncate_with_ellipsis` into shared crate utility** vs. **keep private.** Sibling `scope_false_positive::trim_summary` does the same thing under a different name, so a future PR could DRY them up alongside any third caller. CLAUDE.md's "three similar lines is better than a premature abstraction" pushes the cross-detector refactor outside this PR's scope.
+- **Use the spec floor (3/3)** vs. **use Forge's calibration (4/3).** Roadmap text says "3+ identical sequences across 3+ sessions"; Forge ships 4/3. Picked Forge's calibration for the production default (the `defaults.rs` docstring already named this detector as a consumer) and pinned the fixture config at 3/3 so a regression that *raises* the production floor surfaces in the unit tests instead of the fixtures.
+
+**Lessons learned:**
+
+- Title-prefix parsing is a stand-in for a typed `ToolCalled` event. The `(Read|Wrote|Edited|Searched|Ran|Used)` set is small and audit-friendly today, but every new tool-use card variant in `tool_use_card` needs a parser-side update or it becomes invisible to this detector. The `VERSION` bump-on-typed-event-landing is the long-term fix; until then, the parser table is the coordination point.
+- The pre-message bucket bug was only catchable by reading the data model end-to-end (summary count vs. evidence count). Test cases that look at "did the detector fire" wouldn't surface it; the new `pre_message_tool_runs_are_discarded` regression test pins the fix.
+
+---
+
+### Phase 21.A2 — `compaction_pressure` detector (Designer-unique)
+**Date:** 2026-04-29
+**Branch:** compaction-pressure-detector
+**PR:** #54
+
+**What was done:**
+
+Fourth Designer-unique Phase A detector. Catches the pattern *the user types `/compact` (Claude Code's built-in slash command) regularly across multiple Designer sessions in a short window*. Lives at `crates/designer-learn/src/detectors/compaction_pressure.rs`. Single pass over `input.events`: group `MessagePosted` by payload `workspace_id`, segment per-workspace into sessions via a 60-minute idle gap on adjacent message timestamps, mark a session **qualifying** when it contains a `/compact` body inside the trailing-7-day window anchored on the most-recent input event, and emit one `Severity::Notice` `Finding` per workspace whose qualifying-session count meets `config.min_sessions` (default 3). Evidence: `Anchor::MessageSpan` per `/compact`, capped at `MAX_EVIDENCE_ANCHORS = 5`. Two on-disk fixtures (trigger + under-threshold) plus 11 in-module tests.
+
+**Why:**
+
+Per `roadmap.md` L1476: *`/compact` invoked ≥1×/session consistently. Threshold: 3+ sessions in a week. Output kind: `context-restructuring` (Phase B).* Forge's analyzer never sees the slash commands the user types into Claude Code; Designer captures them natively as `MessagePosted` events. The detector's signal feeds a future `context-restructuring` proposal — usually "demote a long CLAUDE.md block to a reference doc," "lift conversation-only context into a memory note," or "trim a runaway agent transcript so the user no longer needs to manually compact mid-session."
+
+**Design decisions:**
+
+- **Idle-gap session segmentation, not a typed boundary.** Designer doesn't yet emit a `SessionStarted` payload, so the detector can't read process-boundary events directly. The 60-minute idle gap on `MessagePosted` events is the cheapest correct proxy. When a typed boundary lands, bump `CompactionPressureDetector::VERSION` per CONTRIBUTING.md §3 and switch — old findings stay attached to v1.
+- **Trailing window anchored on input, not wall-clock.** `latest_ts` is `input.events.iter().map(|e| e.timestamp).max()` rather than `OffsetDateTime::now_utc()`, so the detector is reproducible from a frozen event log and replay is deterministic.
+- **Per-workspace finding emission.** The detector loops a `BTreeMap<WorkspaceId, ...>` and emits one `Finding` per qualifying workspace, with `workspace_id: Some(ws)` from the loop key — not `input.workspace_id`. This is the first detector to behave correctly on project-wide bundles (`input.workspace_id == None`), which Phase 21.A3 will rely on.
+- **Severity `Notice`** per CONTRIBUTING.md §6 — A2 default. Raising to `Warning` would need <5% measured FP rate on the fixture suite, which would require Phase B's synthesis pass to be live first.
+- **Anchor cap at 5** (matches `approval_always_granted`'s convention). The exact `/compact` count is in the summary; anchors are spot-check pointers for the proposal evidence drawer, so the drawer stays scannable. The `window_digest` keys on **every** qualifying compact's event id (not the capped anchor list) so dedupe stays stable as more sessions pile on inside the same trailing-7-day window.
+- **`config.min_occurrences` advisory in v1.** The roadmap pins the threshold on session breadth, not raw `/compact` count, so the detector counts sessions and ignores `min_occurrences`. The default is set to 3 to mirror `min_sessions` so a user override of either knob alone behaves intuitively.
+
+**Technical decisions:**
+
+- **`Finding.timestamp` pins the last qualifying compact**, not the latest input event — semantically tighter and avoids a trailing non-compact message bumping the finding's timestamp into unrelated activity.
+- **`is_compact_command` matches `/compact` only at body head, terminated by EOF or whitespace** — `/compactify` and `/compact-foo` don't trigger.
+- **`build_anchor` is gated by `is_compact_command`** at the call site. The fallback arm (non-`MessagePosted` envelope) is unreachable in practice but degrades to a usable anchor instead of panicking — defenses go cheap when the runtime cost is one match arm.
+
+**Tradeoffs discussed:**
+
+- **Lift `trim_summary` into a shared helper** vs. **keep per-detector copies.** `scope_false_positive` made the same call (CLAUDE.md's "three similar lines is better than a premature abstraction"); deferred until a third caller appears with the same budget.
+- **One pass for `latest_ts` + grouping** vs. **two clean O(n) passes.** Two passes is clearer, the cost is bounded (analysis windows are small), and the early-return-on-empty-input guard wants `latest_ts` in hand before the grouping loop. Code clarity wins.
+
+**Lessons learned:**
+
+- First detector to loop per-workspace inside `detect()` to support project-wide bundles. The `Some(workspace_id)` from the loop key (vs. `input.workspace_id`) is the right pattern; reviewers should watch for this in future detectors that aggregate across workspaces.
+
+---
+
+### Phase 21.A2 — `repeated_prompt_opening` detector
+**Date:** 2026-04-29
+**Branch:** repeated-prompt-opening
+**PR:** #53
+
+**What was done:**
+
+First Forge-overlap detector in the Phase 21.A2 squad. Walks the event stream, picks the first user `MessagePosted` per `WorkspaceId` (the "session opener"), tokenizes each opener (lowercased, punctuation-stripped), and clusters by Jaccard similarity over the token sets. A cluster of `min_occurrences` (default 4 per `SKILL_DEFAULTS`) openers emits one `Severity::Notice` finding intended for a `skill-candidate` proposal under Phase B's synthesis pass.
+
+- **Workspace-as-session heuristic.** `SessionAnalysisInput` doesn't yet expose explicit session boundaries. Sibling Phase 21.A2 detectors converge on workspace-as-session (`repeated_correction.rs` counts distinct `WorkspaceId`s for its `min_sessions` gate), so this detector follows suit. Each opener is the first user message of a unique workspace, which means cluster size *is* the distinct-session count — `min_occurrences` and `min_sessions` collapse to one threshold check.
+- **Greedy connected-components clustering.** A new opener joins the *first* cluster whose any existing member shares Jaccard ≥ `REPEATED_PROMPT_OPENING_JACCARD_MIN` (0.5); otherwise it seeds a new cluster. Deterministic given the event stream's sequence ordering. O(N·K·M) where N is openers, K clusters, M average cluster size — bounded by the analysis-window size (~50 events).
+- **Listed in `FORGE_OVERLAP_DETECTORS`.** Forge ships `find_repeated_prompts` in `analyze-transcripts.py` L1199–L1252. AppCore's `core_learn::probe_for_forge` defaults the config to `DetectorConfig::DISABLED` when `~/.claude/plugins/forge/` is present; the detector logic stays correct so the user can re-enable it explicitly.
+- **Defaults reuse `SKILL_DEFAULTS` plus a Designer-unique Jaccard floor.** `min_occurrences: 4, min_sessions: 3` come from Forge's `THRESHOLDS["skill"]` via the existing `SKILL_DEFAULTS` constant. The new `REPEATED_PROMPT_OPENING_JACCARD_MIN: f32 = 0.5` constant in `defaults.rs` cites Forge `analyze-transcripts.py` L1231 (Forge ships 0.30) and explains the tightening: the cockpit surface is more attention-scarce than Forge's CI log, so a higher-precision/lower-recall floor keeps the proposal feed clean.
+- **`tokio::time::timeout` belt-and-braces.** Wraps the analysis pass in a 250 ms inner timeout per CONTRIBUTING §"partial-failure containment", matching `repeated_correction.rs`. The orchestrator wraps detectors at the outer level too; the inner timeout protects the pipeline if the outer harness regresses.
+- **Fixtures.** Three: positive (4 paraphrased openers across 4 workspaces — clusters above 0.5 Jaccard); negative-similarity (4 distinct openers — no pair clusters); negative-count (3 matching openers — under `min_occurrences=4`). Disk-driven harness at `tests/repeated_prompt_opening.rs` plus seven in-module unit tests covering tokenizer, Jaccard edges, confidence band, summary copy, opener-per-workspace semantics, disabled config, and non-user-author skip.
+
+**Why:**
+
+Per `roadmap.md` row L1465 (`Session-opening user messages with >0.5 Jaccard similarity. Threshold: 4+ sessions. Output kind: skill-candidate`). The signal is "the user keeps starting sessions the same way" — a strong candidate for promoting that opener into a reusable skill. Forge has a less-strict version (0.30 floor); the Designer version cites and tightens.
+
+**Design decisions:**
+
+- **No stopword filtering.** Forge's `analyze-transcripts.py` runs a stopword pass (`STOPWORDS` at L70) before tokenizing. Designer skips it — the higher Jaccard floor compensates for the noise stopwords would add. Simpler tokenizer earns its keep against the stricter threshold.
+- **Severity `Notice`, not `Warn`.** Per CONTRIBUTING §6: A2 default is `Notice` unless the detector's measured FPR is <5% on the fixture suite. The clustering can over-merge near the threshold (e.g. "review the diff" matches "review the docs" if both share enough scaffolding tokens), so `Notice` is the conservative pick.
+- **Cluster size is the only count gate.** Because each opener is the first user message of a unique workspace, `cluster.len() == distinct_workspaces`. The `min_sessions` check collapses to redundant defense; kept the gate for forward-compatibility if the bundle gains finer session boundaries later (bump `VERSION` per CONTRIBUTING §3 then).
+- **Quote budget 160 chars + ellipsis.** Long openers (paragraph-sized initial prompts) truncate for evidence-drawer skim-readability. The `char_range` still anchors to the full source-body byte length so the renderer can highlight back into the original message.
+
+**Technical decisions:**
+
+- **Byte-indexed `char_range`.** Matches `repeated_correction.rs`'s convention (its `char_range` is computed from `str::find` byte offsets). Consistent across detectors so the renderer can treat the field uniformly.
+- **`Opener` struct dropped its `workspace_id` field.** First draft tracked workspace_id per opener for a `BTreeSet` distinct-count. After review noticed the redundancy (one opener per workspace, count == distinct_workspaces by construction), the field and the BTreeSet went away.
+- **Greedy clustering returns `Vec<Vec<Opener>>` with clones.** For N=50, max ~100 KB of cloned data. An indices-based `Vec<Vec<usize>>` would save the clones but require lifetime gymnastics; not worth the complexity at this scale.
+
+**Tradeoffs discussed:**
+
+- **Confidence-score helper extraction.** `repeated_correction.rs:377` and this detector ship the same `0.5 + above × 0.10` clamp. Reuse reviewer flagged it as a candidate. CONTRIBUTING §3 documents per-detector calibration as the convention (sibling detectors `cost_hot_streak` and `scope_false_positive` ship different formulas), so kept private. If a third detector lands the same shape, lift it to `lib.rs`.
+- **Test-helper extraction.** Sibling integration tests (`tests/repeated_correction.rs`, `tests/scope_false_positive.rs`, `tests/cost_hot_streak.rs`) ship near-identical `fixture_dir` / `load_input` / `load_expected` / `user_msg` / `write_fixture` helpers. Per `tests/example_fixture.rs` design notes, this is intentional duplication so each detector's fixture harness stays self-contained when copy-renamed.
+
+**Lessons learned:**
+
+- Reviewer caught that the original summary copy (`"... in N sessions across M workspaces"`) was tautological since N == M for this detector. Multi-perspective review (staff engineer + UX + UI + design engineer) keeps catching copy-vs-implementation drift; cheaper to run before merge than to amend.
+- The `tokio::time::timeout` wrap was missed in the first draft — only `repeated_correction.rs` shipped it among the existing four detectors. Worth adding to the CONTRIBUTING checklist as a per-detector requirement, not a "as needed" pattern.
+
+---
+
 ### Phase 21.A2 — `scope_false_positive` detector (Designer-unique)
 **Date:** 2026-04-29
 **Branch:** detector-scope-false-pos
