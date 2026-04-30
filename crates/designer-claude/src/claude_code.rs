@@ -85,6 +85,15 @@ pub struct ClaudeCodeOptions {
     /// Conductor's observed invocation).
     #[serde(default = "default_max_turns")]
     pub max_turns: u32,
+    /// Override the `--setting-sources` argument. `None` keeps the default
+    /// (`user,project,local`) so production picks up the user's keychain-
+    /// authed install. Tests that need a hermetic permission policy (e.g.
+    /// the live `permission_prompt_round_trip`) pass `Some(vec!["local"])`
+    /// to skip the runner's `~/.claude/settings.json` — otherwise the
+    /// user-level allow-rules auto-accept tool calls before they reach
+    /// our stdio handler and the round-trip never fires.
+    #[serde(default)]
+    pub setting_sources: Option<Vec<String>>,
 }
 
 fn default_max_turns() -> u32 {
@@ -198,7 +207,16 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
             .args(["--session-id", &session_id.to_string()])
             .args(["--permission-prompt-tool", "stdio"])
             .args(["--disallowedTools", "AskUserQuestion"])
-            .args(["--setting-sources", "user,project,local"])
+            .args([
+                "--setting-sources",
+                &self
+                    .options
+                    .setting_sources
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.join(","))
+                    .unwrap_or_else(|| "user,project,local".to_string()),
+            ])
             .args(["--max-turns", &self.options.max_turns.to_string()])
             .args(["--permission-mode", "default"]);
 
@@ -293,14 +311,16 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         let reader_task = tokio::spawn(async move {
             run_reader_loop(
                 BufReader::new(stdout),
-                ws,
-                team_name,
-                lead_role,
-                store_for_reader,
-                tx,
-                signal_tx,
-                permission_handler,
-                stdin_tx_for_reader,
+                ReaderLoopCtx {
+                    workspace_id: ws,
+                    team_name,
+                    lead_role,
+                    store: store_for_reader,
+                    tx,
+                    signal_tx,
+                    permission_handler,
+                    stdin_tx: stdin_tx_for_reader,
+                },
             )
             .await;
             debug!("claude stdout reader task exiting");
@@ -558,11 +578,32 @@ fn event_to_payload(
                 author,
             ))
         }
-        // ArtifactProduced is broadcast-only — AppCore's coalescer is the
-        // single writer for ArtifactCreated, so we deliberately don't
-        // persist a duplicate `EventPayload::ArtifactCreated` here.
-        OrchestratorEvent::ArtifactProduced { .. } => None,
+        // ArtifactProduced / ArtifactUpdated are broadcast-only — AppCore's
+        // coalescer is the single writer for ArtifactCreated /
+        // ArtifactUpdated, so we deliberately don't persist a duplicate
+        // `EventPayload` here.
+        OrchestratorEvent::ArtifactProduced { .. } | OrchestratorEvent::ArtifactUpdated { .. } => {
+            None
+        }
     }
+}
+
+/// Construction-time bundle of the reader-loop's collaborators. Replaces
+/// the 9-positional-arg form so callers (`spawn_team` and unit tests) read
+/// as a struct literal instead of a wall of arguments. Pure refactor — no
+/// behaviour change.
+pub(crate) struct ReaderLoopCtx<S>
+where
+    S: EventStore + 'static,
+{
+    pub workspace_id: WorkspaceId,
+    pub team_name: String,
+    pub lead_role: String,
+    pub store: Arc<S>,
+    pub tx: broadcast::Sender<OrchestratorEvent>,
+    pub signal_tx: broadcast::Sender<ClaudeSignal>,
+    pub permission_handler: Arc<dyn PermissionHandler>,
+    pub stdin_tx: mpsc::Sender<Vec<u8>>,
 }
 
 /// Drain a stream-json reader until EOF, persisting and broadcasting each
@@ -572,21 +613,21 @@ fn event_to_payload(
 /// event from Claude during the approval window is stalled. Extracted from
 /// `spawn_team` so the unit tests can drive it with a synthetic stdout
 /// without spinning up a real subprocess.
-#[allow(clippy::too_many_arguments)]
-async fn run_reader_loop<R, S>(
-    mut reader: BufReader<R>,
-    workspace_id: WorkspaceId,
-    team_name: String,
-    lead_role: String,
-    store: Arc<S>,
-    tx: broadcast::Sender<OrchestratorEvent>,
-    signal_tx: broadcast::Sender<ClaudeSignal>,
-    permission_handler: Arc<dyn PermissionHandler>,
-    stdin_tx: mpsc::Sender<Vec<u8>>,
-) where
+async fn run_reader_loop<R, S>(mut reader: BufReader<R>, ctx: ReaderLoopCtx<S>)
+where
     R: tokio::io::AsyncRead + Unpin,
     S: EventStore + 'static,
 {
+    let ReaderLoopCtx {
+        workspace_id,
+        team_name,
+        lead_role,
+        store,
+        tx,
+        signal_tx,
+        permission_handler,
+        stdin_tx,
+    } = ctx;
     let mut translator = ClaudeStreamTranslator::new(workspace_id, team_name.clone());
     let mut buf = String::new();
     loop {
@@ -831,11 +872,24 @@ mod tests {
     fn event_to_payload_artifact_produced_is_broadcast_only() {
         let ev = OrchestratorEvent::ArtifactProduced {
             workspace_id: WorkspaceId::new(),
+            artifact_id: designer_core::ArtifactId::new(),
             artifact_kind: designer_core::ArtifactKind::Diagram,
             title: "Sequence diagram".into(),
             summary: "summary".into(),
             body: "body".into(),
             author_role: Some("team-lead".into()),
+        };
+        assert!(event_to_payload(&ev, "t", "team-lead").is_none());
+    }
+
+    /// `ArtifactUpdated` is broadcast-only for the same reason as
+    /// `ArtifactProduced` (see `event_to_payload_artifact_produced_is_broadcast_only`).
+    #[test]
+    fn event_to_payload_artifact_updated_is_broadcast_only() {
+        let ev = OrchestratorEvent::ArtifactUpdated {
+            workspace_id: WorkspaceId::new(),
+            artifact_id: designer_core::ArtifactId::new(),
+            summary: "result summary".into(),
         };
         assert!(event_to_payload(&ev, "t", "team-lead").is_none());
     }
@@ -888,14 +942,16 @@ mod tests {
         let h: Arc<dyn PermissionHandler> = handler.clone();
         run_reader_loop(
             BufReader::new(cursor),
-            ws,
-            "team-h".into(),
-            "team-lead".into(),
-            store,
-            tx,
-            signal_tx,
-            h,
-            stdin_tx,
+            ReaderLoopCtx {
+                workspace_id: ws,
+                team_name: "team-h".into(),
+                lead_role: "team-lead".into(),
+                store,
+                tx,
+                signal_tx,
+                permission_handler: h,
+                stdin_tx,
+            },
         )
         .await;
 
@@ -948,14 +1004,16 @@ mod tests {
         let h: Arc<dyn PermissionHandler> = handler.clone();
         run_reader_loop(
             BufReader::new(std::io::Cursor::new(bytes)),
-            ws,
-            "team-h".into(),
-            "team-lead".into(),
-            store,
-            tx,
-            signal_tx,
-            h,
-            stdin_tx,
+            ReaderLoopCtx {
+                workspace_id: ws,
+                team_name: "team-h".into(),
+                lead_role: "team-lead".into(),
+                store,
+                tx,
+                signal_tx,
+                permission_handler: h,
+                stdin_tx,
+            },
         )
         .await;
         // Yield once so the spawned decide-task can run.
@@ -1006,14 +1064,16 @@ mod tests {
         let task = tokio::spawn(async move {
             run_reader_loop(
                 BufReader::new(std::io::Cursor::new(bytes)),
-                ws,
-                team,
-                lead,
-                store_clone,
-                tx,
-                signal_tx,
-                h,
-                stdin_tx,
+                ReaderLoopCtx {
+                    workspace_id: ws,
+                    team_name: team,
+                    lead_role: lead,
+                    store: store_clone,
+                    tx,
+                    signal_tx,
+                    permission_handler: h,
+                    stdin_tx,
+                },
             )
             .await;
         });

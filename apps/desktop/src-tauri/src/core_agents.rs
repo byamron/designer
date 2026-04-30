@@ -178,9 +178,17 @@ impl AppCore {
     /// emits `OrchestratorEvent::ArtifactProduced` and the coalescer routes
     /// those into here. Caller chooses the kind; only `Diagram` and `Report`
     /// are accepted in 13.D — other kinds belong to E/F/G.
+    ///
+    /// `artifact_id` is supplied by the emitter so a later
+    /// `OrchestratorEvent::ArtifactUpdated` can target the same artifact
+    /// (Phase 13.H+1 tool_use → tool_result correlation in
+    /// `ClaudeStreamTranslator`). Emitters without a correlation need
+    /// generate a fresh `ArtifactId::new()` per call.
+    #[allow(clippy::too_many_arguments)]
     pub async fn emit_agent_artifact(
         &self,
         workspace_id: WorkspaceId,
+        artifact_id: ArtifactId,
         kind: ArtifactKind,
         title: String,
         summary: String,
@@ -192,7 +200,6 @@ impl AppCore {
                 "13.D may only emit diagram/report artifacts, not {kind:?}"
             )));
         }
-        let artifact_id = ArtifactId::new();
         let env = self
             .store
             .append(
@@ -215,6 +222,52 @@ impl AppCore {
             .await?;
         self.projector.apply(&env);
         Ok(artifact_id)
+    }
+
+    /// Apply an in-place update from the translator (tool_use → tool_result
+    /// correlation). The artifact must already exist; if its current
+    /// version can't be resolved (e.g. the producing event was dropped by
+    /// the coalescer or never materialised) the update is logged and
+    /// dropped.
+    ///
+    /// The appended `ArtifactUpdated` event reuses the producing
+    /// artifact's `author_role` for the envelope `Actor` so any future
+    /// per-author rail filter, mention surface, or audit query sees a
+    /// consistent provenance chain across produce → update. Hard-coding
+    /// `team-lead` here would silently misattribute updates whenever a
+    /// teammate (e.g. `researcher@dir-recon`) was the original author.
+    pub async fn update_agent_artifact_summary(
+        &self,
+        artifact_id: ArtifactId,
+        summary: String,
+    ) -> Result<(), CoreError> {
+        let Some(artifact) = self.projector.artifact(artifact_id) else {
+            debug!(%artifact_id, "update_agent_artifact_summary: artifact not found");
+            return Ok(());
+        };
+        let payload = artifact.payload.clone();
+        let parent_version = artifact.version;
+        let stream = StreamId::Workspace(artifact.workspace_id);
+        let actor = Actor::agent(
+            "workspace-lead",
+            artifact.author_role.as_deref().unwrap_or("team-lead"),
+        );
+        let env = self
+            .store
+            .append(
+                stream,
+                None,
+                actor,
+                EventPayload::ArtifactUpdated {
+                    artifact_id,
+                    summary,
+                    payload,
+                    parent_version,
+                },
+            )
+            .await?;
+        self.projector.apply(&env);
+        Ok(())
     }
 }
 
@@ -282,6 +335,7 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                     }
                     OrchestratorEvent::ArtifactProduced {
                         workspace_id,
+                        artifact_id,
                         artifact_kind,
                         title,
                         summary,
@@ -301,6 +355,7 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                         match core
                             .emit_agent_artifact(
                                 workspace_id,
+                                artifact_id,
                                 artifact_kind,
                                 title,
                                 summary,
@@ -311,6 +366,21 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                         {
                             Ok(id) => debug!(%id, "emit_agent_artifact ok"),
                             Err(e) => warn!(error = %e, "emit_agent_artifact failed"),
+                        }
+                    }
+                    OrchestratorEvent::ArtifactUpdated {
+                        workspace_id: _,
+                        artifact_id,
+                        summary,
+                    } => {
+                        let Some(core) = weak_for_recv.upgrade() else {
+                            break;
+                        };
+                        if let Err(e) = core
+                            .update_agent_artifact_summary(artifact_id, summary)
+                            .await
+                        {
+                            warn!(error = %e, "update_agent_artifact_summary failed");
                         }
                     }
                     _ => {}
