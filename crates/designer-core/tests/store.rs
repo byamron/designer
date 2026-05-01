@@ -106,6 +106,87 @@ async fn projector_replays_events_into_aggregate_state() {
     assert_eq!(projector.workspaces_in(project_id).len(), 1);
 }
 
+/// Regression: the live runtime applies every event twice — once
+/// synchronously at the call site of `store.append` (read-your-own-
+/// writes consistency) and once again from the broadcast subscriber
+/// (`spawn_projector_task`). The projector must be sequence-idempotent
+/// so the second apply doesn't double-project. Until 2026-05-01 this
+/// raced silently; CI eventually surfaced it as `tabs.len() == 2`
+/// instead of 1 in `core::tests::open_tab_appends_and_projects`.
+#[tokio::test]
+async fn projector_apply_is_idempotent_per_sequence() {
+    use designer_core::{TabId, TabTemplate};
+
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let project_id = ProjectId::new();
+    let workspace_id = WorkspaceId::new();
+    let tab_id = TabId::new();
+
+    // Write minimal history: project + workspace + one tab.
+    store
+        .append(
+            StreamId::Project(project_id),
+            None,
+            Actor::user(),
+            EventPayload::ProjectCreated {
+                project_id,
+                name: "P".into(),
+                root_path: PathBuf::from("/tmp/p"),
+            },
+        )
+        .await
+        .unwrap();
+    let ws_env = store
+        .append(
+            StreamId::Workspace(workspace_id),
+            None,
+            Actor::user(),
+            EventPayload::WorkspaceCreated {
+                workspace_id,
+                project_id,
+                name: "ws".into(),
+                base_branch: "main".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let tab_env = store
+        .append(
+            StreamId::Workspace(workspace_id),
+            None,
+            Actor::user(),
+            EventPayload::TabOpened {
+                tab_id,
+                workspace_id,
+                title: "Plan".into(),
+                template: TabTemplate::Plan,
+            },
+        )
+        .await
+        .unwrap();
+
+    let projector = Projector::new();
+    // First apply — the synchronous write-site path.
+    projector.apply(&ws_env);
+    projector.apply(&tab_env);
+    // Second apply — what the broadcast subscriber would do for the
+    // exact same envelopes. This must NOT push a second tab onto the
+    // workspace.
+    projector.apply(&ws_env);
+    projector.apply(&tab_env);
+
+    let ws = projector
+        .workspace(workspace_id)
+        .expect("workspace projected");
+    assert_eq!(
+        ws.tabs.len(),
+        1,
+        "projector must drop replays of an already-projected sequence (was {} tabs)",
+        ws.tabs.len()
+    );
+    assert_eq!(ws.tabs[0].id, tab_id);
+}
+
 #[tokio::test]
 async fn subscriber_receives_live_events() {
     let store = SqliteEventStore::open_in_memory().unwrap();
