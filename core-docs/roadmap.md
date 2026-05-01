@@ -60,6 +60,22 @@ Phase 20 — Parallel-work coordination layer
 Phase 21 — Learning layer  (local-model session analysis → workflow proposals)
   └─ Gates on 13.F (local-model surfaces) + 13.D (real agent traffic to analyze).
      Independent of 14, 16, 18, 19, 20; can pull earlier once 13.D/F are green.
+
+Phase 22 — Project Home redesign  (Recent Reports / Roadmap / Designer Noticed)
+  ├─ 22.G  Color system (axiom #3 amendment)        [pullable into 15.x; gates team-tinted UI]
+  ├─ 22.B  Recent Reports redesign                  (← 13.F report artifact; independent of 22.A)
+  ├─ 22.A  Roadmap canvas foundation                (← 13.E track primitive)
+  ├─ 22.I  Track completion + shipping history      (← 22.A + 13.E)
+  ├─ 22.D  Edit & proposal flow                     (← 22.A)
+  ├─ 22.E  Adjacent attention column                (← 22.A + 22.D + 13.G safety surfaces)
+  ├─ 22.H  Click-into-agent                         (← 22.A + 13.D)
+  ├─ 22.C  Roadmap origination                      (← 22.A; minimal — empty + paste only)
+  ├─ 22.F  Designer Noticed                         **satisfied by Phase 21** — see cross-ref
+  └─ 22.L  Phase 20 hookup                          [delivered as part of Phase 20, not 22]
+
+Considered, deferred (NOT on roadmap):
+  · Linear integration (read or write)              [interop, not moat — revisit only on explicit user signal]
+  · Designer Noticed five-category re-skin          [defer until 21.A1.2 dogfood signal motivates it]
 ```
 
 ---
@@ -99,6 +115,7 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 - **Phase 19** — Workspace scales up: multi-track UX, forking, reconciliation, workspace-lead routing policy. Primitive lands in Phase 13.E; this phase ships the user-visible affordances. Gates on 13 + 16; pullable into 15 partial.
 - **Phase 20** — Parallel-work coordination layer. Project-level primitive that analyzes contention across multiple workspaces / tracks running in parallel, partitions shared files, freezes contracts (events, IPC DTOs, trait seams), generates a pre-integration scaffold, and plans merge order. Automates what Phase 13.0 did by hand. Gates on 13 + 19 substantially complete.
 - **Phase 21** — Learning layer: local-model analysis of session transcripts produces editable workflow + context optimization proposals on the project Home tab. Gates on 13.D + 13.F (needs real agent traffic and working local-model surfaces).
+- **Phase 22** — Project Home redesign. Reshapes the project Home tab into three surfaces — **Recent Reports** (curated digest of shipped work), **Roadmap** (live plan-anchored canvas with team presence), **Designer Noticed** (already in flight as Phase 21). The shippable-v1 cut is 22.G + 22.B + 22.A + 22.I + 22.D + 22.E + 22.H + 22.C — each independently shippable. Phase 22.F (Designer Noticed surface) is **satisfied by Phase 21.A1.2** (proposals over findings, boundary-driven cadence) — do not duplicate; the spec's five-category re-skin is **deferred until dogfood signal** on the existing surface motivates it. **Linear integration is cut entirely** from v1 (interop ≠ moat — revisit only on explicit user signal). 22.L is delivered as part of Phase 20, not Phase 22. Gates: 22.B on 13.F; 22.A on 13.E; 22.D on 22.A; 22.E on 22.A + 22.D + 13.G.
 
 See the "Gaps after the preliminary build" section below for the full gap → phase mapping.
 
@@ -1736,6 +1753,414 @@ Every event carries an explicit `schema_version` discriminator. Proposal diffs a
 
 ---
 
+## Phase 22 — Project Home redesign *(Recent Reports / Roadmap / Designer Noticed)*
+
+**Goal:** reshape the project Home tab into three surfaces, top to bottom — **Recent Reports** (curated digest of shipped work), **Roadmap** (live plan-anchored canvas with team presence), **Designer Noticed** (already in flight as Phase 21). Together they answer the manager's three opening questions: *what's new since I last looked, where are we in the plan, what should we standardize.*
+
+**Why a dedicated phase:** today's Home tab (`packages/app/src/home/HomeTabA.tsx`) is a flat list of operational state — Needs-your-attention, Active workspaces, Autonomy, plus the existing Designer Noticed section. None of it answers "where are we relative to the plan" — the question a manager opens any tool to ask. As the agent fleet scales (10+ teams routine), the absence of plan-anchored awareness forces the user to mentally reconstruct progress every session. The Roadmap surface is also where Phase 20 (parallel-work coordination) becomes *visible* — when N tracks fan out against the same phase, the canvas is where contention, drift, and integration order surface.
+
+**Naming convention.** Capitalized **Roadmap** for the surface; `roadmap.md` for the file. Same convention as "the spec" vs `spec.md`.
+
+**Relationship to Phase 21.** Spec's "Phase F — Designer Noticed" is **satisfied by Phase 21**. The existing 21.A1.2 architecture (proposals over findings, boundary-driven cadence at `TrackCompleted` + first-view-of-day) is the user-facing Designer Noticed surface this spec calls for. Phase 22 does **not** redesign that surface; it places Designer Noticed as the bottom of three Home-tab sections and reconciles its taxonomy with the spec's five user-facing categories (Skill / Rule / Anchor / Routine / Agent) — see "Reconciliation with Phase 21" below.
+
+**Sections removed from `HomeTabA.tsx`:** Active workspaces (replaced by Roadmap pills), Autonomy (moves to project settings), Needs-your-attention (migrates to Roadmap's adjacent attention column), `DesignerNoticedHome` (re-anchored as the bottom surface; component reused). The activity spine collapses by default at project altitude on the Home tab — its information is redundant with the Roadmap surface — but stays primary at workspace altitude and below. *Note:* the spec also calls for removal of "Near-term focus"; this section does not exist in `HomeTabA.tsx` today, so no removal action is needed.
+
+### Reconciliation with Phase 21
+
+Phase 22 places the existing 21.A1.2 Designer Noticed surface (`DesignerNoticedHome`) at the bottom of the new three-surface Home tab — no re-skin, no taxonomy change in v1. Existing components are reused as-is: `DesignerNoticedHome` / `DesignerNoticedPage` / `FindingRow` / `ProposalRow`. The verb-baked proposal title pattern that 21.A1.2 already uses (*"Add Rule: …"*, *"Add Skill: …"*) carries the action verb directly; no separate category icon system is introduced.
+
+**The original spec's five-category re-skin (Skill / Rule / Anchor / Routine / Agent) is deferred** — see "Considered, deferred" below. Reasons: (a) one of the five (Anchor) has no backing detector today; (b) verb-baked titles already carry the action; (c) dogfood signal on the existing surface hasn't asked for grouping. If proposal volume crosses a legibility threshold during dogfood, revisit the re-skin then; the mapping table from the original spec stays here as reference for future work:
+
+| Display category *(deferred)* | Phase 21 proposal kinds that would surface under it |
+|---|---|
+| Skill | `skill-candidate`, `prompt-template` |
+| Rule | `feedback-rule`, `rule`, `rule-extraction`, `claude-md-entry`, `demotion`, `removal-candidate`, `conflict-resolution`, `context-trim`, `context-restructuring` |
+| Anchor *(no detector today)* | `reference-doc`; future "pinned-context anchor" proposals |
+| Routine | `hook`, `auto-approve-hook` |
+| Agent | `agent-candidate`, `team-composition-change`, `routing-policy-tune`, `model-tier-suggestion` |
+
+### Sub-phase decomposition (each independently shippable)
+
+> **Recommended first slice:** **22.G + 22.B + 22.A + 22.I** behind a feature flag. Lands team identity, "what shipped" highlights, and a live plan view with shipping badges. Edit/attention infrastructure (22.D + 22.E) defers until dogfood signal motivates it.
+
+Each sub-phase has its own goal, deliverables, and gate. Phases A, B, G can run in parallel — file ownership is disjoint.
+
+### Procedure (applies to every UI sub-phase)
+
+Per CLAUDE.md §"Procedure for UI tasks": before generating any new component for Phase 22, check `core-docs/component-manifest.json`. Existing components Phase 22 must extend (not parallel-invent):
+
+- `WorkspaceStatusIcon` → status-circle treatment for nodes (extend with conic-arc states; do not introduce a new dot component).
+- `SegmentedToggle` → "Hide completed" toggle on the canvas header (do not roll a new segmented control).
+- `Tooltip` → "Done = shipped" inline education affordance, audit-trail hover on edited nodes, *Shipped here* badge expansion.
+- `IconButton` → all canvas action affordances (chevrons, attention-card actions). Enforces hit-target sizing (axiom #14) automatically.
+- `DesignerNoticedHome` / `DesignerNoticedPage` / `FindingRow` / `ProposalRow` → reuse for the Home tab's bottom surface; do not author parallel components.
+- `WorkspaceThread` → filtered lens for click-into-agent (22.H); no new tab kind.
+- `AppDialog` → any modal flow in 22.C (origination paths).
+
+Token namespacing for 22.G: new tokens are `--team-1`..`--team-16` (light + dark variants), explicitly **not** `--accent-team-*` — accents stay monochrome per axiom #3. Add an entry to `pattern-log.md` clarifying that team identity tokens and accent tokens are orthogonal and never substitute for each other.
+
+---
+
+### Phase 22.G — Color system *(axiom #3 amendment; pullable into 15.x polish)*
+
+**Goal:** introduce a constrained chromatic palette for team and team-presence identity, layered on top of the existing monochrome chrome. App chrome stays monochrome; only team identity and semantic state pop.
+
+**Why first:** every other Phase 22 piece (team-tinted rows, status circles, team-label dots, attention-card pills) consumes this palette. Without it, the canvas falls back to monochrome and the manager-of-agents metaphor doesn't read. Small enough to land as a Phase 15.x polish bite.
+
+**Deliverables:**
+- ~16-hue palette stepped around an OKLCH wheel at fixed chroma + lightness; chroma deliberately below the existing semantic palette so success/warning/danger still pop.
+- Two mode-specific scales (light + dark) so contrast against the content surface holds.
+- Two derivable values per hue: a soft tint (~7–8 % alpha for row backgrounds) and an inked color (status circles, dots, pill borders).
+- Wrap behavior past 16 workspaces with a small lightness shift.
+- Workspace color picker in project settings; team color persists per `(project_id, team_id)`.
+- Pulse-rate generator: each team's dot pulses at its own rate in the 1.4–2.0 s range, deliberately incommensurate so dots drift in and out of phase rather than syncing. Honors `prefers-reduced-motion` (renders as a static dot).
+- `core-docs/design-language.md` axiom #3 amendment + entry in `core-docs/pattern-log.md` (semantic vs identity color separation rationale).
+
+**Where team color appears:** row tints on claimed nodes, status circles for In Progress / In Review states, team-label dots, attention-card pills.
+
+**Where team color does NOT appear:** activity spine rows (stay monochrome with state dots), node text or backgrounds, Designer Noticed categories (icon shape carries the category), card chrome.
+
+**Semantic colors stay orthogonal:** Done / shipped = green (universal — same green as the status checkmark); Savings / impact = green (Designer Noticed anchor proposals); Warning = amber (audit flags); Danger = red (scope denial, errors); Info = blue (conflict warnings, agent questions).
+
+**Done when:** axiom #3 amendment lands; tokens render correctly in both modes against design-language regression fixtures; `prefers-reduced-motion` static-dot fallback verified; design-lab catalog renders all 16 hues with their light + dark variants for review.
+
+**Gates on:** none meaningful — pullable into Phase 15 polish at any time. Recommend landing **before** 22.A so the canvas debuts with team color.
+
+---
+
+### Phase 22.B — Recent Reports redesign
+
+**Goal:** the lead Home-tab surface — curated highlights of shipped work, written in plain language about user-facing impact. Modeled on a team lead reporting to leadership: not every change, the consequential ones.
+
+**Why this can ship before the canvas:** the `report` artifact already exists (Phase 13.F). 22.B extends it with one summary field and a read-state projection — no canvas dependency.
+
+**Scope discipline (single voice, two-step disclosure, no Reports tab).** v1 ships **one voice** — high-level manager copy. Multi-voice (medium / technical) is reserved as a settings-future affordance behind a "show technical detail" toggle, off by default. Three voices generated at write time was rejected as feature creep: the primary user is one person (the manager), the Foundation Models cost (one extra call shape per ship event) is real, and dogfood signal hasn't asked for engineer-facing copy on the Home tab yet. Disclosure is **two-step** (inline summary → click to expand inline) — the hover-preview middle step was dropped as undiscoverable friction. Reports overflow expands **in place**; no project-level Reports tab is introduced (would silently violate Decision 36's retired-templates discipline; there is no project-altitude tab kind today).
+
+**Deliverables:**
+- **Single high-level summary field** on the `report` artifact: `summary_high` (additive, optional). Manager voice — leads with impact, skips implementation. Generated at write time, cached on the artifact (extends the existing `summarize_row` hook from Decision 39). The existing `summary` field (Decision 39) is **untouched** — it continues to drive the rail / collapsed-block views. `summary_high` is read **only** by the Recent Reports surface. **Migration of pre-22.B reports:** when the Recent Reports surface encounters a report without `summary_high`, it falls back to the existing `summary` field (no UI break, no backfill required). On-demand backfill is a settings affordance for users who want richer manager-voice copy on historical reports; default off.
+- **Source classification** by the local model into one of: Feature / Fix / Improvement / Reverted. Internal refactors, doc-only changes, in-progress work do not surface here. Existing reports without classification fall back to "Improvement" for surfacing purposes; UI does not crash.
+- **Read-state as a projection, not events.** v1 ships project-scoped only: `read_seq_by_project: HashMap<ProjectId, EventSeq>` — single integer per project, last-seen sequence in the report stream. Implicit advance on inline expand or tab open; explicit *Mark all read* footer action advances to the head of the report list. Section header reads *"3 unread"* or *"All caught up"*. **Why not user-scoped at v1:** there is no `UserId` concept in single-machine Designer until team-tier (Phase 17). Shaping the projection key as `(UserId, ProjectId)` today bakes in infrastructure that doesn't exist. When team-tier lands, extend the projection key — additive schema change, no event-log rewrite needed (the projection rebuilds from the existing report stream). **Why a projection, not events:** per-report `ReportRead` events would bloat the event log linearly with reports × users; a single seq-per-project projection captures the same information in O(1) state.
+- **Two-step disclosure pattern:** (1) inline 1–2 line summary always visible with classification chip + workspace label + PR link; (2) click expands the report inline with the full body and an *Open in tab* button — only this last step creates a tab. Tabs stay opt-in; scanning and reading do not pollute the tab bar. The hover-preview middle step from the original spec is dropped.
+- **Item count + overflow.** Three reports visible by default. *Show more* reveals the next 4–5 in place; *Show all (N)* expands the section to its full list inline. **No project-level Reports tab.** Decision-log entry: *"Reports overflow stays inline; no project-level tab kind introduced"* (Decision 56).
+- **Importance ordering.** Category-weight × recency-decay × scope. Features outrank fixes outrank improvements; recent items outrank older; large-scope items (multiple workspaces touched, big diff) outrank small. v1 ships a simple version; the scoring earns more sophistication if it feels off in dogfood.
+- **Empty state.** *"Nothing shipped yet — highlights will surface here as work lands."*
+- **Performance contract.** First paint < 100 ms; summary text already cached on the artifact.
+
+**Future affordance (out of v1):** if dogfood signal asks for engineer-facing copy, add a settings toggle "show technical detail in reports" — when on, generate `summary_technical` at write time and surface a per-report toggle. Two voices, not three. Defer until the signal lands.
+
+**Done when:** every newly-shipped PR or completed track produces a `report` artifact with `summary_high`, classification, and link metadata; the read-state projection advances on inline expand and tab open; the section header reflects unread count; the *Show all* expansion renders inline without opening a new tab.
+
+**Gates on:** Phase 13.F (`report` artifact exists, summary hook in place). The summary generation extends the existing `summarize_row` hook — no new IPC surface.
+
+---
+
+### Phase 22.A — Roadmap canvas foundation
+
+**Goal:** parse `roadmap.md` into a structural cache, render it as a live tree of nodes with stable HTML-comment anchors, overlay workspace / track / sub-agent presence, and jump-off into deeper drill surfaces. The canvas is read-only by default; direct edits open the markdown in a tab.
+
+**Core concept.** The roadmap is a tree of nodes with stable IDs at every depth. Top-level nodes are typically phases or major features; nested nodes are progressively finer slices; leaves are roughly PR-sized work units. Depth is user-controlled. Any agent or team can attach to any node. A workspace can claim a whole sub-tree; sub-agents can claim leaves inside it. Presence rolls up — a leaf with an active sub-agent makes its parent show aggregate "1 active here" without the parent being claimed itself.
+
+**Deliverables:**
+
+- **Parser + structural cache.** Web Worker parse < 100 ms for a 64 K `roadmap.md`. Structural cache only — bodies parsed lazily on expansion. Re-parse only on `roadmap.md` mtime change.
+- **Stable anchors.** HTML comments on the line (`<!-- anchor: payments.refunds.api -->`). Auto-injected on first parse where missing. Travel with the line if the user moves it.
+- **Data model.**
+  ```rust
+  RoadmapNode { id, parent_id, depth, headline, body_offset, body_length,
+                child_ids, external_source: Option<ExternalSource>,
+                status: NodeStatus, shipped_at: Option<Timestamp>,
+                shipped_pr: Option<PrRef> }
+  NodeStatus { Backlog, Todo, InProgress, InReview, Done, Canceled, Blocked }
+  NodeClaim { node_id, workspace_id, track_id, subagent_role, claimed_at }
+  NodeShipment { node_id, workspace_id, track_id, pr_url, shipped_at }
+  ```
+- **Three derived projections in `designer-core`:** `node_to_claimants` (live), `claimants_to_node` (live), `node_to_shipments` (historical, holds `NodeShipment` records). All O(1) lookups, all updated incrementally. Multi-claim ordering is deterministic: stacked team labels sort by `claimed_at` ascending; ties break by `team_id` lexicographic. Stable across event-replay. Naming convention matches existing 13.E projections (`tracks_by_workspace`, etc.) — projection names use `_by_` / `_to_` joins; struct names are PascalCase singular.
+- **Claim event source.** `TrackStarted` gains an additive `anchor_node_id: Option<NodeId>` field per the Lane 0 ADR (additive `EventPayload` extension). When `cmd_start_track` is called with an anchor argument, the field is populated; the projection derives the `NodeClaim`. `node_to_claimants` cleans the entry on `Track::Merged` (claim becomes a `NodeShipment`) or `Track::Archived` (claim is dropped). Mid-flight re-claiming (a track changes which node it works on) is **out of scope for v1** — end the track and start a new one against the new anchor. Sub-agent claim derivation lives with 22.H, not 22.A.
+- **Status set with the Done = shipped invariant.** A node may only sit at `Done` if a corresponding `NodeShipment` record exists in `node_to_shipments`. **Two enforcement paths, both gating on shipment evidence:**
+  1. **Projection path (auto-derivation):** the `Track.state → NodeStatus` projection only emits `Done` when *both* `Track::Merged` and the matching `NodeShipmentRecorded` events are present. Without a shipment, projection emits `InReview` even on Merged.
+  2. **IPC write path (manual):** writes from `cmd_resolve_proposal` (accepting a `completion-claim`) or `cmd_set_node_status` reject with `ApplyFailed { reason: "node has no shipment recorded" }` if no `NodeShipment` exists. Surfaces in the user's inbox.
+  *Why not let the projector silently demote authored Done:* a projector that rewrites event-derived state without explanation makes events lie about themselves. Both paths gate on the same shipment evidence; both make the gating visible (UI label + inbox error). Linear-aligned visual treatment: open circle → partial-fill conic-arc (SVG, animated `stroke-dasharray` — CSS `conic-gradient()` does not transition between stops) → full-fill solid → green check.
+- **`Track.state` → `NodeStatus` projection.** A claimed node's status is derived from the claiming track's lifecycle so the user sees one consistent vocabulary on the canvas:
+  - `Track::Active` → `NodeStatus::InProgress`
+  - `Track::RequestingMerge` → `NodeStatus::InReview`
+  - `Track::PrOpen` → `NodeStatus::InReview`
+  - `Track::Merged` (with shipment) → `NodeStatus::Done`
+  - `Track::Merged` (without shipment yet) → `NodeStatus::InReview` (transient state until the shipment lands; in practice both events are emitted in the same transaction)
+  - `Track::Archived` → `NodeStatus::Canceled` (when archived without merge) or untouched (when archived after merge — Done sticks)
+  **Multi-claim status precedence (the bug fix).** When multiple tracks claim the same node, the projection takes the **maximum** state across claiming tracks under a "all-must-ship" Done gate:
+  - Order: `Backlog < Todo < InProgress < InReview < Done < Canceled` (Canceled is terminal).
+  - The node projects the max of the claiming tracks' statuses, **except** Done is only emitted when *every* claiming track has a corresponding `NodeShipment`. If any claim is unshipped, the node projects `InReview`.
+  - *Rationale:* multi-claim is parallel work toward one node, not a race. The node is Done only when the work — all of it — is shipped.
+  - Document this rule in `roadmap-format.md` so users splitting work across tracks understand the semantic.
+  **Authored-status precedence rule.** Unclaimed nodes carry their authored `NodeStatus` from `roadmap.md` directly **with one exception**: if the markdown authors `Done` for a node that has no `NodeShipment`, the projection emits `InReview` (the Done = shipped invariant overrides authored status to keep the rendering honest). The "Done = shipped" tooltip surfaces in this case explaining why the markdown's `Done` reads as `InReview` on the canvas.
+- **"Done = shipped" inline education affordance.** A parent with all sub-items checked but no shipment renders with an inline tooltip on the status circle: *"Ships when the PR for [headline] merges."* Avoids the "checklist looks done, parent's still grey" UX surprise. Re-uses existing `Tooltip` component.
+- **Renderer.** New `roadmap` artifact kind in the block-renderer registry (Decision 38). Phase strip header at top (every phase as a clickable headline with status chip and `m/n` ratio). Active phase expanded inline; adjacent phases (immediately previous and next) as collapsed headlines so context is one click away. *Hide completed* toggle in the header (use existing `SegmentedToggle`). Expansion state persists per project.
+- **Node anatomy.** Status circle, title, optional sub-rows, and (when claimed) a team identity. Status circle and title align flush at the same x; only sub-rows are indented. Chevrons appear in the left margin (in the card's padding area) for expandable rows — they don't push the status circle inward. Sub-items indent with a hairline vertical rail; sub-rows under an in-progress parent get a subtle team-color tint — `--team-tint-light` (~7 % alpha) and `--team-tint-dark` (~10 % alpha) — paired so dark mode keeps a perceptible tint above the noise floor.
+- **Team identity rendering.** Inline label format: a small team-colored dot + the team name, no pill background. Status circles for In Progress / In Review use the team's color; Done is universal semantic green regardless of team. Multi-claim: horizontally stacked team labels; collapse to `+N` past **3** (revised down from 5 — 4–5 visible labels at once is project-altitude clutter; tune in dogfood) with an overflow popover.
+- **Anchor splitting rule.** When the user splits a node into two in the markdown, the original anchor stays with the headline that retains the original first-line text. **Edge case (both halves diverge):** if neither resulting headline retains the original first-line text, the anchor follows the **first** headline in file order (the one that appears earlier). Existing claims and shipments resolve against the surviving anchor. The rule is deterministic on every parse, so the same edit always produces the same outcome. Document in `roadmap-format.md`.
+- **Manual track-to-node linkage** via `cmd_start_track` anchor argument: starting a track against a known node populates the claim immediately. Phase 22.H adds sub-agent claim discovery; Phase 22.I adds shipment history.
+- **Block-renderer registry registration.** Three new artifact kinds register renderers per Decision 38 (`registerBlockRenderer(kind, Component)`): `roadmap` (canvas surface), `roadmap-edit-proposal` (inline diff card on the canvas, ships with 22.D), `completion-claim` (status-change card on the canvas, ships with 22.D). All three land in the same module under `packages/app/src/blocks/`. Unknown-kind fallthrough to `GenericBlock` keeps replay safe if a renderer is missing.
+- **Drill-in actions.** Click a workspace pill → focuses the workspace in the project strip. Click a node headline → expands the node body inline. Click *Open in editor* → opens `roadmap.md` at that node's range. Sub-agent pill (and click-into-agent surface) ships with 22.H. The canvas itself never opens new tabs unilaterally.
+- **`core-docs/roadmap-format.md`** ships with new projects, describing the convention (anchor injection, `Track.state → NodeStatus` mapping, anchor-split rule) without enforcing it.
+- **Performance contract.** Cold open: first paint < 200 ms for a 64 K `roadmap.md` (active phase expanded; other sections placeholdered). Presence updates: < 16 ms (single frame). Per-node `useSyncExternalStore` subscriptions; CSS-only attribute flips for state changes. Section-level virtual scroll; `content-visibility: auto` on off-screen sections **with explicit `contain-intrinsic-size` to prevent scrollbar jump as bodies paint in**. Projection lookups: O(1); maintained incrementally. Performance regressions in any of these gate the release.
+- **Reduced-motion fallbacks (required, not optional — per axiom #5):** pulses → static dot; conic-arc state transitions → instant flip; expand/collapse → instant; `Track.state → NodeStatus` transition animations → instant fill. No exceptions.
+- **Pulse implementation.** CSS keyframe animation on the dot's `box-shadow` or `opacity` — never JS-driven. 10+ concurrent pulses must compile to GPU-accelerated transforms; verify on integrated GPU before merge.
+
+**Done when:** the project Home tab renders the Roadmap surface against this project's `core-docs/roadmap.md`; the four-perspective review of a real edit cycle (parse → claim → status update → render) holds the performance contract; the canvas degrades gracefully on a malformed `roadmap.md` (parse-error state with *Open in editor*; pills, claims, and side attention suppress until parse succeeds).
+
+**Gates on:** Phase 13.E (track primitive — for `cmd_start_track` anchor argument); Phase 22.G recommended (so canvas debuts with team color); Phase 13.1 (block-renderer registry).
+
+---
+
+### Phase 22.I — Track completion + shipping history
+
+**Goal:** make the canvas demonstrably *alive* — when a track ships, its node lights up with a green check + a "Shipped here" badge that persists even after the live claim cleans up.
+
+**Deliverables:**
+- `NodeShipment { node_id, workspace_id, track_id, pr_url, shipped_at }` projection — append-only; cleans nothing.
+- Live-claim cleanup on `Track::Merged` event: `node_to_claimants` drops the entry; `node_to_shipments` gains the entry.
+- *Shipped here* badge on completed nodes — small pill below the headline, monochrome by default, expands to show the team identity + PR URL on hover.
+- Pill annotation during `PrOpen` — node shows In Review with the team color; flips to Done (green) on Merge.
+- Audit-trail surfacing on hover: *"Shipped by team X via PR #N on YYYY-MM-DD"*.
+
+**Done when:** a real track lifecycle (Active → PrOpen → Merged) produces the right visual progression on the canvas; shipping history persists permanently; live claims clean up cleanly on Merge.
+
+**Gates on:** Phase 22.A; Phase 13.E (`Track::Merged` event already in place).
+
+---
+
+### Phase 22.D — Edit & proposal flow
+
+**Goal:** agents can propose roadmap edits via a new artifact kind that the user accepts inline; direct user edits open the markdown in a tab; reversible status updates auto-apply under Act / Auto autonomy.
+
+**Deliverables:**
+- **New artifact kinds:** `roadmap-edit-proposal` (agent-proposed edit with unified diff), `completion-claim` (agent-proposed status change for a node).
+- **New events:** `RoadmapEditProposed/Accepted/Rejected/Superseded`, `NodeStatusChanged { node_id, from, to, source }`.
+- **Inline accept/reject UI** on the canvas — the proposal renders attached to the affected node as an expandable card; Accept applies the diff; Reject archives it; Edit opens an in-app composer with the diff pre-loaded.
+- **Autonomy gradient applied to edits:**
+
+  | Autonomy | Status updates | Adding sub-items | Renaming | Restructuring | Removing |
+  |---|---|---|---|---|---|
+  | Suggest | Proposed | Proposed | Proposed | Proposed | Proposed |
+  | Act | Auto-applied | Proposed | Proposed | Proposed | Proposed |
+  | Auto | Auto-applied | Auto-applied | Auto-applied | Proposed | Proposed |
+
+- **Conflict / supersession.** Two agents propose edits to the same node within a window → both surface as alternatives in the inbox. User direct-edits a node with a pending proposal → proposal invalidates. Pending proposals on archived nodes auto-reject.
+- **Audit trail.** Every edit lands as an event. Node hover surfaces *"last edited by: agent in workspace X, auto-accepted under Act 3 days ago"*.
+- **Open question (track in spec):** whether `RoadmapEditProposed` artifacts should also surface in Recent Reports if accepted (a "the plan changed" highlight). Probably yes for restructuring, no for status updates.
+
+**Done when:** an agent in a real workspace can propose a status update via `completion-claim`, the user accepts inline, the canvas reflects the change, and the audit trail surfaces on hover. Conflict between two simultaneous proposals renders as side-by-side alternatives.
+
+**Gates on:** Phase 22.A (canvas + node data model); Phase 13.G (autonomy infrastructure already exists).
+
+---
+
+### Phase 22.E — Adjacent attention column
+
+**Goal:** migrate "Needs your attention" from the Home tab into a column adjacent to the Roadmap canvas, with one card per attention item carrying a binary action pair.
+
+**Unified accept-pattern across the Home tab.** Adjacent attention cards, Designer Noticed proposals, and roadmap edit proposals (22.D) all use the **same binary primary**: Dismiss / Accept (verb-customized per-context: Deny / Approve, Hold / Merge, etc.). Edit elevates to a separate inline action only when a diff is involved (22.D). Snooze drops to a kebab-menu item, not a top-level button. Rationale: three different accept-patterns on one tab was incoherent — one pattern with documented variations restores legibility. Logged as Decision 57.
+
+**Deliverables:**
+- **`AttentionItem` data model + projection.**
+  ```rust
+  AttentionItem {
+    id, kind: AttentionKind,  // Approval | AuditFlag | ConflictWarning | AgentQuestion | ScopeDenial
+    workspace_id, team_id,
+    anchor_node: Option<NodeId>,
+    title: String,                // ≤ 80 chars, hard-bounded
+    body_summary: String,         // ≤ 240 chars, generated/truncated; full body opens a drawer
+    context: AttentionContext,
+    created_at, resolved_at: Option<Timestamp>,
+  }
+  ```
+  Projection `workspace_to_attention_items` (open items only, ordered by `created_at`). On workspace archival or fork, open items are resolved with `resolution: WorkspaceArchived` so the projection stays clean.
+- **New events:** `AttentionItemOpened/Resolved`.
+- **Card design.** One card per item, stacking vertically with breathing room. Each card carries the requesting team's identity pill at the top (pill backgrounds are reserved for this column where cards float against white), a concrete title (≤ 80 chars), a body summary (≤ 240 chars — full body opens a drawer click; prevents giant cards from pushing the rest off-screen), and a **binary action pair** (Hold / Merge, Deny / Approve, etc.) — uniform Dismiss / Accept under verb-customized labels per "Unified accept-pattern" above.
+- **Confirmation treatment (snappy, not spring):** on merge / approve actions, the button fills green over `--motion-emphasized` (400 ms ease-out) — no scale pop. Green persists as the "selected" state until the card slides out (`--motion-standard` translate-out). Reuses the same green as the Done checkmark for visual continuity. **Why no spring:** axiom #5 explicitly prohibits crossing into expressive/spring territory; a celebratory bounce would require amending #5 alongside #3, which is a much larger move than introducing chromatic team identity. The fill-and-slide treatment carries the same "your action took" semantic without violating the motion personality.
+- **Reduced-motion fallback (required per axiom #5):** instant green fill (no transition); instant card removal (no slide-out). Audited by Mini's `audit-a11y` skill before merge.
+- **Empty-column treatment.** *"All clear — agents will surface approvals, audit flags, and questions here."*
+- **Card kinds wired** with explicit per-kind title / body derivation so cards read consistently across sources:
+
+  | Kind | Source event | Title (≤ 80 chars) | Body summary (≤ 240 chars) | Action labels |
+  |---|---|---|---|---|
+  | Approval | `ApprovalRequested` | `"{tool} request"` (e.g. "Edit request") | First line of `summary` field, then `path` if present | **Deny** / **Approve** |
+  | AuditFlag | `comment` artifact, `author_role: Some("auditor")` | `"Audit: {first_line(body)}"` | Remainder of `body` truncated; full body opens drawer | **Dismiss** / **Address** |
+  | ConflictWarning | `recent_overlap()` cross-workspace | `"{filename} edited in {N} workspaces"` | List of workspace names with last-edit timestamps | **Dismiss** / **Coordinate** (opens involved workspaces) |
+  | AgentQuestion | `MessagePosted` with question heuristic (ends in `?`, contains "should I" / "do you want") | First sentence of message, ≤ 80 chars | Remainder of message, truncated | **Dismiss** / **Reply** (opens workspace thread at the message) |
+  | ScopeDenial | `ScopeDenied` | `"Blocked: {operation} on {path}"` | `reason` field; if user has approved the path elsewhere recently, append "(approved in {workspace} 2h ago)" | **Dismiss** / **Allow once** / **Allow always** (kebab-menu for Allow always) |
+
+  Heuristics live in `crates/designer-core/src/attention.rs`; each kind has a fixture-tested `from_source(...) -> AttentionItem` constructor. Variants beyond the binary primary (e.g. ScopeDenial's "Allow always") drop into the kebab-menu — top-level chrome stays binary per Decision 57.
+- **Removal from Home tab.** `Needs your attention` section in `HomeTabA.tsx` deletes when this column ships against real data; the existing `toggleInbox()` action redirects to a filtered lens on the column.
+
+**Done when:** approvals, audit flags, conflict warnings, agent questions, and scope denials each render correctly in the adjacent column with the right action pair under the unified Dismiss / Accept primary; the snappy fill confirmation lands on merge approval against a real PR; the Home tab's `Needs your attention` section is deleted; reduced-motion fallback verified by `audit-a11y`.
+
+**Gates on:** Phase 22.A (canvas placement); Phase 22.D (the proposal/accept flow this column extends); Phase 13.G (approval / scope event streams).
+
+---
+
+### Phase 22.H — Click-into-agent
+
+**Goal:** clicking a sub-agent pill on the canvas opens that agent's filtered thread as a new tab.
+
+**Deliverables:**
+- **Sub-agent claim discovery** via task-list anchor references — when an agent-team task list (watched by `crates/designer-claude/src/watcher.rs` per Phase 12.A) contains an anchor (`<!-- anchor: ... -->`) in a teammate's task body, the projection updates that teammate's claim to the named node. Sub-agent claims do not replace the parent track's claim on the same node — they layer (parent track stays claimed; sub-agent shows as a finer-grained pill nested under the team label).
+- **Watcher event extension** (prereq, may need a small task body parse): the current 12.A watcher emits `TaskCreated` / `TaskCompleted` events with task IDs, not bodies. Sub-agent claim discovery requires the watcher to emit (or expose for query) the **task body text** so the projection can extract `<!-- anchor: ... -->` references. If the watcher's current shape doesn't include body text, this lands as an additive field on the existing event variant per the Lane 0 ADR. Confirm shape against `~/.claude/teams/{team}/config.json` and `~/.claude/tasks/{team}/` parser before scoping.
+- Per-agent filter on the existing `WorkspaceThread` surface (no new tab kind — reuses the unified thread primitive from Phase 13.1).
+- Click handler on team-label pill / sub-agent pill → opens the filtered thread.
+
+**Done when:** clicking a sub-agent pill on the canvas opens the workspace thread filtered to that agent; the filter persists in the URL hash so the tab is shareable; sub-agent claim derived from a real task list with an anchor reference renders the correct pill on the correct node.
+
+**Gates on:** Phase 22.A; Phase 13.D (real agent traffic); Phase 13.1 (`WorkspaceThread` primitive); Phase 12.A watcher exposing task body text (may require an additive event field — confirm before scoping).
+
+---
+
+### Phase 22.C — Roadmap origination *(minimal — empty + paste only)*
+
+**Goal:** smooth the cold-start path with the two paths the spec actually needs at v1. Detect-existing, draft-with-workspace-lead, and normalize-with-diff-preview defer until users ask for them.
+
+**Deliverables:**
+- **No `roadmap.md`, no tracks.** Empty-state slab in the Roadmap section. Lead with what the canvas does, not what's missing: *"The Roadmap shows your project's plan with live agent presence. Draft one to begin."* One button: *Paste a draft* (uses existing `AppDialog` modal + `ComposeDock`-style multiline input).
+- **User pastes.** Treated as canonical text. No silent reformatting. Writes to `core-docs/roadmap.md` and commits silently per Decision 18.
+- **Malformed `roadmap.md`.** Quiet error state with parse error and *Open in editor*. Pills, claims, and side attention suppress until parse succeeds. Surface degrades, doesn't disappear.
+
+**Future affordances (deferred):**
+- Workspace-lead-drafted roadmap from project context.
+- TrackStarted-triggered "what part of the roadmap is this?" picker.
+- Repo-link detection of existing roadmap-shaped content in `docs/` / `README.md`.
+- *Normalize for richer linking* with diff preview.
+
+Each of these adds surface area before users have asked for it. Defer until dogfood signal makes the case.
+
+**Done when:** cold-start renders the empty-state slab; paste produces a usable canvas; malformed-roadmap renders the error state with *Open in editor*.
+
+**Gates on:** Phase 22.A.
+
+---
+
+### Phase 22.L — Phase 20 hookup *(delivered as part of Phase 20)*
+
+This is a Phase 20 deliverable, not a Phase 22 deliverable — kept here as a forward reference. When Phase 20 ships, contention reports surface as canvas annotations (cluster of file-name pills under the affected node), drift warnings render as `ConflictWarning` cards in the adjacent attention column (22.E), and per-track scoped briefs are visible at track creation against contended nodes. Update the Phase 20 section's deliverables list when 22.A + 22.E are live.
+
+---
+
+### Considered, deferred (NOT on the Phase 22 roadmap)
+
+These were in the original spec but cut from v1 after first-principles review (does it serve the moat — manager-of-agents, workflow above the model, context lives in the repo?). Each can be revisited if explicit user signal lands.
+
+**Linear integration (was 22.J / 22.K).** Read direction, write direction, per-issue confirmation guard for org workspaces, all cut. *Why:* Linear is interop, not moat. Linear users live in Linear; Designer's value-prop is markdown-first plans living in the repo (Decision 17). A Linear-source-of-truth canvas creates two-source-of-truth confusion the original spec acknowledged but couldn't fully resolve. Logged as Decision 58.
+
+**Designer Noticed five-category re-skin (was Phase F as user-facing taxonomy).** Five categories (Skill / Rule / Anchor / Routine / Agent) were the original spec's display layer over the Phase 21 detector list. Cut from v1 because (a) one of the five — Anchor — has no backing detector today, (b) the existing 21.A1.2 surface uses verb-baked proposal titles ("Add Rule: …") which already carry the action verb, potentially obviating the category icons, and (c) dogfood signal on the 21.A1.2 surface hasn't asked for grouping yet. Defer; revisit if proposal volume crosses the legibility threshold where grouping starts to earn its weight. Logged as Decision 59.
+
+**Three-voice Reports / hover preview / project-level Reports tab.** All cut from 22.B (see the 22.B "Scope discipline" callout). One voice (high-level), two-step disclosure, expand-in-place. Multi-voice reserved as a future settings affordance.
+
+**Gutter-pinned side comments on the canvas.** Adjacent attention column (22.E) covers v1; defer.
+
+---
+
+### New artifact kinds (Phase 22 summary)
+
+- `roadmap` — renderer kind for the canvas (block-renderer registry, Decision 38).
+- `roadmap-edit-proposal` — agent-proposed edit with unified diff.
+- `completion-claim` — agent-proposed status change for a node.
+- `report` — extended with `summary_high` field (22.B). `summary_technical` reserved for future settings affordance.
+
+### New event types (Phase 22 summary)
+
+- `RoadmapEditProposed/Accepted/Rejected/Superseded` (22.D)
+- `NodeStatusChanged { node_id, from, to, source }` (22.D)
+- `NodeShipmentRecorded { node_id, workspace_id, track_id, pr_url, shipped_at }` (22.I — emitted in the same transaction as `Track::Merged` so the Done-shipped invariant gate has the shipment to look up)
+- `AttentionItemOpened/Resolved` (22.E)
+
+**Notably NOT events** (intentional — were in the original spec):
+- `ReportRead` — replaced by `read_seq_by_user_by_project` projection (per-user seq, not per-report event). Avoids linear event-log bloat with reports × users.
+
+### Out of scope (v1, definite)
+
+Linear / Notion / Jira / Asana / GitHub Projects integration. Multiplayer cursor presence. Multiplayer markdown editing (canvas is read-only with *Open in editor*). Cycle / sprint overlay. Time-anchored views (Gantt, calendar). Roadmap history view in-app (git provides this). Per-node permission locks. Multiple roadmaps per project. Mobile equivalent (separate Phase 18 work). Notifications for Designer Noticed. Designer Noticed five-category re-skin (deferred per above). Designer Noticed categories beyond the initial five. Gutter-pinned side comments on the canvas (adjacent column covers v1). Three-voice Reports (deferred per above). Project-level Reports tab (deferred per above; expand-in-place covers v1).
+
+### Open questions (before picking sub-phases up)
+
+- Multi-claim visual at scale (5+ teams on one node) — `+N` collapse threshold (currently 3) tunes in dogfood.
+- Spring vs. snappy on merge-confirm (22.E) — snapped to snappy fill per axiom #5; revisit only if dogfood says the fill doesn't carry enough "your action took" semantic.
+- Whether to surface gutter-pinned side comments as a future addition to the adjacent column (22.E), or replace it entirely. Defer until usage signals.
+- Whether `RoadmapEditProposed` artifacts should also surface in Recent Reports if accepted. Probably yes for restructuring, no for status updates.
+- Whether the read/unread signal extends to other artifact kinds (PRs, approvals) or stays specific to reports. Defer until usage signal.
+
+### Done when *(Phase 22 as a whole)*
+
+- The project Home tab is the three-surface composition: Recent Reports → Roadmap → Designer Noticed. Activity spine collapses by default at project altitude.
+- Recent Reports surfaces the last week's shipped work in a single high-level voice, with read-state tracking via the per-project projection.
+- The Roadmap canvas renders `roadmap.md` with team-tinted rows, status circles, sub-agent presence, and shipping history. Performance contract holds.
+- Adjacent attention column carries approvals, audit flags, conflict warnings, agent questions, and scope denials with a snappy fill confirmation (no spring — axiom #5 preserved); the unified Dismiss / Accept primary works across the column.
+- Agents can propose roadmap edits inline; the autonomy gradient applies; the audit trail surfaces on hover.
+- Click-into-agent opens the filtered workspace thread as a tab.
+- Designer Noticed (Phase 21 surface, unchanged in v1) sits at the bottom of the Home tab.
+- All animations honor `prefers-reduced-motion` (verified by `audit-a11y`).
+
+**Gates on:** Phase 13 (real runtime + safety + agent traffic); Phase 21 (Designer Noticed already shipped); Phase 22.G recommended before any visible-surface sub-phase. Phase 19 (multi-track) is *complementary* — sequential / parallel tracks are what produces the contention and presence the canvas visualizes; canvas can ship before Phase 19 with single-track presence.
+
+### Acceptance tests (per sub-phase — gating before merge)
+
+Each sub-phase ships these tests as part of its PR. Tests are the spec's contract: an agent picking up a sub-phase reads this list and knows when they're done.
+
+**Phase 22.A — Roadmap canvas foundation**
+- **T-A-1 — Anchor auto-injection.** Parse a `roadmap.md` with N headlines and zero anchors; assert N anchors injected on first parse, persisted to disk, and stable across re-parse.
+- **T-A-2 — Anchor split rule (deterministic).** Fixture: split node "Foo" into "Foo prime" + "Bar." Assert anchor stays on "Foo prime" (higher similarity). Second fixture: split into "Alpha" + "Beta" (both diverge). Assert anchor follows the first headline in file order. Re-running the parse on the same input produces the same anchor placement.
+- **T-A-3 — Done-shipped IPC enforcement.** Call `cmd_set_node_status(node, Done)` with no `NodeShipment`; assert `Err(ApplyFailed { reason: "node has no shipment recorded" })`. With a `NodeShipment` recorded first, the same call succeeds.
+- **T-A-4 — `Track.state → NodeStatus` projection.** Fixtures for each Track.state: assert correct projected NodeStatus. Specifically Merged-without-shipment → InReview (not Done); Merged-with-shipment → Done; Archived-without-merge → Canceled; Archived-after-merge → Done sticks.
+- **T-A-5 — Multi-claim status precedence.** Fixture: two tracks claim node X; track A is Active, track B is Merged with shipment. Assert node projects InReview (one claim unshipped — all-must-ship). Then ship track A; assert node projects Done.
+- **T-A-6 — Multi-claim ordering determinism.** Fixture: 4 claims with mixed `claimed_at` and `team_id`. Assert stacked-label order is sorted by `claimed_at` asc, ties by `team_id` lexicographic. Replay the event log; assert identical order.
+- **T-A-7 — Authored-Done-without-shipment demotion.** `roadmap.md` authors a node as Done with no shipment recorded. Assert projection emits InReview and the "Done = shipped" tooltip is rendered.
+- **T-A-8 — Performance contract.** Fixture: `crates/designer-core/tests/fixtures/roadmap_64k.md` (deterministic, ~64 K). Assert parse < 100 ms in Web Worker; first paint < 200 ms; presence update on a single-claim event < 16 ms.
+- **T-A-9 — Malformed roadmap graceful degrade.** Fixture: `roadmap.md` with broken markdown. Assert canvas renders parse-error state with *Open in editor* button; pills, claims, attention column suppress until parse succeeds.
+- **T-A-10 — Reduced-motion fallbacks.** With `prefers-reduced-motion: reduce`: assert pulses are static (computed style); conic-arc transitions instant; expand/collapse instant. Verified by Mini's `audit-a11y` skill.
+
+**Phase 22.B — Recent Reports**
+- **T-B-1 — `summary_high` migration safety.** Fixture: existing report artifact (Phase 13.F shape) with no `summary_high` field. Assert Recent Reports renders the report using `summary` fallback; no crash, no blank card.
+- **T-B-2 — Read-state advance (implicit).** Write 5 reports (seq 100–104). Click-expand on report 102. Assert `read_seq_by_project` advances to 102; unread count is 2 (103, 104).
+- **T-B-3 — Read-state advance (explicit Mark all read).** Click *Mark all read*. Assert `read_seq_by_project` advances to head (104); unread count is 0; section header reads "All caught up."
+- **T-B-4 — Importance ordering.** Fixture with mixed Feature/Fix/Improvement/Reverted reports across last 30 days. Assert Feature outranks Fix outranks Improvement; recent outranks older; large-scope outranks small-scope.
+- **T-B-5 — Two-step disclosure.** Click on inline summary expands the report inline. Click *Open in tab* creates a tab. Hovering inline summary does **not** open a popover (the hover step from the original spec was dropped).
+
+**Phase 22.G — Color system**
+- **T-G-1 — AA contrast across all combinations.** For all 16 hues × {light, dark} × {text-on-tint, dot-on-surface}: assert WCAG AA pass (4.5:1 for text, 3:1 for UI elements). Automated as a Mini invariant in `tools/invariants/check.mjs`.
+- **T-G-2 — Token namespacing.** Assert `--team-1`..`--team-16` exist; `--accent-*` tokens remain bound to monochrome `--gray-*`; no `--accent-team-*` token exists.
+- **T-G-3 — Sub-row tint visibility.** Assert `--team-tint-light` ≥ 7% alpha and `--team-tint-dark` ≥ 10% alpha. Render against light + dark surfaces; assert tint is perceptible (≥ 1.05:1 contrast against surface) without breaking text contrast.
+- **T-G-4 — Pulse rate incommensurability.** Assign 10 random teams pulse rates from the 1.4–2.0 s pool; assert no two are equal; assert the pairwise GCD-based phase-coincidence interval is > 100 s (no visible sync within typical viewing).
+- **T-G-5 — Reduced-motion → static dot.** Assert a team dot with `prefers-reduced-motion: reduce` has no animation in computed style.
+
+**Phase 22.I — Track completion + shipping history**
+- **T-I-1 — `Track::Merged` → claim cleanup + shipment record.** Emit `Track::Merged` for a claimed node; assert `node_to_claimants` drops the claim; `node_to_shipments` gains a `NodeShipment`. Both happen atomically (assert via projection state at single seq).
+- **T-I-2 — Shipped here badge.** Render a node with one shipment; assert "Shipped here" pill renders below the headline; hover expands to show team identity + PR URL.
+- **T-I-3 — Shipping history persists across replay.** Replay the event log; assert `node_to_shipments` rebuilds identical `NodeShipment` records in the same order.
+
+**Phase 22.D — Edit & proposal flow**
+- **T-D-1 — Conflict surfacing.** Two agents emit `roadmap-edit-proposal` against the same node within 5 minutes. Assert both render as alternatives in the inbox; accepting one auto-rejects the other (`RoadmapEditSuperseded`).
+- **T-D-2 — Direct user edit invalidates pending proposal.** With a pending proposal on node X, user direct-edits node X via *Open in editor* + save. Assert the proposal flips to Rejected with reason "user edited the node directly."
+- **T-D-3 — Idempotent accept.** Accept the same `completion-claim` twice (double-click retry). Assert exactly one `NodeStatusChanged` event emitted; second acceptance is a no-op.
+- **T-D-4 — Autonomy gradient.** Under Suggest: status-update proposals require accept. Under Act: status-update proposals auto-apply; structural proposals (add/rename/restructure/remove) still require accept. Under Auto: status + add + rename auto-apply; restructure/remove still require accept.
+
+**Phase 22.E — Adjacent attention column**
+- **T-E-1 — Per-kind derivation correctness.** For each of the 5 kinds: feed source event into `from_source(...)`; assert title + body_summary + action labels match the table in the spec.
+- **T-E-2 — Bounding enforced.** Pass title > 80 chars; assert truncated to 80 with ellipsis. Pass body > 240 chars; assert truncated to 240; full body opens via drawer click.
+- **T-E-3 — Workspace archival cleanup.** Open AttentionItems exist for workspace W. Archive W. Assert all open items resolve with `WorkspaceArchived`; column re-renders without them.
+- **T-E-4 — Snappy fill (no spring).** Click Approve; assert button transitions over `--motion-emphasized` (400 ms ease-out fill, no scale transform). Computed style verifies no `transform: scale()` keyframes.
+- **T-E-5 — Reduced-motion fallback.** With `prefers-reduced-motion: reduce`: assert fill is instant (no transition); card removal is instant (no slide-out).
+- **T-E-6 — Empty state.** Empty `workspace_to_attention_items`; assert "All clear" copy renders.
+
+**Phase 22.H — Click-into-agent**
+- **T-H-1 — Sub-agent claim derivation.** Watcher emits a task with body containing `<!-- anchor: foo.bar.baz -->`. Assert the projection updates the assigned teammate's claim to the node with anchor `foo.bar.baz`.
+- **T-H-2 — Pill click opens filtered thread.** Click sub-agent pill; assert a tab opens rendering `WorkspaceThread` filtered by that agent's role; URL hash includes the filter.
+
+**Phase 22.C — Roadmap origination**
+- **T-C-1 — Empty state copy + paste path.** With no `roadmap.md`: empty state renders with the lead-with-purpose copy; *Paste a draft* opens `AppDialog`; submitting writes to `core-docs/roadmap.md` and commits silently per Decision 18.
+- **T-C-2 — Malformed paste degrades, doesn't crash.** Paste markdown that fails the parser; assert error state with *Open in editor*; surface degrades; no toast spam.
+
+These tests are the gate. PR review for each sub-phase asserts every test in its block passes before merge. Tests live alongside the implementation: Rust tests in `crates/designer-core/tests/` or `apps/desktop/src-tauri/src/`; frontend tests in `packages/app/src/__tests__/`; perf fixtures in `crates/designer-core/tests/fixtures/`.
+
+---
+
 ## Milestones (summary)
 
 | Milestone | Phases | Parallel? | State |
@@ -1760,6 +2185,7 @@ Every event carries an explicit `schema_version` discriminator. Proposal diffs a
 | Workspace scales up (multi-track, forking) | 19 | After 13 + 16; parts pullable into 15 | Pending |
 | Parallel-work coordination layer | 20 | After 13 + 19 substantially complete | Pending |
 | Learning layer (local-model workflow proposals) | 21 | After 13.D + 13.F; independent of 14/16/18/19/20 | Pending |
+| Project Home redesign (Recent Reports / Roadmap / Designer Noticed) | 22.G + 22.B + 22.A + 22.I + 22.D + 22.E + 22.H + 22.C | Sub-phases independently shippable; 22.G + 22.B + 22.A + 22.I as recommended first slice; 22.F satisfied by 21; Linear (was 22.J/K) and five-category re-skin cut from v1; 22.L delivered with Phase 20 | Pending — 22.G pullable into Phase 15 polish |
 
 ---
 

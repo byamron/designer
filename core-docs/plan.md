@@ -110,6 +110,7 @@ Surfaced by the four-perspective review of #28–#34 (2026-04-27). Lane 1 landed
 - Phase 20 — Parallel-work coordination *(needs Phase 19 primitives + real "we tried to coordinate N tracks by hand" pain)*
 - Phase 21 — Phase B (LocalOps synthesis + quality gate; needs 13.F real-binary validation on AI-capable Mac first)
 - Phase 21 — Project-side proposal-acceptance UI *(after Phase B + enough A-tier findings to design against real data)*
+- **Phase 22 — Project Home redesign.** Three-surface Home tab (Recent Reports / Roadmap / Designer Noticed) per `roadmap.md` § Phase 22. Sub-phases independently shippable; recommended first slice is **22.G** (color system / axiom #3 amendment — pullable into a Phase 15.x polish bite) → **22.B** (Recent Reports — single high-level voice + read-state projection, no `ReportRead` events) → **22.A** (Roadmap canvas foundation — parser + node/claim/shipment data model + renderer + `Track.state → NodeStatus` projection + Done-shipped IPC enforcement) → **22.I** (shipping history + "Shipped here" badges). Edit/attention infra (22.D + 22.E) defers until canvas dogfood signal motivates it. **Phase F (Designer Noticed) is satisfied by Phase 21** — do not duplicate; the spec's five-category re-skin is deferred until proposal volume motivates grouping. **Cut from v1 entirely: Linear integration** (interop ≠ moat — revisit only on explicit user signal). Promote 22.G to Lane 2 once a Phase-15-polish window opens; promote the rest after dogfood signal lands.
 
 ### Coordination notes for parallel agents
 
