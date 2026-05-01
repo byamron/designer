@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Pin } from "lucide-react";
 import {
   PANE_DEFAULT_WIDTH,
@@ -111,6 +111,51 @@ export function ActivitySpine() {
     [refreshArtifacts],
   );
 
+  // DP-B — chat references dispatch `designer:focus-artifact` when the user
+  // clicks an inline `→ Spec: …` style reference. The spine listens, scrolls
+  // the matching ArtifactRow into view, and applies a brief flash via
+  // data-flash="true" (cleared after the animation runs). Keys the flash
+  // by id so a second click on the same artifact re-arms the highlight.
+  // The clear-timeout is tracked in a ref so rapid re-fires cancel the
+  // pending clear (no piled-up timeouts), and unmount clears it too.
+  const rowRefs = useRef(new Map<string, HTMLLIElement>());
+  const flashTimerRef = useRef<number | null>(null);
+  const [flashId, setFlashId] = useState<string | null>(null);
+  useEffect(() => {
+    const onFocus = (ev: Event) => {
+      const id = (ev as CustomEvent<{ id?: string }>).detail?.id;
+      if (!id) return;
+      const row = rowRefs.current.get(id);
+      if (!row) return;
+      row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      // Cancel any prior pending clear so the timer count stays at 1.
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = null;
+      }
+      // Re-arm by clearing first, then setting on the next frame.
+      setFlashId(null);
+      window.requestAnimationFrame(() => setFlashId(id));
+      flashTimerRef.current = window.setTimeout(() => {
+        setFlashId((prev) => (prev === id ? null : prev));
+        flashTimerRef.current = null;
+      }, 1200);
+    };
+    window.addEventListener("designer:focus-artifact", onFocus);
+    return () => {
+      window.removeEventListener("designer:focus-artifact", onFocus);
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const setRowRef = useCallback((id: string, el: HTMLLIElement | null) => {
+    if (el) rowRefs.current.set(id, el);
+    else rowRefs.current.delete(id);
+  }, []);
+
   return (
     <aside
       className="app-spine"
@@ -180,6 +225,8 @@ export function ActivitySpine() {
                     key={a.id}
                     artifact={a}
                     onTogglePin={() => void togglePin(a)}
+                    flash={flashId === a.id}
+                    setRowRef={setRowRef}
                   />
                 ))}
               </ul>
@@ -201,21 +248,19 @@ export function ActivitySpine() {
                     key={a.id}
                     artifact={a}
                     onTogglePin={() => void togglePin(a)}
+                    flash={flashId === a.id}
+                    setRowRef={setRowRef}
                   />
                 ))}
               </ul>
             )}
           </div>
 
-          <div className="spine-section">
-            <span className="sidebar-label">Code files</span>
-            {/* TODO(13.E): wire a workspace-scoped file index — treat
-              * recently edited and currently-open files as first-class
-              * entries that open as tabs. Empty until then. */}
-            <p className="sidebar-empty">
-              No files tracked in this workspace yet.
-            </p>
-          </div>
+          {/* TODO(DP-C): un-hide the "Code files" spine section once the
+              workspace-scoped file index lands (TODO(13.E)). The empty-state
+              placeholder was misleading — exposing it without a real index
+              gave the impression the section was broken. Audit table:
+              core-docs/plan.md § Feature readiness. */}
 
           <div className="spine-section">
             <span className="sidebar-label">Agents</span>
@@ -310,9 +355,13 @@ function countState(rows: SpineRow[], state: SpineRow["state"]): number {
 function ArtifactRow({
   artifact,
   onTogglePin,
+  flash,
+  setRowRef,
 }: {
   artifact: ArtifactSummary;
   onTogglePin: () => void;
+  flash: boolean;
+  setRowRef: (id: string, el: HTMLLIElement | null) => void;
 }) {
   const label = artifact.title;
   // The summary is preserved in the tooltip — there's only room for one
@@ -322,7 +371,11 @@ function ArtifactRow({
     ? `${label} · ${artifact.summary}`
     : label;
   return (
-    <li className="spine-artifact">
+    <li
+      className="spine-artifact"
+      data-flash={flash || undefined}
+      ref={(el) => setRowRef(artifact.id, el)}
+    >
       <Tooltip label={tooltip}>
         <div className="spine-artifact__body">
           <FileText size={14} strokeWidth={1.5} aria-hidden="true" />

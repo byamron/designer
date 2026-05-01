@@ -26,10 +26,20 @@
       "icons/icon.png"
     ],
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "Developer ID Application: Benjamin Yamron (79F5LGBX74)",
+      "providerShortName": "79F5LGBX74"
     },
     "category": "DeveloperTool",
     "shortDescription": "Local-first AI product cockpit",
     "longDescription": "Designer orchestrates AI agents, design, and engineering from one local cockpit."
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/byamron/designer/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUyRjFCMEU3NDkyNTU0MjUKUldRbFZDVko1N0R4VW1jSGJ2Ymp2eWk2K0lyM21oeGJDbHRObnRNenNnSndLdUZnOVprcjVSaUkK"
+    }
   }
 }

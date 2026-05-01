@@ -1,101 +1,43 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
 import type { BlockProps } from "./registry";
 import { humanizeKind, humanizeRole } from "../util/humanize";
 import { formatRelativeTime } from "../util/time";
 import { ipcClient } from "../ipc/client";
 import type { StreamEvent } from "../ipc/types";
-import { PrototypePreview } from "../lab/PrototypePreview";
 
 /**
- * Block renderers — each artifact kind gets a classed component. Visual
- * tokens come exclusively from `app.css` (`.block__*`); renderers never
- * set inline styles or arbitrary colors. Speculative kinds whose payload
- * source isn't wired yet render from `artifact.summary` alone.
+ * Block renderers — DP-B (2026-04-30) pass-through pivot.
+ *
+ * Designer's chat is now pass-through Claude Code by default. Only two
+ * surfaces still earn custom card chrome:
+ *
+ *   • MessageBlock   — turns; the asymmetry (user bubble vs. agent flat)
+ *                      is the one piece of identity the chat needs.
+ *   • ApprovalBlock  — the must-intercept exception. Managers act here.
+ *
+ * Everything else is one of:
+ *
+ *   • ToolUseLine             — single-line `· Read src/foo.rs` register
+ *                               for tool-use reports (Read/Wrote/Edited/
+ *                               Searched/Ran/Used). Mirrors Claude Code
+ *                               CLI compactness; no card chrome.
+ *   • ArtifactReferenceBlock  — one-line clickable reference for rich
+ *                               artifacts (specs, PRs, code-changes,
+ *                               recap reports, prototypes, diagrams,
+ *                               etc.). Click → focuses the matching
+ *                               row in the ActivitySpine sidebar.
+ *
+ * Recap reports (`author_role === "recap"`) are rich artifacts and
+ * render as ArtifactReferenceBlock; tool-use reports render as
+ * ToolUseLine. The dispatcher lives in `ReportBlock` below.
  */
 
 // ---------------------------------------------------------------------------
-// Header (shared by all blocks)
-// ---------------------------------------------------------------------------
-
-function BlockHeader({
-  title,
-  authorRole,
-  kind,
-  isPinned,
-  onTogglePin,
-  onToggleExpanded,
-  expanded,
-  panelId,
-  pinnable = true,
-}: {
-  title: string;
-  authorRole: string | null;
-  kind: string;
-  isPinned: boolean;
-  onTogglePin: () => void;
-  onToggleExpanded?: () => void;
-  expanded?: boolean;
-  /** Id of the expandable panel this header controls. Required when
-   *  `onToggleExpanded` is provided so screen readers can map the
-   *  control to its target region. */
-  panelId?: string;
-  pinnable?: boolean;
-}) {
-  return (
-    <header className="block__header" data-component="BlockHeader">
-      <div className="block__header-row">
-        <span className="block__kind-badge" data-kind={kind}>
-          {humanizeKind(kind)}
-        </span>
-        <h3 className="block__title">{title}</h3>
-      </div>
-      <div className="block__actions">
-        {authorRole && <span className="block__author">{authorRole}</span>}
-        {onToggleExpanded && (
-          <button
-            type="button"
-            className="block__action"
-            onClick={onToggleExpanded}
-            aria-expanded={expanded}
-            aria-controls={panelId}
-          >
-            {expanded ? "Collapse" : "Expand"}
-          </button>
-        )}
-        {pinnable && (
-          // Stable verb keeps SR from double-announcing on toggle. The
-          // pressed state carries the on/off semantics; the label
-          // describes the action target ("Pin to rail").
-          <button
-            type="button"
-            className="block__action"
-            onClick={onTogglePin}
-            aria-pressed={isPinned}
-            aria-label="Pin to rail"
-          >
-            {isPinned ? "Pinned" : "Pin"}
-          </button>
-        )}
-      </div>
-    </header>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// MessageBlock — a single turn in the conversation.
+// MessageBlock — preserved verbatim from the prior pass.
 //
-// Asymmetric authorship is the canonical pattern (Claude, ChatGPT, Cursor,
-// Linear AI): user messages render as right-aligned bubbles ("I said
-// this") and agent messages render directly on the surface ("here's
-// the reply, no chrome"). The `data-author` attribute is the wire from
-// artifact role → CSS selector; without it both authorships look
-// identical (B4).
-//
-// Agent messages also carry a humanized role label and a relative
-// timestamp so the surface reads as a conversation with a named
-// teammate, not a dump of raw events. User messages keep the chrome
-// minimal — the bubble already differentiates them; a label would
-// double up.
+// Asymmetric authorship is the canonical chat pattern: user → right-aligned
+// bubble; agent → flat-on-surface prose. data-author wires role → CSS.
 // ---------------------------------------------------------------------------
 
 function isUserAuthor(role: string | null): boolean {
@@ -139,18 +81,9 @@ export function MessageBlock({ artifact }: BlockProps) {
 // ---------------------------------------------------------------------------
 // MessageProse — minimal markdown-ish renderer for chat messages.
 //
-// Real prose feels like a conversation. Plain `pre-wrap` text reads as a
-// wall. We support the ~5 inline formats agents actually emit: bold,
-// italic, inline code, line breaks, and bare URLs. Block-level markdown
-// (lists, headings, fences) is intentionally NOT handled here — those
-// land in their own artifact kinds (TaskListBlock, SpecBlock,
-// CodeChangeBlock) so the chat surface stays a chat surface, not a
-// markdown viewer. Same approach as Linear AI and Cursor.
-//
-// We hand-roll a tiny tokenizer instead of pulling react-markdown so
-// the bundle stays small and the parser doesn't surprise us with HTML
-// passthrough (which would be an XSS vector for any user-authored
-// message).
+// Inline only: bold, italic, inline code, line breaks, bare URLs. Block
+// constructs (lists, headings, fences) intentionally NOT handled — those
+// belong to richer artifact kinds, not the chat surface itself.
 // ---------------------------------------------------------------------------
 const INLINE_PATTERN =
   /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|https?:\/\/[^\s)]+)/g;
@@ -164,7 +97,6 @@ function MessageProse({ text }: { text: string }) {
         const segments: React.ReactNode[] = [];
         let lastIdx = 0;
         let match: RegExpExecArray | null;
-        // Reset for each line so the regex iterates from the start.
         INLINE_PATTERN.lastIndex = 0;
         while ((match = INLINE_PATTERN.exec(line)) !== null) {
           if (match.index > lastIdx) {
@@ -206,98 +138,126 @@ function MessageProse({ text }: { text: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// SpecBlock — markdown spec, collapsible, pinnable.
+// ToolUseLine — terse single-line render for tool-use reports.
+//
+// Format: `· Read src/foo.rs` (subtle dot, monospace target). Click to
+// expand a single detail line beneath if the artifact carries an
+// inline payload. Mirrors Claude Code CLI's compact tool rendering.
 // ---------------------------------------------------------------------------
 
-export function SpecBlock(props: BlockProps) {
-  const { artifact, payload, expanded, onToggleExpanded, isPinned, onTogglePin } = props;
-  const body = payload?.kind === "inline" ? payload.body : artifact.summary;
-  const panelId = useId();
+const TOOL_USE_TITLE_PREFIXES = [
+  "Used ",
+  "Read ",
+  "Wrote ",
+  "Writing ",
+  "Edited ",
+  "Editing ",
+  "Searched ",
+  "Searching ",
+  "Ran ",
+  "Running ",
+];
+
+function isToolUseReport(artifact: BlockProps["artifact"]): boolean {
+  if (artifact.kind !== "report") return false;
+  if (artifact.author_role === "recap") return false;
+  if (artifact.author_role === "auditor") return false;
+  return TOOL_USE_TITLE_PREFIXES.some((p) => artifact.title.startsWith(p));
+}
+
+export function ToolUseLine({ artifact }: BlockProps) {
+  const [expanded, setExpanded] = useState(false);
+  const showSummary =
+    artifact.summary && artifact.summary !== artifact.title;
   return (
-    <article className="block block--spec" data-component="SpecBlock">
-      <BlockHeader
-        title={artifact.title}
-        authorRole={artifact.author_role}
-        kind={artifact.kind}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        onToggleExpanded={onToggleExpanded}
-        expanded={expanded}
-        panelId={panelId}
-      />
-      {expanded ? (
-        <pre id={panelId} className="block__prose">{body}</pre>
-      ) : (
-        <p className="block__summary">{artifact.summary}</p>
+    <div
+      className="tool-line"
+      data-component="ToolUseLine"
+      data-expanded={expanded}
+    >
+      <button
+        type="button"
+        className="tool-line__head"
+        aria-expanded={showSummary ? expanded : undefined}
+        onClick={showSummary ? () => setExpanded((v) => !v) : undefined}
+      >
+        <span className="tool-line__dot" aria-hidden="true">
+          ·
+        </span>
+        <span className="tool-line__title">{artifact.title}</span>
+        {showSummary && !expanded && (
+          <span className="tool-line__detail">{artifact.summary}</span>
+        )}
+      </button>
+      {showSummary && expanded && (
+        <p className="tool-line__detail tool-line__detail--expanded">
+          {artifact.summary}
+        </p>
       )}
-    </article>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// CodeChangeBlock — semantic summary + file list.
+// ArtifactReferenceBlock — one-line reference into the sidebar.
+//
+// Replaces what used to be SpecBlock, PrBlock, CodeChangeBlock,
+// PrototypeBlock, DiagramBlock, VariantBlock, TaskListBlock,
+// TrackRollupBlock, and recap-flavored ReportBlock. Click → dispatches
+// `designer:focus-artifact`; ActivitySpine listens, scrolls the matching
+// row into view, and flashes it briefly.
 // ---------------------------------------------------------------------------
 
-export function CodeChangeBlock(props: BlockProps) {
-  const { artifact, payload, expanded, onToggleExpanded, isPinned, onTogglePin } = props;
-  const files =
-    payload?.kind === "inline"
-      ? payload.body.split("\n").filter((s) => s.trim().length > 0)
-      : [];
-  const panelId = useId();
+export function ArtifactReferenceBlock({ artifact }: BlockProps) {
+  const onClick = () => {
+    window.dispatchEvent(
+      new CustomEvent("designer:focus-artifact", {
+        detail: { id: artifact.id },
+      }),
+    );
+  };
   return (
-    <article className="block block--code-change" data-component="CodeChangeBlock">
-      <BlockHeader
-        title={artifact.title}
-        authorRole={artifact.author_role}
-        kind={artifact.kind}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        onToggleExpanded={onToggleExpanded}
-        expanded={expanded}
-        panelId={panelId}
+    <button
+      type="button"
+      className="artifact-ref"
+      data-component="ArtifactReferenceBlock"
+      data-kind={artifact.kind}
+      onClick={onClick}
+      aria-label={`Open ${humanizeKind(artifact.kind)} ${artifact.title} in the sidebar`}
+    >
+      <ArrowRight
+        size={14}
+        strokeWidth={1.5}
+        className="artifact-ref__arrow"
+        aria-hidden="true"
       />
-      <p className="block__summary">{artifact.summary}</p>
-      {expanded && files.length > 0 && (
-        <ul id={panelId} className="block__file-list" aria-label="Files in this change">
-          {files.map((f) => (
-            <li key={f} className="block__file">
-              {f}
-            </li>
-          ))}
-        </ul>
-      )}
-    </article>
+      <span className="artifact-ref__kind">{humanizeKind(artifact.kind)}</span>
+      <span className="artifact-ref__title">{artifact.title}</span>
+    </button>
   );
 }
 
 // ---------------------------------------------------------------------------
-// PrBlock — status card.
+// ReportBlock — dispatcher.
+//
+// `report` covers two distinct artifact lineages:
+//   - tool-use reports (titles start with Used/Read/Wrote/...) → terse line
+//   - recap / auditor / freeform reports → sidebar reference
+// One registered renderer; routes by content.
 // ---------------------------------------------------------------------------
 
-export function PrBlock({ artifact, isPinned, onTogglePin, payload }: BlockProps) {
-  const url = payload?.kind === "inline" ? payload.body.trim() : null;
-  return (
-    <article className="block block--pr" data-component="PrBlock">
-      <BlockHeader
-        title={artifact.title}
-        authorRole={artifact.author_role}
-        kind={artifact.kind}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-      />
-      <p className="block__summary">{artifact.summary}</p>
-      {url && (
-        <a className="block__link" href={url} target="_blank" rel="noreferrer">
-          Open on GitHub
-        </a>
-      )}
-    </article>
-  );
+export function ReportBlock(props: BlockProps) {
+  if (isToolUseReport(props.artifact)) {
+    return <ToolUseLine {...props} />;
+  }
+  return <ArtifactReferenceBlock {...props} />;
 }
 
 // ---------------------------------------------------------------------------
-// ApprovalBlock — grant/deny action surface.
+// ApprovalBlock — the one inline card that survives the pass-through pivot.
+//
+// Approvals are the manager's actionable surface; they earn the chrome.
+// Header is now inlined (no shared BlockHeader dependency).
 // ---------------------------------------------------------------------------
 
 type ApprovalResolution = "pending" | "granted" | "denied";
@@ -319,14 +279,12 @@ function parseApprovalPayload(body: string): ApprovalPayload {
   return {};
 }
 
-export function ApprovalBlock({ artifact, payload, isPinned, onTogglePin }: BlockProps) {
+export function ApprovalBlock({ artifact, payload }: BlockProps) {
   const inline =
     payload?.kind === "inline" ? parseApprovalPayload(payload.body) : {};
   const approvalId = inline.approval_id ?? null;
   const [resolution, setResolution] = useState<ApprovalResolution>("pending");
   const [busy, setBusy] = useState(false);
-  // After resolve, focus the resolution status so screen readers and
-  // keyboard users land on the new state instead of nowhere.
   const resolvedRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (resolution !== "pending") {
@@ -334,9 +292,6 @@ export function ApprovalBlock({ artifact, payload, isPinned, onTogglePin }: Bloc
     }
   }, [resolution]);
 
-  // Subscribe to the event stream — projector becomes truth. If the block
-  // mounts after a `cmd_resolve_approval` round-trip lands (e.g. the user
-  // reloads), we still flip to the resolved state via the event.
   useEffect(() => {
     if (!approvalId) return;
     const unsubscribe = ipcClient().stream((ev: StreamEvent) => {
@@ -351,16 +306,12 @@ export function ApprovalBlock({ artifact, payload, isPinned, onTogglePin }: Bloc
 
   const resolve = async (granted: boolean) => {
     if (busy || !approvalId) return;
-    // Optimistic flip — the event-stream listener above will confirm or
-    // (in the unlikely case of a server-side reject) re-set on a follow-up.
     const optimistic: ApprovalResolution = granted ? "granted" : "denied";
     setResolution(optimistic);
     setBusy(true);
     try {
       await ipcClient().resolveApproval(approvalId, granted);
     } catch {
-      // Rolling back the optimistic state surfaces the failure clearly;
-      // the user can retry. The block stays interactive.
       setResolution("pending");
       setBusy(false);
     }
@@ -374,14 +325,12 @@ export function ApprovalBlock({ artifact, payload, isPinned, onTogglePin }: Bloc
       aria-label={`Approval: ${artifact.title}`}
       aria-busy={busy || undefined}
     >
-      <BlockHeader
-        title={artifact.title}
-        authorRole={artifact.author_role}
-        kind={artifact.kind}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        pinnable={false}
-      />
+      <header className="block__header-row">
+        <span className="block__kind-badge" data-kind={artifact.kind}>
+          {humanizeKind(artifact.kind)}
+        </span>
+        <h3 className="block__title">{artifact.title}</h3>
+      </header>
       <p className="block__summary">{artifact.summary}</p>
       {resolution === "pending" ? (
         <div className="block__approval-actions">
@@ -424,7 +373,7 @@ export function CommentBlock({ artifact }: BlockProps) {
   return (
     <article className="block block--comment" data-component="CommentBlock">
       <div className="block__comment-author">
-        {artifact.author_role ?? "user"}
+        {humanizeRole(artifact.author_role)}
       </div>
       <div className="block__comment-body">{artifact.summary}</div>
     </article>
@@ -432,161 +381,11 @@ export function CommentBlock({ artifact }: BlockProps) {
 }
 
 // ---------------------------------------------------------------------------
-// TaskListBlock — checklist.
-// ---------------------------------------------------------------------------
-
-export function TaskListBlock(props: BlockProps) {
-  const { artifact, payload, expanded, onToggleExpanded, isPinned, onTogglePin } = props;
-  const lines =
-    payload?.kind === "inline"
-      ? payload.body.split("\n").filter((s) => s.trim().length > 0)
-      : [];
-  const panelId = useId();
-  return (
-    <article className="block block--task-list">
-      <BlockHeader
-        title={artifact.title}
-        authorRole={artifact.author_role}
-        kind={artifact.kind}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        onToggleExpanded={onToggleExpanded}
-        expanded={expanded}
-        panelId={panelId}
-      />
-      <p className="block__summary">{artifact.summary}</p>
-      {expanded && (
-        <ul id={panelId} className="block__task-items">
-          {lines.map((l, i) => (
-            <li key={i} className="block__task-item">
-              <input type="checkbox" className="block__task-check" readOnly />
-              <span>{l.replace(/^[-*]\s*/, "")}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </article>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Speculative / stub renderers — kinds whose backend isn't emitting yet.
-// Each is a real registered renderer that cleanly shows what's available
-// (title + summary) until Phase 13.D/E/F/G wires the data source.
-// ---------------------------------------------------------------------------
-
-export function ReportBlock(props: BlockProps) {
-  const { artifact, payload, expanded, onToggleExpanded, isPinned, onTogglePin } = props;
-  const body = payload?.kind === "inline" ? payload.body : null;
-  const panelId = useId();
-  const expandable = Boolean(body);
-  return (
-    <article className="block block--report" data-component="ReportBlock">
-      <BlockHeader
-        title={artifact.title}
-        authorRole={artifact.author_role}
-        kind={artifact.kind}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        onToggleExpanded={expandable ? onToggleExpanded : undefined}
-        expanded={expanded}
-        panelId={expandable ? panelId : undefined}
-      />
-      <p className="block__summary">{artifact.summary}</p>
-      {expandable && expanded ? (
-        <pre id={panelId} className="block__prose">
-          {body}
-        </pre>
-      ) : null}
-    </article>
-  );
-}
-
-export function PrototypeBlock(props: BlockProps) {
-  const html = props.payload?.kind === "inline" ? props.payload.body : null;
-  return (
-    <article className="block block--prototype" data-component="PrototypeBlock">
-      <BlockHeader
-        title={props.artifact.title}
-        authorRole={props.artifact.author_role}
-        kind={props.artifact.kind}
-        isPinned={props.isPinned}
-        onTogglePin={props.onTogglePin}
-      />
-      <p className="block__summary">{props.artifact.summary}</p>
-      {html ? (
-        <PrototypePreview inlineHtml={html} title={props.artifact.title} />
-      ) : (
-        <div className="block__prototype-placeholder" role="presentation">
-          Prototype preview pending payload.
-        </div>
-      )}
-    </article>
-  );
-}
-
-export function DiagramBlock(props: BlockProps) {
-  return (
-    <article className="block block--diagram" data-component="DiagramBlock">
-      <BlockHeader
-        title={props.artifact.title}
-        authorRole={props.artifact.author_role}
-        kind={props.artifact.kind}
-        isPinned={props.isPinned}
-        onTogglePin={props.onTogglePin}
-      />
-      <p className="block__summary">{props.artifact.summary}</p>
-    </article>
-  );
-}
-
-export function VariantBlock(props: BlockProps) {
-  return (
-    <article className="block block--variant">
-      <BlockHeader
-        title={props.artifact.title}
-        authorRole={props.artifact.author_role}
-        kind={props.artifact.kind}
-        isPinned={props.isPinned}
-        onTogglePin={props.onTogglePin}
-      />
-      <p className="block__summary">{props.artifact.summary}</p>
-    </article>
-  );
-}
-
-export function TrackRollupBlock(props: BlockProps) {
-  return (
-    <article className="block block--track-rollup">
-      <BlockHeader
-        title={props.artifact.title}
-        authorRole={props.artifact.author_role}
-        kind={props.artifact.kind}
-        isPinned={props.isPinned}
-        onTogglePin={props.onTogglePin}
-        onToggleExpanded={props.onToggleExpanded}
-        expanded={props.expanded}
-      />
-      <p className="block__summary">{props.artifact.summary}</p>
-    </article>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Generic fallback — unknown kinds never crash the thread.
+// GenericBlock — fallback for unknown kinds. Same compact one-liner as
+// ArtifactReferenceBlock, so unknown kinds never crash the thread or
+// introduce mystery card chrome.
 // ---------------------------------------------------------------------------
 
 export function GenericBlock(props: BlockProps) {
-  return (
-    <article className="block block--generic">
-      <BlockHeader
-        title={props.artifact.title}
-        authorRole={props.artifact.author_role}
-        kind={props.artifact.kind}
-        isPinned={props.isPinned}
-        onTogglePin={props.onTogglePin}
-      />
-      <p className="block__summary">{props.artifact.summary}</p>
-    </article>
-  );
+  return <ArtifactReferenceBlock {...props} />;
 }

@@ -61,6 +61,8 @@ function makeClient() {
       }),
     getCostChipPreference: () => Promise.resolve({ enabled: false }),
     setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
+    getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
+    setFeatureFlag: (_name, enabled) => Promise.resolve({ show_models_section: enabled }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
     listFriction: () => Promise.resolve([]),

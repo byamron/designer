@@ -91,14 +91,19 @@
  * from the same author (those read as one continued turn); wider
  * default gap when the author switches (those read as a turn-taking
  * boundary). The thread's parent `gap` is the wide value; same-author
- * runs pull up via negative top margin. Tool-call groups attached to
- * an agent message read as the agent's working notes, so they tighten
- * the same way. */
+ * runs pull up via negative top margin. Tool-use lines and artifact
+ * references attached to an agent message read as the agent's working
+ * notes, so they tighten the same way. */
 .block--message[data-author="you"] + .block--message[data-author="you"],
 .block--message[data-author="agent"] + .block--message[data-author="agent"],
-.block--message[data-author="agent"] + .tool-group,
-.tool-group + .block--message[data-author="agent"],
-.tool-group + .tool-group {
+.block--message[data-author="agent"] + .tool-line,
+.block--message[data-author="agent"] + .artifact-ref,
+.tool-line + .block--message[data-author="agent"],
+.artifact-ref + .block--message[data-author="agent"],
+.tool-line + .tool-line,
+.artifact-ref + .artifact-ref,
+.tool-line + .artifact-ref,
+.artifact-ref + .tool-line {
   margin-top: calc(-1 * var(--space-2));
 }
 
@@ -159,28 +164,91 @@
   .thread__jump-latest:hover { transform: translateX(-50%); }
 }
 
-/* --- tool-call group (B5) ---------------------------------------------
- * A run of consecutive `report` artifacts collapses into a single
- * disclosure row. The collapsed register is one thin line: chevron +
- * tool icon + "Used N tools" + a comma-separated verb list. Expanded,
- * it's a flat list of single-line tool rows — no card chrome — so the
- * surface stays calm even during a long tool sequence. */
-.tool-group {
+/* --- tool-use line (DP-B) ---------------------------------------------
+ * One line per tool call — `· Read src/foo.rs` register. No coalescing,
+ * no disclosure header — each report artifact gets its own thin line.
+ * Mirrors Claude Code CLI's compact tool rendering. Click expands to
+ * a single detail line beneath when the artifact carries an inline
+ * payload distinct from its title. */
+.tool-line {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  align-self: stretch;
+  max-width: min(48rem, 100%);
 }
 
-.tool-group__head {
+.tool-line__head {
   appearance: none;
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
-  /* `--space-2 --space-3` (4 × 8) keeps the row dense as a footnote
-   * but lifts the click target to ~28 px high — comfortable on
-   * trackpad without breaking the calm-by-default rhythm of the
-   * thread. */
-  padding: var(--space-2) var(--space-3);
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  cursor: default;
+  text-align: left;
+  transition: color var(--motion-interactive);
+}
+
+.tool-line__head[aria-expanded] {
+  cursor: pointer;
+}
+
+.tool-line__head[aria-expanded]:hover {
+  color: var(--color-foreground);
+}
+
+.tool-line__head:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-button);
+}
+
+.tool-line__dot {
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  flex-shrink: 0;
+}
+
+.tool-line__title {
+  color: var(--color-foreground);
+  font-family: var(--type-family-mono);
+  flex-shrink: 0;
+}
+
+.tool-line__detail {
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-line__detail--expanded {
+  margin: 0;
+  padding-left: calc(var(--space-2) + 1ch);
+  white-space: pre-wrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* --- artifact reference (DP-B) ----------------------------------------
+ * One-line clickable reference into the sidebar Artifacts list. Replaces
+ * the inline cards that used to render specs / PRs / code-changes /
+ * recap reports / prototypes / etc. Click → focuses the matching
+ * ActivitySpine row. */
+.artifact-ref {
+  appearance: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   background: transparent;
   border: none;
   border-radius: var(--radius-button);
@@ -190,77 +258,51 @@
   line-height: var(--type-caption-leading);
   cursor: pointer;
   text-align: left;
+  align-self: stretch;
+  max-width: min(48rem, 100%);
   transition: color var(--motion-interactive),
     background var(--motion-interactive);
 }
 
-.tool-group__head:hover {
+.artifact-ref:hover {
   color: var(--color-foreground);
   background: var(--color-surface-hover);
 }
 
-.tool-group__head:focus-visible {
+.artifact-ref:focus-visible {
   outline: var(--focus-outline-width) solid var(--focus-outline-color);
   outline-offset: var(--focus-outline-offset);
 }
 
-.tool-group__chevron {
+.artifact-ref__arrow {
   flex-shrink: 0;
-  transition: transform var(--motion-interactive);
+  color: var(--color-muted);
+  transition: color var(--motion-interactive),
+    transform var(--motion-interactive);
 }
 
-.tool-group[data-expanded="true"] .tool-group__chevron {
-  transform: rotate(90deg);
+.artifact-ref:hover .artifact-ref__arrow {
+  color: var(--color-foreground);
+  transform: translateX(var(--space-1));
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tool-group__chevron { transition: none; }
+  .artifact-ref__arrow { transition: none; }
+  .artifact-ref:hover .artifact-ref__arrow { transform: none; }
 }
 
-.tool-group__icon {
-  flex-shrink: 0;
-}
-
-.tool-group__count {
-  font-weight: var(--weight-medium);
-  color: var(--color-foreground);
-  flex-shrink: 0;
-}
-
-.tool-group__verbs {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-muted);
-}
-
-.tool-group__list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 0 var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.tool-group__row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
+.artifact-ref__kind {
   font-size: var(--type-caption-size);
-  line-height: var(--type-caption-leading);
-}
-
-.tool-group__row-title {
-  color: var(--color-foreground);
-  font-family: var(--type-family-mono);
+  font-weight: var(--weight-medium);
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   flex-shrink: 0;
 }
 
-.tool-group__row-summary {
-  color: var(--color-muted);
+.artifact-ref__title {
+  color: var(--color-foreground);
+  font-weight: var(--weight-medium);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -721,6 +763,23 @@
 
 .spine-artifact:hover {
   background: var(--color-surface-raised);
+}
+
+/* DP-B — flash an ArtifactRow when an inline chat reference targets it.
+ * The data attribute is set briefly by the parent component when a
+ * `designer:focus-artifact` event lands; CSS owns the duration via
+ * --motion-standard so a future token tune doesn't require code edits. */
+.spine-artifact[data-flash="true"] {
+  animation: spine-artifact-flash var(--motion-standard) ease-out 1;
+}
+
+@keyframes spine-artifact-flash {
+  0%, 100% { background: transparent; }
+  35%      { background: var(--color-surface-hover); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spine-artifact[data-flash="true"] { animation: none; }
 }
 
 .spine-artifact__body {

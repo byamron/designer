@@ -11,6 +11,7 @@ import { Titlebar } from "./components/Titlebar";
 import { FrictionButton } from "./components/Friction/FrictionButton";
 import { SelectionOverlay } from "./components/Friction/SelectionOverlay";
 import { FrictionWidget } from "./components/Friction/FrictionWidget";
+import { UpdatePrompt } from "./components/UpdatePrompt";
 import { bootData, dataStore, useDataState } from "./store/data";
 import {
   appStore,
@@ -98,6 +99,7 @@ export function App() {
           <FrictionButton />
           <SelectionOverlay />
           <FrictionWidget />
+          <UpdatePrompt />
           {isDev && <SurfaceDevPanel />}
           {isDev && <Agentation />}
         </>

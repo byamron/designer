@@ -1,64 +1,74 @@
 # Packaging, Signing, Notarizing
 
-Designer ships as a signed and notarized `.dmg` for macOS. This document
-captures the ship pipeline; it is intentionally manual until the first
-shippable build lands.
+Designer ships as a signed and notarized `.dmg` for macOS. The release
+pipeline is automated via GitHub Actions
+(`.github/workflows/release.yml`) — push a `v*` tag to trigger a build,
+sign, notarize, sign-the-updater, and publish-to-Releases run.
 
-## Prerequisites
-
-- Apple Developer account.
-- Developer ID Application certificate installed in the macOS keychain.
-- An app-specific password for `notarytool` uploads.
-- `tauri` CLI (`cargo install tauri-cli`) and Rust stable.
-
-## Build the app
+## Triggering a release
 
 ```sh
-# 1. Frontend assets
+# From a clean main branch:
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions runs the `release.yml` workflow:
+
+1. Builds on `macos-latest` against the `aarch64-apple-darwin` target.
+2. `tauri-action` imports the Apple `.p12` into a temporary keychain,
+   signs every binary in the bundle with `Developer ID Application: …`,
+   and produces both `.app` and `.dmg` artifacts.
+3. `notarytool` uploads the `.dmg` to Apple, polls for acceptance, and
+   staples the ticket on success.
+4. The Tauri updater minisign keypair signs the updater bundle
+   (`.app.tar.gz`) and the `latest.json` manifest the running app
+   verifies.
+5. All artifacts upload to a fresh GitHub Release tagged `v0.1.0`.
+
+The running Designer instance reads
+`https://github.com/byamron/designer/releases/latest/download/latest.json`
+on launch (frontend `UpdatePrompt` calls the updater plugin's `check()`).
+On update found, the user is prompted; the update is never applied
+silently.
+
+## Required GitHub secrets
+
+Both Apple credentials and Tauri updater credentials live as GitHub
+Actions repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Source |
+|---|---|
+| `APPLE_CERTIFICATE` | `base64 -i developer-id.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | password set during `.p12` export |
+| `APPLE_SIGNING_IDENTITY` | full identity string (e.g. `Developer ID Application: Benjamin Yamron (79F5LGBX74)`) |
+| `APPLE_TEAM_ID` | 10-char team ID |
+| `APPLE_API_KEY` | full contents of the App Store Connect `.p8` file |
+| `APPLE_API_KEY_ID` | 10-char Key ID |
+| `APPLE_API_ISSUER_ID` | UUID Issuer ID |
+| `TAURI_SIGNING_PRIVATE_KEY` | contents of `~/.tauri/designer-updater.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | empty for v0.1.0 (no passphrase set) |
+
+The Tauri updater public key lives in `tauri.conf.json` (`plugins.updater.pubkey`); the app verifies every update bundle's signature against it before applying. Lose the private key and you lose the ability to ship updates to existing installs — back up `~/.tauri/designer-updater.key` somewhere safe (1Password works well).
+
+## Manual build (rare)
+
+For local testing before tagging:
+
+```sh
+# Frontend assets
 npm run build
 
-# 2. Tauri bundle (outputs .app + .dmg into apps/desktop/src-tauri/target/)
+# Tauri bundle (outputs .app + .dmg into apps/desktop/src-tauri/target/)
+APPLE_SIGNING_IDENTITY="Developer ID Application: Benjamin Yamron (79F5LGBX74)" \
+TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/designer-updater.key)" \
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
 cargo tauri build --target aarch64-apple-darwin
 ```
 
-## Sign
-
-```sh
-export APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
-codesign --deep --force --options runtime \
-  --sign "$APPLE_SIGNING_IDENTITY" \
-  --entitlements apps/desktop/entitlements.plist \
-  "apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Designer.app"
-```
-
-## Notarize
-
-```sh
-xcrun notarytool submit \
-  "apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Designer.dmg" \
-  --apple-id "$APPLE_ID" \
-  --team-id "$TEAM_ID" \
-  --password "$APP_SPECIFIC_PASSWORD" \
-  --wait
-
-xcrun stapler staple \
-  "apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Designer.dmg"
-```
-
-## Auto-update
-
-The Tauri updater requires a versioned `latest.json` served over HTTPS with an
-Ed25519 signature. The pipeline:
-
-1. CI produces a signed `.dmg`.
-2. Post-release script updates `latest.json` with the new version, download URL,
-   SHA-256, and signature.
-3. Designer instances check that endpoint at launch + on user request.
-4. On update found, we prompt the user; the update is never applied silently.
-
-The signing key for updates lives in `~/.tauri/designer.key`. Rotate with
-care; rotating invalidates auto-update for older installs and requires a
-manual download of the new build.
+A locally-built `.app` is signed but not notarized; double-clicking it
+on a clean machine will trigger Gatekeeper. Right-click → Open once, or
+notarize manually via `xcrun notarytool submit`.
 
 ## Helper binary
 

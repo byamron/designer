@@ -69,6 +69,8 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
       }),
     getCostChipPreference: () => Promise.resolve({ enabled: false }),
     setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
+    getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
+    setFeatureFlag: (_name, enabled) => Promise.resolve({ show_models_section: enabled }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "f", local_path: "" }),
     listFriction: () => Promise.resolve([]),

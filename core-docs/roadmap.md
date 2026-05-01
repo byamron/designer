@@ -4,6 +4,8 @@ Backend-first phasing. Infrastructure, safety, orchestration, and local-model op
 
 This document sequences the work described in `spec.md`. It is the single source of truth for "what's next"; `plan.md` tracks near-term focus; `history.md` records what shipped. Security-specific work — threat model, invariants, and the 13.H / 16.S / 17.T tranches — lives in `security.md` and is referenced from the phase sections below.
 
+> **Current top priority (2026-04-30): Dogfood Push.** Three parallel lanes (DP-A distribution + auto-updater, DP-B chat pass-through, DP-C reliability audit + flag/hide) converge into a `v0.1.0` dogfood build, followed by a sequential UI bug sweep + Friction reliability check (DP-D). Detail and lane assignments live in `plan.md` § Dogfood Push. The phase sequence below resumes after the push lands.
+
 ---
 
 ## Principles

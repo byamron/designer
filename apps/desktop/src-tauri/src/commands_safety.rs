@@ -17,7 +17,7 @@
 
 use crate::core::AppCore;
 use crate::core_safety::{CostStatus, KeychainStatus, PendingApproval};
-use crate::settings::Settings;
+use crate::settings::{FeatureFlags, Settings};
 use designer_core::WorkspaceId;
 use designer_ipc::IpcError;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,22 @@ use tauri::State;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CostChipPreferences {
     pub enabled: bool,
+}
+
+/// DTO mirroring `FeatureFlags` for IPC boundary stability. Fields stay
+/// in lock-step with the Rust struct; adding a flag means updating both
+/// sides + the `cmd_set_feature_flag` match arm.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureFlagsResponse {
+    pub show_models_section: bool,
+}
+
+impl From<&FeatureFlags> for FeatureFlagsResponse {
+    fn from(f: &FeatureFlags) -> Self {
+        FeatureFlagsResponse {
+            show_models_section: f.show_models_section,
+        }
+    }
 }
 
 #[tauri::command]
@@ -75,4 +91,50 @@ pub fn cmd_set_cost_chip_preference(
     Ok(CostChipPreferences {
         enabled: settings.cost_chip_enabled,
     })
+}
+
+#[tauri::command]
+pub fn cmd_get_feature_flags(
+    core: State<'_, Arc<AppCore>>,
+) -> Result<FeatureFlagsResponse, IpcError> {
+    let settings = Settings::load(&core.config.data_dir);
+    Ok(FeatureFlagsResponse::from(&settings.feature_flags))
+}
+
+/// DP-C — toggle a per-feature flag by field name. Match arms enumerate
+/// the supported flags so an unknown name returns `InvalidRequest`
+/// rather than silently writing nothing.
+#[tauri::command]
+pub fn cmd_set_feature_flag(
+    core: State<'_, Arc<AppCore>>,
+    name: String,
+    enabled: bool,
+) -> Result<FeatureFlagsResponse, IpcError> {
+    let mut settings = Settings::load(&core.config.data_dir);
+    match name.as_str() {
+        "show_models_section" => settings.feature_flags.show_models_section = enabled,
+        other => {
+            return Err(IpcError::invalid_request(format!(
+                "unknown feature flag: {other}"
+            )))
+        }
+    }
+    settings
+        .save(&core.config.data_dir)
+        .map_err(|e| IpcError::unknown(format!("settings write failed: {e}")))?;
+    Ok(FeatureFlagsResponse::from(&settings.feature_flags))
+}
+
+#[cfg(test)]
+mod feature_flag_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn feature_flags_default_off_when_settings_file_missing() {
+        let dir = tempdir().unwrap();
+        let s = Settings::load(dir.path());
+        let dto = FeatureFlagsResponse::from(&s.feature_flags);
+        assert!(!dto.show_models_section);
+    }
 }

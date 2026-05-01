@@ -1,0 +1,88 @@
+/* DP-A — auto-updater prompt.
+ *
+ * Bottom-left floating pill. Only mounts when a newer release is available
+ * on the GitHub Releases manifest. Visually subordinate to Friction
+ * (bottom-right) and the dev panel (also bottom-left in dev mode) — in
+ * production builds nothing else lives in this corner. In dev mode the
+ * stacking is acceptable: updates land far less often than a developer
+ * uses the dev panel, and the prompt is dismissable. */
+
+.update-prompt {
+  position: fixed;
+  left: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--layer-raised);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--surface-shadow);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+  /* Cap width so a long error message doesn't stretch the pill across
+   * the screen; multi-line wrap is handled by the body. */
+  max-width: 24rem;
+}
+
+.update-prompt__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.update-prompt__title {
+  color: var(--color-foreground);
+  font-weight: var(--weight-medium);
+}
+
+.update-prompt__meta {
+  color: var(--color-muted);
+}
+
+.update-prompt__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.update-prompt__btn {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background var(--motion-interactive),
+    color var(--motion-interactive);
+}
+
+.update-prompt__btn:hover {
+  background: var(--color-surface-raised);
+}
+
+.update-prompt__btn:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.update-prompt__btn--primary {
+  background: var(--color-foreground);
+  color: var(--color-background);
+  border-color: var(--color-foreground);
+}
+
+.update-prompt__btn--primary:hover {
+  background: var(--color-foreground);
+  color: var(--color-background);
+  opacity: 0.9;
+}

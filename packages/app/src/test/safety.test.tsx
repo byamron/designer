@@ -67,6 +67,8 @@ function makeStubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     getKeychainStatus: notImpl("getKeychainStatus"),
     getCostChipPreference: notImpl("getCostChipPreference"),
     setCostChipPreference: notImpl("setCostChipPreference"),
+    getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
+    setFeatureFlag: notImpl("setFeatureFlag"),
     listFindings: notImpl("listFindings"),
     signalFinding: notImpl("signalFinding"),
     ...overrides,

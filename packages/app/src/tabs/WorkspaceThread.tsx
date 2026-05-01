@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowDown, ArrowRight, ChevronRight, Wrench } from "lucide-react";
+import { ArrowDown, ArrowRight } from "lucide-react";
 import {
   ComposeDock,
   type ComposeDockHandle,
@@ -413,16 +413,7 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
             aria-label="Workspace thread"
             onScroll={onThreadScroll}
           >
-            {groupArtifacts(artifacts ?? []).map((unit) => {
-              if (unit.kind === "group") {
-                return (
-                  <ToolCallGroup
-                    key={`group:${unit.artifacts[0].id}`}
-                    artifacts={unit.artifacts}
-                  />
-                );
-              }
-              const a = unit.artifact;
+            {(artifacts ?? []).map((a) => {
               const Renderer = getBlockRenderer(a.kind) ?? GenericBlock;
               return (
                 <Renderer
@@ -467,96 +458,6 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
           busy={sending}
         />
       </div>
-    </div>
-  );
-}
-
-/**
- * B5 — coalesce consecutive tool-call (`report` kind) artifacts into a
- * single collapsed row. The default boxed ReportBlock turned a 7-step
- * tool sequence into 7 cards; the user lost the conversation in the
- * noise. Pattern matches Claude / ChatGPT / Cursor: "Searched the web
- * (3 results)" with a disclosure for the individual rows.
- *
- * Non-report artifacts pass through unchanged so the chat stays mixed.
- */
-type RenderUnit =
-  | { kind: "single"; artifact: ArtifactSummary }
-  | { kind: "group"; artifacts: ArtifactSummary[] };
-
-export function groupArtifacts(artifacts: ArtifactSummary[]): RenderUnit[] {
-  const out: RenderUnit[] = [];
-  let run: ArtifactSummary[] = [];
-  const flushRun = () => {
-    if (run.length === 0) return;
-    if (run.length === 1) {
-      out.push({ kind: "single", artifact: run[0] });
-    } else {
-      out.push({ kind: "group", artifacts: run });
-    }
-    run = [];
-  };
-  for (const a of artifacts) {
-    if (a.kind === "report") {
-      run.push(a);
-    } else {
-      flushRun();
-      out.push({ kind: "single", artifact: a });
-    }
-  }
-  flushRun();
-  return out;
-}
-
-function ToolCallGroup({ artifacts }: { artifacts: ArtifactSummary[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const verbList = artifacts.map((a) => a.title).slice(0, 4);
-  const remainder = artifacts.length - verbList.length;
-  const summary =
-    remainder > 0
-      ? `${verbList.join(", ")} and ${remainder} more`
-      : verbList.join(", ");
-  return (
-    <div
-      className="tool-group"
-      data-component="ToolCallGroup"
-      data-expanded={expanded}
-    >
-      <button
-        type="button"
-        className="tool-group__head"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <ChevronRight
-          size={14}
-          strokeWidth={1.75}
-          className="tool-group__chevron"
-          aria-hidden="true"
-        />
-        <Wrench
-          size={14}
-          strokeWidth={1.75}
-          className="tool-group__icon"
-          aria-hidden="true"
-        />
-        <span className="tool-group__count">
-          Used {artifacts.length} tools
-        </span>
-        <span className="tool-group__verbs">{summary}</span>
-      </button>
-      {expanded && (
-        <ul className="tool-group__list" role="list">
-          {artifacts.map((a) => (
-            <li key={a.id} className="tool-group__row">
-              <span className="tool-group__row-title">{a.title}</span>
-              {a.summary && a.summary !== a.title && (
-                <span className="tool-group__row-summary">{a.summary}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

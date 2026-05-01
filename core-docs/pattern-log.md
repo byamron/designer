@@ -433,3 +433,21 @@ Track 13.L's address/resolve/reopen IPC commands accept `workspace_id` from the 
 Why move validation: the backend guard cost a full `read_all` per click (linear in event count). At 100k events that's 100–500ms of JSON deserialization on the click path. The defense was only against a buggy client — and a buggy client could write any event anyway via direct DB access in this single-user local-first model. Trade: drop O(N) backend validation; accept FE as the gating authority.
 
 The FE further applies state transitions optimistically (`setEntries(prev => prev.map(...))`) before the IPC call returns, so the row updates instantly. Pattern lifts to any single-user state-transition surface where the action is deterministic and the backend is just an event log.
+
+
+## 2026-04-30 — Chat is pass-through-by-default; intercept only at approvals (DP-B)
+
+The chat surface had drifted into "every Claude Code event becomes a typed card" — agent prose, tool calls, specs, PRs, code-changes, recap reports all wore the same card chrome. Phase 13.1's typed-artifact registry made this easy to do, and `ffd1c3c` (Chat UX overhaul) fixed 14 behavior bugs but left the structural metaphor intact. DP-B reverses it: chat IS the Claude Code stream — flowing prose for agent messages, terse single-line tool rows (`· read foo.rs`), one-line clickable references for rich artifacts (`→ Spec: auth-rewrite.md`) that focus the sidebar's Artifacts list via a `designer:focus-artifact` custom event, and `ApprovalBlock` as the one inline exception. Approvals are the must-intercept surface; everything else passes through to a Claude-Code-CLI register the user already trusts.
+
+Reasoning principle (saved to memory as feedback): "if Claude Code chat already works well, we shouldn't mess with it if we aren't going to put in the time to truly do it better." The litmus test for any future intercept: if the surface stripped Designer's custom rendering and reverted to plain Claude Code, would the conversation still read naturally? If yes, our rendering is additive. If no, we're replacing CC and need to justify it.
+
+Tool-use vs. recap-report disambiguation: `isToolUseReport` checks the title prefix (`Used`/`Read`/`Wrote`/`Edited`/`Searched`/`Ran`/`Writing`/`Editing`/`Searching`/`Running`) AND `author_role !== "recap"` AND `author_role !== "auditor"`. Locks the open `ArtifactKind::Report` semantic disambiguation noted in roadmap.md §15.J without an event-vocabulary change.
+
+Streaming follow-up: `core_agents.rs::spawn_message_coalescer` waits 120ms idle before flushing each agent reply as a single `ArtifactCreated`. To match Claude Code's true streaming feel, partial chunks should emit as `ArtifactUpdated`. Backend work — out of DP-B's frontend scope; tracked as a follow-up.
+
+## 2026-04-30 — DP-C Feature flags as the half-baked-feature opt-in
+
+Settings now carry a `feature_flags` struct (`apps/desktop/src-tauri/src/settings.rs`) — additive, default-off, additive at the JSON layer (`#[serde(default)]` so legacy files load with all flags off). `cmd_get_feature_flags` / `cmd_set_feature_flag` IPC pair reads/writes a single named field; unknown names return `InvalidRequest` rather than silently no-op. Frontend `Settings → Preferences` gets a toggle per flag. First flag: `show_models_section` (off by default — the Models pane is a static placeholder).
+
+Pattern for future half-baked surfaces: don't quietly hide them and don't ship them broken. Add a flag, document the placeholder rationale, default to off, expose the toggle in Preferences. The user can opt in when they want to evaluate; default-on dogfood stays honest. DP-C audit table in `plan.md` § Feature readiness names everything currently classified prod / flag / hide.
+

@@ -52,6 +52,24 @@ impl ResolvedTheme {
     }
 }
 
+/// Per-feature opt-in toggles. The DP-C reliability audit (2026-04-30)
+/// set the project rule: half-baked features should not appear in prod
+/// without an explicit user opt-in. Each field defaults to `false` so a
+/// fresh install never surfaces a placeholder.
+///
+/// Add a new flag by adding a field with `#[serde(default)]`; the IPC
+/// surface (`cmd_set_feature_flag`) matches by field name. Legacy
+/// settings files without the `feature_flags` key load with all
+/// flags off via the outer `#[serde(default)]` on `Settings`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FeatureFlags {
+    /// Show the Settings → Models pane. Currently a static placeholder
+    /// (no model selection mechanism). Off by default until per-tab
+    /// model override ships.
+    #[serde(default)]
+    pub show_models_section: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default)]
@@ -71,6 +89,10 @@ pub struct Settings {
     /// experimental section.
     #[serde(default)]
     pub use_mock_orchestrator: Option<bool>,
+    /// Per-feature opt-in toggles for surfaces that aren't ready for
+    /// default-on dogfood. See `FeatureFlags`.
+    #[serde(default)]
+    pub feature_flags: FeatureFlags,
 }
 
 fn default_version() -> u32 {
@@ -88,6 +110,7 @@ impl Default for Settings {
             version: 1,
             cost_chip_enabled: true,
             use_mock_orchestrator: None,
+            feature_flags: FeatureFlags::default(),
         }
     }
 }
@@ -185,6 +208,29 @@ mod tests {
         let s = Settings::load(dir.path());
         assert_eq!(s.theme, ThemeChoice::Dark);
         assert_eq!(s.use_mock_orchestrator, None);
+    }
+
+    #[test]
+    fn legacy_settings_without_feature_flags_loads_all_flags_off() {
+        // DP-C: feature_flags is additive; legacy files without it must
+        // load with every flag at its default (false).
+        let dir = tempdir().unwrap();
+        fs::write(
+            Settings::path(dir.path()),
+            br#"{"theme":"dark","version":1,"cost_chip_enabled":true}"#,
+        )
+        .unwrap();
+        let s = Settings::load(dir.path());
+        assert!(!s.feature_flags.show_models_section);
+    }
+
+    #[test]
+    fn feature_flags_default_off() {
+        let s = Settings::default();
+        assert!(
+            !s.feature_flags.show_models_section,
+            "experimental Models pane stays off by default"
+        );
     }
 
     #[test]
