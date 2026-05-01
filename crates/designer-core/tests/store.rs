@@ -165,26 +165,72 @@ async fn projector_apply_is_idempotent_per_sequence() {
         .await
         .unwrap();
 
+    // Variant 1 — manual dual-apply (the original CI-failing class).
     let projector = Projector::new();
-    // First apply — the synchronous write-site path.
     projector.apply(&ws_env);
     projector.apply(&tab_env);
-    // Second apply — what the broadcast subscriber would do for the
-    // exact same envelopes. This must NOT push a second tab onto the
-    // workspace.
     projector.apply(&ws_env);
     projector.apply(&tab_env);
-
     let ws = projector
         .workspace(workspace_id)
         .expect("workspace projected");
     assert_eq!(
         ws.tabs.len(),
         1,
-        "projector must drop replays of an already-projected sequence (was {} tabs)",
+        "manual dual-apply: must collapse to one tab (was {})",
         ws.tabs.len()
     );
     assert_eq!(ws.tabs[0].id, tab_id);
+
+    // Variant 2 — the actual production boot path: `replay()` over the
+    // full history (cold-boot snapshot rebuild) followed by a live
+    // `apply()` that the broadcast subscriber would deliver for events
+    // that happened during boot. The replay applies up through the
+    // tab; the subsequent live apply of the same envelope must not
+    // duplicate.
+    let projector = Projector::new();
+    let all = store.read_all(StreamOptions::default()).await.unwrap();
+    projector.replay(&all);
+    // Simulate the broadcast subscriber re-applying the most recent event.
+    projector.apply(&tab_env);
+    let ws = projector
+        .workspace(workspace_id)
+        .expect("workspace projected after replay");
+    assert_eq!(
+        ws.tabs.len(),
+        1,
+        "replay -> live apply: must not duplicate tab (was {})",
+        ws.tabs.len()
+    );
+
+    // Variant 3 — concurrent applies of the same envelope from many
+    // threads. The fix's atomicity comes from `parking_lot::RwLock`
+    // wrapping the whole apply body, so two threads racing on the same
+    // sequence both serialize through the write lock; whichever wins
+    // first claims the sequence, and the loser's check sees the
+    // claimed value and returns. Asserts the contract under load.
+    let projector = std::sync::Arc::new(Projector::new());
+    projector.apply(&ws_env);
+    let mut handles = Vec::new();
+    for _ in 0..16 {
+        let p = projector.clone();
+        let env = tab_env.clone();
+        handles.push(std::thread::spawn(move || {
+            p.apply(&env);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let ws = projector
+        .workspace(workspace_id)
+        .expect("workspace projected after concurrent applies");
+    assert_eq!(
+        ws.tabs.len(),
+        1,
+        "16-way concurrent apply: must collapse to one tab (was {})",
+        ws.tabs.len()
+    );
 }
 
 #[tokio::test]
