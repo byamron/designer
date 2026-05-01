@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isTauri } from "../ipc/tauri";
 
 /**
@@ -29,6 +29,22 @@ type UpdateState =
 export function UpdatePrompt() {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
   const [dismissed, setDismissed] = useState(false);
+  // Tracked across the lifetime of the component so async callbacks
+  // (probe + apply) can short-circuit setState if the user dismissed
+  // mid-flight or the parent unmounted us. React 18 only warns on
+  // setState-after-unmount; the real cost is the wasted state churn.
+  const mountedRef = useRef(true);
+  const applyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      if (applyTimerRef.current !== null) {
+        window.clearTimeout(applyTimerRef.current);
+        applyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -37,7 +53,7 @@ export function UpdatePrompt() {
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
         const update = await check();
-        if (cancelled || !update) return;
+        if (cancelled || !mountedRef.current || !update) return;
         setState({
           kind: "available",
           version: update.version,
@@ -63,14 +79,25 @@ export function UpdatePrompt() {
     // installer state) the user shouldn't see frozen UI forever. 60 s
     // is generous: a typical signed DMG is ~30 MB and downloads in
     // single-digit seconds even on patchy connections.
+    //
+    // Race contract: if the timeout fires AND the install completes
+    // before relaunch, we still relaunch — the user clicked "Update
+    // now" expecting a restart, and silently downgrading to the error
+    // state would strand them on the old build with the new bundle on
+    // disk. The error state is only shown when the install genuinely
+    // never completes within the deadline.
     let timedOut = false;
+    let installed = false;
     const deadline = window.setTimeout(() => {
       timedOut = true;
+      applyTimerRef.current = null;
+      if (installed || !mountedRef.current) return;
       setState({
         kind: "error",
         message: "Update timed out. Try again from Help → Check for updates.",
       });
     }, 60_000);
+    applyTimerRef.current = deadline;
     try {
       const { check } = await import("@tauri-apps/plugin-updater");
       const { relaunch } = await import("@tauri-apps/plugin-process");
@@ -78,15 +105,24 @@ export function UpdatePrompt() {
       if (!update) {
         // Vanished between probe and apply — dismiss quietly.
         window.clearTimeout(deadline);
-        setDismissed(true);
+        applyTimerRef.current = null;
+        if (mountedRef.current) setDismissed(true);
         return;
       }
       await update.downloadAndInstall();
+      installed = true;
       window.clearTimeout(deadline);
-      if (!timedOut) await relaunch();
+      applyTimerRef.current = null;
+      // Relaunch even if the timeout already fired — the install
+      // completed, so the user expects the restart they asked for.
+      await relaunch();
     } catch (err) {
       window.clearTimeout(deadline);
-      if (timedOut) return;
+      applyTimerRef.current = null;
+      // If we already routed to the error state via the deadline, don't
+      // overwrite it; the timeout copy is more actionable than the raw
+      // plugin error.
+      if (timedOut || !mountedRef.current) return;
       const message = err instanceof Error ? err.message : String(err);
       setState({ kind: "error", message });
     }

@@ -86,3 +86,7 @@
   color: var(--color-background);
   opacity: 0.9;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .update-prompt__btn { transition: none; }
+}

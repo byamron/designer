@@ -110,7 +110,7 @@ describe("ApprovalBlock", () => {
 
     // Optimistic state: the resolution status renders immediately.
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toMatch(/granted/i);
+      expect(screen.getByRole("status").textContent).toMatch(/approved/i);
     });
 
     // Call shape: (id, true) — no extra reason on Grant.
@@ -193,7 +193,7 @@ describe("ApprovalBlock", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toMatch(/granted/i);
+      expect(screen.getByRole("status").textContent).toMatch(/approved/i);
     });
   });
 });

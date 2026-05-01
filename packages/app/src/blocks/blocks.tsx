@@ -358,7 +358,7 @@ export function ApprovalBlock({ artifact, payload }: BlockProps) {
           className="block__approval-resolved"
           role="status"
         >
-          {resolution}
+          {resolution === "granted" ? "Approved" : "Denied"}
         </div>
       )}
     </article>

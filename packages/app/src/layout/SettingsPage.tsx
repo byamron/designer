@@ -345,7 +345,7 @@ function ModelsSectionToggle() {
     }
   };
   return (
-    <span data-component="ModelsSectionToggle">
+    <div data-component="ModelsSectionToggle">
       <SegmentedToggle<"on" | "off">
         ariaLabel="Show placeholder Models section"
         value={enabled === null ? "off" : enabled ? "on" : "off"}
@@ -355,7 +355,7 @@ function ModelsSectionToggle() {
           { value: "on", label: "On" },
         ]}
       />
-    </span>
+    </div>
   );
 }
 

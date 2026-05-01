@@ -734,7 +734,6 @@
 .block__approval-resolved {
   font-size: var(--type-caption-size);
   color: var(--color-muted);
-  text-transform: capitalize;
 }
 
 .block__prototype-placeholder {
