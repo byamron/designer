@@ -369,6 +369,17 @@
       "last_updated": "2026-04-25"
     },
     {
+      "name": "UpdatePrompt",
+      "path": "packages/app/src/components/UpdatePrompt.tsx",
+      "purpose": "DP-A auto-updater surface. Bottom-left floating pill that probes the GitHub Releases manifest via tauri-plugin-updater on launch and surfaces a non-blocking notice when a newer version is available. Three states: available (Update now / Later), applying (with a 60s deadline that flips to error so a hung download doesn't freeze the UI), error (dismiss). Update path downloads + installs the signed bundle, then triggers tauri-plugin-process relaunch. Renders only inside the Tauri runtime; dynamic-imports the plugins so vitest builds stay clean. Dismissable for the session; a fresh launch re-probes.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "color-foreground", "color-background", "color-muted", "color-surface-overlay", "color-surface-raised", "color-border", "border-thin", "radius-pill", "radius-button", "type-family-sans", "type-caption-size", "weight-medium", "motion-interactive", "focus-outline-width", "focus-outline-color", "focus-outline-offset", "surface-shadow", "layer-raised"],
+      "css_prefix": "update-prompt__ update-prompt--",
+      "last_updated": "2026-04-30"
+    },
+    {
       "name": "FrictionButton",
       "path": "packages/app/src/components/Friction/FrictionButton.tsx",
       "purpose": "Track 13.M demoted bottom-right capture trigger. Visually quiet (smaller target-sm, no accent fill, opacity-led hover) because ⌘⇧F is the primary trigger; the button exists as the discoverable affordance for users who don't yet know the shortcut. Owns the global ⌘⇧F keybind so it survives Widget/Overlay unmount. Click toggles the composer open/closed; data-active reflects mode !== \"off\". Hidden while a modal scrim is open. Bottom-right corner remains permanently reserved per pattern-log.",

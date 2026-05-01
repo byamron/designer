@@ -64,6 +64,11 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CC0-1.0",
+    # ISC is OSI-approved, FSF-Free, and a permissive 2-clause-equivalent.
+    # Pulled in via `tauri-plugin-updater` → `reqwest` → `rustls` → `ring`,
+    # `rustls-webpki`, `untrusted`. Adding it here keeps the supply-chain
+    # gate honest while permitting the standard Rust TLS stack.
+    "ISC",
     "MIT",
     "MIT-0",
     "MPL-2.0",
