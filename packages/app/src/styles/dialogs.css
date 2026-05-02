@@ -127,3 +127,32 @@
   margin: 0;
   justify-self: end;
 }
+
+.app-dialog__hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+}
+
+.app-dialog__inline-link {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--color-foreground);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.app-dialog__inline-link:hover {
+  color: var(--color-accent);
+}
+
+.app-dialog__inline-link:focus-visible {
+  outline: var(--border-thin) solid var(--color-accent);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-badge);
+}

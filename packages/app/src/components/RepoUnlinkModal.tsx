@@ -122,7 +122,7 @@ export function RepoUnlinkModal({
               }}
             >
               Designer will no longer track changes in{" "}
-              <strong style={{ color: "var(--color-text)" }}>{repoPath}</strong>.
+              <strong style={{ color: "var(--color-foreground)" }}>{repoPath}</strong>.
               Your repo files are not touched — this just severs Designer's
               pointer. You can re-link any time from this project's home tab.
             </p>
@@ -133,7 +133,7 @@ export function RepoUnlinkModal({
                 role="alert"
                 style={{
                   margin: 0,
-                  color: "var(--color-danger)",
+                  color: "var(--danger-11)",
                   fontSize: "var(--type-caption-size)",
                 }}
               >
