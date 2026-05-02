@@ -113,7 +113,7 @@ function HelpBody() {
         <span className="app-dialog__section-label">About</span>
         <div className="app-dialog__row">
           <span className="app-dialog__row-label">Version</span>
-          <span className="app-dialog__row-meta">alpha · local-first</span>
+          <span className="app-dialog__row-meta">{__APP_VERSION__} · alpha</span>
         </div>
       </section>
     </>
