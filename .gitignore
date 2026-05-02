@@ -32,3 +32,8 @@ sbom.json
 **/sbom.json
 audit.json
 npm-audit.json
+
+# Visual regression diff/actual outputs — only baselines (*.png without
+# .diff/.actual suffixes) are committed; everything else is ephemeral.
+packages/app/src/test/visual/__screenshots__/*.diff.png
+packages/app/src/test/visual/__screenshots__/*.actual.png
