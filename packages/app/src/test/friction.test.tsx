@@ -324,4 +324,34 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
     // the row in the DOM.
     await waitFor(() => expect(listFriction).toHaveBeenCalledTimes(2));
   });
+
+  it("Copy {N} as prompt button bundles every filtered record into one clipboard write", async () => {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(window.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    const entries = [
+      makeEntry({ friction_id: "frc_a", local_path: "/tmp/.designer/friction/frc_a.md" }),
+      makeEntry({ friction_id: "frc_b", local_path: "/tmp/.designer/friction/frc_b.md" }),
+      makeEntry({ friction_id: "frc_c", local_path: "/tmp/.designer/friction/frc_c.md" }),
+    ];
+    __setIpcClient(stubClient({ listFriction: () => Promise.resolve(entries) }));
+
+    render(<FrictionTriageSection />);
+
+    // Wait for the rows to render so the button label has settled to the
+    // real count rather than the empty-list placeholder.
+    const button = await screen.findByRole("button", { name: /Copy 3 as prompt/i });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const payload = writeText.mock.calls[0]![0];
+    expect(payload).toContain("3 Designer friction reports");
+    expect(payload).toContain("/tmp/.designer/friction/frc_a.md");
+    expect(payload).toContain("/tmp/.designer/friction/frc_b.md");
+    expect(payload).toContain("/tmp/.designer/friction/frc_c.md");
+    expect(payload).toContain("designer friction address");
+  });
 });

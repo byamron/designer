@@ -57,17 +57,12 @@ export function AppDialog() {
 }
 
 function HelpBody() {
+  // Removed the "Ask the help agent" input — it was a static placeholder
+  // that did nothing on submit. Per the dogfood rule "we cannot show
+  // features in the UI that don't work", it leaves until the agent that
+  // would answer those questions actually exists.
   return (
     <>
-      <section className="app-dialog__section" aria-label="Ask">
-        <span className="app-dialog__section-label">Ask</span>
-        <input
-          type="text"
-          className="quick-switcher__input"
-          placeholder="What would you like to know about Designer?"
-          aria-label="Ask the help agent"
-        />
-      </section>
       <section className="app-dialog__section" aria-label="Keyboard shortcuts">
         <span className="app-dialog__section-label">Keyboard shortcuts</span>
         <dl className="app-dialog__kbd-list">

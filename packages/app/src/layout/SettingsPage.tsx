@@ -723,7 +723,8 @@ export function FrictionTriageSection() {
       />
       <p className="friction-triage__hint">
         Working with agents? Triage from the terminal with{" "}
-        <code>designer friction list --json</code>, or click <em>Copy prompt</em> on a row.
+        <code>designer friction list --json</code>, click <em>Copy prompt</em> on a row, or use{" "}
+        <em>Copy {`{N}`} as prompt</em> to bundle every filtered record into one batch.
         Setup + the full loop are in <code>core-docs/workflow.md</code>.
       </p>
       <div className="friction-triage__filters">
@@ -733,6 +734,7 @@ export function FrictionTriageSection() {
           onChange={setFilter}
           options={filterOptions}
         />
+        <CopyBatchPromptButton entries={filtered ?? []} filter={filter} />
       </div>
       <ul className="friction-triage" aria-label={`Friction — ${filter}`}>
         {filtered === null ? (
@@ -1002,6 +1004,66 @@ function CopyAgentPromptButton({ entry }: { entry: FrictionEntry }) {
       aria-live="polite"
     >
       {copied ? "Copied!" : "Copy prompt"}
+    </button>
+  );
+}
+
+/// Build a single prompt that bundles every entry currently shown by the
+/// filter so the user can hand the whole batch to one agent session
+/// rather than dispatching them one at a time. Each entry contributes a
+/// path + the close-the-loop CLI; the agent reads the records itself.
+function buildBatchAgentPrompt(entries: FrictionEntry[], filter: FrictionFilter): string {
+  if (entries.length === 0) return "";
+  const lines: string[] = [
+    `Read these ${entries.length} Designer friction reports (filter: ${filter}) and propose fixes:`,
+    "",
+  ];
+  for (const e of entries) {
+    if (e.local_path) lines.push(e.local_path);
+  }
+  lines.push("");
+  lines.push(
+    "Triage them, group fixes that share files, and ship as one PR per cluster.",
+    "After opening a PR, close each loop:",
+    "",
+    "  designer friction address <friction_id> --pr <PR_URL>",
+    "",
+    "(IDs are the `frc_…` slug at the start of each filename.)",
+  );
+  return lines.join("\n");
+}
+
+/// Bulk version of `CopyAgentPromptButton` — emits one prompt that lists
+/// every currently-filtered record. The label shows the count so the
+/// affordance is honest about what will land on the clipboard. Disabled
+/// when the filter has no rows; empty-clipboard would be a worse outcome
+/// than a click that no-ops with a tooltip explanation.
+function CopyBatchPromptButton({
+  entries,
+  filter,
+}: {
+  entries: FrictionEntry[];
+  filter: FrictionFilter;
+}) {
+  const { copied, copy } = useCopyWithFeedback();
+  const usable = entries.filter((e) => e.local_path);
+  const disabled = usable.length === 0;
+  const baseLabel = `Copy ${usable.length} as prompt`;
+  const title = disabled
+    ? "No friction records to bundle for this filter"
+    : `Copy a single prompt that lists all ${usable.length} ${filter} record${
+        usable.length === 1 ? "" : "s"
+      } so an agent can address the batch in one session`;
+  return (
+    <button
+      type="button"
+      className="btn friction-triage__batch-copy"
+      disabled={disabled}
+      onClick={() => copy(buildBatchAgentPrompt(usable, filter))}
+      title={title}
+      aria-live="polite"
+    >
+      {copied ? "Copied!" : baseLabel}
     </button>
   );
 }

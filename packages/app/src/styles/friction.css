@@ -11,7 +11,7 @@
   position: fixed;
   right: var(--space-4);
   bottom: max(var(--space-4), env(safe-area-inset-bottom, 0px));
-  z-index: var(--layer-overlay);
+  z-index: var(--layer-floating);
   width: var(--target-sm);
   height: var(--target-sm);
   border-radius: var(--radius-pill);
@@ -57,7 +57,7 @@
   top: var(--space-3);
   left: 50%;
   transform: translateX(-50%);
-  z-index: var(--layer-overlay);
+  z-index: var(--layer-floating);
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
@@ -97,7 +97,7 @@
 .friction-overlay {
   position: fixed;
   pointer-events: none;
-  z-index: var(--layer-overlay);
+  z-index: var(--layer-floating);
   border-radius: var(--radius-button);
   transition: left var(--motion-interactive), top var(--motion-interactive),
     width var(--motion-interactive), height var(--motion-interactive);
@@ -115,7 +115,7 @@
 
 .friction-overlay__tooltip {
   position: fixed;
-  z-index: var(--layer-overlay);
+  z-index: var(--layer-floating);
   pointer-events: none;
   display: inline-flex;
   flex-direction: column;
@@ -154,7 +154,7 @@
     max(var(--space-4), env(safe-area-inset-bottom, 0px)) + var(--target-sm) +
       var(--space-2)
   );
-  z-index: var(--layer-overlay);
+  z-index: var(--layer-floating);
   width: var(--width-popover-md);
   max-width: calc(100vw - var(--space-6));
   background: var(--color-surface-overlay);
@@ -435,7 +435,20 @@
  * page auto-falls-through to `All` so the user lands on something. */
 
 .friction-triage__filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
   margin-bottom: var(--space-3);
+}
+
+/* Right-aligned bulk copy button. Sits on the same row as the filter
+ * chips so the affordance is visible at a glance — counts the records
+ * the current filter would dispatch, so the label is honest about
+ * what's about to land on the clipboard. */
+.friction-triage__batch-copy {
+  flex-shrink: 0;
 }
 
 /* Quiet helper text under the section header — surfaces the agent CLI
