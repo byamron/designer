@@ -8,7 +8,12 @@ import {
   toggleSpine,
   useAppState,
 } from "../store/app";
-import { useDataState } from "../store/data";
+import {
+  latestActivityForStream,
+  latestActivityForWorkspace,
+  useDataState,
+  useRecentActivity,
+} from "../store/data";
 import { ipcClient } from "../ipc/client";
 import type { ArtifactSummary, SpineRow, StreamEvent } from "../ipc/types";
 import { emptyArray } from "../util/empty";
@@ -103,6 +108,17 @@ export function ActivitySpine() {
   const nothingStreaming =
     summary.activeCount + summary.needsYou + summary.errored === 0;
 
+  // Summary dot pulses only while *any* stream scoped to the active
+  // workspace is recently posting events. Without this gate the
+  // summary header pulses forever after the first message — same
+  // bug as the per-row pulse.
+  const summaryLatestTs = useDataState((s) =>
+    activeWorkspace
+      ? latestActivityForWorkspace(s.recentActivityTs, activeWorkspace)
+      : 0,
+  );
+  const summaryRecent = useRecentActivity(summaryLatestTs);
+
   const togglePin = useCallback(
     async (artifact: ArtifactSummary) => {
       await ipcClient().togglePinArtifact(artifact.id);
@@ -186,7 +202,12 @@ export function ActivitySpine() {
           <div className="spine-summary" aria-label="Activity summary">
             {summary.activeCount > 0 && (
               <span className="spine-summary__item">
-                <span className="state-dot" data-state="active" aria-hidden="true" />
+                <span
+                  className="state-dot"
+                  data-state="active"
+                  data-active-ts-recent={summaryRecent ? "true" : undefined}
+                  aria-hidden="true"
+                />
                 {summary.activeCount} active
               </span>
             )}
@@ -269,26 +290,7 @@ export function ActivitySpine() {
             ) : (
               <ul className="spine-list" role="tree" aria-label="Agents">
                 {agentRows.map(({ row, depth }) => (
-                  <li key={row.id} role="treeitem" aria-label={row.label}>
-                    <Tooltip label={row.summary ? `${row.label} · ${row.summary}` : `Follow ${row.label}`}>
-                      <button
-                        type="button"
-                        className="spine-row"
-                        data-depth={depth}
-                        style={{ "--depth": depth } as React.CSSProperties}
-                        onClick={() => setFollowingAgent(row.id)}
-                        aria-label={`${row.label}: ${row.summary ?? "no activity"}`}
-                      >
-                        <span className="state-dot" data-state={row.state} aria-hidden="true" />
-                        <span className="spine-row__body">
-                          <span className="spine-row__label">{row.label}</span>
-                          {row.summary && (
-                            <span className="spine-row__summary">{row.summary}</span>
-                          )}
-                        </span>
-                      </button>
-                    </Tooltip>
-                  </li>
+                  <AgentSpineRow key={row.id} row={row} depth={depth} />
                 ))}
               </ul>
             )}
@@ -319,6 +321,45 @@ export function ActivitySpine() {
         </>
       )}
     </aside>
+  );
+}
+
+/**
+ * Single agent row in the spine tree. Pulled out so each row can run
+ * its own `useRecentActivity` gate — the pulse on `state="active"`
+ * runs only while the agent's stream has had a recent event.
+ */
+function AgentSpineRow({ row, depth }: { row: SpineRow; depth: number }) {
+  const latestTs = useDataState((s) =>
+    latestActivityForStream(s.recentActivityTs, row.id),
+  );
+  const recent = useRecentActivity(latestTs);
+  return (
+    <li role="treeitem" aria-label={row.label}>
+      <Tooltip label={row.summary ? `${row.label} · ${row.summary}` : `Follow ${row.label}`}>
+        <button
+          type="button"
+          className="spine-row"
+          data-depth={depth}
+          style={{ "--depth": depth } as React.CSSProperties}
+          onClick={() => setFollowingAgent(row.id)}
+          aria-label={`${row.label}: ${row.summary ?? "no activity"}`}
+        >
+          <span
+            className="state-dot"
+            data-state={row.state}
+            data-active-ts-recent={recent ? "true" : undefined}
+            aria-hidden="true"
+          />
+          <span className="spine-row__body">
+            <span className="spine-row__label">{row.label}</span>
+            {row.summary && (
+              <span className="spine-row__summary">{row.summary}</span>
+            )}
+          </span>
+        </button>
+      </Tooltip>
+    </li>
   );
 }
 

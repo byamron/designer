@@ -182,10 +182,15 @@ export const ComposeDock = forwardRef<
           }
           rows={3}
           onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              send();
-            }
+            // Enter sends; Shift+Enter inserts a newline. ⌘/Ctrl+Enter
+            // is preserved as an alias so the muscle memory shown in
+            // the help dialog still works.
+            if (e.key !== "Enter") return;
+            if (e.shiftKey) return;
+            // Don't intercept the IME composition's confirmation Enter.
+            if (e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            send();
           }}
           aria-label="Message"
         />
@@ -240,7 +245,7 @@ export const ComposeDock = forwardRef<
           <IconButton
             type="submit"
             label={busy ? "Sending…" : "Send"}
-            shortcut="⌘↵"
+            shortcut="↵"
             className="btn-icon--primary"
             disabled={busy}
             aria-busy={busy || undefined}
