@@ -26,6 +26,7 @@ function makeClient() {
       return Promise.resolve();
     },
     listArtifacts: (ws) => Promise.resolve(core.listArtifacts(ws)),
+    listArtifactsInTab: (ws, t) => Promise.resolve(core.listArtifactsInTab(ws, t)),
     listSpineArtifacts: (ws) => Promise.resolve(core.listArtifacts(ws)),
     listPinnedArtifacts: (ws) => Promise.resolve(core.listPinnedArtifacts(ws)),
     getArtifact: (id) => Promise.resolve(core.getArtifact(id)),

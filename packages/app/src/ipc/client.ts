@@ -57,6 +57,12 @@ export interface IpcClient {
   resolveApproval(id: string, granted: boolean, reason?: string): Promise<void>;
   // Artifacts (Phase 13.1)
   listArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
+  /** Per-tab thread view (per-tab thread isolation). Returns
+   *  workspace-wide artifacts plus only the messages for `tabId`. */
+  listArtifactsInTab(
+    workspaceId: WorkspaceId,
+    tabId: TabId,
+  ): Promise<ArtifactSummary[]>;
   /// Activity-spine read — applies the substantive-kind allowlist
   /// (spec / prototype / code-change / pr / recap & auditor reports)
   /// so the rail isn't polluted by tool-use cards. Honors the
@@ -191,6 +197,12 @@ class TauriIpcClient implements IpcClient {
   }
   listArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_artifacts", { workspaceId });
+  }
+  listArtifactsInTab(workspaceId: WorkspaceId, tabId: TabId) {
+    return invoke<ArtifactSummary[]>("list_artifacts_in_tab", {
+      workspaceId,
+      tabId,
+    });
   }
   listSpineArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_spine_artifacts", { workspaceId });
@@ -336,6 +348,9 @@ class MockIpcClient implements IpcClient {
   }
   listArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listArtifacts(workspaceId));
+  }
+  listArtifactsInTab(workspaceId: WorkspaceId, tabId: TabId) {
+    return Promise.resolve(this.core.listArtifactsInTab(workspaceId, tabId));
   }
   listSpineArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listSpineArtifacts(workspaceId));

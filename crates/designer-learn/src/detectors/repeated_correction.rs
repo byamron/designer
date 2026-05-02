@@ -158,6 +158,7 @@ fn analyze_inner(
             workspace_id,
             author,
             body,
+            ..
         } = &env.payload
         {
             if !matches!(author, Actor::User) {
@@ -408,6 +409,7 @@ mod tests {
                 workspace_id: ws,
                 author: Actor::user(),
                 body: body.into(),
+                tab_id: None,
             },
         }
     }

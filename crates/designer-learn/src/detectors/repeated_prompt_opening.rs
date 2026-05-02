@@ -176,6 +176,7 @@ fn collect_openers(input: &SessionAnalysisInput) -> Vec<Opener> {
             workspace_id,
             author,
             body,
+            ..
         } = &env.payload
         else {
             continue;
@@ -343,6 +344,7 @@ mod tests {
                 workspace_id: ws,
                 author: Actor::user(),
                 body: body.into(),
+                tab_id: None,
             },
         }
     }
@@ -461,6 +463,7 @@ mod tests {
                 workspace_id: ws,
                 author: Actor::system(),
                 body: "review the diff for the recent pull request".into(),
+                tab_id: None,
             },
         }];
         events.push(user_msg(2, ws, "fix the bug in the auth handler"));

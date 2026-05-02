@@ -18,7 +18,7 @@ use crate::core::AppCore;
 use designer_claude::{OrchestratorError, OrchestratorEvent, TeamSpec};
 use designer_core::{
     Actor, ArtifactId, ArtifactKind, CoreError, EventPayload, EventStore, PayloadRef, Projection,
-    StreamId, WorkspaceId,
+    StreamId, TabId, WorkspaceId,
 };
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -68,12 +68,20 @@ impl AppCore {
     pub async fn post_message(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: Option<TabId>,
         body: String,
     ) -> Result<ArtifactId, CoreError> {
         if body.trim().is_empty() {
             return Err(CoreError::Invariant(
                 "message body must not be empty".into(),
             ));
+        }
+        // Record the active tab before dispatch so a failed-then-retried
+        // send still leaves the agent-reply coalescer pointing at the
+        // user's current tab. The map is workspace-scoped; switching
+        // tabs and posting again replaces the entry.
+        if let Some(t) = tab_id {
+            self.set_last_user_tab(workspace_id, t);
         }
 
         // 1. Dispatch to the orchestrator first. Lazy-spawn a team if
@@ -160,6 +168,7 @@ impl AppCore {
                     workspace_id,
                     author: Actor::user(),
                     body: body.clone(),
+                    tab_id,
                 },
             )
             .await?;
@@ -183,6 +192,7 @@ impl AppCore {
                     summary,
                     payload: PayloadRef::inline(body),
                     author_role: Some(USER_AUTHOR_ROLE.into()),
+                    tab_id,
                 },
             )
             .await?;
@@ -236,6 +246,8 @@ impl AppCore {
                     summary,
                     payload: PayloadRef::inline(body),
                     author_role,
+                    // Diagram/report kinds are workspace-wide — no tab scope.
+                    tab_id: None,
                 },
             )
             .await?;
@@ -291,10 +303,21 @@ impl AppCore {
 }
 
 /// Per (workspace, author_role) pending coalesced text + last-update marker.
+///
+/// `tab_id` is captured **once** when the entry is first populated (i.e.
+/// before its `body` accumulates any tokens). The flush path uses this
+/// stable value rather than re-reading `AppCore::last_user_tab` at flush
+/// time, which would race with the user posting in a different tab while
+/// the agent's reply is still streaming. Concretely: user posts in A,
+/// agent starts streaming reply 1, user switches and posts in B before
+/// reply 1 idles for the coalesce window, flush reads `last_user_tab` =
+/// B and misattributes reply 1 to B. Capturing at first-recv pins the
+/// reply to A — the tab where the conversation started.
 #[derive(Debug, Default)]
 struct PendingMessage {
     body: String,
     last_update: Option<Instant>,
+    tab_id: Option<TabId>,
 }
 
 type CoalescerKey = (WorkspaceId, String);
@@ -347,8 +370,21 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                             // post_message().
                             continue;
                         }
+                        // Capture the user's active tab once per pending
+                        // burst, on the very first token. Re-reading at
+                        // flush time would race with a fast tab-switch
+                        // mid-stream and misattribute the reply (see
+                        // PendingMessage doc-comment).
+                        let captured_tab = if let Some(core) = weak_for_recv.upgrade() {
+                            core.last_user_tab(workspace_id)
+                        } else {
+                            None
+                        };
                         let mut p = pending_for_recv.lock();
                         let entry = p.entry((workspace_id, author_role.clone())).or_default();
+                        if entry.body.is_empty() {
+                            entry.tab_id = captured_tab;
+                        }
                         entry.body.push_str(&body);
                         entry.last_update = Some(Instant::now());
                     }
@@ -427,7 +463,7 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                 break;
             };
             let now = Instant::now();
-            let mut to_flush: Vec<(CoalescerKey, String)> = Vec::new();
+            let mut to_flush: Vec<(CoalescerKey, String, Option<TabId>)> = Vec::new();
             {
                 let mut p = pending_for_tick.lock();
                 p.retain(|key, entry| {
@@ -436,20 +472,28 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                         None => false,
                     };
                     if due {
-                        to_flush.push((key.clone(), std::mem::take(&mut entry.body)));
+                        to_flush.push((key.clone(), std::mem::take(&mut entry.body), entry.tab_id));
                         false
                     } else {
                         true
                     }
                 });
             }
-            for ((workspace_id, author_role), body) in to_flush {
+            for ((workspace_id, author_role), body, captured_tab) in to_flush {
                 if body.trim().is_empty() {
                     continue;
                 }
                 let title = first_line_truncate(&body, 60);
                 let summary = first_line_truncate(&body, 140);
                 let artifact_id = ArtifactId::new();
+                // Per-tab thread isolation: use the tab captured when this
+                // burst started streaming, not whatever tab the user is in
+                // right now. Falling back to `last_user_tab` covers the
+                // edge case where the entry was created before the user
+                // ever posted (e.g. an unsolicited agent message at boot).
+                // The projector applies first-tab legacy attribution if
+                // both are still `None`.
+                let reply_tab = captured_tab.or_else(|| core.last_user_tab(workspace_id));
                 let res = core
                     .store
                     .append(
@@ -464,6 +508,7 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                             summary,
                             payload: PayloadRef::inline(body),
                             author_role: Some(author_role),
+                            tab_id: reply_tab,
                         },
                     )
                     .await;
@@ -571,7 +616,9 @@ mod tests {
         // user-author and a team-lead-author event. We then verify that
         // exactly one extra (non-user) message artifact lands —
         // confirming the user echo was dropped.
-        core.post_message(ws.id, "hello team".into()).await.unwrap();
+        core.post_message(ws.id, None, "hello team".into())
+            .await
+            .unwrap();
         // Wait past the coalescer window. Generous 3 s headroom for
         // scheduler dilation under parallel test load.
         let deadline = Instant::now() + Duration::from_millis(3000);
@@ -617,8 +664,12 @@ mod tests {
             .create_workspace(project.id, "b".into(), "main".into())
             .await
             .unwrap();
-        core.post_message(ws_a.id, "alpha".into()).await.unwrap();
-        core.post_message(ws_b.id, "beta".into()).await.unwrap();
+        core.post_message(ws_a.id, None, "alpha".into())
+            .await
+            .unwrap();
+        core.post_message(ws_b.id, None, "beta".into())
+            .await
+            .unwrap();
         let deadline = Instant::now() + Duration::from_millis(3000);
         loop {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -662,6 +713,94 @@ mod tests {
         }
     }
 
+    /// Per-tab thread isolation, cross-tab race regression. The agent
+    /// reply must attribute to the tab the user typed in **when the
+    /// reply started streaming**, not whatever tab is active when the
+    /// coalescer flushes. Scenario: user posts in tab A; before the
+    /// coalescer's idle window elapses we flip `last_user_tab` to tab B
+    /// (simulating a fast tab-switch + post). Pre-fix, the flush would
+    /// read `last_user_tab` at flush time → B, misattributing reply 1.
+    /// Post-fix, the pending entry captured A at first-recv and the
+    /// reply lands in A regardless.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn coalescer_attributes_reply_to_tab_at_first_recv_not_at_flush() {
+        // 200 ms coalesce window gives the test thread room to flip
+        // `last_user_tab` mid-stream before the flush fires.
+        std::env::set_var("DESIGNER_MESSAGE_COALESCE_MS", "200");
+        let core = boot_test_core().await;
+        spawn_message_coalescer(core.clone(), Duration::from_millis(200));
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab_a = core
+            .open_tab(ws.id, "Tab A".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        let tab_b = core
+            .open_tab(ws.id, "Tab B".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        core.orchestrator
+            .spawn_team(designer_claude::TeamSpec {
+                workspace_id: ws.id,
+                team_name: "t".into(),
+                lead_role: "team-lead".into(),
+                teammates: vec![],
+                env: Default::default(),
+                cwd: None,
+            })
+            .await
+            .unwrap();
+        // Post in tab A — the mock orchestrator broadcasts a team-lead
+        // reply, the coalescer's pending entry is created with
+        // tab_id=tab_a.id captured. We do NOT wait for flush — instead
+        // we flip last_user_tab to B before the 200ms idle window
+        // elapses, simulating "user switches tabs while agent is
+        // streaming a reply".
+        core.post_message(ws.id, Some(tab_a.id), "hello from A".into())
+            .await
+            .unwrap();
+        core.set_last_user_tab(ws.id, tab_b.id);
+
+        // Wait past the coalescer window for the reply to land.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let in_a = core.list_artifacts_in_tab(ws.id, tab_a.id).await;
+            let agent_in_a = in_a
+                .iter()
+                .filter(|a| {
+                    a.kind == ArtifactKind::Message
+                        && a.author_role.as_deref() != Some(USER_AUTHOR_ROLE)
+                })
+                .count();
+            if agent_in_a >= 1 {
+                let in_b = core.list_artifacts_in_tab(ws.id, tab_b.id).await;
+                let agent_in_b = in_b
+                    .iter()
+                    .filter(|a| {
+                        a.kind == ArtifactKind::Message
+                            && a.author_role.as_deref() != Some(USER_AUTHOR_ROLE)
+                    })
+                    .count();
+                assert_eq!(
+                    agent_in_b, 0,
+                    "agent reply leaked into tab B (cross-tab race regression)"
+                );
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "agent reply never landed in tab A within deadline"
+            );
+        }
+    }
+
     /// Orchestrator dispatch failure must NOT leave a user artifact in
     /// the projector. The previous implementation persisted the user
     /// artifact first, then dispatched, leading to duplicates on retry.
@@ -685,7 +824,9 @@ mod tests {
             .create_workspace(project.id, "ws".into(), "main".into())
             .await
             .unwrap();
-        core.post_message(ws.id, "first".into()).await.unwrap();
+        core.post_message(ws.id, None, "first".into())
+            .await
+            .unwrap();
         let after = core.list_artifacts(ws.id).await;
         let user_artifacts: Vec<_> = after
             .iter()
@@ -813,7 +954,9 @@ mod tests {
             .await
             .unwrap();
 
-        core.post_message(ws.id, "hello".into()).await.unwrap();
+        core.post_message(ws.id, None, "hello".into())
+            .await
+            .unwrap();
 
         assert_eq!(
             flaky.calls.load(Ordering::SeqCst),
@@ -872,7 +1015,7 @@ mod tests {
             .unwrap();
 
         let err = core
-            .post_message(ws.id, "hello".into())
+            .post_message(ws.id, None, "hello".into())
             .await
             .expect_err("recovery-also-fails must surface a clean error");
 

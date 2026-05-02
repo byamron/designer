@@ -346,6 +346,7 @@ export function createVisualIpcClient(
     requestApproval: () => Promise.resolve("appr_stub"),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve(artifacts),
+    listArtifactsInTab: () => Promise.resolve(artifacts),
     listSpineArtifacts: () => Promise.resolve(artifacts),
     listPinnedArtifacts: () => Promise.resolve([]),
     getArtifact: (id) => {

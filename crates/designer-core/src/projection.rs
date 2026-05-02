@@ -7,7 +7,7 @@ use crate::domain::{
     Workspace, WorkspaceState,
 };
 use crate::event::{EventEnvelope, EventPayload};
-use crate::ids::{ArtifactId, ProjectId, StreamId, TrackId, WorkspaceId};
+use crate::ids::{ArtifactId, ProjectId, StreamId, TabId, TrackId, WorkspaceId};
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -131,6 +131,27 @@ impl Projector {
             .artifacts
             .values()
             .filter(|a| a.workspace_id == workspace_id && a.archived_at.is_none())
+            .cloned()
+            .collect()
+    }
+
+    /// Artifacts visible from a specific tab. Per-tab thread isolation:
+    /// `Message` artifacts are returned only when their `tab_id` matches
+    /// the requested tab; all other artifact kinds (spec, pr,
+    /// code-change, …) remain workspace-wide because they are shared
+    /// work products, not conversation. Legacy `Message` events with no
+    /// `tab_id` are attributed to the workspace's first tab at projection
+    /// time, so they appear there and nowhere else.
+    pub fn artifacts_in_tab(&self, workspace_id: WorkspaceId, tab_id: TabId) -> Vec<Artifact> {
+        self.inner
+            .read()
+            .artifacts
+            .values()
+            .filter(|a| a.workspace_id == workspace_id && a.archived_at.is_none())
+            .filter(|a| match a.kind {
+                ArtifactKind::Message => a.tab_id == Some(tab_id),
+                _ => true,
+            })
             .cloned()
             .collect()
     }
@@ -321,7 +342,29 @@ impl Projection for Projector {
                 summary,
                 payload,
                 author_role,
+                tab_id,
             } => {
+                // Per-tab thread isolation: a `Message` artifact must
+                // resolve to a tab. Explicit `tab_id` wins; otherwise we
+                // attribute legacy events to the workspace's first
+                // (oldest, non-closed) tab so existing histories remain
+                // readable on the new model. Non-message kinds stay
+                // workspace-scoped (`tab_id = None`).
+                let resolved_tab = match (*artifact_kind, *tab_id) {
+                    (_, Some(t)) => Some(t),
+                    (ArtifactKind::Message, None) => state
+                        .workspaces
+                        .get(workspace_id)
+                        .and_then(|w| w.tabs.iter().find(|t| t.closed_at.is_none()))
+                        .or_else(|| {
+                            state
+                                .workspaces
+                                .get(workspace_id)
+                                .and_then(|w| w.tabs.first())
+                        })
+                        .map(|t| t.id),
+                    _ => None,
+                };
                 state.artifacts.insert(
                     *artifact_id,
                     Artifact {
@@ -337,6 +380,7 @@ impl Projection for Projector {
                         updated_at: event.timestamp,
                         pinned_at: None,
                         archived_at: None,
+                        tab_id: resolved_tab,
                     },
                 );
             }

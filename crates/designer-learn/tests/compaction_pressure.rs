@@ -84,6 +84,7 @@ mod fixture_data {
                 workspace_id: workspace_id(),
                 author: Actor::user(),
                 body: body.to_string(),
+                tab_id: None,
             },
         )
     }

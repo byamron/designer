@@ -489,6 +489,8 @@ impl AppCore {
                     summary: pr_summary,
                     payload: PayloadRef::inline(pr.url.clone()),
                     author_role: Some(author_roles::TRACK.into()),
+                    // PR artifacts are workspace-wide work products.
+                    tab_id: None,
                 },
             )
             .await?;

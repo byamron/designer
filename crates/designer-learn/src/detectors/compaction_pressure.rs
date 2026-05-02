@@ -357,6 +357,7 @@ mod tests {
                 workspace_id: ws,
                 author: Actor::user(),
                 body: body.to_string(),
+                tab_id: None,
             },
             ws,
         )

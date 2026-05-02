@@ -152,6 +152,7 @@ fn main() {
             commands::get_artifact,
             commands::get_theme,
             commands::list_artifacts,
+            commands::list_artifacts_in_tab,
             commands::list_pinned_artifacts,
             commands::list_projects,
             commands::list_spine_artifacts,
