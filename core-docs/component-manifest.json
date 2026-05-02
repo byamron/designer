@@ -272,7 +272,7 @@
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "space-8", "target-md", "radius-modal", "radius-badge", "border-thin", "color-foreground", "color-muted", "color-accent", "color-border", "color-surface-overlay", "type-body-size", "type-caption-size", "type-caption-leading", "weight-medium", "elevation-modal", "layer-modal", "focus-outline-offset"],
-      "css_classes": ["app-dialog__hint", "app-dialog__inline-link"],
+      "css_prefix": "app-dialog__",
       "last_updated": "2026-05-02"
     },
     {
