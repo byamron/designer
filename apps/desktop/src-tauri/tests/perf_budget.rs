@@ -12,25 +12,28 @@
 //! to a new helper subsystem.
 //!
 //! Measured 2026-05-01 on darwin/aarch64 (Apple Silicon, debug build,
-//! `cargo test -p designer-desktop --test perf_budget`) over ~28 runs:
+//! `cargo test -p designer-desktop --test perf_budget`) over ~30 runs,
+//! including default (parallel) and `--test-threads=1` modes:
 //!
 //!   cold_start (ms):
-//!     typical 2.4 – 5.4, observed max 24.97 (one runner-stall spike;
-//!     second-highest 12.82)
-//!     → 2× quiet max ≈ 11 ms; 2× outlier max ≈ 50 ms; bumped to
-//!       COLD_START_BUDGET = 100 ms after a tighter (25 ms) bound
-//!       fired on a single noise spike that came within 30 µs of the
-//!       budget. 100 ms still flags any order-of-magnitude regression
-//!       (typical ~3 ms × 30) and gives plenty of headroom for slower
-//!       / contended runners.
+//!     typical 2.4 – 5.4 serial, 10 – 30 under parallel contention
+//!     (both tests boot SQLite + replay concurrently); observed max
+//!     103.5 ms when the runner was loaded and parallel execution
+//!     piled on
+//!     → COLD_START_BUDGET = 250 ms. Earlier values of 25 ms and
+//!       100 ms each fired on contention spikes. 250 ms still flags
+//!       order-of-magnitude regressions (typical ~3 ms × 80) while
+//!       absorbing the runner-jitter and parallel-test contention
+//!       this suite legitimately produces.
 //!
 //!   ipc_list_projects p99 (µs):
-//!     typical 20 – 30, noisy-run highs 87 / 111 / 425 (with one
-//!     max-sample outlier of 948 µs in the noisiest run)
-//!     → 2× noisy max ≈ 850 µs; rounded to IPC_P99_BUDGET = 1 ms.
-//!       That's ~50× the typical p99 — still inside the
-//!       "order-of-magnitude regression" window (a 100× regression
-//!       would push p99 to ~2 ms and trip).
+//!     typical 20 – 30, noisy-run highs 87 / 111 / 425 / 626 (with
+//!     a max single-sample outlier of 5.5 ms once when a parallel
+//!     boot was in flight)
+//!     → IPC_P99_BUDGET = 2 ms. p99 (sample[98]) tolerates one
+//!       outlier sample without firing; 2 ms still catches anything
+//!       remotely resembling an order-of-magnitude projector-walk
+//!       regression (typical p99 ~22 µs × 90).
 //!
 //! If either budget fires on noise rather than a real regression,
 //! re-measure 5+ runs and raise the constant. Tightening these is a
@@ -48,17 +51,20 @@ use tempfile::tempdir;
 
 /// Cold start = `AppCore::boot()` returning, which includes opening the
 /// SQLite event store and the first `projector.replay(&history)` pass.
-const COLD_START_BUDGET: Duration = Duration::from_millis(100);
+const COLD_START_BUDGET: Duration = Duration::from_millis(250);
 
 /// p99 of 100 sequential `cmd_list_projects` calls on a populated AppCore
 /// (10 projects × 3 workspaces). Pure projector reads — should be fast.
-const IPC_P99_BUDGET: Duration = Duration::from_millis(1);
+const IPC_P99_BUDGET: Duration = Duration::from_millis(2);
 
 fn test_config(data_dir: std::path::PathBuf) -> AppConfig {
     AppConfig {
         data_dir,
         // Skip the real Claude orchestrator — boot must not depend on
-        // a `claude` binary on the test machine.
+        // a `claude` binary on the test machine. As a side effect, the
+        // process-global `INBOX_HANDLER` (`core_safety.rs`) is never
+        // wired into the orchestrator under mock, so the OnceCell race
+        // between parallel test boots is inert here.
         use_mock_orchestrator: true,
         claude_options: ClaudeCodeOptions::default(),
         default_cost_cap: CostCap {
@@ -69,6 +75,12 @@ fn test_config(data_dir: std::path::PathBuf) -> AppConfig {
         helper_binary_path: None,
     }
 }
+
+// Drop-order note: each test below declares `dir` before the AppCore. Rust
+// drops locals in reverse, so the AppCore (and its open SQLite handles)
+// drops first; the tempdir is removed only after. No need for the
+// `std::mem::forget(dir)` pattern used in `boot_test_core` (`core.rs`),
+// which returns the Arc to an outer scope and so must leak the tempdir.
 
 #[tokio::test]
 async fn cold_start_under_budget() {
