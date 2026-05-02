@@ -93,7 +93,13 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci
+      - name: install deps (linux-aware)
+        # See `regenerate-visual-baselines.yml` — `npm ci` against a
+        # macOS-authored lockfile fails on Linux because the rollup
+        # optional native binary isn't pinned (npm/cli#4828).
+        run: |
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
       - name: install playwright chromium
         run: npx --workspace @designer/app playwright install --with-deps chromium
       - name: npm run test:visual

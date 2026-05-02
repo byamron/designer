@@ -52,7 +52,17 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci
+      - name: install deps (linux-aware)
+        # The repo's package-lock.json is generated on macOS, which
+        # doesn't pin Linux-only optional deps like
+        # @rollup/rollup-linux-x64-gnu (npm/cli#4828). `npm ci` enforces
+        # the lockfile and fails on the missing platform binary; a fresh
+        # `npm install` resolves the right binary for this host without
+        # mutating the committed lockfile (we discard the regenerated
+        # one before commit).
+        run: |
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
       - name: install playwright chromium
         run: npx --workspace @designer/app playwright install --with-deps chromium
       - name: regenerate baselines
@@ -61,6 +71,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Discard the regenerated lockfile so the macOS-authored one
+          # stays canonical; only the screenshots are committed.
+          git checkout -- package-lock.json
           git add packages/app/src/test/visual/__screenshots__
           if git diff --cached --quiet; then
             echo "No baseline changes."
