@@ -526,6 +526,11 @@ const FILTERS: FilterDef[] = [
 
 type RowAction = "address" | "resolve" | "reopen" | "show-record" | "show-screenshot";
 
+// Slightly longer than `--motion-emphasized` (400ms) so the
+// `data-just-updated` attribute lingers a beat past the animation —
+// avoids the attribute clearing mid-frame and aborting the flash.
+const FLASH_TIMER_MS = 600;
+
 /// Parse a GitHub PR URL into `owner/repo#123` for the row-meta chip.
 /// Returns the raw host fallback if the URL doesn't match the expected
 /// shape — better to surface *something* than to drop the chip silently.
@@ -577,6 +582,8 @@ export function FrictionTriageSection() {
     for (const id of changed) {
       const existing = flashTimersRef.current.get(id);
       if (existing !== undefined) window.clearTimeout(existing);
+      // Slightly longer than `--motion-emphasized` (400ms) so the
+      // attribute clears after the animation has finished playing.
       const handle = window.setTimeout(() => {
         flashTimersRef.current.delete(id);
         setRecentlyUpdated((curr) => {
@@ -585,7 +592,7 @@ export function FrictionTriageSection() {
           next2.delete(id);
           return next2;
         });
-      }, 1800);
+      }, FLASH_TIMER_MS);
       flashTimersRef.current.set(id, handle);
     }
   }, [entries]);

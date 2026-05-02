@@ -479,10 +479,11 @@
  * primary trigger is an external write (CLI `friction address|resolve|
  * reopen`) so the user sees the loop close without hunting for the
  * difference. Local optimistic updates land here too; reinforces "yes,
- * that worked." Honours `prefers-reduced-motion`. */
+ * that worked." Uses `--motion-emphasized` per design-language §motion
+ * (snappy register; longer durations would cross into expressive).
+ * Honours `prefers-reduced-motion`. */
 .friction-triage__row[data-just-updated] {
-  animation: friction-row-flash var(--motion-emphasized, 400ms) ease-out 0s 1;
-  animation-duration: 1800ms;
+  animation: friction-row-flash var(--motion-emphasized) ease-out;
 }
 
 @keyframes friction-row-flash {
