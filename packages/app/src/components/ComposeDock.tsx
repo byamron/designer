@@ -56,9 +56,30 @@ export const ComposeDock = forwardRef<
      *  textarea stays editable so the user can keep refining a
      *  follow-up — only the dispatch is gated. */
     busy?: boolean;
+    /** Seed value for the draft on mount. Used by per-tab draft
+     *  persistence: when a tab is re-mounted (e.g. tab switch +
+     *  switch back), the parent reads the saved draft from the app
+     *  store and threads it in here so the textarea doesn't appear
+     *  empty. Empty string is the default and matches a fresh tab. */
+    initialDraft?: string;
+    /** Fires on every change to the draft (typing, paste, programmatic
+     *  setDraft, send-clear). Parents persist this to the app store
+     *  keyed by tab id so leaving + returning preserves the in-progress
+     *  text. */
+    onDraftChange?: (text: string) => void;
   }
->(function ComposeDock({ onSend, placeholder, busy = false }, ref) {
-  const [draft, setDraft] = useState("");
+>(function ComposeDock(
+  { onSend, placeholder, busy = false, initialDraft = "", onDraftChange },
+  ref,
+) {
+  const [draft, setDraftState] = useState(initialDraft);
+  // The draft setter is wrapped so every write — keystroke, paste,
+  // imperative setDraft, post-send clear — fires `onDraftChange` and
+  // the parent stays in sync without each callsite having to remember.
+  const setDraft = (next: string) => {
+    setDraftState(next);
+    onDraftChange?.(next);
+  };
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const [model, setModel] = useState<ComposeModel>("opus-4.7");
@@ -161,10 +182,15 @@ export const ComposeDock = forwardRef<
           }
           rows={3}
           onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              send();
-            }
+            // Enter sends; Shift+Enter inserts a newline. ⌘/Ctrl+Enter
+            // is preserved as an alias so the muscle memory shown in
+            // the help dialog still works.
+            if (e.key !== "Enter") return;
+            if (e.shiftKey) return;
+            // Don't intercept the IME composition's confirmation Enter.
+            if (e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            send();
           }}
           aria-label="Message"
         />
@@ -219,7 +245,7 @@ export const ComposeDock = forwardRef<
           <IconButton
             type="submit"
             label={busy ? "Sending…" : "Send"}
-            shortcut="⌘↵"
+            shortcut="↵"
             className="btn-icon--primary"
             disabled={busy}
             aria-busy={busy || undefined}

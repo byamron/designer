@@ -272,6 +272,15 @@
 
 .state-dot[data-state="active"] {
   background: var(--color-foreground);
+}
+
+/* Pulse animation gates on a *recent* activity ping, not the
+ * `state="active"` projection alone. The projection is too sticky —
+ * a workspace stays "active" between agent messages, which made the
+ * dots pulse forever once anything streamed. The data-active-ts-recent
+ * attribute is set by useRecentActivity (windowed on the per-stream
+ * event timestamp). See store/data.ts § ACTIVE_RECENCY_MS. */
+.state-dot[data-state="active"][data-active-ts-recent="true"] {
   animation: state-pulse var(--motion-pulse) var(--ease-standard) infinite;
 }
 
