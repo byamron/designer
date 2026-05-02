@@ -61,6 +61,11 @@ anyhow = "1"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+# File appender — needed for the bundled `.app` because launchd routes
+# stdout/stderr to /dev/null. Without an on-disk log, every chat-flow
+# regression in the bundle is invisible. Daily rotation keeps the
+# directory bounded.
+tracing-appender = "0.2"
 
 # Misc
 bytes = "1"

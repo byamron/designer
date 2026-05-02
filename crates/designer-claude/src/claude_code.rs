@@ -111,6 +111,10 @@ struct TeamHandle {
     stderr_task: JoinHandle<()>,
     /// Child handle for `start_kill` on forced shutdown.
     child: Child,
+    /// PID of the spawned `claude` for log correlation. `None` only if
+    /// `Child::id()` returned None (race with the OS reaping the child;
+    /// extremely rare on macOS).
+    child_pid: Option<u32>,
     /// Deterministic session id used when spawning. Stored so `assign_task`
     /// / `post_message` can log coherent context.
     #[allow(dead_code)]
@@ -260,6 +264,13 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         let mut child = cmd
             .spawn()
             .map_err(|e| OrchestratorError::Spawn(format!("{}: {e}", bin.display())))?;
+        let child_pid = child.id();
+        info!(
+            workspace = %spec.workspace_id,
+            pid = ?child_pid,
+            binary = %bin.display(),
+            "claude subprocess spawned"
+        );
 
         let stdin = child
             .stdin
@@ -276,21 +287,29 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
 
         let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>(64);
 
-        // Writer task: forwards bytes to child stdin.
+        let ws = spec.workspace_id;
+
+        // Writer task: forwards bytes to child stdin. Logs are tagged with
+        // workspace + pid so multi-team boots don't blur in the trace.
         let writer_task = tokio::spawn(async move {
             let mut stdin = stdin;
             let mut rx = stdin_rx;
             while let Some(bytes) = rx.recv().await {
                 if let Err(e) = stdin.write_all(&bytes).await {
-                    warn!(error = %e, "claude stdin write failed");
+                    warn!(workspace = %ws, pid = ?child_pid, error = %e, "claude stdin write failed");
                     break;
                 }
                 if let Err(e) = stdin.flush().await {
-                    warn!(error = %e, "claude stdin flush failed");
+                    warn!(workspace = %ws, pid = ?child_pid, error = %e, "claude stdin flush failed");
                     break;
                 }
             }
-            debug!("claude stdin writer task exiting");
+            // Promoted from debug to info: the writer exiting is one of two
+            // observable signals that claude died (the other is reader EOF).
+            // For the bundled `.app` chat-hang debugging this is the
+            // single most useful line in the trace, so it must show up
+            // under the default `RUST_LOG=info` envelope.
+            info!(workspace = %ws, pid = ?child_pid, "claude stdin writer task exiting");
         });
 
         // Reader task: line-by-line stream-json → OrchestratorEvent via
@@ -305,7 +324,6 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         let store_for_reader = self.store.clone();
         let permission_handler = self.permission_handler.clone();
         let stdin_tx_for_reader = stdin_tx.clone();
-        let ws = spec.workspace_id;
         let team_name = spec.team_name.clone();
         let lead_role = spec.lead_role.clone();
         let reader_task = tokio::spawn(async move {
@@ -323,17 +341,23 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
                 },
             )
             .await;
-            debug!("claude stdout reader task exiting");
+            // Promoted to info for the same reason as the writer-exit line:
+            // a silent reader EOF is what the user perceives as "chat
+            // hanging" — the trace needs to make it visible.
+            info!(workspace = %ws, pid = ?child_pid, "claude stdout reader task exiting");
         });
 
         // Stderr task: log claude's stderr at warn level. stderr is rarely
-        // populated in practice (stream-json carries errors in-band).
+        // populated in practice (stream-json carries errors in-band) but
+        // when claude dies on the spawn-side (bun JIT denied, missing
+        // shared lib, auth failure on a model the user doesn't have access
+        // to) the diagnostic prints there.
         let stderr_task = tokio::spawn(async move {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 if !line.trim().is_empty() {
-                    warn!(stderr = %line, "claude");
+                    warn!(workspace = %ws, pid = ?child_pid, stderr = %line, "claude");
                 }
             }
         });
@@ -349,10 +373,10 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         // user messages one JSON-per-line.
         let prompt = build_spawn_prompt(&spec);
         let line = user_message_line(&prompt)?;
-        stdin_tx
-            .send(line)
-            .await
-            .map_err(|_| OrchestratorError::Spawn("stdin channel closed".into()))?;
+        stdin_tx.send(line).await.map_err(|_| {
+            warn!(workspace = %ws, pid = ?child_pid, "spawn-prompt send failed: writer task exited before first message");
+            OrchestratorError::ChannelClosed { workspace_id: ws }
+        })?;
 
         self.teams.lock().insert(
             spec.workspace_id,
@@ -362,6 +386,7 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
                 writer_task,
                 stderr_task,
                 child,
+                child_pid,
                 lead_session_id: session_id,
             },
         );
@@ -374,18 +399,22 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         workspace_id: WorkspaceId,
         assignment: TaskAssignment,
     ) -> OrchestratorResult<()> {
-        let tx = {
+        let (tx, child_pid) = {
             let teams = self.teams.lock();
-            teams
+            let handle = teams
                 .get(&workspace_id)
-                .map(|h| h.stdin_tx.clone())
-                .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?
+                .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?;
+            (handle.stdin_tx.clone(), handle.child_pid)
         };
         let prompt = build_task_prompt(&assignment);
         let line = user_message_line(&prompt)?;
-        tx.send(line)
-            .await
-            .map_err(|_| OrchestratorError::Spawn("stdin channel closed".into()))?;
+        tx.send(line).await.map_err(|_| {
+            warn!(
+                workspace = %workspace_id, pid = ?child_pid,
+                "assign_task: stdin channel closed (writer task exited)"
+            );
+            OrchestratorError::ChannelClosed { workspace_id }
+        })?;
         Ok(())
     }
 
@@ -395,18 +424,26 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         author_role: String,
         body: String,
     ) -> OrchestratorResult<()> {
-        let tx = {
+        let (tx, child_pid) = {
             let teams = self.teams.lock();
-            teams
+            let handle = teams
                 .get(&workspace_id)
-                .map(|h| h.stdin_tx.clone())
-                .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?
+                .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?;
+            (handle.stdin_tx.clone(), handle.child_pid)
         };
         let prompt = build_message_prompt(&author_role, &body);
         let line = user_message_line(&prompt)?;
-        tx.send(line)
-            .await
-            .map_err(|_| OrchestratorError::Spawn("stdin channel closed".into()))?;
+        debug!(
+            workspace = %workspace_id, pid = ?child_pid, body_len = body.len(),
+            "post_message: forwarding to claude stdin"
+        );
+        tx.send(line).await.map_err(|_| {
+            warn!(
+                workspace = %workspace_id, pid = ?child_pid,
+                "post_message: stdin channel closed (writer task exited)"
+            );
+            OrchestratorError::ChannelClosed { workspace_id }
+        })?;
         Ok(())
     }
 

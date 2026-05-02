@@ -14,6 +14,14 @@ pub enum OrchestratorError {
     Spawn(String),
     #[error("team not found: {0}")]
     TeamNotFound(String),
+    /// The team's stdin channel is closed because the writer task exited
+    /// (claude died, or its stdin pipe was severed). The handle in the
+    /// orchestrator's team map is stale; callers should treat this like
+    /// `TeamNotFound` and re-spawn after `shutdown(workspace_id)`. Surfaced
+    /// distinctly so the recovery path doesn't have to string-match on
+    /// `Spawn(...)`.
+    #[error("stdin channel closed for workspace {workspace_id}")]
+    ChannelClosed { workspace_id: WorkspaceId },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("core error: {0}")]

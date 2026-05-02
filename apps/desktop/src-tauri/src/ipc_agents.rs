@@ -5,7 +5,7 @@
 use crate::core::AppCore;
 use designer_ipc::{IpcError, PostMessageRequest, PostMessageResponse};
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{info, warn};
 
 pub async fn cmd_post_message(
     core: &Arc<AppCore>,
@@ -32,10 +32,26 @@ pub async fn cmd_post_message(
             "post_message: attachments accepted but not yet delivered to the orchestrator (13.D-followup)"
         );
     }
-    let artifact_id = core
+    // Boundary trace so the bundled-`.app` log file shows every message
+    // attempt in time order — the orchestrator-side logs make sense in
+    // context of "user pressed send at T". Without this, a hang at the
+    // IPC layer is indistinguishable from a hang at the subprocess
+    // layer.
+    info!(
+        workspace = %req.workspace_id, body_len = req.text.len(),
+        "cmd_post_message: dispatching to AppCore"
+    );
+    let result = core
         .post_message(req.workspace_id, req.text)
         .await
-        .map_err(IpcError::from)?;
+        .map_err(IpcError::from);
+    match &result {
+        Ok(artifact_id) => {
+            info!(workspace = %req.workspace_id, artifact = %artifact_id, "cmd_post_message: ok")
+        }
+        Err(err) => warn!(workspace = %req.workspace_id, error = %err, "cmd_post_message: error"),
+    }
+    let artifact_id = result?;
     Ok(PostMessageResponse { artifact_id })
 }
 
