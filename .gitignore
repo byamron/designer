@@ -13,6 +13,10 @@ dist/
 *.db-wal
 *.db-shm
 
+# Sandbox event store written by `just dev` — keeps in-progress
+# branches from corrupting the daily-driver's ~/.designer/.
+.dev-data/
+
 # Editor / OS
 .DS_Store
 *.swp
