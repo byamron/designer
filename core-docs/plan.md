@@ -486,6 +486,7 @@ Moved from placeholder spec to full `core-docs/` structure with spec, roadmap, p
 
 ## Backlog
 
+- **Friction → in-app dispatch** *(gated on the chat path actually working end-to-end — the v0.1.1 build hangs on user message; user reports Designer "completely nonfunctional" for chat as of 2026-05-01).* Add a "Work on this" button on each Friction triage row that opens a fresh workspace in the linked repo and seeds the composer with the per-row prompt (the same one `Copy prompt` already builds). Add a batch-level companion that opens N workspaces (or one workspace with N tabs) and seeds each composer with the matching record's prompt. Replaces the current "copy → paste into Claude Code → terminal round-trip" loop with a single click. **Concrete blocker to clear first:** debug why `cmd_post_message` hangs in the bundled .app — most likely a subprocess/permission issue specific to the signed bundle vs. the dev binary. Once the loop is one-message-end-to-end stable, this becomes ~1 day of frontend work (new IPC `cmd_open_workspace_with_prompt` + button wiring).
 - Product naming pass — decide whether to keep "Designer" or pick something more distinct.
 - Multi-repo project model (defer until a second-repo use case appears).
 - Linear / Jira integration strategy (map Linear project/epic/initiative to Designer workspace).

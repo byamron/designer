@@ -163,10 +163,16 @@
     var(--sand-1)
   );
   --color-surface-flat: var(--color-background);
+  /* The main tab now sits DARKER than the surrounding page so dark mode
+   * mirrors the light-mode contrast register (light tab on warm sand →
+   * near-black tab on warm dark sand). The previous sand-9 + sand-5 mix
+   * lifted the tab above the surface, which read as a misregistered
+   * inversion. Anchored at sand-1 (near-black, ~#111110) with a thin
+   * sand-3 wash so the cool/warm relationship with the page persists. */
   --color-content-surface: color-mix(
     in oklab,
-    var(--sand-9) var(--dev-main-tab-sand),
-    var(--sand-5)
+    var(--sand-3) var(--dev-main-tab-sand),
+    var(--sand-1)
   );
 
   /* Tier surfaces — pre-mixed steps for chips, hover, overlays. */

@@ -324,4 +324,70 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
     // the row in the DOM.
     await waitFor(() => expect(listFriction).toHaveBeenCalledTimes(2));
   });
+
+  it("bulk copy button bundles every filtered record into one clipboard write", async () => {
+    // Snapshot the original clipboard descriptor so the override is
+    // strictly local to this test. Without restoration the stub leaks
+    // into every later test in the same vitest worker that touches
+    // navigator.clipboard.
+    const originalClipboard = Object.getOwnPropertyDescriptor(window.navigator, "clipboard");
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(window.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    try {
+      const entries = [
+        makeEntry({ friction_id: "frc_a", local_path: "/tmp/.designer/friction/frc_a.md" }),
+        makeEntry({ friction_id: "frc_b", local_path: "/tmp/.designer/friction/frc_b.md" }),
+        makeEntry({ friction_id: "frc_c", local_path: "/tmp/.designer/friction/frc_c.md" }),
+      ];
+      __setIpcClient(stubClient({ listFriction: () => Promise.resolve(entries) }));
+
+      render(<FrictionTriageSection />);
+
+      // Wait for the rows to render so the button label has settled to the
+      // real count rather than the empty-list placeholder.
+      const button = await screen.findByRole("button", { name: /Copy 3 as one prompt/i });
+      fireEvent.click(button);
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      const payload = writeText.mock.calls[0]![0];
+      expect(payload).toContain("3 open Designer friction reports");
+      expect(payload).toContain("/tmp/.designer/friction/frc_a.md");
+      expect(payload).toContain("/tmp/.designer/friction/frc_b.md");
+      expect(payload).toContain("/tmp/.designer/friction/frc_c.md");
+      expect(payload).toContain("designer friction address");
+    } finally {
+      if (originalClipboard) {
+        Object.defineProperty(window.navigator, "clipboard", originalClipboard);
+      } else {
+        // jsdom doesn't ship a clipboard descriptor by default; if there
+        // wasn't one before, drop ours rather than leave a stub behind.
+        delete (window.navigator as unknown as { clipboard?: unknown }).clipboard;
+      }
+    }
+  });
+
+  it("bulk copy button is disabled (no count flicker) while the projection is still loading", async () => {
+    // Hold the projection promise open so the section sits in its
+    // loading state through the assertion. The button must read
+    // "Copy as prompt" + disabled — never "Copy 0 as one prompt", which
+    // would advertise an empty clipboard write to the user mid-fetch.
+    let resolveList: (entries: FrictionEntry[]) => void = () => {};
+    const pending = new Promise<FrictionEntry[]>((r) => {
+      resolveList = r;
+    });
+    __setIpcClient(stubClient({ listFriction: () => pending }));
+
+    render(<FrictionTriageSection />);
+
+    const button = await screen.findByRole("button", { name: /Copy as prompt/i });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.textContent).not.toMatch(/0/);
+
+    // Resolve so the cleanup phase doesn't leave a dangling promise.
+    resolveList([]);
+  });
 });

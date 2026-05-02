@@ -164,6 +164,11 @@
   --layer-raised:   1;
   --layer-overlay:  10;
   --layer-modal:    100;
+  /* Surfaces that must remain reachable while a modal / full-page
+   * register (e.g. settings-page) is mounted — the Friction trigger
+   * and composer must let the user file a report *against* the modal
+   * itself. Sits above modal but below the OS-chrome titlebar inset. */
+  --layer-floating: 150;
   --layer-titlebar: 200;
 
   /* ==================== Focus ==================== */

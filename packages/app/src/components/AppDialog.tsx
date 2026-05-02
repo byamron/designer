@@ -57,17 +57,12 @@ export function AppDialog() {
 }
 
 function HelpBody() {
+  // The "Ask the help agent" input was a static placeholder with no
+  // backing handler. Removed per the dogfood rule "no half-baked
+  // features in prod"; the section returns once an answering agent
+  // actually exists.
   return (
     <>
-      <section className="app-dialog__section" aria-label="Ask">
-        <span className="app-dialog__section-label">Ask</span>
-        <input
-          type="text"
-          className="quick-switcher__input"
-          placeholder="What would you like to know about Designer?"
-          aria-label="Ask the help agent"
-        />
-      </section>
       <section className="app-dialog__section" aria-label="Keyboard shortcuts">
         <span className="app-dialog__section-label">Keyboard shortcuts</span>
         <dl className="app-dialog__kbd-list">
