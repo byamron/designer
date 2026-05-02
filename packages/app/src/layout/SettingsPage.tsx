@@ -17,7 +17,7 @@ import {
   type ThemeMode,
 } from "../theme";
 import { ipcClient } from "../ipc/client";
-import type { FrictionEntry, KeychainStatus } from "../ipc/types";
+import type { FrictionEntry, FrictionState, KeychainStatus } from "../ipc/types";
 import { COST_CHIP_PREFERENCE_EVENT } from "../components/CostChip";
 
 /**
@@ -540,12 +540,64 @@ function shortPrLabel(url: string): string {
   }
 }
 
-function FrictionTriageSection() {
+/// Exported so the test suite can mount the section in isolation
+/// without booting the full SettingsPage.
+export function FrictionTriageSection() {
   const [entries, setEntries] = useState<FrictionEntry[] | null>(null);
   const [filter, setFilter] = useState<FrictionFilter>("open");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [addressTarget, setAddressTarget] = useState<FrictionEntry | null>(null);
+  // Highlight rows whose state changed since the last fetch so an
+  // external refresh (CLI write, optimistic update) is *visible*. Set
+  // is the source of truth; per-id timers in the ref clear entries
+  // ~1.8s after they're added.
+  const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(() => new Set());
+  const prevStateRef = useRef<Map<string, FrictionState> | null>(null);
+  const flashTimersRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (entries === null) return;
+    const next = new Map(entries.map((e) => [e.friction_id, e.state] as const));
+    const prev = prevStateRef.current;
+    prevStateRef.current = next;
+    // First fetch is the baseline — don't flash everything on mount.
+    if (prev === null) return;
+    const changed: string[] = [];
+    for (const [id, state] of next) {
+      const before = prev.get(id);
+      // Either a state transition OR a brand-new id (external creation).
+      if (before === undefined || before !== state) changed.push(id);
+    }
+    if (changed.length === 0) return;
+    setRecentlyUpdated((curr) => {
+      const merged = new Set(curr);
+      for (const id of changed) merged.add(id);
+      return merged;
+    });
+    for (const id of changed) {
+      const existing = flashTimersRef.current.get(id);
+      if (existing !== undefined) window.clearTimeout(existing);
+      const handle = window.setTimeout(() => {
+        flashTimersRef.current.delete(id);
+        setRecentlyUpdated((curr) => {
+          if (!curr.has(id)) return curr;
+          const next2 = new Set(curr);
+          next2.delete(id);
+          return next2;
+        });
+      }, 1800);
+      flashTimersRef.current.set(id, handle);
+    }
+  }, [entries]);
+  useEffect(
+    () => () => {
+      for (const handle of flashTimersRef.current.values()) {
+        window.clearTimeout(handle);
+      }
+      flashTimersRef.current.clear();
+    },
+    [],
+  );
 
   // Initial load — apply the projection synchronously and auto-fall-through
   // from the default "Open" filter to "All" when there's history but no
@@ -662,6 +714,11 @@ function FrictionTriageSection() {
         label="Friction"
         description="Internal feedback captured via the bottom-right button or ⌘⇧F. Records persist as local markdown files in the linked repo (gitignored by default)."
       />
+      <p className="friction-triage__hint">
+        Working with agents? Triage from the terminal with{" "}
+        <code>designer friction list --json</code>, or click <em>Copy prompt</em> on a row.
+        Setup + the full loop are in <code>core-docs/workflow.md</code>.
+      </p>
       <div className="friction-triage__filters">
         <SegmentedToggle<FrictionFilter>
           ariaLabel="Filter friction by state"
@@ -684,6 +741,7 @@ function FrictionTriageSection() {
               entry={e}
               expanded={expanded.has(e.friction_id)}
               busy={busyId === e.friction_id}
+              justUpdated={recentlyUpdated.has(e.friction_id)}
               onToggle={() => toggleExpanded(e.friction_id)}
               onAction={(action) => runAction(e, action)}
             />
@@ -731,12 +789,14 @@ function FrictionRow({
   entry: e,
   expanded,
   busy,
+  justUpdated,
   onToggle,
   onAction,
 }: {
   entry: FrictionEntry;
   expanded: boolean;
   busy: boolean;
+  justUpdated: boolean;
   onToggle: () => void;
   onAction: (action: RowAction) => void | Promise<void>;
 }) {
@@ -744,6 +804,7 @@ function FrictionRow({
     <li
       className="friction-triage__row"
       data-state={e.state}
+      data-just-updated={justUpdated || undefined}
       data-component="FrictionTriageRow"
     >
       <button

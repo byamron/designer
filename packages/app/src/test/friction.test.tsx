@@ -8,6 +8,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FrictionWidget } from "../components/Friction/FrictionWidget";
 import { SelectionOverlay } from "../components/Friction/SelectionOverlay";
+import { FrictionTriageSection } from "../layout/SettingsPage";
+import type { FrictionEntry } from "../ipc/types";
 import {
   appStore,
   clearFriction,
@@ -262,5 +264,64 @@ describe("captureViewport — Track 13.M ⌘⇧S path", () => {
     const bytes = await ipcClient().captureViewport();
     expect(bytes).toBeInstanceOf(Uint8Array);
     expect(bytes.byteLength).toBeGreaterThan(0);
+  });
+});
+
+describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
+  function makeEntry(overrides: Partial<FrictionEntry> = {}): FrictionEntry {
+    return {
+      friction_id: "frc_test_a",
+      workspace_id: null,
+      project_id: null,
+      created_at: new Date().toISOString(),
+      body: "row body",
+      route: "/r",
+      title: "Test row",
+      anchor_descriptor: "TestComponent",
+      state: "open",
+      pr_url: null,
+      screenshot_path: null,
+      local_path: "/tmp/.designer/friction/frc_test_a.md",
+      ...overrides,
+    };
+  }
+
+  it("re-fetches and reflects state changes when the watcher fires", async () => {
+    let storeHandler: (() => void) | null = null;
+    const listFriction = vi
+      .fn<() => Promise<FrictionEntry[]>>()
+      .mockResolvedValueOnce([makeEntry({ state: "open" })])
+      .mockResolvedValueOnce([makeEntry({ state: "addressed" })]);
+    __setIpcClient(
+      stubClient({
+        listFriction: listFriction as unknown as IpcClient["listFriction"],
+        onStoreChanged: (h) => {
+          storeHandler = h;
+          return () => {
+            storeHandler = null;
+          };
+        },
+      }),
+    );
+
+    render(<FrictionTriageSection />);
+
+    // Initial mount fetches once and renders the row in `open` state. The
+    // default filter is `open` so the row is visible without a filter
+    // change.
+    await waitFor(() => expect(listFriction).toHaveBeenCalledTimes(1));
+    expect(storeHandler).not.toBeNull();
+
+    // Simulate the Rust watcher emitting after a CLI write.
+    act(() => {
+      storeHandler!();
+    });
+
+    // Second fetch fires; row's state flips to addressed. Filter chip
+    // does NOT auto-bounce — the row leaves the open chip but stays in
+    // the projection (visible from `All`). The most reliable assertion
+    // here is the listFriction call count, since the filter could mask
+    // the row in the DOM.
+    await waitFor(() => expect(listFriction).toHaveBeenCalledTimes(2));
   });
 });

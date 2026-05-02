@@ -4,9 +4,11 @@
 # friction in the desktop app, then `designer friction list --json` from
 # any Claude Code / Codex CLI / shell agent to triage and fix.
 #
-# Re-running upgrades in place (cargo install replaces the binary). Pass
-# --debug to install an unoptimized build for faster iteration during
-# CLI development.
+# First-time install just works. To upgrade an existing install, pass
+# --force — the explicit gesture is to avoid silently clobbering a
+# `designer` binary the user installed by other means (system package,
+# different checkout, etc.). --debug builds an unoptimized binary for
+# faster iteration during CLI development.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,16 +19,45 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-PROFILE_FLAG=("--locked")
-if [[ "${1:-}" == "--debug" ]]; then
-  PROFILE_FLAG+=("--debug")
-  shift
+FORCE=0
+DEBUG=0
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE=1 ;;
+    --debug) DEBUG=1 ;;
+    -h|--help)
+      echo "Usage: $(basename "$0") [--force] [--debug]"
+      echo "  --force    Overwrite an existing 'designer' binary on PATH"
+      echo "  --debug    Build an unoptimized binary (faster install)"
+      exit 0
+      ;;
+    *)
+      echo "error: unknown flag: $arg (try --help)" >&2
+      exit 2
+      ;;
+  esac
+done
+
+EXISTING="$(command -v designer 2>/dev/null || true)"
+if [[ -n "$EXISTING" && "$FORCE" -ne 1 ]]; then
+  EXISTING_VERSION="$("$EXISTING" version 2>/dev/null || echo unknown)"
+  echo "designer is already installed:" >&2
+  echo "  path:    $EXISTING" >&2
+  echo "  version: $EXISTING_VERSION" >&2
+  echo "" >&2
+  echo "Re-run with --force to overwrite, or remove the existing binary first." >&2
+  exit 1
+fi
+
+CARGO_FLAGS=("--locked" "--force")
+if [[ "$DEBUG" -eq 1 ]]; then
+  CARGO_FLAGS+=("--debug")
 fi
 
 echo "==> Installing designer CLI from $CRATE_PATH"
-cargo install --path "$CRATE_PATH" --force "${PROFILE_FLAG[@]}" "$@"
+cargo install --path "$CRATE_PATH" "${CARGO_FLAGS[@]}"
 
-INSTALLED="$(command -v designer || true)"
+INSTALLED="$(command -v designer 2>/dev/null || true)"
 if [[ -n "$INSTALLED" ]]; then
   echo "==> Installed: $INSTALLED"
   designer version

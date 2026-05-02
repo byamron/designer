@@ -438,6 +438,23 @@
   margin-bottom: var(--space-3);
 }
 
+/* Quiet helper text under the section header — surfaces the agent CLI
+ * workflow without competing with the actionable filter chips below. */
+.friction-triage__hint {
+  margin: 0 0 var(--space-4) 0;
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+}
+
+.friction-triage__hint code {
+  font-family: var(--type-family-mono);
+  font-size: 0.95em;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-badge);
+  background: var(--color-surface-overlay);
+}
+
 .friction-triage {
   display: flex;
   flex-direction: column;
@@ -456,6 +473,34 @@
   background: var(--color-surface-raised);
   border: var(--border-thin) solid var(--color-border);
   border-radius: var(--radius-button);
+}
+
+/* Brief accent flash when a row's state changes between fetches —
+ * primary trigger is an external write (CLI `friction address|resolve|
+ * reopen`) so the user sees the loop close without hunting for the
+ * difference. Local optimistic updates land here too; reinforces "yes,
+ * that worked." Honours `prefers-reduced-motion`. */
+.friction-triage__row[data-just-updated] {
+  animation: friction-row-flash var(--motion-emphasized, 400ms) ease-out 0s 1;
+  animation-duration: 1800ms;
+}
+
+@keyframes friction-row-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface-raised));
+  }
+  100% {
+    background-color: var(--color-surface-raised);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .friction-triage__row[data-just-updated] {
+    animation: none;
+    /* Static accent border holds the "this changed" signal without
+     * motion — fades naturally on next render after the timer clears. */
+    border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+  }
 }
 
 .friction-triage__toggle {
