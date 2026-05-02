@@ -34,13 +34,13 @@ jobs:
     name: cargo audit (Rust advisories)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache RustSec advisory-db
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/advisory-db
           key: cargo-advisory-db-${{ github.run_id }}
@@ -114,7 +114,7 @@ jobs:
 
       - name: Upload audit JSON
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cargo-audit-report
           path: audit.json
@@ -124,13 +124,13 @@ jobs:
     name: cargo deny (advisories, bans, licenses, sources)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache RustSec advisory-db
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/advisory-db
           key: cargo-advisory-db-${{ github.run_id }}
@@ -150,7 +150,7 @@ jobs:
     name: SBOM (CycloneDX)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -178,7 +178,7 @@ jobs:
           ls -la sbom-out/
 
       - name: Upload SBOM bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cyclonedx-sbom
           path: sbom-out/
@@ -188,9 +188,9 @@ jobs:
     name: npm audit (production)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -229,7 +229,7 @@ jobs:
 
       - name: Upload npm audit JSON
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: npm-audit-report
           path: npm-audit.json
@@ -239,9 +239,9 @@ jobs:
     name: lockfile-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
 
@@ -268,7 +268,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Daily drift run failed — open or refresh a tracking Issue. Title is
       # stable so subsequent runs update the same Issue rather than spamming.

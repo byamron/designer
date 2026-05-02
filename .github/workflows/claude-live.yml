@@ -25,7 +25,7 @@ jobs:
     runs-on: [self-hosted, macOS, claude]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve claude install path
         # The self-hosted runner spawns non-login, non-interactive shells, so
