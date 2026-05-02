@@ -748,6 +748,91 @@ impl AppCore {
         self.projector.workspaces_in(project_id)
     }
 
+    /// Soft-archive a workspace. Idempotent: calling on an already-archived
+    /// workspace is a no-op so a double-clicked menu item doesn't double-
+    /// write the state-change event. The chat session is shut down so the
+    /// claude subprocess doesn't keep ticking in the background; restoring
+    /// the workspace lazy-spawns it on the next message.
+    pub async fn archive_workspace(&self, workspace_id: WorkspaceId) -> designer_core::Result<()> {
+        let ws = self
+            .projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        if matches!(ws.state, designer_core::WorkspaceState::Archived) {
+            return Ok(());
+        }
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceStateChanged {
+                    workspace_id,
+                    state: designer_core::WorkspaceState::Archived,
+                },
+            )
+            .await?;
+        self.projector.apply(&env);
+        // Best-effort orchestrator teardown — if the orchestrator hasn't
+        // spawned a session for this workspace yet, `shutdown` is a no-op
+        // (TeamNotFound is folded into Ok by the impls).
+        let _ = self.orchestrator.shutdown(workspace_id).await;
+        Ok(())
+    }
+
+    /// Restore a previously archived workspace to `Active`. Idempotent on
+    /// already-active workspaces.
+    pub async fn restore_workspace(&self, workspace_id: WorkspaceId) -> designer_core::Result<()> {
+        let ws = self
+            .projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        if matches!(ws.state, designer_core::WorkspaceState::Active) {
+            return Ok(());
+        }
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceStateChanged {
+                    workspace_id,
+                    state: designer_core::WorkspaceState::Active,
+                },
+            )
+            .await?;
+        self.projector.apply(&env);
+        Ok(())
+    }
+
+    /// Hard-delete a workspace. Caller is expected to have already
+    /// archived it (the UI gates the Delete affordance behind the
+    /// Archived section), but this method does not enforce that — a user
+    /// who deletes an active workspace is free to. The event log keeps
+    /// past events for audit; the projector drops the workspace entry so
+    /// the UI no longer surfaces it.
+    pub async fn delete_workspace(&self, workspace_id: WorkspaceId) -> designer_core::Result<()> {
+        // Verify it exists before writing the delete event so a missing id
+        // is a NotFound, not a silently-ignored append.
+        self.projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceDeleted { workspace_id },
+            )
+            .await?;
+        self.projector.apply(&env);
+        let _ = self.orchestrator.shutdown(workspace_id).await;
+        Ok(())
+    }
+
     pub async fn open_tab(
         &self,
         workspace_id: WorkspaceId,
@@ -1084,6 +1169,54 @@ mod tests {
         let refreshed = core.projector.workspace(ws.id).unwrap();
         assert_eq!(refreshed.tabs.len(), 1);
         assert_eq!(refreshed.tabs[0].id, tab.id);
+    }
+
+    #[tokio::test]
+    async fn archive_then_restore_round_trips_workspace_state() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        assert!(matches!(
+            core.projector.workspace(ws.id).unwrap().state,
+            designer_core::WorkspaceState::Active
+        ));
+        core.archive_workspace(ws.id).await.unwrap();
+        assert!(matches!(
+            core.projector.workspace(ws.id).unwrap().state,
+            designer_core::WorkspaceState::Archived
+        ));
+        // Idempotent: second archive is a no-op.
+        core.archive_workspace(ws.id).await.unwrap();
+        assert!(matches!(
+            core.projector.workspace(ws.id).unwrap().state,
+            designer_core::WorkspaceState::Archived
+        ));
+        core.restore_workspace(ws.id).await.unwrap();
+        assert!(matches!(
+            core.projector.workspace(ws.id).unwrap().state,
+            designer_core::WorkspaceState::Active
+        ));
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_drops_projection() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        core.delete_workspace(ws.id).await.unwrap();
+        assert!(core.projector.workspace(ws.id).is_none());
     }
 
     #[tokio::test]

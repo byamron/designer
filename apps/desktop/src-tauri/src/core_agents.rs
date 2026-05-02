@@ -76,9 +76,9 @@ impl AppCore {
     /// sends create no events; the frontend restores the draft so the
     /// user can edit and resend without retyping.
     ///
-    /// If no team has been spawned yet (demo flow / first user message),
-    /// we lazy-spawn one with a `team-lead` lead and zero teammates and
-    /// retry the dispatch.
+    /// If no chat session has been spawned yet (demo flow / first user
+    /// message), we lazy-spawn one as a plain pass-through claude session
+    /// and retry the dispatch.
     pub async fn post_message(
         &self,
         workspace_id: WorkspaceId,
@@ -239,10 +239,17 @@ impl AppCore {
             .workspace(workspace_id)
             .and_then(|ws| self.projector.project(ws.project_id))
             .map(|p| p.root_path);
+        // Default chat is plain pass-through claude. `lead_role: "assistant"`
+        // is the wire role used to attribute reply artifacts (`Actor::Agent {
+        // role: "assistant" }`); the frontend humanize map renders both the
+        // current `assistant` and historical `team-lead` values, so existing
+        // event-store data still reads as "Designer" in the UI after this
+        // switch. Multi-agent teams are out of scope for v1 and will land
+        // behind a future opt-in `TeamSpec` variant.
         let spec = TeamSpec {
             workspace_id,
             team_name: format!("workspace-{workspace_id}"),
-            lead_role: "team-lead".into(),
+            lead_role: "assistant".into(),
             teammates: vec![],
             env: Default::default(),
             cwd,
@@ -296,7 +303,7 @@ impl AppCore {
                 None,
                 Actor::agent(
                     "workspace-lead",
-                    author_role.as_deref().unwrap_or("team-lead"),
+                    author_role.as_deref().unwrap_or("assistant"),
                 ),
                 EventPayload::ArtifactCreated {
                     artifact_id,
@@ -325,8 +332,8 @@ impl AppCore {
     /// artifact's `author_role` for the envelope `Actor` so any future
     /// per-author rail filter, mention surface, or audit query sees a
     /// consistent provenance chain across produce → update. Hard-coding
-    /// `team-lead` here would silently misattribute updates whenever a
-    /// teammate (e.g. `researcher@dir-recon`) was the original author.
+    /// the lead role here would silently misattribute updates whenever a
+    /// non-default author (e.g. `auditor`, `recap`) was the original author.
     pub async fn update_agent_artifact_summary(
         &self,
         artifact_id: ArtifactId,
@@ -341,7 +348,7 @@ impl AppCore {
         let stream = StreamId::Workspace(artifact.workspace_id);
         let actor = Actor::agent(
             "workspace-lead",
-            artifact.author_role.as_deref().unwrap_or("team-lead"),
+            artifact.author_role.as_deref().unwrap_or("assistant"),
         );
         let env = self
             .store

@@ -188,6 +188,34 @@
 
 /* --- sidebar workspace row (single line) --- */
 
+/* Wrap the row + its hover-revealed action buttons so they share a single
+ * hover hit area. The row itself is the primary click target; actions sit
+ * on top, opacity-gated, and become visible when the user hovers the
+ * wrapper or focuses any descendant. */
+.workspace-row__wrap {
+  position: relative;
+  display: block;
+}
+
+.workspace-row__actions {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-interactive);
+}
+
+.workspace-row__wrap:hover .workspace-row__actions,
+.workspace-row__wrap:focus-within .workspace-row__actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .workspace-row {
   display: grid;
   grid-template-columns: var(--icon-lg) 1fr;
@@ -221,6 +249,51 @@
 .workspace-row:focus-visible {
   outline: var(--focus-outline-width) solid var(--focus-outline-color);
   outline-offset: var(--focus-outline-offset);
+}
+
+/* Archived rows: no hover/active background, dimmed label. They exist
+ * only as a label + restore/delete actions; clicking them does nothing
+ * (the user must explicitly Restore first). */
+.workspace-row--archived {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-muted);
+  width: 100%;
+  box-sizing: border-box;
+  cursor: default;
+}
+
+/* Collapsible Archived group header sits flush with the active group
+ * head — reuse its inset/typography but make the chevron + label feel
+ * like a button. */
+.sidebar-group__head--toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: none;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  color: var(--color-muted);
+  transition: color var(--motion-interactive);
+}
+
+.sidebar-group__head--toggle:hover {
+  color: var(--color-foreground);
+}
+
+.sidebar-group__head--toggle:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+.sidebar-group--archived {
+  margin-top: auto;
+  border-top: 1px solid var(--color-border);
 }
 
 .workspace-row__title {

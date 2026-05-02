@@ -47,6 +47,9 @@ export interface MockCore {
   createProject(req: CreateProjectRequest): ProjectSummary;
   listWorkspaces(id: ProjectId): WorkspaceSummary[];
   createWorkspace(req: CreateWorkspaceRequest): WorkspaceSummary;
+  archiveWorkspace(workspaceId: WorkspaceId): void;
+  restoreWorkspace(workspaceId: WorkspaceId): void;
+  deleteWorkspace(workspaceId: WorkspaceId): void;
   openTab(req: OpenTabRequest): Tab;
   closeTab(workspaceId: WorkspaceId, tabId: TabId): void;
   spine(id: WorkspaceId | null): SpineRow[];
@@ -335,6 +338,39 @@ export function createMockCore(): MockCore {
         summary: `Workspace '${workspace.name}' created`,
       });
       return { workspace, state: workspace.state, agent_count: 0 };
+    },
+    archiveWorkspace(workspaceId) {
+      const w = workspaces.find((w) => w.id === workspaceId);
+      if (!w || w.state === "archived") return;
+      w.state = "archived";
+      emit({
+        kind: "workspace_state_changed",
+        stream_id: `workspace:${workspaceId}`,
+        timestamp: now(),
+        summary: `Workspace '${w.name}' archived`,
+      });
+    },
+    restoreWorkspace(workspaceId) {
+      const w = workspaces.find((w) => w.id === workspaceId);
+      if (!w || w.state === "active") return;
+      w.state = "active";
+      emit({
+        kind: "workspace_state_changed",
+        stream_id: `workspace:${workspaceId}`,
+        timestamp: now(),
+        summary: `Workspace '${w.name}' restored`,
+      });
+    },
+    deleteWorkspace(workspaceId) {
+      const idx = workspaces.findIndex((w) => w.id === workspaceId);
+      if (idx === -1) return;
+      const [w] = workspaces.splice(idx, 1);
+      emit({
+        kind: "workspace_deleted",
+        stream_id: `workspace:${workspaceId}`,
+        timestamp: now(),
+        summary: `Workspace '${w.name}' deleted`,
+      });
     },
     openTab(req) {
       const tab: Tab = {

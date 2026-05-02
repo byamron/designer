@@ -1,10 +1,19 @@
 //! Real Claude Code orchestrator.
 //!
-//! Spawns `claude` as a long-lived subprocess per workspace with agent teams
-//! enabled, drives it through `--input-format stream-json`, translates its
-//! `--output-format stream-json` back into `OrchestratorEvent`s via
-//! [`ClaudeStreamTranslator`]. See `core-docs/integration-notes.md` for the
-//! exact CLI surface and event shapes we code against.
+//! Spawns `claude` as a long-lived subprocess per workspace as a plain
+//! pass-through chat session, drives it through `--input-format stream-json`,
+//! translates its `--output-format stream-json` back into `OrchestratorEvent`s
+//! via [`ClaudeStreamTranslator`]. See `core-docs/integration-notes.md` for
+//! the exact CLI surface and event shapes we code against.
+//!
+//! **Chat philosophy.** This path is intentionally minimal: we forward the
+//! user's text verbatim to `claude` and surface its replies. We do not opt in
+//! to the experimental agent-teams feature, do not inject a "team lead"
+//! framing prompt, and do not wrap user messages in a meta envelope.
+//! Approvals are the one Designer-side intercept (`--permission-prompt-tool
+//! stdio`) — every other orchestration is handled by `claude` itself.
+//! Multi-agent dispatch is on the roadmap but lives behind a future opt-in;
+//! the default workspace must be bulletproof basic chat.
 //!
 //! **Compliance:** we never touch Claude auth. `claude` handles its own
 //! credentials (keychain OAuth). Designer only invokes the binary; Anthropic
@@ -195,8 +204,7 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
         model_override: Option<&str>,
     ) -> Command {
         let mut cmd = Command::new(self.binary());
-        cmd.env("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1")
-            .env("DESIGNER_WORKSPACE_ID", workspace_id.to_string());
+        cmd.env("DESIGNER_WORKSPACE_ID", workspace_id.to_string());
         if let Some(home) = &self.options.claude_home {
             cmd.env("CLAUDE_HOME", home);
         }
@@ -207,15 +215,16 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
             cmd.current_dir(cwd);
         }
 
+        // Pass-through chat. The minimal flag set: stream-json in/out for the
+        // orchestrator wire, deterministic session id for resume, and the
+        // stdio permission-prompt hook so Designer's approval gate stays
+        // wired. Everything else is plain `claude`.
         cmd.arg("-p")
-            .args(["--teammate-mode", "in-process"])
             .args(["--output-format", "stream-json"])
-            .arg("--include-partial-messages")
             .arg("--verbose")
             .args(["--input-format", "stream-json"])
             .args(["--session-id", &session_id.to_string()])
             .args(["--permission-prompt-tool", "stdio"])
-            .args(["--disallowedTools", "AskUserQuestion"])
             .args([
                 "--setting-sources",
                 &self
@@ -371,21 +380,15 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
             }
         });
 
-        // Immediate "team spawned" broadcast before the real events start
+        // Immediate "session ready" broadcast before the real events start
         // flowing; matches MockOrchestrator's contract so UIs light up fast.
+        // The variant is still called `TeamSpawned` for wire-compat, but the
+        // backing session is now a plain pass-through chat — no bootstrap
+        // prompt is sent.
         let _ = self.tx.send(OrchestratorEvent::TeamSpawned {
             workspace_id: spec.workspace_id,
             team: spec.team_name.clone(),
         });
-
-        // Send the team-creation prompt via stdin. Claude reads stream-json
-        // user messages one JSON-per-line.
-        let prompt = build_spawn_prompt(&spec);
-        let line = user_message_line(&prompt)?;
-        stdin_tx.send(line).await.map_err(|_| {
-            warn!(workspace = %ws, pid = ?child_pid, "spawn-prompt send failed: writer task exited before first message");
-            OrchestratorError::ChannelClosed { workspace_id: ws }
-        })?;
 
         self.teams.lock().insert(
             spec.workspace_id,
@@ -501,41 +504,6 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
     }
 }
 
-/// Build the natural-language prompt that bootstraps a team.
-fn build_spawn_prompt(spec: &TeamSpec) -> String {
-    use std::fmt::Write;
-    let mut s = String::new();
-    let _ = write!(
-        s,
-        "Create an agent team named \"{}\" using in-process teammates. \
-         The lead has the \"{}\" role. ",
-        spec.team_name, spec.lead_role
-    );
-    if spec.teammates.is_empty() {
-        let _ = write!(
-            s,
-            "Do not spawn any teammates yet; wait for task assignments before creating specialists."
-        );
-    } else {
-        let _ = write!(s, "Spawn these teammates: ");
-        for (i, role) in spec.teammates.iter().enumerate() {
-            if i > 0 {
-                let _ = write!(s, ", ");
-            }
-            let _ = write!(s, "\"{role}\"");
-        }
-        let _ = write!(
-            s,
-            ". Each teammate should have a focused role-appropriate system prompt."
-        );
-    }
-    let _ = write!(
-        s,
-        " After the team is set up, wait for further instructions before doing any other work."
-    );
-    s
-}
-
 fn build_task_prompt(a: &TaskAssignment) -> String {
     let assignee = a
         .assignee_role
@@ -548,8 +516,19 @@ fn build_task_prompt(a: &TaskAssignment) -> String {
     )
 }
 
-fn build_message_prompt(author_role: &str, body: &str) -> String {
-    format!("Message from {author_role}: {body}")
+/// Produce the text we hand to `claude` for a user-authored chat turn.
+///
+/// Pass-through: the body is sent verbatim. The stream-json envelope already
+/// carries `role: "user"`, so `claude` sees the message exactly the way it
+/// would in a normal CLI session — no "Message from {role}:" prefix that
+/// would re-frame the user as a third party reporting another user.
+///
+/// `author_role` is retained in the signature for the unlikely future case
+/// of a multi-agent dispatch path that wants to attribute a turn to a
+/// specific teammate; the default chat surface always passes `"user"` and
+/// does not branch on the value.
+fn build_message_prompt(_author_role: &str, body: &str) -> String {
+    body.to_string()
 }
 
 /// Translate an `OrchestratorEvent` into the matching domain-level
@@ -787,37 +766,14 @@ mod tests {
     }
 
     #[test]
-    fn spawn_prompt_includes_team_name_and_roles() {
-        let spec = TeamSpec {
-            workspace_id: WorkspaceId::new(),
-            team_name: "onboarding".into(),
-            lead_role: "team-lead".into(),
-            teammates: vec!["design-reviewer".into(), "test-runner".into()],
-            env: Default::default(),
-            cwd: None,
-            model: None,
-        };
-        let p = build_spawn_prompt(&spec);
-        assert!(p.contains("\"onboarding\""));
-        assert!(p.contains("\"team-lead\""));
-        assert!(p.contains("\"design-reviewer\""));
-        assert!(p.contains("\"test-runner\""));
-        assert!(p.contains("in-process"));
-    }
-
-    #[test]
-    fn spawn_prompt_with_no_teammates_defers_spawning() {
-        let spec = TeamSpec {
-            workspace_id: WorkspaceId::new(),
-            team_name: "build".into(),
-            lead_role: "team-lead".into(),
-            teammates: vec![],
-            env: Default::default(),
-            cwd: None,
-            model: None,
-        };
-        let p = build_spawn_prompt(&spec);
-        assert!(p.contains("Do not spawn any teammates yet"));
+    fn message_prompt_passes_body_through_verbatim() {
+        // Pass-through chat: no "Message from {role}:" prefix, no other
+        // wrapping. The body the user typed is exactly what claude sees.
+        let p = build_message_prompt("user", "hi there");
+        assert_eq!(p, "hi there");
+        // Author role is intentionally ignored on the default chat path.
+        let p = build_message_prompt("researcher", "hi there");
+        assert_eq!(p, "hi there");
     }
 
     #[test]
