@@ -642,3 +642,17 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - invariants: pending
 - deviations: none
 - feedback: pending (DP-C work merged into the same PR as DP-B for the dogfood push)
+
+## 2026-05-01T07:30:00Z — manual (settings-scope split + project unlink)
+
+- prompt: "Settings architecture: global vs per-project + project unlink"
+- trigger: manual (driven by two friction reports — Settings should be global; no way to unlink a project)
+- archetype-reused: none
+- components-reused: RepoLinkModal (now surfaces from Project Home), Section (HomeTabA helper), IconButton, app-dialog__* CSS scaffolding
+- components-new: RepoUnlinkModal (destructive confirm; fans out across project's workspaces), ProjectRepoSection (HomeTabA inline; Link / Re-link / Disconnect buttons)
+- components-retired: AccountSection.Repository row in SettingsPage (and its local state for `linkOpen`, `summaries`, `targetWorkspace`)
+- primitives: none (composed from existing app-dialog scaffolding + inline flex consistent with HomeTabA's other rows)
+- tokens: --space-2, --space-3, --color-text, --color-muted, --color-danger (pre-existing pattern), --type-caption-size, --type-caption-leading; danger-3/7/12 inherited via `data-variant="danger"` button styling in atoms.css
+- invariants: clean (`node tools/invariants/check.mjs` passes 6/6 across the three modified TSX files)
+- deviations: none
+- feedback: addresses frc_019de6f7-1d53-7153-a2ba-495101321696 + frc_019de6fa-608d-7872-aece-600d69f49ad4

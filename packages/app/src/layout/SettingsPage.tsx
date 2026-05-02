@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { closeDialog, useAppState } from "../store/app";
-import { useDataState } from "../store/data";
 import { SegmentedToggle } from "../components/SegmentedToggle";
-import { RepoLinkModal } from "../components/RepoLinkModal";
 import { DesignerNoticedPage } from "../components/DesignerNoticed";
 import { IconButton } from "../components/IconButton";
 import { IconX } from "../components/icons";
 import { messageFromError, useFocusTrap } from "../lib/modal";
-import { emptyArray } from "../util/empty";
-import type { Workspace, WorkspaceSummary } from "../ipc/types";
 import {
   getThemeMode,
   setThemeMode,
@@ -168,23 +164,12 @@ function AppearanceSection() {
   );
 }
 
+/**
+ * Account stays global. The previously-bundled Repository row was
+ * per-project (the linked repo is per-workspace, project-scoped) and
+ * moved to Project Home — see spec §"Settings scope" (D2026-05).
+ */
 function AccountSection() {
-  const activeProjectId = useAppState((s) => s.activeProject);
-  const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
-  const summaries = useDataState<WorkspaceSummary[]>((s) =>
-    activeProjectId ? s.workspaces[activeProjectId] ?? emptyArray() : emptyArray(),
-  );
-  const targetWorkspace: Workspace | null = useMemo(() => {
-    if (!summaries.length) return null;
-    if (activeWorkspaceId) {
-      const match = summaries.find((s) => s.workspace.id === activeWorkspaceId);
-      if (match) return match.workspace;
-    }
-    return summaries[0].workspace;
-  }, [summaries, activeWorkspaceId]);
-  const [linkOpen, setLinkOpen] = useState(false);
-  const linkedPath = targetWorkspace?.worktree_path ?? null;
-
   return (
     <>
       <SettingsSectionHeader
@@ -200,39 +185,6 @@ function AccountSection() {
       >
         <KeychainStatusReadout />
       </SettingsRow>
-      <SettingsRow
-        label="Repository"
-        description={
-          targetWorkspace
-            ? `Linked to the active workspace "${targetWorkspace.name}".`
-            : "Open a workspace to link a repository."
-        }
-      >
-        {linkedPath ? (
-          <span className="settings-page__meta">{linkedPath}</span>
-        ) : (
-          <span className="settings-page__meta">not linked</span>
-        )}
-        {targetWorkspace && (
-          <button
-            type="button"
-            className="btn"
-            data-variant="primary"
-            style={{ marginLeft: "var(--space-2)" }}
-            onClick={() => setLinkOpen(true)}
-          >
-            {linkedPath ? "Re-link" : "Link"}
-          </button>
-        )}
-      </SettingsRow>
-      {targetWorkspace && (
-        <RepoLinkModal
-          workspaceId={targetWorkspace.id}
-          initialPath={linkedPath ?? ""}
-          open={linkOpen}
-          onClose={() => setLinkOpen(false)}
-        />
-      )}
     </>
   );
 }

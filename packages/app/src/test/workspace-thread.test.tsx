@@ -56,6 +56,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
             reject(e);
           }
         }),
+      unlinkRepo: (req) => Promise.resolve(mock.unlinkRepo(req)),
       startTrack: (req) => Promise.resolve(mock.startTrack(req)),
       requestMerge: (req) => Promise.resolve(mock.requestMerge(req)),
       listTracks: (ws) => Promise.resolve(mock.listTracks(ws)),

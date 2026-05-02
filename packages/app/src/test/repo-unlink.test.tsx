@@ -1,12 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { RepoLinkModal } from "../components/RepoLinkModal";
+import { describe, expect, it, vi } from "vitest";
+import { RepoUnlinkModal } from "../components/RepoUnlinkModal";
 import { __setIpcClient } from "../ipc/client";
 import { createMockCore } from "../ipc/mock";
 
 function makeClient() {
   const core = createMockCore();
-  // Reuse the seeded mock to mirror production wiring.
+  const unlinkCalls: string[] = [];
   __setIpcClient({
     listProjects: () => Promise.resolve(core.listProjects()),
     createProject: (req) => Promise.resolve(core.createProject(req)),
@@ -39,7 +39,11 @@ function makeClient() {
           reject(e);
         }
       }),
-    unlinkRepo: (req) => Promise.resolve(core.unlinkRepo(req)),
+    unlinkRepo: (req) => {
+      unlinkCalls.push(req.workspace_id);
+      core.unlinkRepo(req);
+      return Promise.resolve();
+    },
     startTrack: (req) => Promise.resolve(core.startTrack(req)),
     requestMerge: (req) => Promise.resolve(core.requestMerge(req)),
     listTracks: (ws) => Promise.resolve(core.listTracks(ws)),
@@ -81,120 +85,88 @@ function makeClient() {
   });
   const project = core.listProjects()[0];
   const workspace = core.listWorkspaces(project.project.id)[0];
-  return { core, workspace };
+  return { core, workspace, unlinkCalls };
 }
 
-describe("RepoLinkModal", () => {
-  it("submits a valid path via cmd_link_repo and closes", async () => {
+describe("RepoUnlinkModal", () => {
+  it("renders the repo path and the irreversible-but-safe explanation", () => {
     const { workspace } = makeClient();
-    const onClose = vi.fn();
-    const onLinked = vi.fn();
     render(
-      <RepoLinkModal
-        workspaceId={workspace.workspace.id}
+      <RepoUnlinkModal
+        workspaceIds={[workspace.workspace.id]}
+        repoPath="/Users/me/code/example"
         open={true}
-        onClose={onClose}
-        onLinked={onLinked}
+        onClose={() => {}}
       />,
     );
-    const input = screen.getByLabelText(
-      "Absolute path to the repository",
-    ) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "/Users/me/code/example" } });
-    fireEvent.click(screen.getByText("Link repository"));
+    expect(screen.getByText(/will no longer track/i)).toBeTruthy();
+    expect(screen.getByText("/Users/me/code/example")).toBeTruthy();
+    expect(screen.getByText(/repo files are not touched/i)).toBeTruthy();
+  });
+
+  it("Confirm calls cmd_unlink_repo for each workspace and closes the modal", async () => {
+    const { workspace, unlinkCalls } = makeClient();
+    const onClose = vi.fn();
+    const onUnlinked = vi.fn();
+    render(
+      <RepoUnlinkModal
+        workspaceIds={[workspace.workspace.id]}
+        repoPath="/Users/me/code/example"
+        open={true}
+        onClose={onClose}
+        onUnlinked={onUnlinked}
+      />,
+    );
+    fireEvent.click(screen.getByText("Disconnect"));
     await waitFor(() => {
-      expect(onLinked).toHaveBeenCalledWith("/Users/me/code/example");
+      expect(onUnlinked).toHaveBeenCalledTimes(1);
     });
+    expect(unlinkCalls).toEqual([workspace.workspace.id]);
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("shows an error when the path is rejected", async () => {
-    const { workspace } = makeClient();
+  it("Cancel dismisses without calling cmd_unlink_repo", () => {
+    const { workspace, unlinkCalls } = makeClient();
     const onClose = vi.fn();
     render(
-      <RepoLinkModal
-        workspaceId={workspace.workspace.id}
+      <RepoUnlinkModal
+        workspaceIds={[workspace.workspace.id]}
+        repoPath="/Users/me/code/example"
         open={true}
         onClose={onClose}
       />,
     );
-    const input = screen.getByLabelText(
-      "Absolute path to the repository",
-    ) as HTMLInputElement;
-    // Mock rejects relative paths as "not a git repository".
-    fireEvent.change(input, { target: { value: "relative/path" } });
-    fireEvent.click(screen.getByText("Link repository"));
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("not a git repository");
-    expect(onClose).not.toHaveBeenCalled();
-  });
-
-  it("requires a non-empty path", async () => {
-    const { workspace } = makeClient();
-    const onClose = vi.fn();
-    render(
-      <RepoLinkModal
-        workspaceId={workspace.workspace.id}
-        open={true}
-        onClose={onClose}
-      />,
-    );
-    // The submit button is disabled while the input is empty.
-    const submit = screen.getByText("Link repository") as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-  });
-
-  it("traps Tab focus inside the dialog", async () => {
-    const { workspace } = makeClient();
-    const onClose = vi.fn();
-    render(
-      <RepoLinkModal
-        workspaceId={workspace.workspace.id}
-        open={true}
-        onClose={onClose}
-      />,
-    );
-    const dialog = screen.getByRole("dialog");
-    // Collect the focusable elements in DOM order: Close icon, input,
-    // Cancel button. (The "Link repository" submit is disabled while the
-    // input is empty, so it's not in the focus ring.)
-    const focusables = Array.from(
-      dialog.querySelectorAll<HTMLElement>(
-        "a[href], button:not([disabled]), input:not([disabled])",
-      ),
-    );
-    expect(focusables.length).toBeGreaterThanOrEqual(2);
-    const last = focusables[focusables.length - 1];
-    last.focus();
-    expect(document.activeElement).toBe(last);
-    // Tab from last → first.
-    fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(focusables[0]);
-    // Shift-Tab from first → last.
-    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(last);
-  });
-
-  it("scrim dismiss uses click, not mousedown — a drag that ends on the scrim does not dismiss", () => {
-    const { workspace } = makeClient();
-    const onClose = vi.fn();
-    const { container } = render(
-      <RepoLinkModal
-        workspaceId={workspace.workspace.id}
-        open={true}
-        onClose={onClose}
-      />,
-    );
-    const scrim = container.querySelector(
-      ".app-dialog-scrim",
-    ) as HTMLElement;
-    // mousedown alone (the old behavior) must not trigger dismiss.
-    fireEvent.mouseDown(scrim);
-    expect(onClose).not.toHaveBeenCalled();
-    // click (mousedown + mouseup on the same target) does dismiss.
-    fireEvent.click(scrim);
+    fireEvent.click(screen.getByText("Cancel"));
     expect(onClose).toHaveBeenCalled();
+    expect(unlinkCalls).toEqual([]);
+  });
+
+  it("fans out across multiple workspaces in one confirm", async () => {
+    const { core, unlinkCalls } = makeClient();
+    const project = core.listProjects()[0];
+    // Mock seeds one workspace; create one more so the fan-out is testable.
+    const second = core.createWorkspace({
+      project_id: project.project.id,
+      name: "second",
+      base_branch: "main",
+    });
+    const ids = core
+      .listWorkspaces(project.project.id)
+      .map((w) => w.workspace.id);
+    expect(ids).toContain(second.workspace.id);
+    const onClose = vi.fn();
+    render(
+      <RepoUnlinkModal
+        workspaceIds={ids}
+        repoPath="/Users/me/code/example"
+        open={true}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByText("Disconnect"));
+    await waitFor(() => {
+      expect(unlinkCalls.length).toBe(ids.length);
+    });
+    expect(unlinkCalls).toEqual(ids);
   });
 });
-
-import { vi } from "vitest";

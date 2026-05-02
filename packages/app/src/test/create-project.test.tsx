@@ -31,6 +31,7 @@ function makeClient() {
     togglePinArtifact: (id) => Promise.resolve(core.togglePinArtifact(id)),
     postMessage: (req) => Promise.resolve(core.postMessage(req)),
     linkRepo: (req) => Promise.resolve(core.linkRepo(req)),
+    unlinkRepo: (req) => Promise.resolve(core.unlinkRepo(req)),
     startTrack: (req) => Promise.resolve(core.startTrack(req)),
     requestMerge: (req) => Promise.resolve(core.requestMerge(req)),
     listTracks: (ws) => Promise.resolve(core.listTracks(ws)),

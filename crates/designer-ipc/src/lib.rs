@@ -216,6 +216,11 @@ pub struct LinkRepoRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnlinkRepoRequest {
+    pub workspace_id: WorkspaceId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartTrackRequest {
     pub workspace_id: WorkspaceId,
     pub branch: String,

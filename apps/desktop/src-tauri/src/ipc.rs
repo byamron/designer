@@ -259,6 +259,12 @@ pub async fn cmd_link_repo(core: &Arc<AppCore>, req: LinkRepoRequest) -> Result<
         .map_err(IpcError::from)
 }
 
+pub async fn cmd_unlink_repo(core: &Arc<AppCore>, req: UnlinkRepoRequest) -> Result<(), IpcError> {
+    core.unlink_repo(req.workspace_id)
+        .await
+        .map_err(IpcError::from)
+}
+
 pub async fn cmd_start_track(
     core: &Arc<AppCore>,
     req: StartTrackRequest,
