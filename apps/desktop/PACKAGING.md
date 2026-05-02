@@ -5,32 +5,103 @@ pipeline is automated via GitHub Actions
 (`.github/workflows/release.yml`) — push a `v*` tag to trigger a build,
 sign, notarize, sign-the-updater, and publish-to-Releases run.
 
-## Triggering a release
+## Routine release
+
+Standard happy-path: bump the version in the conf, tag it, push the tag.
+The release workflow does the rest. Allow ~10–20 min end-to-end
+(notarization is the long pole).
 
 ```sh
-# From a clean main branch:
-git tag v0.1.0
-git push origin v0.1.0
+# From a clean main branch with everything you want to ship merged:
+git checkout main && git pull
+
+# 1. Bump tauri.conf.json "version" — MUST match the tag you'll push.
+#    e.g. "0.1.0" → "0.1.1". The running app compares its built-in
+#    version against latest.json's; if they don't match, the updater
+#    has nothing to offer and the prompt never fires.
+$EDITOR apps/desktop/src-tauri/tauri.conf.json
+
+# 2. Commit the bump (PR or direct-to-main, your call).
+git commit -am "chore: bump version to 0.1.1"
+git push
+
+# 3. Tag and push. The tag NAME must equal "v" + the conf version.
+git tag v0.1.1 && git push origin v0.1.1
 ```
 
-GitHub Actions runs the `release.yml` workflow:
+What the workflow does on a `v*` tag push (`.github/workflows/release.yml`):
 
-1. Builds on `macos-latest` against the `aarch64-apple-darwin` target.
-2. `tauri-action` imports the Apple `.p12` into a temporary keychain,
-   signs every binary in the bundle with `Developer ID Application: …`,
-   and produces both `.app` and `.dmg` artifacts.
-3. `notarytool` uploads the `.dmg` to Apple, polls for acceptance, and
-   staples the ticket on success.
+1. Builds on `macos-latest` against `aarch64-apple-darwin`.
+2. `tauri-action` imports the Apple `.p12` into a temporary keychain
+   and signs every binary with `Developer ID Application: …`.
+3. `notarytool` uploads the bundle to Apple, polls for acceptance,
+   and staples the ticket on success.
 4. The Tauri updater minisign keypair signs the updater bundle
-   (`.app.tar.gz`) and the `latest.json` manifest the running app
-   verifies.
-5. All artifacts upload to a fresh GitHub Release tagged `v0.1.0`.
+   (`.app.tar.gz` → `.app.tar.gz.sig`) and `latest.json`.
+5. Four artifacts publish to a fresh GitHub Release tagged with the
+   pushed tag: `Designer_<version>_aarch64.dmg`,
+   `Designer_aarch64.app.tar.gz`, `Designer_aarch64.app.tar.gz.sig`,
+   `latest.json`.
 
-The running Designer instance reads
+Running Designer instances read
 `https://github.com/byamron/designer/releases/latest/download/latest.json`
-on launch (frontend `UpdatePrompt` calls the updater plugin's `check()`).
-On update found, the user is prompted; the update is never applied
-silently.
+on launch (the `UpdatePrompt` component calls the updater plugin's
+`check()`). On update found, the user sees a prompt; the update is
+never applied silently.
+
+### Critical invariants
+
+- **Tag = `v` + conf version.** `git tag v0.1.1` must match
+  `tauri.conf.json` `"version": "0.1.1"`. Mismatch → the auto-updater
+  silently no-ops because the running app already thinks it's at the
+  manifest version.
+- **Versions are monotonic.** The updater compares semver; never
+  reuse a version number, never tag a lower version on a newer
+  commit. If a release is broken, prefer bumping forward
+  (`v0.1.1 → v0.1.2`) over deleting + retagging.
+- **One tag, one release.** Don't push the same tag twice. If you
+  need to retry a failed release, see "Recovering from a broken
+  release" below.
+- **PR ≠ release.** Merging a PR puts code on main but ships nothing.
+  Releases only happen on `v*` tag pushes; you can batch many merged
+  PRs into one release.
+
+### Cadence guidance
+
+For dogfood, weekly is a reasonable rhythm — frequent enough to catch
+regressions before they pile up, infrequent enough to keep the version
+log readable. Cut a release when you have ≥1 user-visible change worth
+delivering; skip the week if it would be a no-op bump.
+
+## Recovering from a broken release
+
+If a tag pushed but produced bad artifacts (missing `latest.json`,
+notarization skipped, wrong version in conf, etc.), prefer bumping
+forward to a new version:
+
+```sh
+git checkout main && git pull
+# fix the underlying bug, bump conf to the next version, commit
+git tag v0.1.2 && git push origin v0.1.2
+```
+
+The broken Release stays in the history as a no-op; the next install
+or update jumps over it. This is almost always the right call —
+nobody can downgrade past the broken one because monotonic comparison
+will reject it.
+
+**Only delete + retag the same version** if no user has installed
+that version yet (e.g. minutes after the broken release went live and
+you haven't shared the link). Otherwise you risk replacing a Release
+that someone has already pinned a download URL for. The recovery
+sequence:
+
+```sh
+gh release delete v0.1.0 -R byamron/designer --yes
+git push origin --delete v0.1.0
+git tag -d v0.1.0
+git tag v0.1.0 && git push origin v0.1.0
+```
 
 ## Required GitHub secrets
 
