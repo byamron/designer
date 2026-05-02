@@ -49,20 +49,22 @@ This is a security surface. Today: 4 tests for `crates/designer-safety/`'s ~700 
 - Approval state machine: `request → pending → granted → state advances`; `request → pending → denied → state does not advance`; double-resolve is a no-op (idempotent); concurrent requests on the same workspace serialize correctly.
 - Scope guard: symlink escape attempts rejected; case-sensitivity edge case on macOS APFS; absolute vs relative path normalization.
 - Cost tracker: per-workspace isolation (one workspace's spend doesn't leak into another); reset semantics.
-- CSP builder: known-good output snapshot (use `insta` *here only* — this is the one place schema lock pays off).
+- CSP builder: known-good output as an inline string assertion (an exact-match lock without adding `insta` as a dep — short enough that the diff in PR review beats a snapshot file).
 
 Aim for 8–10 focused tests, not 15 by-the-numbers.
 
 ### 4. IPC smoke tests in `apps/desktop/src-tauri/tests/` (~2 hours)
 
-The largest gap. Build an `AppCore` with a `tempfile::TempDir`, the existing `Mock` orchestrator from `designer-claude`, and the `CountingOps` fake from `test_support.rs`. Then exercise:
+The largest gap. Build an `AppCore` with a `tempfile::TempDir` and the existing `Mock` orchestrator from `designer-claude`. Then exercise:
 
 - **Project create + workspace create + tab open** — round-trip persists to sqlite; projection rebuilds correctly.
-- **`post_message` with `Mock` orchestrator** — emits ordered `StreamEvent`s; spine projection updates; tab state advances.
-- **Approval round-trip via IPC** — `request_approval` → pending event → `resolve_approval(granted)` → state event → underlying op proceeds.
+- **`validate_project_path` boundary checks** — empty / relative / non-existent paths reject; existing dirs canonicalize. The inline modal-validator that gates submit on every create-project / link-repo flow.
+- **Multi-workspace projection** — two workspaces in one project both surface through the read side.
 - **Restart persistence** — drop `AppCore`, reconstruct from sqlite, verify projections match.
 
 Four tests. All under 10 seconds locally. No network, no real Claude, no window.
+
+The `post_message` round-trip is *already* covered inline in `apps/desktop/src-tauri/src/ipc_agents.rs` (see `round_trip_post_message_to_list_artifacts`); duplicating it here would be redundant. The approval IPC round-trip is intentionally skipped: `cmd_request_approval` is a security-locked error stub (the frontend cannot forge approvals), so a true round-trip needs a real `ClaudeCodeOrchestrator` permission prompt — out of scope for hermetic CI. Gate-state coverage lives in `crates/designer-safety/tests/gates.rs` instead.
 
 ### 5. Visual regression on three screens (~2 hours)
 
@@ -127,7 +129,7 @@ Already correct in `.github/workflows/ci.yml`. After the six land, the visual re
 | Vitest + Testing Library + jsdom | use | In tree. Drives L3. |
 | `MockCore` (`packages/app/src/ipc/mock.ts`) | keep | Higher fidelity than `@tauri-apps/api/mocks`; do not replace. |
 | `vitest-image-snapshot` | adopt for #5 | Repo-resident snapshots, free, PR-reviewable. |
-| `insta` | adopt narrowly in #3 | One use: lock CSP output. |
+| `insta` | not adopted | Considered for CSP lock in #3; inline string assertion proved cheaper. |
 | `tauri-pilot` | local triage tool only | Not a CI gate. Useful when a friction report needs repro. |
 | `tauri::test::MockRuntime` | skip | Shim seam removes the need. |
 | `tauri-driver` / Playwright on desktop shell | skip | macOS WKWebView has no driver. Not a tradeoff — a fact. |
@@ -154,13 +156,21 @@ None of these are required to ship a quality v1.
 
 ## Phased rollout
 
-**Phase A — the six (one focused day, ~7 hours):**
-1. Branch protection on `main`. (5m)
-2. Updater dry-run + version-compare tests. (1h)
-3. Approval-gate exhaustive tests + CSP snapshot. (1h)
-4. IPC smoke tests `apps/desktop/src-tauri/tests/ipc_smoke.rs`. (2h)
-5. Visual regression on home / workspace thread / approval inbox. (2h)
-6. Performance budget test. (1h)
+The six split across three lanes that run in parallel. Each lane lands as its own PR; together they form Phase A.
+
+**Phase A — code lane (this PR / `testing-strategy` branch).**
+- Item 2: updater config invariants + version-vs-Cargo sync (`apps/desktop/src-tauri/tests/updater_config.rs`). Includes the frontend slice — `UpdatePrompt` state machine + race-contract tests in `packages/app/src/test/update-prompt.test.tsx`.
+- Item 3: approval-gate expansion + CSP baseline lock (`crates/designer-safety/tests/gates.rs`).
+- Item 4: IPC smoke (`apps/desktop/src-tauri/tests/ipc_smoke.rs`).
+
+**Phase A — visual lane (parallel workspace).**
+- Item 5: visual regression on home / workspace thread / approval inbox. Lands as its own PR.
+
+**Phase A — perf lane (parallel workspace).**
+- Item 6: performance budget. Lands as its own PR.
+
+**Phase A — config lane (user-side, not a PR).**
+- Item 1: branch protection on `main`. GitHub repo-settings change. Required-status-checks: `rust / test`, `rust / clippy`, `rust / fmt`, `frontend`, `design-system`.
 
 **Phase B — after the six are green and have caught one real regression:**
 7. Self-hosted nightly running `claude_live` feature tests.

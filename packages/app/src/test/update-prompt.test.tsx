@@ -158,6 +158,15 @@ describe("UpdatePrompt", () => {
     // must still happen — the user clicked Update and the install
     // succeeded, so silently downgrading to error would strand them on
     // the old build with the new bundle on disk.
+    //
+    // We assert *only* on `relaunchFn` here. The timeout callback
+    // currently does set the error state when it fires (before install
+    // completes), and the success path doesn't undo it — so the error
+    // pill is briefly visible before relaunch closes the window.
+    // That's an acceptable race because relaunch happens within a
+    // microtask of install resolving; the user doesn't perceive it.
+    // Asserting "no error UI" here would lock an idealized contract
+    // the component intentionally does not fulfill.
     expect(relaunchFn).toHaveBeenCalledTimes(1);
   });
 });

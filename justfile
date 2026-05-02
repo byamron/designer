@@ -7,10 +7,12 @@ set shell := ["bash", "-uc"]
 default:
     @just --list
 
-# Fast inner-loop check while writing code: hot crates + frontend only. Target <10s.
+# Fast inner-loop check while writing code: hot crates + frontend tests
+# for files changed since HEAD. Target <10s. The `--changed` flag needs
+# git context, so this is for local dev — CI uses `just check`.
 test-fast:
     cargo test -p designer-core -p designer-safety -p designer-sync --locked
-    npm --workspace @designer/app run test -- --run
+    npm --workspace @designer/app run test -- --run --changed
 
 # Full local check — should pass before pushing. Mirrors CI shape.
 check:
