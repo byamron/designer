@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "designer-audit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "designer-core",
@@ -855,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "designer-claude"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -878,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "designer-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "designer-audit",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "designer-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "designer-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -956,7 +956,7 @@ dependencies = [
 
 [[package]]
 name = "designer-git"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "serde",
@@ -970,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "designer-ipc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "designer-core",
  "serde",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "designer-learn"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "designer-core",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "designer-local-models"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "hex",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "designer-safety"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1037,7 +1037,7 @@ dependencies = [
 
 [[package]]
 name = "designer-sync"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "designer-core",
