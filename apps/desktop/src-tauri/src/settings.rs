@@ -68,6 +68,14 @@ pub struct FeatureFlags {
     /// model override ships.
     #[serde(default)]
     pub show_models_section: bool,
+    /// Surface every `ArtifactCreated` event in the activity spine
+    /// (including per-tool-use `Used Read` / `Used Edit` reports). Off by
+    /// default — the spine projection's allowlist (`SPINE_ARTIFACT_KINDS`
+    /// plus `SPINE_AUTHOR_ROLES`) keeps the rail focused on substantive
+    /// artifacts. Flip on for debugging or when triaging what the
+    /// orchestrator emitted.
+    #[serde(default)]
+    pub show_all_artifacts_in_spine: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,6 +230,7 @@ mod tests {
         .unwrap();
         let s = Settings::load(dir.path());
         assert!(!s.feature_flags.show_models_section);
+        assert!(!s.feature_flags.show_all_artifacts_in_spine);
     }
 
     #[test]
@@ -230,6 +239,10 @@ mod tests {
         assert!(
             !s.feature_flags.show_models_section,
             "experimental Models pane stays off by default"
+        );
+        assert!(
+            !s.feature_flags.show_all_artifacts_in_spine,
+            "spine pollution debug flag stays off by default"
         );
     }
 

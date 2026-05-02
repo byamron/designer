@@ -42,6 +42,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       resolveApproval: (id, granted, reason) =>
         Promise.resolve(mock.resolveApproval(id, granted, reason)),
       listArtifacts: (ws) => Promise.resolve(mock.listArtifacts(ws)),
+      listSpineArtifacts: (ws) => Promise.resolve(mock.listSpineArtifacts(ws)),
       listPinnedArtifacts: (ws) =>
         Promise.resolve(mock.listPinnedArtifacts(ws)),
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -79,8 +80,18 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
         }),
       getCostChipPreference: () => Promise.resolve({ enabled: false }),
       setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
-      getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
-      setFeatureFlag: (_name, enabled) => Promise.resolve({ show_models_section: enabled }),
+      getFeatureFlags: () =>
+        Promise.resolve({
+          show_models_section: false,
+          show_all_artifacts_in_spine: false,
+        }),
+      setFeatureFlag: (name, enabled) =>
+        Promise.resolve({
+          show_models_section:
+            name === "show_models_section" ? enabled : false,
+          show_all_artifacts_in_spine:
+            name === "show_all_artifacts_in_spine" ? enabled : false,
+        }),
       reportFriction: () =>
         Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
       listFriction: () => Promise.resolve([]),

@@ -80,3 +80,36 @@ jobs:
         run: node tools/invariants/check.mjs packages/app/src
       - name: manifest coverage — every component file has a manifest entry
         run: node tools/manifest/check.mjs
+
+  visual-regression:
+    name: visual-regression
+    # Pinned to Linux for deterministic font rendering. Baselines under
+    # packages/app/src/test/visual/__screenshots__/ are also generated on
+    # Linux — running the comparison anywhere else would be noise.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: install deps (linux-aware)
+        # See `regenerate-visual-baselines.yml` — `npm ci` against a
+        # macOS-authored lockfile fails on Linux because the rollup
+        # optional native binary isn't pinned (npm/cli#4828).
+        run: |
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
+      - name: install playwright chromium
+        run: npx --workspace @designer/app playwright install --with-deps chromium
+      - name: npm run test:visual
+        run: npm --workspace @designer/app run test:visual
+      - name: upload diff artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: |
+            packages/app/src/test/visual/__screenshots__/*.actual.png
+            packages/app/src/test/visual/__screenshots__/*.diff.png
+          if-no-files-found: ignore

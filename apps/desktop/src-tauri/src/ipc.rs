@@ -6,6 +6,7 @@
 //! safety check (scope / cost / approval). Frontend callers cannot bypass.
 
 use crate::core::{AppCore, FallbackReason, HelperStatus, HelperStatusKind, RecoveryKind};
+use crate::settings::Settings;
 use designer_core::{ArtifactId, ProjectId, Tab, TrackId, WorkspaceId};
 use designer_ipc::*;
 use designer_local_models::HelperHealth;
@@ -143,6 +144,16 @@ pub async fn cmd_open_tab(core: &Arc<AppCore>, req: OpenTabRequest) -> Result<Ta
         .map_err(IpcError::from)
 }
 
+pub async fn cmd_close_tab(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+    tab_id: designer_core::TabId,
+) -> Result<(), IpcError> {
+    core.close_tab(workspace_id, tab_id)
+        .await
+        .map_err(IpcError::from)
+}
+
 pub async fn cmd_spine(
     core: &Arc<AppCore>,
     workspace_id: Option<WorkspaceId>,
@@ -219,6 +230,24 @@ pub async fn cmd_list_artifacts(
 ) -> Result<Vec<ArtifactSummary>, IpcError> {
     Ok(core
         .list_artifacts(workspace_id)
+        .await
+        .into_iter()
+        .map(ArtifactSummary::from)
+        .collect())
+}
+
+/// Activity-spine read. Filters out tool-use noise via the projection
+/// allowlist; honors the `show_all_artifacts_in_spine` feature flag for
+/// debugging. Separate from `cmd_list_artifacts` (which the thread view
+/// still needs unfiltered, since `Used Read` cards render inline).
+pub async fn cmd_list_spine_artifacts(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<ArtifactSummary>, IpcError> {
+    let settings = Settings::load(&core.config.data_dir);
+    let show_all = settings.feature_flags.show_all_artifacts_in_spine;
+    Ok(core
+        .list_spine_artifacts(workspace_id, show_all)
         .await
         .into_iter()
         .map(ArtifactSummary::from)

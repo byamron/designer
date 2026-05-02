@@ -129,6 +129,18 @@ pub struct OpenTabRequest {
     /// frontend no longer exposes a picker.
     #[serde(default = "default_tab_template")]
     pub template: TabTemplate,
+    /// Forward-declared seed for "open a tab focused on this artifact"
+    /// (used by the activity-spine click path). Today the backend only
+    /// validates and logs the field — it does NOT persist the seed on
+    /// the `Tab` record, so the request shape is intentionally
+    /// asymmetric with the response. The frontend uses the value
+    /// locally (dispatches `designer:focus-artifact` after the tab
+    /// activates); a follow-up will add a `TabOpenedFor` event so
+    /// replay restores the per-tab artifact view. Keep `Option<_>` +
+    /// `#[serde(default)]` so legacy `+`-button callers still
+    /// round-trip without setting it.
+    #[serde(default)]
+    pub artifact_id: Option<ArtifactId>,
 }
 
 fn default_tab_template() -> TabTemplate {

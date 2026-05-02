@@ -73,6 +73,21 @@ export interface AppState {
   activeProject: ProjectId | null;
   activeWorkspace: WorkspaceId | null;
   activeTabByWorkspace: Record<WorkspaceId, TabId>;
+  /**
+   * Per-tab composer draft. Keyed by tab id so leaving a tab and
+   * returning preserves the in-progress text the user typed. Without
+   * this, ComposeDock's local state was reset every tab switch — the
+   * draft-loss friction report.
+   */
+  composerDraftByTab: Record<TabId, string>;
+  /**
+   * Per-tab "user has started a conversation here" flag. Drives whether
+   * WorkspaceThread shows the starter-suggestions empty state or the
+   * thread itself. Persisting it prevents the empty state from flashing
+   * on every tab switch back to a tab that already has activity — the
+   * tab-switch flash friction report.
+   */
+  tabStartedById: Record<TabId, boolean>;
   quickSwitcherOpen: boolean;
   followingAgent: string | null;
   inboxOpen: boolean;
@@ -114,6 +129,8 @@ export const appStore = createStore<AppState>({
   activeProject: null,
   activeWorkspace: null,
   activeTabByWorkspace: {},
+  composerDraftByTab: {},
+  tabStartedById: {},
   quickSwitcherOpen: false,
   followingAgent: null,
   inboxOpen: false,
@@ -154,6 +171,48 @@ export const selectTab = (workspaceId: WorkspaceId, tabId: TabId) =>
           activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceId]: tabId },
         },
   );
+
+/** Save (or clear) the composer draft for a tab. Empty string deletes
+ *  the entry so the map doesn't grow unbounded with closed tabs. */
+export const setTabDraft = (tabId: TabId, text: string) =>
+  appStore.set((s) => {
+    const current = s.composerDraftByTab[tabId] ?? "";
+    if (current === text) return s;
+    const next = { ...s.composerDraftByTab };
+    if (text.length === 0) {
+      delete next[tabId];
+    } else {
+      next[tabId] = text;
+    }
+    return { ...s, composerDraftByTab: next };
+  });
+
+/** Mark a tab as "the user has started a conversation here." Causes
+ *  WorkspaceThread to render the message thread instead of the
+ *  starter-suggestions empty state on every subsequent mount of that
+ *  tab. Idempotent. */
+export const markTabStarted = (tabId: TabId) =>
+  appStore.set((s) =>
+    s.tabStartedById[tabId]
+      ? s
+      : { ...s, tabStartedById: { ...s.tabStartedById, [tabId]: true } },
+  );
+
+/** Reap any per-tab state for a tab that's been closed. Without this,
+ *  `composerDraftByTab` and `tabStartedById` accumulate stale entries
+ *  for the lifetime of the session. Called from MainView right after
+ *  the close-tab IPC succeeds. Safe to call for an unknown id (no-op). */
+export const clearTabState = (tabId: TabId) =>
+  appStore.set((s) => {
+    const hadDraft = tabId in s.composerDraftByTab;
+    const hadStarted = tabId in s.tabStartedById;
+    if (!hadDraft && !hadStarted) return s;
+    const composerDraftByTab = { ...s.composerDraftByTab };
+    delete composerDraftByTab[tabId];
+    const tabStartedById = { ...s.tabStartedById };
+    delete tabStartedById[tabId];
+    return { ...s, composerDraftByTab, tabStartedById };
+  });
 
 export const toggleQuickSwitcher = (open?: boolean) =>
   appStore.set((s) => {

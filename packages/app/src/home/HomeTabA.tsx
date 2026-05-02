@@ -8,7 +8,12 @@ import {
   toggleInbox,
   useAppState,
 } from "../store/app";
-import { refreshWorkspaces, useDataState } from "../store/data";
+import {
+  latestActivityForWorkspace,
+  refreshWorkspaces,
+  useDataState,
+  useRecentActivity,
+} from "../store/data";
 import { emptyArray } from "../util/empty";
 import { humanizeKind } from "../util/humanize";
 import { TabLayout } from "../layout/TabLayout";
@@ -94,24 +99,11 @@ export function HomeTabA({ project }: { project: Project }) {
         >
           <ul className="home-a__list home-a__list--workspaces">
             {projectWorkspaces.slice(0, 8).map((w) => (
-              <li key={w.workspace.id}>
-                {w.workspace.status ? (
-                  <WorkspaceStatusIcon status={w.workspace.status} />
-                ) : (
-                  <span className="state-dot" data-state={w.state} aria-hidden="true" />
-                )}
-                <button
-                  type="button"
-                  className="home-a__row-title home-a__row-link"
-                  title={`Open ${w.workspace.name}`}
-                  onClick={() => openWorkspace(w.workspace.id)}
-                >
-                  {w.workspace.name}
-                </button>
-                <span className="home-a__row-meta">
-                  {workspaceSummary(w)}
-                </span>
-              </li>
+              <HomeWorkspaceRow
+                key={w.workspace.id}
+                summary={w}
+                onOpen={() => openWorkspace(w.workspace.id)}
+              />
             ))}
           </ul>
         </Section>
@@ -258,6 +250,48 @@ function ProjectRepoSection({
         />
       )}
     </Section>
+  );
+}
+
+/**
+ * Row component so each workspace can run its own `useRecentActivity`
+ * gate — keeps the home tab's pulse semantics in sync with the
+ * workspace sidebar (a state="active" dot only pulses while the
+ * workspace's stream has had a recent event).
+ */
+function HomeWorkspaceRow({
+  summary,
+  onOpen,
+}: {
+  summary: WorkspaceSummary;
+  onOpen: () => void;
+}) {
+  const latestTs = useDataState((s) =>
+    latestActivityForWorkspace(s.recentActivityTs, summary.workspace.id),
+  );
+  const recent = useRecentActivity(latestTs);
+  return (
+    <li>
+      {summary.workspace.status ? (
+        <WorkspaceStatusIcon status={summary.workspace.status} />
+      ) : (
+        <span
+          className="state-dot"
+          data-state={summary.state}
+          data-active-ts-recent={recent ? "true" : undefined}
+          aria-hidden="true"
+        />
+      )}
+      <button
+        type="button"
+        className="home-a__row-title home-a__row-link"
+        title={`Open ${summary.workspace.name}`}
+        onClick={onOpen}
+      >
+        {summary.workspace.name}
+      </button>
+      <span className="home-a__row-meta">{workspaceSummary(summary)}</span>
+    </li>
   );
 }
 

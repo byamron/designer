@@ -56,6 +56,7 @@ export interface MockCore {
   approvals(): Approval[];
   // Phase 13.1
   listArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
+  listSpineArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
   listPinnedArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
   getArtifact(id: ArtifactId): ArtifactDetail;
   togglePinArtifact(id: ArtifactId): boolean;
@@ -399,6 +400,28 @@ export function createMockCore(): MockCore {
     listArtifacts(workspaceId) {
       return artifacts
         .filter((a) => a.workspace_id === workspaceId)
+        .map(({ payload: _p, ...rest }) => rest);
+    },
+    listSpineArtifacts(workspaceId) {
+      // Mirror the Rust SPINE_ARTIFACT_KINDS / SPINE_AUTHOR_ROLES so dev
+      // mode + tests behave the same as production. The mock has no
+      // settings layer; the show-all flag stays off.
+      const allowed = new Set([
+        "spec",
+        "prototype",
+        "code-change",
+        "pr",
+      ] as const);
+      const allowedRoles = new Set(["recap", "auditor"]);
+      return artifacts
+        .filter((a) => a.workspace_id === workspaceId)
+        .filter(
+          (a) =>
+            allowed.has(a.kind as "spec" | "prototype" | "code-change" | "pr") ||
+            (a.kind === "report" &&
+              a.author_role !== null &&
+              allowedRoles.has(a.author_role)),
+        )
         .map(({ payload: _p, ...rest }) => rest);
     },
     listPinnedArtifacts(workspaceId) {
