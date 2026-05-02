@@ -57,10 +57,10 @@ export function AppDialog() {
 }
 
 function HelpBody() {
-  // Removed the "Ask the help agent" input — it was a static placeholder
-  // that did nothing on submit. Per the dogfood rule "we cannot show
-  // features in the UI that don't work", it leaves until the agent that
-  // would answer those questions actually exists.
+  // The "Ask the help agent" input was a static placeholder with no
+  // backing handler. Removed per the dogfood rule "no half-baked
+  // features in prod"; the section returns once an answering agent
+  // actually exists.
   return (
     <>
       <section className="app-dialog__section" aria-label="Keyboard shortcuts">

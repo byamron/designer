@@ -443,10 +443,11 @@
   margin-bottom: var(--space-3);
 }
 
-/* Right-aligned bulk copy button. Sits on the same row as the filter
- * chips so the affordance is visible at a glance — counts the records
- * the current filter would dispatch, so the label is honest about
- * what's about to land on the clipboard. */
+/* Bulk copy button. Right-aligned by the parent's space-between; this
+ * rule only locks the button against shrinking when the filter chips
+ * push toward the available width. With `flex-wrap: wrap` on the
+ * parent, the button slides under the chips on narrow viewports
+ * instead of getting clipped. */
 .friction-triage__batch-copy {
   flex-shrink: 0;
 }
