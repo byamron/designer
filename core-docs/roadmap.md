@@ -63,7 +63,7 @@ Phase 21 — Learning layer  (local-model session analysis → workflow proposal
   └─ Gates on 13.F (local-model surfaces) + 13.D (real agent traffic to analyze).
      Independent of 14, 16, 18, 19, 20; can pull earlier once 13.D/F are green.
 
-Phase 22 — Project Home redesign  (Recent Reports / Roadmap / Designer Noticed)
+Phase 22 — Project Home redesign  (Recent Reports / Roadmap / Designer Noticed / Merge queue)
   ├─ 22.G  Color system (axiom #3 amendment)        [pullable into 15.x; gates team-tinted UI]
   ├─ 22.B  Recent Reports redesign                  (← 13.F report artifact; independent of 22.A)
   ├─ 22.A  Roadmap canvas foundation                (← 13.E track primitive)
@@ -72,6 +72,8 @@ Phase 22 — Project Home redesign  (Recent Reports / Roadmap / Designer Noticed
   ├─ 22.E  Adjacent attention column                (← 22.A + 22.D + 13.G safety surfaces)
   ├─ 22.H  Click-into-agent                         (← 22.A + 13.D)
   ├─ 22.C  Roadmap origination                      (← 22.A; minimal — empty + paste only)
+  ├─ 22.N  Merge queue                              (← 13.E + 13.G + 20 + 22.A; 22.E soft gate)
+  ├─ 22.N.1 Merge queue — UI craft + Tier-2 → 22.E   (← 22.N + 22.E)
   ├─ 22.F  Designer Noticed                         **satisfied by Phase 21** — see cross-ref
   └─ 22.L  Phase 20 hookup                          [delivered as part of Phase 20, not 22]
 
@@ -117,7 +119,7 @@ Phases 0–11 landed as a preliminary build on branch `preliminary-build`. See `
 - **Phase 19** — Workspace scales up: multi-track UX, forking, reconciliation, workspace-lead routing policy. Primitive lands in Phase 13.E; this phase ships the user-visible affordances. Gates on 13 + 16; pullable into 15 partial.
 - **Phase 20** — Parallel-work coordination layer. Project-level primitive that analyzes contention across multiple workspaces / tracks running in parallel, partitions shared files, freezes contracts (events, IPC DTOs, trait seams), generates a pre-integration scaffold, and plans merge order. Automates what Phase 13.0 did by hand. Gates on 13 + 19 substantially complete.
 - **Phase 21** — Learning layer: local-model analysis of session transcripts produces editable workflow + context optimization proposals on the project Home tab. Gates on 13.D + 13.F (needs real agent traffic and working local-model surfaces).
-- **Phase 22** — Project Home redesign. Reshapes the project Home tab into three surfaces — **Recent Reports** (curated digest of shipped work), **Roadmap** (live plan-anchored canvas with team presence), **Designer Noticed** (already in flight as Phase 21). The shippable-v1 cut is 22.G + 22.B + 22.A + 22.I + 22.D + 22.E + 22.H + 22.C — each independently shippable. Phase 22.F (Designer Noticed surface) is **satisfied by Phase 21.A1.2** (proposals over findings, boundary-driven cadence) — do not duplicate; the spec's five-category re-skin is **deferred until dogfood signal** on the existing surface motivates it. **Linear integration is cut entirely** from v1 (interop ≠ moat — revisit only on explicit user signal). 22.L is delivered as part of Phase 20, not Phase 22. Gates: 22.B on 13.F; 22.A on 13.E; 22.D on 22.A; 22.E on 22.A + 22.D + 13.G.
+- **Phase 22** — Project Home redesign. Reshapes the project Home tab into three surfaces — **Recent Reports** (curated digest of shipped work), **Roadmap** (live plan-anchored canvas with team presence), **Designer Noticed** (already in flight as Phase 21) — and adds a fourth: **Merge queue** (cross-PR conflict-resolution train, 22.N + 22.N.1). The shippable-v1 cut is 22.G + 22.B + 22.A + 22.I + 22.D + 22.E + 22.H + 22.C + 22.N — each independently shippable. Phase 22.F (Designer Noticed surface) is **satisfied by Phase 21.A1.2** (proposals over findings, boundary-driven cadence) — do not duplicate; the spec's five-category re-skin is **deferred until dogfood signal** on the existing surface motivates it. **Linear integration is cut entirely** from v1 (interop ≠ moat — revisit only on explicit user signal). 22.L is delivered as part of Phase 20, not Phase 22. Gates: 22.B on 13.F; 22.A on 13.E; 22.D on 22.A; 22.E on 22.A + 22.D + 13.G; 22.N on 13.E + 13.G + 20 + 22.A (22.E is a soft gate — v1 ships an inline Tier-2 surface, 22.N.1 migrates to 22.E once it lands).
 
 See the "Gaps after the preliminary build" section below for the full gap → phase mapping.
 
@@ -2090,6 +2092,65 @@ This is a Phase 20 deliverable, not a Phase 22 deliverable — kept here as a fo
 
 ---
 
+### Phase 22.N — Merge queue
+
+**Goal:** project-scoped sequential merge train that resolves conflicts between parallel-completed PRs with cross-PR context, preserves PR identity, and surfaces tier-2 semantic conflicts for review — without forcing the manager to dispatch "address conflicts" prompts to each track agent serially after every merge. Phase 20 *prevents* most conflicts via partition-before-fan-out; the merge queue *resolves* the residual conflicts that occur anyway, or that occur when Phase 20 wasn't applied (the dogfood case). Complementary, not redundant.
+
+**Why a Phase 22 sub-phase:** the queue is project-level state that needs a project-level surface — a tab alongside Home / Roadmap. It composes against the same project-altitude primitives as the rest of Phase 22.
+
+**Differentiator vs. existing tooling:** GitHub merge queue / Mergify / Bors / Graphite serialize merges to prevent semantic conflicts but reject PRs with textual conflicts; a human resolves. Composio agent-orchestrator and Overstory are the closest match (FIFO + tiered conflict-resolution) but are CLI-first with no manager surface and no cross-PR briefing of the resolution agent. Designer's edge is **cross-PR context briefing** for the resolution agent (every queued PR's description, diff summary, and project context is in scope before a single conflict is touched), surfaced through the project tab.
+
+**Hard gates:** 13.E (Track + `cmd_request_merge`), 13.G (approval inbox primitives), Phase 20 (cross-PR project primitive), Phase 22.A (tab framework).
+**Soft gate:** 22.E. v1 ships an inline Tier-2 approval `<Frame>` inside the queue tab; 22.N.1 migrates routing to the 22.E adjacent column once 22.E lands.
+
+**Deliverables:**
+
+- **`MergeQueue` aggregate** (project-scoped). Ordered list of `QueueItem`s; one queue per project. State machine: `Queued → InProgress → {AwaitingApproval | Testing} → Merged | Failed | Paused`. Failure / pause reasons are split into separate enums (`FailureReason` terminal, `PauseReason` recoverable).
+- **Sequential FIFO processing.** Resolve conflicts → run tests → merge → advance. No speculative parallelism in v1; three v2 escape hatches frozen in the v1 data model (`base_ref` field on `QueueItem`, `BranchTarget` enum on `ResolutionCommit`, `(test_set_hash, commit_sha)` keys on `TestRunRecord`). v1 must populate all three fields fully so v2 reads with zero migration.
+- **PR-identity preservation.** No meta-PRs. Resolution lands as one new commit on the original PR branch via `git push`; force-push is forbidden by an invariant check. Commit message: `Resolve conflicts with PR #<N>, #<M>` + `Co-authored-by: Designer Integration Agent`.
+- **Cross-PR briefing payload.** `BriefingPayload` struct with `queued_prs: Vec<PrSummary>`, truncated `plan_md` + `claude_md` (≤ 8KB each). Volatile (never persisted in `EventPayload` or audit log). Forward-extensibility rule: additive-only fields, `Option<…>` for new ones, no removals without ADR — same rule as `EventPayload` per ADR 0002.
+- **Conflict-tier classification:** Tier 0 (no conflict, just `git`), Tier 1 (mechanical — agent resolves; auto-merge on green), Tier 2 (semantic — agent flags `requires_review`; routes to inline approval in v1 / 22.E in v2.N.1), Tier 3 (unresolved — fails back to track with attempt context).
+- **Pre-write gate (load-bearing).** Agent edits must lie inside `<<<<<<<` / `=======` / `>>>>>>>` regions. Out-of-marker edits fail the gate. Extends 13.G's pre-write gates.
+- **Per-project autonomy slider.** `QueueAutonomyPolicy` lives in Project Home (per Decision 63). Defaults: Tier 0 always auto, Tier 1 auto-on-green, Tier 2 inline review, Tier 3 fail. Per-project setting can dial up/down within tier-valid combinations. `cmd_set_queue_autonomy` validates at IPC; rejects "auto-merge Tier 3."
+- **Subprocess lifecycle and recovery.** One Claude Code subprocess per active queue (not per-PR), 15-min idle timeout. Boot recovery: items stuck in `InProgress`/`Testing` > 5 min auto-emit `QueueItemRecoveryStarted` and pause with `PauseReason::SubprocessRestarted`. Mid-session crash → same. v1 assumes a single Designer instance per project; multi-instance lease coordination deferred to v1.x.
+- **Context freshness guarantee.** Diff summaries computed at enqueue, never refreshed (ground truth is conflict markers). External branch updates detected via batched `git ls-remote origin` every 5s (adaptive to 30s after 6 stable polls); cached 2s. On drift: pause with `ExternalUpdate`. PR closed externally: terminal Failed with `PrClosedExternally`. Internal-vs-external head detection: `QueueItemResolved` lands before next poll; projection suppresses `ExternalUpdate` for matching ref. Test required.
+- **CI rerun suppression.** Queued PRs flip to draft on enqueue (`gh pr ready --undo`); back to ready at head. Most CI configs skip drafts; suppresses GitHub's auto-rerun on base-branch updates.
+- **Cost accounting.** Queue spend rolls into existing `CostTracker` per-workspace lanes (workspace originating the track owns the lane; manual enqueues attribute to a `manual` project bucket). Queue-tab cost chip is an aggregate filter view — no `CostTracker` multi-lane extension needed. Default budget cap = 40% of project per-turn cap; over-budget pauses with `BudgetExceeded`. Tooltip: "Queue spend is included in workspace and project totals — not double-counted."
+- **`Anchor::QueueItem` extension** (additive to the 13.K-frozen `Anchor`) — friction reports from the queue tab anchor to the focused item with `resolution_commit_sha` + `conflict_tier` auto-attached.
+- **New IPC commands** (alphabetical registration in `tauri::generate_handler!`):
+  ```
+  cmd_enqueue_pr            cmd_pause_queue_item     cmd_resume_queue_item
+  cmd_get_queue_state       cmd_remove_queue_item    cmd_set_queue_autonomy
+  cmd_reorder_queue
+  ```
+- **Tab surface (v1, minimal-but-complete).** Composes `<Box role="tabpanel">` / `<Stack>` / `<Cluster>` / `<Frame>` (inline approval card on `AwaitingApproval` only) / `<IconButton>`. State pip palette uses existing `--success-*`, `--warning-*`, `--danger-*`, `--info-*`, `--gray-*` tokens — zero new scales. Header: title + autonomy chip + cost chip + total + ETA; reflows to two rows on 960–1100 px viewports. Item rows: drag handle (`⌥↑`/`⌥↓` keyboard; tooltip on focused row) + state pip + PR title + sub-text disambiguation + tier badge + workspace chip + kebab (`Pause` / `Resume` / `Remove` / `Open PR` / `Report issue` — **no in-app drill-in in v1**; use `Open PR` for full diff/rationale review on GitHub). Auto-enqueue from autonomous workspaces fires a toast notification.
+- **Workspace integration.** Each workspace's track-completion surface gains an "Add to merge queue" button next to "Request merge". Auto-enqueue mode replaces (not removes) the button with a passive "Queued" indicator; toast confirms.
+
+**Spec source:** `.context/specs/phase-22n-merge-queue.md` (v3 draft, two staff-perspective review passes, all blockers folded in 2026-05-02). ADR 0007 (proposed) captures `BranchTarget` enum, sequential-only v1 with v2 escape hatches, conflict-marker scope as load-bearing, `BriefingPayload` forward-extensibility rule, single-instance v1 assumption, soft-gate-on-22.E with v1 inline-approval fallback.
+
+**Done when:** the acceptance tests below pass; `--features merge_queue_live` integration test (mirrors `claude_live` infrastructure) merges 3 conflicting PRs (Tier 0 / 1 / 2) end-to-end on a test repo and fails the 4th (Tier 3) cleanly back to its track; `audit-a11y` green; pattern-log + generation-log + component-manifest entries landed; ADR 0007 merged.
+
+---
+
+### Phase 22.N.1 — Merge queue UI craft + Tier-2 → 22.E migration
+
+**Goal:** layer visual craft and migrate the Tier-2 routing surface from inline `<Frame>` to the 22.E adjacent attention column.
+
+**Gates on:** 22.N (backend + minimal surface) + 22.E (adjacent attention column).
+
+**Deliverables:**
+- Full in-app drill-in surface (resolution diff + agent rationale + test output excerpt + audit-log slice for the item). Replaces the v1 "Open PR opens GitHub" detail path; "Open PR" remains as a secondary affordance.
+- Drag-to-reorder visual craft: drop indicator hairline, ghost of dragged row, magnetic snap. Reference: Linear backlog drag UX.
+- Motion details: drill-in slide, item slide-out on Merge / Remove, head-of-queue advancement transition. Reduced-motion fallbacks for each (instant flip / instant remove / no slide), per Decision 60.
+- Density tuning: target row height matched to Recent Reports digest cards; 8–12 visible rows before scroll.
+- First-run / onboarding empty-state explainer: 3–4 sentences ("Merge queue resolves conflicts between parallel PRs. Add PRs here to sequence their merges and let the agent resolve conflicts automatically. Tier-2 conflicts route to your attention column for review.").
+- **Tier-2 routing migration:** items in `AwaitingApproval` collapse from inline `<Frame>` to a normal-height row + chevron pointing right; the approval card moves into the 22.E adjacent column. Backend events unchanged.
+- Inline sub-state copy refinement: live-updating elapsed-time text on `InProgress` ("Resolving conflicts on PR #42 — 30s elapsed") and `Testing`.
+
+**Done when:** `audit-a11y` passes the new drill-in surface and motion fallbacks; visual-regression snapshots cover the 22.E migration; row-density matches the Recent Reports baseline; onboarding tip renders on the empty state with a one-time dismiss.
+
+---
+
 ### Considered, deferred (NOT on the Phase 22 roadmap)
 
 These were in the original spec but cut from v1 after first-principles review (does it serve the moat — manager-of-agents, workflow above the model, context lives in the repo?). Each can be revisited if explicit user signal lands.
@@ -2117,6 +2178,8 @@ These were in the original spec but cut from v1 after first-principles review (d
 - `NodeStatusChanged { node_id, from, to, source }` (22.D)
 - `NodeShipmentRecorded { node_id, workspace_id, track_id, pr_url, shipped_at }` (22.I — emitted in the same transaction as `Track::Merged` so the Done-shipped invariant gate has the shipment to look up)
 - `AttentionItemOpened/Resolved` (22.E)
+- `QueueItemEnqueued / AdvancedToHead / Resolving / Resolved / AwaitingReview / TestsStarted / TestsCompleted / Merged / Failed / Reordered / Paused / Resumed / Removed / RecoveryStarted` (22.N — 14 variants, all carrying `queue_id`; per ADR 0002 addendum rule, each variant has an inline doc-comment naming Phase 22.N and existing projectors gain `_ => {}` arms)
+- `Anchor::QueueItem { queue_id, item_id, resolution_commit_sha, conflict_tier }` — additive extension to the 13.K-frozen `Anchor` enum (22.N)
 
 **Notably NOT events** (intentional — were in the original spec):
 - `ReportRead` — replaced by `read_seq_by_user_by_project` projection (per-user seq, not per-report event). Avoids linear event-log bloat with reports × users.
@@ -2142,6 +2205,7 @@ Linear / Notion / Jira / Asana / GitHub Projects integration. Multiplayer cursor
 - Agents can propose roadmap edits inline; the autonomy gradient applies; the audit trail surfaces on hover.
 - Click-into-agent opens the filtered workspace thread as a tab.
 - Designer Noticed (Phase 21 surface, unchanged in v1) sits at the bottom of the Home tab.
+- The Merge queue tab (22.N) accepts PRs regardless of textual conflict state, runs sequential FIFO conflict resolution with cross-PR briefing, preserves PR identity, surfaces Tier-2 review inline (v1) / in 22.E (post-22.N.1), and lands all PRs in their original branches with attributed resolution commits. Cost rolls into existing per-workspace lanes; no double-counting.
 - All animations honor `prefers-reduced-motion` (verified by `audit-a11y`).
 
 **Gates on:** Phase 13 (real runtime + safety + agent traffic); Phase 21 (Designer Noticed already shipped); Phase 22.G recommended before any visible-surface sub-phase. Phase 19 (multi-track) is *complementary* — sequential / parallel tracks are what produces the contention and presence the canvas visualizes; canvas can ship before Phase 19 with single-track presence.
@@ -2203,6 +2267,29 @@ Each sub-phase ships these tests as part of its PR. Tests are the spec's contrac
 - **T-C-1 — Empty state copy + paste path.** With no `roadmap.md`: empty state renders with the lead-with-purpose copy; *Paste a draft* opens `AppDialog`; submitting writes to `core-docs/roadmap.md` and commits silently per Decision 18.
 - **T-C-2 — Malformed paste degrades, doesn't crash.** Paste markdown that fails the parser; assert error state with *Open in editor*; surface degrades; no toast spam.
 
+**Phase 22.N — Merge queue**
+- **T-N-1 — Sequential FIFO end-to-end (`--features merge_queue_live`).** Three conflicting PRs (one Tier 0, one Tier 1, one Tier 2) enqueued in arbitrary order on a fixture repo; the queue resolves, surfaces Tier 2 inline, accepts a programmatic approve, runs tests at each head, and merges all three to `main` in queue order with attributed resolution commits on each PR branch. A fourth PR forced to Tier 3 fails cleanly back to its track with the failed attempt context.
+- **T-N-2 — Conflict-marker scope gate.** 10+ fixture diffs in `crates/designer-integration/tests/fixtures/`: edits inside markers pass; edits outside markers (surrounding-line modifications, header rewrites, import-block changes outside the `<<<` region) fail the pre-write gate as a validation error.
+- **T-N-3 — State-machine property tests.** Every declared transition is reachable; no unreachable states; `QueueItemResolved` sets `conflict_tier` exactly once; `Paused → Resume` returns to the prior state.
+- **T-N-4 — Boot recovery emits audit event.** Crash Designer with an item in `InProgress`; restart; assert `QueueItemRecoveryStarted { prior_state: InProgress }` is emitted before the item transitions to `Paused { SubprocessRestarted }`.
+- **T-N-5 — External-update poll: drift detection + cache + backoff.** Deterministic test against fake `git ls-remote` output. Drift on a queued PR's head pauses with `ExternalUpdate { new_head }`; results cached for 2s; after 6 stable polls, interval shifts from 5s to 30s.
+- **T-N-6 — Internal-vs-external head detection race.** Resolution commit pushed by the agent fires a `QueueItemResolved` event; a poll fires immediately after; the projection suppresses an `ExternalUpdate` for the matching ref. Without this guard, the test detects a false `ExternalUpdate`.
+- **T-N-7 — `cmd_set_queue_autonomy` validation.** Submit `auto-merge Tier 3`; assert `Err(AutonomyValidationError)`. Valid combinations accepted.
+- **T-N-8 — Rationale size cap.** 5 KB rationale → resolution fails as a validation error (no silent truncation). 4 KB rationale → resolution succeeds.
+- **T-N-9 — Force-push rejected.** Resolution commit attempted via force-push (test injects an out-of-band reset); invariant check rejects; item transitions to `Failed { AgentFailed }`.
+- **T-N-10 — Draft toggle for CI suppression.** Enqueue: `gh pr ready --undo` called. Advance to head: `gh pr ready` called. Both calls observed via a fake `gh` shim.
+- **T-N-11 — Anchor extension + friction context.** ⌘⇧F from a focused queue item in `AwaitingApproval` produces a Friction record with `Anchor::QueueItem { resolution_commit_sha: Some(_), conflict_tier: Some(Tier2) }`.
+- **T-N-12 — 960px header reflow.** Viewport snapshot test at 960px: title + autonomy chip on row 1; cost chip + total + ETA on row 2. At 1100px+: single row.
+- **T-N-13 — Reduced-motion fallback.** With `prefers-reduced-motion: reduce`: state-pip transitions instant; inline `<Frame>` expand instant; no slide-out on Merge/Remove (item static disappear in v1).
+- **T-N-14 — `_ => {}` projector arms verified.** Static check: every existing `match` on `EventPayload` in projectors and consumers (canonical: `projection.rs`, `core_safety.rs`, `core_learn.rs`; plus any others surfaced by `rg 'EventPayload::' --type rust`) compiles against the 14 new variants.
+
+**Phase 22.N.1 — Merge queue UI craft + Tier-2 migration**
+- **T-N1-1 — Drill-in surface.** Click "Drill in" on a `Merged` item; assert resolution-diff + rationale + test-excerpt + audit-slice render. ESC dismisses; focus returns to the row.
+- **T-N1-2 — Tier-2 migration to 22.E.** Item enters `AwaitingApproval`; assert no inline `<Frame>` is rendered in the queue tab; assert a card appears in the 22.E adjacent column with Approve / Open PR. Approve from 22.E advances the item to `Testing`.
+- **T-N1-3 — Drag-to-reorder craft.** Drag an item; assert ghost is rendered at 50% opacity, drop indicator is a 2px hairline using `--success-*`, snap is row-aligned (no fractional positions).
+- **T-N1-4 — Motion fallbacks (full coverage).** With `prefers-reduced-motion: reduce`: drill-in opens instantly; item Merge/Remove disappears instantly; head-of-queue advancement is instant. Without reduced-motion: drill-in slides at `--motion-emphasized`; merge/remove slide-out at `--motion-standard`.
+- **T-N1-5 — Onboarding empty-state.** First-run user opens the queue tab with zero items; assert 3–4-sentence explainer renders; one-time dismiss persists across sessions.
+
 These tests are the gate. PR review for each sub-phase asserts every test in its block passes before merge. Tests live alongside the implementation: Rust tests in `crates/designer-core/tests/` or `apps/desktop/src-tauri/src/`; frontend tests in `packages/app/src/__tests__/`; perf fixtures in `crates/designer-core/tests/fixtures/`.
 
 ---
@@ -2232,6 +2319,7 @@ These tests are the gate. PR review for each sub-phase asserts every test in its
 | Parallel-work coordination layer | 20 | After 13 + 19 substantially complete | Pending |
 | Learning layer (local-model workflow proposals) | 21 | After 13.D + 13.F; independent of 14/16/18/19/20 | Pending |
 | Project Home redesign (Recent Reports / Roadmap / Designer Noticed) | 22.G + 22.B + 22.A + 22.I + 22.D + 22.E + 22.H + 22.C | Sub-phases independently shippable; 22.G + 22.B + 22.A + 22.I as recommended first slice; 22.F satisfied by 21; Linear (was 22.J/K) and five-category re-skin cut from v1; 22.L delivered with Phase 20 | Pending — 22.G pullable into Phase 15 polish |
+| Merge queue (cross-PR conflict resolution train) | 22.N + 22.N.1 | Independently shippable; 22.N hard-gates on 13.E + 13.G + 20 + 22.A; 22.N.1 gates on 22.N + 22.E. Spec source: `.context/specs/phase-22n-merge-queue.md` (v3, two staff-review passes complete) | Pending — promoted to roadmap 2026-05-02 |
 
 ---
 
