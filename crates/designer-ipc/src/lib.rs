@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
 
+pub mod friction;
+pub use friction::{project_friction, synthesize_title};
+
 /// Wire-level error returned across the Tauri IPC boundary. Variants use
 /// **struct** form (named field) instead of newtype-tuple form so serde's
 /// internally-tagged representation can serialize them. (`#[serde(tag =

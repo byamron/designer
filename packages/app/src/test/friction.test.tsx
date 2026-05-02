@@ -68,6 +68,7 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     reopenFriction: () => Promise.resolve(),
     captureViewport: () => Promise.resolve(new Uint8Array([0, 1, 2, 3])),
     revealInFinder: () => Promise.resolve(),
+    onStoreChanged: () => () => {},
     listFindings: () => Promise.resolve([]),
     signalFinding: () => Promise.resolve(),
     listProposals: () => Promise.resolve([]),

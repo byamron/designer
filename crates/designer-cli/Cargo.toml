@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 designer-core.workspace = true
 designer-claude.workspace = true
+designer-ipc.workspace = true
 designer-safety.workspace = true
 designer-audit.workspace = true
 designer-sync.workspace = true

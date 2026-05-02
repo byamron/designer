@@ -27,6 +27,7 @@ pub mod ipc;
 pub mod ipc_agents;
 pub mod menu;
 pub mod settings;
+pub mod store_watcher;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod updater;

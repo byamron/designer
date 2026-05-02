@@ -569,6 +569,31 @@ function FrictionTriageSection() {
     };
   }, []);
 
+  // Re-fetch when the on-disk event store changes externally — the most
+  // common trigger is the `designer` CLI's `friction address|resolve|
+  // reopen` (the dogfood "ask Claude to fix it" loop). Deliberately
+  // does NOT touch `filter`: external writes shouldn't bounce the user
+  // off the chip they're sitting on.
+  useEffect(() => {
+    let cancelled = false;
+    const off = ipcClient().onStoreChanged(() => {
+      void (async () => {
+        try {
+          const list = await ipcClient().listFriction();
+          if (!cancelled) setEntries(list);
+        } catch {
+          // Swallow — the next refresh (or a manual tab bounce) will
+          // recover. A toast on every transient fs hiccup would be
+          // worse than the silent retry.
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+
   const counts = useMemo(() => {
     const c = { open: 0, addressed: 0, resolved: 0, all: 0 };
     for (const e of entries ?? []) {
@@ -793,6 +818,8 @@ function FrictionRow({
         >
           Show in Finder
         </button>
+        <CopyPathButton path={e.local_path} />
+        <CopyAgentPromptButton entry={e} />
       </div>
       {expanded && (
         <div
@@ -820,6 +847,94 @@ function FrictionRow({
         </div>
       )}
     </li>
+  );
+}
+
+/// Copy `text` to the clipboard and flip the button label to a confirm
+/// state for ~1.4s. Hook so the two row-level copy buttons share one
+/// feedback path without duplicating timer + cleanup wiring.
+function useCopyWithFeedback(): {
+  copied: boolean;
+  copy: (text: string) => Promise<void>;
+} {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    },
+    [],
+  );
+  const copy = async (text: string) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      // Clipboard can fail in non-secure contexts. Stay silent — the
+      // path is also reachable via "Show in Finder", and a thrown alert
+      // would punish a corner case (browser dev preview, no HTTPS).
+    }
+  };
+  return { copied, copy };
+}
+
+/// Copy the on-disk path of the friction record to the clipboard so the
+/// user can paste it into an agent prompt themselves.
+function CopyPathButton({ path }: { path: string }) {
+  const { copied, copy } = useCopyWithFeedback();
+  return (
+    <button
+      type="button"
+      className="btn"
+      disabled={!path}
+      onClick={() => copy(path)}
+      title={path || "No path recorded for this entry"}
+      aria-live="polite"
+    >
+      {copied ? "Copied!" : "Copy path"}
+    </button>
+  );
+}
+
+/// Build a self-contained prompt that hands an external agent (Claude Code,
+/// Codex CLI, etc.) everything needed to read the report and close the
+/// loop with `designer friction address`. The id is baked in so the user
+/// doesn't have to remember the round-trip command.
+function buildAgentPrompt(entry: FrictionEntry): string {
+  const lines = [
+    "Read this Designer friction report and propose a fix:",
+    entry.local_path,
+    "",
+    "After opening a PR, close the loop:",
+    `designer friction address ${entry.friction_id} --pr <PR_URL>`,
+  ];
+  return lines.join("\n");
+}
+
+/// Copy a pre-formatted agent prompt (path + close-the-loop CLI). Sits
+/// next to "Copy path" — the path button is the primitive; this one is
+/// the workflow shortcut for the dogfood "ask Claude to fix it" loop.
+function CopyAgentPromptButton({ entry }: { entry: FrictionEntry }) {
+  const { copied, copy } = useCopyWithFeedback();
+  const disabled = !entry.local_path;
+  return (
+    <button
+      type="button"
+      className="btn"
+      disabled={disabled}
+      onClick={() => copy(buildAgentPrompt(entry))}
+      title={
+        disabled
+          ? "No path recorded for this entry"
+          : "Copy a prompt for Claude / agent CLIs that includes the path and the close-the-loop command"
+      }
+      aria-live="polite"
+    >
+      {copied ? "Copied!" : "Copy prompt"}
+    </button>
   );
 }
 
