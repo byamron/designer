@@ -286,6 +286,7 @@ async fn artifact_lifecycle_projects_through_pin_unpin_archive() {
                 summary: "Three-step link + autonomy choice.".into(),
                 payload: PayloadRef::inline("# Onboarding\n\nGoal: link + spawn under 60s."),
                 author_role: Some("team-lead".into()),
+                tab_id: None,
             },
         )
         .await
@@ -445,4 +446,283 @@ async fn payload_ref_inline_vs_hash_serialize_distinctly() {
 async fn busy_timeout_is_5_seconds_on_pool_connections() {
     let store = SqliteEventStore::open_in_memory().unwrap();
     assert_eq!(store.busy_timeout_ms().unwrap(), 5000);
+}
+
+/// Per-tab thread isolation. With two tabs in the same workspace,
+/// `MessagePosted` / `ArtifactCreated { kind: Message }` events with
+/// `tab_id: Some(t)` must project into the requested tab and NOT into
+/// the sibling tab. Non-message artifacts (specs, PRs, …) stay
+/// workspace-wide and appear in every tab's slice.
+#[tokio::test]
+async fn artifacts_filter_by_tab_for_message_kind_only() {
+    use designer_core::{TabId, TabTemplate};
+
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let projector = Projector::new();
+    let project_id = ProjectId::new();
+    let workspace_id = WorkspaceId::new();
+    let tab_a = TabId::new();
+    let tab_b = TabId::new();
+
+    // Seed: project + workspace + two tabs.
+    for env in [
+        store
+            .append(
+                StreamId::Project(project_id),
+                None,
+                Actor::user(),
+                EventPayload::ProjectCreated {
+                    project_id,
+                    name: "P".into(),
+                    root_path: PathBuf::from("/tmp/p"),
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceCreated {
+                    workspace_id,
+                    project_id,
+                    name: "ws".into(),
+                    base_branch: "main".into(),
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabOpened {
+                    tab_id: tab_a,
+                    workspace_id,
+                    title: "Tab A".into(),
+                    template: TabTemplate::Thread,
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabOpened {
+                    tab_id: tab_b,
+                    workspace_id,
+                    title: "Tab B".into(),
+                    template: TabTemplate::Thread,
+                },
+            )
+            .await
+            .unwrap(),
+    ] {
+        projector.apply(&env);
+    }
+
+    // Two messages — one per tab.
+    let msg_in_a = ArtifactId::new();
+    let msg_in_b = ArtifactId::new();
+    let env = store
+        .append(
+            StreamId::Workspace(workspace_id),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactCreated {
+                artifact_id: msg_in_a,
+                workspace_id,
+                artifact_kind: ArtifactKind::Message,
+                title: "from A".into(),
+                summary: "from A".into(),
+                payload: PayloadRef::inline("from A"),
+                author_role: Some("user".into()),
+                tab_id: Some(tab_a),
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+    let env = store
+        .append(
+            StreamId::Workspace(workspace_id),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactCreated {
+                artifact_id: msg_in_b,
+                workspace_id,
+                artifact_kind: ArtifactKind::Message,
+                title: "from B".into(),
+                summary: "from B".into(),
+                payload: PayloadRef::inline("from B"),
+                author_role: Some("user".into()),
+                tab_id: Some(tab_b),
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+
+    // One workspace-wide spec — must show up in every tab's view.
+    let spec_id = ArtifactId::new();
+    let env = store
+        .append(
+            StreamId::Workspace(workspace_id),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactCreated {
+                artifact_id: spec_id,
+                workspace_id,
+                artifact_kind: ArtifactKind::Spec,
+                title: "shared spec".into(),
+                summary: "shared".into(),
+                payload: PayloadRef::inline("# shared"),
+                author_role: Some("team-lead".into()),
+                tab_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+
+    let in_a = projector.artifacts_in_tab(workspace_id, tab_a);
+    let in_b = projector.artifacts_in_tab(workspace_id, tab_b);
+
+    let ids_a: Vec<_> = in_a.iter().map(|a| a.id).collect();
+    let ids_b: Vec<_> = in_b.iter().map(|a| a.id).collect();
+
+    assert!(ids_a.contains(&msg_in_a), "tab A is missing its own msg");
+    assert!(
+        ids_a.contains(&spec_id),
+        "tab A is missing the workspace spec"
+    );
+    assert!(
+        !ids_a.contains(&msg_in_b),
+        "tab A leaked tab B's message: {ids_a:?}"
+    );
+
+    assert!(ids_b.contains(&msg_in_b), "tab B is missing its own msg");
+    assert!(
+        ids_b.contains(&spec_id),
+        "tab B is missing the workspace spec"
+    );
+    assert!(
+        !ids_b.contains(&msg_in_a),
+        "tab B leaked tab A's message: {ids_b:?}"
+    );
+}
+
+/// Legacy attribution: a `Message` `ArtifactCreated` event whose
+/// `tab_id` is `None` (pre-tab-isolation) must project to the
+/// workspace's first non-closed tab so historical conversations
+/// remain visible after the schema change.
+#[tokio::test]
+async fn legacy_message_without_tab_id_projects_to_first_tab() {
+    use designer_core::{TabId, TabTemplate};
+
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let projector = Projector::new();
+    let project_id = ProjectId::new();
+    let workspace_id = WorkspaceId::new();
+    let first_tab = TabId::new();
+    let second_tab = TabId::new();
+
+    let envs = vec![
+        store
+            .append(
+                StreamId::Project(project_id),
+                None,
+                Actor::user(),
+                EventPayload::ProjectCreated {
+                    project_id,
+                    name: "P".into(),
+                    root_path: PathBuf::from("/tmp/p"),
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceCreated {
+                    workspace_id,
+                    project_id,
+                    name: "ws".into(),
+                    base_branch: "main".into(),
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabOpened {
+                    tab_id: first_tab,
+                    workspace_id,
+                    title: "First".into(),
+                    template: TabTemplate::Thread,
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabOpened {
+                    tab_id: second_tab,
+                    workspace_id,
+                    title: "Second".into(),
+                    template: TabTemplate::Thread,
+                },
+            )
+            .await
+            .unwrap(),
+    ];
+    for env in &envs {
+        projector.apply(env);
+    }
+
+    // Legacy event: no `tab_id`. Must attribute to the first tab.
+    let legacy_msg = ArtifactId::new();
+    let env = store
+        .append(
+            StreamId::Workspace(workspace_id),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactCreated {
+                artifact_id: legacy_msg,
+                workspace_id,
+                artifact_kind: ArtifactKind::Message,
+                title: "old".into(),
+                summary: "old".into(),
+                payload: PayloadRef::inline("old"),
+                author_role: Some("user".into()),
+                tab_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+
+    let in_first = projector.artifacts_in_tab(workspace_id, first_tab);
+    let in_second = projector.artifacts_in_tab(workspace_id, second_tab);
+
+    assert!(
+        in_first.iter().any(|a| a.id == legacy_msg),
+        "legacy msg should attribute to the workspace's first tab"
+    );
+    assert!(
+        in_second.iter().all(|a| a.id != legacy_msg),
+        "legacy msg should NOT appear in the second tab"
+    );
 }

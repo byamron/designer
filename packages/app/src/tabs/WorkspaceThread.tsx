@@ -13,16 +13,21 @@ import {
   type ComposeSendPayload,
 } from "../components/ComposeDock";
 import { getBlockRenderer, GenericBlock } from "../blocks";
-import type { Workspace } from "../ipc/types";
+import type { Tab, Workspace } from "../ipc/types";
 import type { ArtifactDetail, ArtifactId, ArtifactSummary, PayloadRef } from "../ipc/types";
 import { ipcClient } from "../ipc/client";
 import { describeIpcError } from "../ipc/error";
 import "../blocks";
 
 /**
- * Default suggestions for a fresh workspace. When the workspace already
- * has artifacts in motion, `buildSuggestions()` below overrides these
- * with context-aware prompts sourced from the most recent activity.
+ * Default suggestions for a fresh / empty tab. Per-tab thread isolation
+ * means an empty tab always reads as a fresh start: even when the
+ * workspace as a whole has artifacts (specs, PRs, prior threads in
+ * other tabs), THIS tab is empty until the user posts here. The
+ * dynamic, workspace-aware variant of these suggestions is a v2
+ * follow-up — it needs a `LocalOps::suggest_tab_seeds` call and a
+ * meaningful spec, and shipping a static "dynamic" copy change would
+ * be the same half-baked-feature trap PR #70 closed.
  */
 const STARTER_SUGGESTIONS = [
   "What are we building?",
@@ -31,23 +36,19 @@ const STARTER_SUGGESTIONS = [
   "Review the recent activity and suggest next steps",
 ];
 
-/** Derive a short suggestion list from the workspace's recent artifacts.
- *  Falls back to the static starters when nothing interesting is in
- *  flight — matches the "new tab picks up where you left off" pattern. */
-function buildSuggestions(artifacts: ArtifactSummary[]): string[] {
-  if (artifacts.length === 0) return STARTER_SUGGESTIONS;
-  const picks: string[] = [];
-  const latestSpec = artifacts.find((a) => a.kind === "spec");
-  if (latestSpec) picks.push(`Continue working on "${latestSpec.title}"`);
-  const openPr = artifacts.find((a) => a.kind === "pr");
-  if (openPr) picks.push(`Check on ${openPr.title}`);
-  const pendingApproval = artifacts.find((a) => a.kind === "approval");
-  if (pendingApproval) picks.push(`Resolve: ${pendingApproval.title}`);
-  const latestCodeChange = artifacts.find((a) => a.kind === "code-change");
-  if (latestCodeChange) picks.push(`Review the latest code changes`);
-  // Always keep a catch-all "describe something new" slot at the end.
-  picks.push("Describe something new");
-  return picks.slice(0, 5);
+/** Suggestions for a tab whose thread is empty.
+ *
+ *  Pre-isolation, this function tried to derive context-aware prompts
+ *  from the workspace's `artifacts` (latest spec / PR / approval). With
+ *  per-tab isolation, the tab's `artifacts` slice is empty when the
+ *  tab is empty, so that branch collapsed to a single "Describe
+ *  something new" entry — the friction the user reported. We now
+ *  return the static starter set every time. The richer, "dynamic
+ *  from workspace context" mode is deferred to a v2 follow-up
+ *  (`suggest_tab_seeds` LocalOps op + UX spec).
+ */
+function buildSuggestions(_artifacts: ArtifactSummary[]): string[] {
+  return STARTER_SUGGESTIONS;
 }
 
 /**
@@ -60,7 +61,18 @@ function buildSuggestions(artifacts: ArtifactSummary[]): string[] {
  * non-trivial. Unknown kinds fall through to GenericBlock so new event
  * types never crash the thread.
  */
-export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
+export function WorkspaceThread({
+  workspace,
+  tab,
+}: {
+  workspace: Workspace;
+  /** The active tab. Per-tab thread isolation: WorkspaceThread reads
+   *  only this tab's slice of the workspace artifact pool. Required
+   *  for the production tabbed surface; the test suite can pass `null`
+   *  to opt into the legacy whole-workspace listing for callers that
+   *  predate isolation. */
+  tab?: Tab | null;
+}) {
   const [artifacts, setArtifacts] = useState<ArtifactSummary[] | null>(null);
   const [payloads, setPayloads] = useState<Record<ArtifactId, PayloadRef>>({});
   const [expanded, setExpanded] = useState<Record<ArtifactId, boolean>>({});
@@ -71,10 +83,18 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
   const [hasStarted, setHasStarted] = useState(false);
   const composeRef = useRef<ComposeDockHandle | null>(null);
 
+  const tabId = tab?.id ?? null;
+
   const refresh = useCallback(async () => {
-    const next = await ipcClient().listArtifacts(workspace.id);
+    // Per-tab thread isolation: when we know the active tab, ask the
+    // backend for the tab's slice (workspace-wide artifacts plus only
+    // this tab's messages). Falling back to the workspace-wide list
+    // keeps tests + callers that don't know about tabs working.
+    const next = tabId
+      ? await ipcClient().listArtifactsInTab(workspace.id, tabId)
+      : await ipcClient().listArtifacts(workspace.id);
     setArtifacts(next);
-  }, [workspace.id]);
+  }, [workspace.id, tabId]);
 
   useEffect(() => {
     void refresh();
@@ -217,6 +237,10 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
             name: a.name,
             size: a.size,
           })),
+          // Per-tab thread isolation: scope the message to the
+          // active tab so the projector files it under this tab's
+          // thread only.
+          tab_id: tabId,
         });
         // The backend coalescer streams the agent reply into the
         // workspace event log; the artifact-event listener above
@@ -250,7 +274,7 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
         void refresh();
       }
     },
-    [workspace.id, refresh],
+    [workspace.id, tabId, refresh],
   );
 
   // B7 — clear activity once a new agent artifact lands. The submitting

@@ -132,6 +132,13 @@ pub enum EventPayload {
         workspace_id: WorkspaceId,
         author: Actor,
         body: String,
+        /// The tab the message was posted into. Optional for replay
+        /// compatibility with pre-tab-isolation events; legacy `None`
+        /// values are attributed to the workspace's first tab in the
+        /// projector. Per the ADR 0002 addendum, additive event-vocabulary
+        /// changes don't require a new ADR.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tab_id: Option<TabId>,
     },
     ProjectThreadPosted {
         project_id: ProjectId,
@@ -229,6 +236,14 @@ pub enum EventPayload {
         summary: String,
         payload: PayloadRef,
         author_role: Option<String>,
+        /// Tab scope for `Message` artifacts (per-tab thread isolation).
+        /// Other artifact kinds (spec, pr, code-change, etc.) stay
+        /// workspace-scoped and emit `None`. Legacy events without the
+        /// field decode via `serde(default)`; the projector attributes
+        /// them to the workspace's first tab when the artifact is a
+        /// message.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tab_id: Option<TabId>,
     },
     ArtifactUpdated {
         artifact_id: ArtifactId,

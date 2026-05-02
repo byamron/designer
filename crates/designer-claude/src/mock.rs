@@ -244,6 +244,7 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
                         workspace_id,
                         author: Actor::agent(&team.team_name, &team.lead_role),
                         body: reply.clone(),
+                        tab_id: None,
                     },
                 )
                 .await?;

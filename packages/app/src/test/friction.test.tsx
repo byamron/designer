@@ -33,6 +33,7 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     requestApproval: () => Promise.resolve(""),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve([]),
+    listArtifactsInTab: () => Promise.resolve([]),
     listPinnedArtifacts: () => Promise.resolve([]),
     getArtifact: () => Promise.reject(new Error("nope")),
     togglePinArtifact: () => Promise.resolve(true),

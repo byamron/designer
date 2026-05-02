@@ -353,6 +353,7 @@ mod tests {
                 workspace_id: ws,
                 author: Actor::user(),
                 body: "x".repeat(body_len),
+                tab_id: None,
             },
             ws,
         )

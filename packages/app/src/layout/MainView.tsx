@@ -219,6 +219,7 @@ export function MainView() {
             <WorkspaceThread
               key={`${workspace.id}:${activeTab}`}
               workspace={workspace}
+              tab={visibleTabs.find((t) => t.id === activeTab) ?? null}
             />
           </section>
         ) : (

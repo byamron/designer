@@ -31,6 +31,7 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     resolveApproval: (id, granted, reason) =>
       Promise.resolve(mock.resolveApproval(id, granted, reason)),
     listArtifacts: (w) => Promise.resolve(mock.listArtifacts(w)),
+    listArtifactsInTab: (w, t) => Promise.resolve(mock.listArtifactsInTab(w, t)),
     listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
     getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
     togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),

@@ -300,6 +300,17 @@ pub struct AppCore {
     /// Track-complete debouncing + first-view-of-day guarding live
     /// here; see `core_proposals::ProposalState`.
     pub proposal_state: crate::core_proposals::ProposalState,
+    /// Per-tab thread isolation: per-workspace, the tab id of the
+    /// user's most recent message. The agent-reply coalescer
+    /// (`core_agents::spawn_message_coalescer`) reads this map at
+    /// flush time so the reply lands in the same tab the user typed
+    /// in. Cleared on workspace-state changes (paused/archived) is
+    /// not necessary — stale entries are harmless because the
+    /// projector will only attribute new messages to a tab id that
+    /// matches a real, non-closed tab; otherwise the projector falls
+    /// back to first-tab attribution.
+    pub(crate) last_user_tab_by_workspace:
+        Arc<parking_lot::RwLock<std::collections::HashMap<WorkspaceId, TabId>>>,
 }
 
 #[async_trait]
@@ -399,6 +410,9 @@ impl AppCore {
             summary_debounce: Arc::new(SummaryDebounce::new()),
             finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
             proposal_state: crate::core_proposals::ProposalState::new(),
+            last_user_tab_by_workspace: Arc::new(parking_lot::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
         });
         spawn_cost_subscriber(Arc::downgrade(&core), signal_rx);
         core.spawn_projector_task();
@@ -822,6 +836,40 @@ impl AppCore {
 
     pub async fn list_artifacts(&self, workspace_id: WorkspaceId) -> Vec<Artifact> {
         self.projector.artifacts_in(workspace_id)
+    }
+
+    /// Per-tab thread view: returns workspace-scoped artifacts (specs,
+    /// PRs, code-changes, …) plus the messages that belong to the given
+    /// tab. Backs the per-tab thread isolation contract — see
+    /// `Projector::artifacts_in_tab`.
+    pub async fn list_artifacts_in_tab(
+        &self,
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+    ) -> Vec<Artifact> {
+        self.projector.artifacts_in_tab(workspace_id, tab_id)
+    }
+
+    /// Read the most recent user-post tab for a workspace. The agent-
+    /// reply coalescer reads this so a streamed reply lands in the
+    /// same tab the user typed in.
+    pub fn last_user_tab(&self, workspace_id: WorkspaceId) -> Option<TabId> {
+        self.last_user_tab_by_workspace
+            .read()
+            .get(&workspace_id)
+            .copied()
+    }
+
+    /// Record the tab of the most recent user post on `workspace_id`.
+    /// Called by `core_agents::post_message` before dispatch so a
+    /// failed dispatch still leaves the map pointing at the latest
+    /// tab the user is using — the next agent reply gets attributed
+    /// to where the user is looking now, not where the conversation
+    /// started.
+    pub fn set_last_user_tab(&self, workspace_id: WorkspaceId, tab_id: TabId) {
+        self.last_user_tab_by_workspace
+            .write()
+            .insert(workspace_id, tab_id);
     }
 
     pub async fn get_artifact(&self, id: ArtifactId) -> Option<Artifact> {

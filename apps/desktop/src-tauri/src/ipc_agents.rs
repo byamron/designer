@@ -42,7 +42,7 @@ pub async fn cmd_post_message(
         "cmd_post_message: dispatching to AppCore"
     );
     let result = core
-        .post_message(req.workspace_id, req.text)
+        .post_message(req.workspace_id, req.tab_id, req.text)
         .await
         .map_err(IpcError::from);
     match &result {
@@ -132,6 +132,7 @@ mod tests {
                 workspace_id: ws.id,
                 text: "Please draft a sequence diagram for the auth flow".into(),
                 attachments: vec![],
+                tab_id: None,
             },
         )
         .await
@@ -186,6 +187,7 @@ mod tests {
                 workspace_id: ws.id,
                 text: "   ".into(),
                 attachments: vec![],
+                tab_id: None,
             },
         )
         .await
@@ -211,6 +213,7 @@ mod tests {
                 workspace_id: ws.id,
                 text: big,
                 attachments: vec![],
+                tab_id: None,
             },
         )
         .await
@@ -258,6 +261,7 @@ mod tests {
                 workspace_id: ws.id,
                 text: "hello".into(),
                 attachments: vec![],
+                tab_id: None,
             },
         )
         .await

@@ -440,6 +440,9 @@ impl AppCore {
                     summary: draft.summary,
                     payload: draft.payload,
                     author_role: draft.author_role,
+                    // Local-helper artifacts (recap / audit comments) are
+                    // workspace-scoped, not bound to a single tab.
+                    tab_id: None,
                 },
             )
             .await?;
@@ -852,6 +855,9 @@ pub(crate) mod tests {
             summary_debounce: Arc::new(SummaryDebounce::new()),
             finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
             proposal_state: crate::core_proposals::ProposalState::new(),
+            last_user_tab_by_workspace: Arc::new(parking_lot::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
         })
     }
 

@@ -6,7 +6,7 @@
 //! safety check (scope / cost / approval). Frontend callers cannot bypass.
 
 use crate::core::{AppCore, FallbackReason, HelperStatus, HelperStatusKind, RecoveryKind};
-use designer_core::{ArtifactId, ProjectId, Tab, TrackId, WorkspaceId};
+use designer_core::{ArtifactId, ProjectId, Tab, TabId, TrackId, WorkspaceId};
 use designer_ipc::*;
 use designer_local_models::HelperHealth;
 use std::sync::Arc;
@@ -219,6 +219,24 @@ pub async fn cmd_list_artifacts(
 ) -> Result<Vec<ArtifactSummary>, IpcError> {
     Ok(core
         .list_artifacts(workspace_id)
+        .await
+        .into_iter()
+        .map(ArtifactSummary::from)
+        .collect())
+}
+
+/// Per-tab thread view: workspace-wide artifacts + only the messages
+/// for `tab_id`. Backs the WorkspaceThread component's per-tab thread
+/// isolation. The legacy `cmd_list_artifacts` stays as-is so callers
+/// that want a full workspace view (Activity spine, helper recap)
+/// keep working unchanged.
+pub async fn cmd_list_artifacts_in_tab(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+    tab_id: TabId,
+) -> Result<Vec<ArtifactSummary>, IpcError> {
+    Ok(core
+        .list_artifacts_in_tab(workspace_id, tab_id)
         .await
         .into_iter()
         .map(ArtifactSummary::from)

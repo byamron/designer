@@ -440,6 +440,7 @@ mod tests {
                 workspace_id: ws,
                 author: Actor::user(),
                 body: body.into(),
+                tab_id: None,
             },
             ws,
         )
@@ -456,6 +457,7 @@ mod tests {
                 summary: String::new(),
                 payload: designer_core::PayloadRef::inline(""),
                 author_role: Some(author_roles::AGENT.into()),
+                tab_id: None,
             },
             ws,
         )
@@ -675,6 +677,7 @@ mod tests {
                 workspace_id: ws,
                 author: Actor::agent("lead", "workspace-lead"),
                 body: "thinking out loud".into(),
+                tab_id: None,
             },
             ws,
         );

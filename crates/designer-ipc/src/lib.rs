@@ -7,8 +7,8 @@
 use designer_core::{
     Anchor, Artifact, ArtifactId, ArtifactKind, Autonomy, Finding, FindingId, FrictionId,
     PayloadRef, Project, ProjectId, Proposal, ProposalId, ProposalKind, ProposalResolution,
-    ProposalStatus, Severity, TabTemplate, ThumbSignal, Track, TrackId, TrackState, Workspace,
-    WorkspaceId, WorkspaceState,
+    ProposalStatus, Severity, TabId, TabTemplate, ThumbSignal, Track, TrackId, TrackState,
+    Workspace, WorkspaceId, WorkspaceState,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -149,6 +149,12 @@ pub struct ArtifactSummary {
     pub created_at: String,
     pub updated_at: String,
     pub pinned: bool,
+    /// Per-tab thread isolation: only `Message` artifacts populate
+    /// this. Workspace-wide artifacts (spec, pr, code-change, …)
+    /// emit `None`. The frontend uses it to filter the thread to a
+    /// single tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<TabId>,
 }
 
 impl From<Artifact> for ArtifactSummary {
@@ -164,6 +170,7 @@ impl From<Artifact> for ArtifactSummary {
             created_at: a.created_at.to_string(),
             updated_at: a.updated_at.to_string(),
             pinned: a.pinned_at.is_some(),
+            tab_id: a.tab_id,
         }
     }
 }
@@ -193,6 +200,12 @@ pub struct PostMessageRequest {
     pub text: String,
     #[serde(default)]
     pub attachments: Vec<PostMessageAttachment>,
+    /// Per-tab thread isolation: the active tab the user typed in.
+    /// `None` is accepted for backward compatibility (treated as
+    /// "workspace-wide / first tab" by the projector); production
+    /// frontends always send this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<TabId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

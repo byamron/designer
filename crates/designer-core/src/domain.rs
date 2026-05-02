@@ -170,6 +170,13 @@ pub struct Artifact {
     pub updated_at: Timestamp,
     pub pinned_at: Option<Timestamp>,
     pub archived_at: Option<Timestamp>,
+    /// Per-tab scope for `Message` artifacts. `Some(tab_id)` means this
+    /// message belongs to a specific tab's thread. Non-message artifacts
+    /// (spec, pr, etc.) are workspace-wide and use `None`. Legacy
+    /// pre-tab-isolation message events without the field are
+    /// attributed to the workspace's first tab on replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<TabId>,
 }
 
 /// The kinds of block the renderer registry knows how to display. Adding a

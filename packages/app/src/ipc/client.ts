@@ -56,6 +56,12 @@ export interface IpcClient {
   resolveApproval(id: string, granted: boolean, reason?: string): Promise<void>;
   // Artifacts (Phase 13.1)
   listArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
+  /** Per-tab thread view (per-tab thread isolation). Returns
+   *  workspace-wide artifacts plus only the messages for `tabId`. */
+  listArtifactsInTab(
+    workspaceId: WorkspaceId,
+    tabId: TabId,
+  ): Promise<ArtifactSummary[]>;
   listPinnedArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
   getArtifact(id: ArtifactId): Promise<ArtifactDetail>;
   togglePinArtifact(id: ArtifactId): Promise<boolean>;
@@ -180,6 +186,12 @@ class TauriIpcClient implements IpcClient {
   }
   listArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_artifacts", { workspaceId });
+  }
+  listArtifactsInTab(workspaceId: WorkspaceId, tabId: TabId) {
+    return invoke<ArtifactSummary[]>("list_artifacts_in_tab", {
+      workspaceId,
+      tabId,
+    });
   }
   listPinnedArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_pinned_artifacts", { workspaceId });
@@ -319,6 +331,9 @@ class MockIpcClient implements IpcClient {
   }
   listArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listArtifacts(workspaceId));
+  }
+  listArtifactsInTab(workspaceId: WorkspaceId, tabId: TabId) {
+    return Promise.resolve(this.core.listArtifactsInTab(workspaceId, tabId));
   }
   listPinnedArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listPinnedArtifacts(workspaceId));
