@@ -277,6 +277,11 @@ impl Projection for Projector {
                     w.worktree_path = Some(path.clone());
                 }
             }
+            EventPayload::WorkspaceWorktreeDetached { workspace_id } => {
+                if let Some(w) = state.workspaces.get_mut(workspace_id) {
+                    w.worktree_path = None;
+                }
+            }
             EventPayload::TabOpened {
                 tab_id,
                 workspace_id,

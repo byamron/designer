@@ -48,6 +48,7 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
     postMessage: (req) => Promise.resolve(mock.postMessage(req)),
     linkRepo: () => Promise.resolve(),
+    unlinkRepo: () => Promise.resolve(),
     startTrack: (req) => Promise.resolve(mock.startTrack(req)),
     requestMerge: (req) => Promise.resolve(mock.requestMerge(req)),
     listTracks: (w) => Promise.resolve(mock.listTracks(w)),

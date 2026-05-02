@@ -189,6 +189,10 @@ export interface LinkRepoRequest {
   repo_path: string;
 }
 
+export interface UnlinkRepoRequest {
+  workspace_id: WorkspaceId;
+}
+
 export interface StartTrackRequest {
   workspace_id: WorkspaceId;
   branch: string;

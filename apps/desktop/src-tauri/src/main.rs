@@ -176,6 +176,7 @@ fn main() {
             commands_git::cmd_list_tracks,
             commands_git::cmd_request_merge,
             commands_git::cmd_start_track,
+            commands_git::cmd_unlink_repo,
             commands_learn::cmd_list_findings,
             commands_learn::cmd_list_proposals,
             commands_learn::cmd_resolve_proposal,

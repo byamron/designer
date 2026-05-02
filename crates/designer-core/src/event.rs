@@ -85,6 +85,13 @@ pub enum EventPayload {
         workspace_id: WorkspaceId,
         path: PathBuf,
     },
+    /// User unlinked the workspace from its repo. Inverse of
+    /// `WorkspaceWorktreeAttached` — Designer's pointer is severed but
+    /// the repo on disk is untouched. Additive event (ADR 0002 addendum)
+    /// added in service of the per-project unlink affordance.
+    WorkspaceWorktreeDetached {
+        workspace_id: WorkspaceId,
+    },
 
     // Tab lifecycle
     TabOpened {
@@ -423,6 +430,7 @@ pub enum EventKind {
     WorkspaceCreated,
     WorkspaceStateChanged,
     WorkspaceWorktreeAttached,
+    WorkspaceWorktreeDetached,
     TabOpened,
     TabRenamed,
     TabClosed,
@@ -474,6 +482,7 @@ impl EventPayload {
             EventPayload::WorkspaceCreated { .. } => EventKind::WorkspaceCreated,
             EventPayload::WorkspaceStateChanged { .. } => EventKind::WorkspaceStateChanged,
             EventPayload::WorkspaceWorktreeAttached { .. } => EventKind::WorkspaceWorktreeAttached,
+            EventPayload::WorkspaceWorktreeDetached { .. } => EventKind::WorkspaceWorktreeDetached,
             EventPayload::TabOpened { .. } => EventKind::TabOpened,
             EventPayload::TabRenamed { .. } => EventKind::TabRenamed,
             EventPayload::TabClosed { .. } => EventKind::TabClosed,

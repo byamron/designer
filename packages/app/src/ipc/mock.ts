@@ -27,6 +27,7 @@ import type {
   TrackId,
   TrackState,
   TrackSummary,
+  UnlinkRepoRequest,
   Workspace,
   WorkspaceId,
   WorkspaceSummary,
@@ -65,6 +66,7 @@ export interface MockCore {
   postedMessages(): PostMessageRequest[];
   // Phase 13.E
   linkRepo(req: LinkRepoRequest): void;
+  unlinkRepo(req: UnlinkRepoRequest): void;
   startTrack(req: StartTrackRequest): TrackId;
   requestMerge(req: RequestMergeRequest): number;
   listTracks(workspaceId: WorkspaceId): TrackSummary[];
@@ -541,6 +543,18 @@ export function createMockCore(): MockCore {
         stream_id: w.id,
         timestamp: now(),
         summary: `Linked ${req.repo_path}`,
+      });
+    },
+    unlinkRepo(req) {
+      const w = workspaces.find((w) => w.id === req.workspace_id);
+      if (!w) throw new Error(`workspace not found: ${req.workspace_id}`);
+      if (!w.worktree_path) return;
+      w.worktree_path = null;
+      emit({
+        kind: "workspace_worktree_detached",
+        stream_id: w.id,
+        timestamp: now(),
+        summary: "Unlinked repo",
       });
     },
     startTrack(req) {

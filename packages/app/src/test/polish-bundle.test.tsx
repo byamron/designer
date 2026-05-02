@@ -38,6 +38,7 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     togglePinArtifact: () => Promise.resolve(true),
     postMessage: noop,
     linkRepo: () => Promise.resolve(),
+    unlinkRepo: () => Promise.resolve(),
     startTrack: noop,
     requestMerge: noop,
     listTracks: () => Promise.resolve([]),

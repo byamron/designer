@@ -169,7 +169,7 @@
     {
       "name": "SettingsPage",
       "path": "packages/app/src/layout/SettingsPage.tsx",
-      "purpose": "Full-page Settings surface (replaces the modal that previously lived in AppDialog). Left rail of section anchors (Appearance, Account, Models, Preferences); content pane with section headers and rows. Mounted from App.tsx when `dialog === 'settings'` and takes over the whole shell viewport. Esc closes; AppDialog now renders Help only. 13.E: Account section now carries a Repository row — shows the linked path (or 'not linked') and a Link / Re-link button that opens RepoLinkModal scoped to the active workspace.",
+      "purpose": "Full-page Settings surface (replaces the modal that previously lived in AppDialog). Settings is global-only per Decision 63: left rail of section anchors (Appearance, Account, Models, Preferences, Activity) hosts only installation-wide concerns (theme, Claude Code account + Keychain, cost-chip preference, feature flags, friction triage, Designer noticed). Per-project concerns (linked repo, autonomy override) live in Project Home. Mounted from App.tsx when `dialog === 'settings'`; takes over the whole shell viewport. Esc closes; AppDialog now renders Help only.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
@@ -287,13 +287,24 @@
     {
       "name": "RepoLinkModal",
       "path": "packages/app/src/components/RepoLinkModal.tsx",
-      "purpose": "Phase 13.E. Action-attached form modal that collects an absolute path to a git work-tree, validates it via cmd_link_repo (canonicalizes + validate_repo), and persists the link on the active workspace. Surfaces from the Onboarding final slide and from Settings → Account. Reuses the existing app-dialog__* token-driven CSS — no new tokens. A11y: role=dialog + aria-modal, aria-labelledby, focus on input on open, Escape dismiss, Tab/Shift-Tab focus trap, scrim dismiss via onClick (not onMouseDown so a drag inside the dialog ending on the scrim doesn't surprise-dismiss). Errors render through role=alert and aria-describedby on the input.",
+      "purpose": "Phase 13.E. Action-attached form modal that collects an absolute path to a git work-tree, validates it via cmd_link_repo (canonicalizes + validate_repo), and persists the link on the active workspace. Surfaces from the Onboarding final slide and from Project Home → Repository (per Decision 63 it no longer surfaces from Settings → Account). Reuses the existing app-dialog__* token-driven CSS — no new tokens. A11y: role=dialog + aria-modal, aria-labelledby, focus on input on open, Escape dismiss, Tab/Shift-Tab focus trap, scrim dismiss via onClick (not onMouseDown so a drag inside the dialog ending on the scrim doesn't surprise-dismiss). Errors render through role=alert and aria-describedby on the input.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "color-foreground", "color-muted", "color-danger", "type-caption-size", "type-caption-leading", "type-body-size", "radius-modal", "elevation-modal", "layer-modal"],
       "css_prefix": "app-dialog__",
-      "last_updated": "2026-04-25"
+      "last_updated": "2026-05-01"
+    },
+    {
+      "name": "RepoUnlinkModal",
+      "path": "packages/app/src/components/RepoUnlinkModal.tsx",
+      "purpose": "Confirmation modal for severing Designer's pointer to a project's linked repo. Surfaces from Project Home → Repository (Decision 63). Accepts an array of `workspaceIds` and fans out `cmd_unlink_repo` per workspace on confirm — the project-scoped UX collapses N workspace-level severances into one project-level action while the underlying data model stays per-workspace. Repo files on disk are untouched. Reuses the existing app-dialog__* token-driven CSS — no new tokens. A11y: role=dialog + aria-modal, aria-labelledby, aria-describedby on the body copy, initial focus on **Cancel** (destructive-confirm convention — keyboard Enter on first open lands on the safe path), Escape dismiss, Tab/Shift-Tab focus trap, scrim dismiss via onClick.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "color-text", "color-muted", "color-danger", "type-caption-size", "type-caption-leading", "danger-3", "danger-7", "danger-12"],
+      "css_prefix": "app-dialog__",
+      "last_updated": "2026-05-01"
     },
     {
       "name": "ComponentCatalog",
