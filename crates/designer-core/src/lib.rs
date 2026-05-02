@@ -28,7 +28,10 @@ pub use ids::{
     AgentId, ApprovalId, ArtifactId, EventId, FindingId, FrictionId, ProjectId, ProposalId,
     StreamId, TabId, TaskId, TrackId, WorkspaceId,
 };
-pub use projection::{Projection, ProjectionError, Projector};
+pub use projection::{
+    artifact_belongs_in_spine, Projection, ProjectionError, Projector, SPINE_ARTIFACT_KINDS,
+    SPINE_AUTHOR_ROLES,
+};
 pub use proposal::{Proposal, ProposalKind, ProposalResolution, ProposalStatus};
 pub use store::{EventStore, SqliteEventStore, StreamOptions};
 pub use time::{monotonic_now, rfc3339, Timestamp};

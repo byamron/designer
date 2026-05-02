@@ -313,6 +313,12 @@ function PreferencesSection() {
       >
         <ModelsSectionToggle />
       </SettingsRow>
+      <SettingsRow
+        label="Show all artifacts in activity rail"
+        description="Surfaces every artifact event — including per-tool-use 'Used Read / Used Edit' cards — in the right-hand rail. Off by default; flip on for debugging when triaging what the orchestrator emitted."
+      >
+        <SpineAllArtifactsToggle />
+      </SettingsRow>
     </>
   );
 }
@@ -348,6 +354,47 @@ function ModelsSectionToggle() {
     <div data-component="ModelsSectionToggle">
       <SegmentedToggle<"on" | "off">
         ariaLabel="Show placeholder Models section"
+        value={enabled === null ? "off" : enabled ? "on" : "off"}
+        onChange={onChange}
+        options={[
+          { value: "off", label: "Off" },
+          { value: "on", label: "On" },
+        ]}
+      />
+    </div>
+  );
+}
+
+function SpineAllArtifactsToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcClient()
+      .getFeatureFlags()
+      .then((f) => {
+        if (!cancelled) setEnabled(f.show_all_artifacts_in_spine);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const onChange = async (next: "on" | "off") => {
+    const wantOn = next === "on";
+    setEnabled(wantOn);
+    try {
+      const updated = await ipcClient().setFeatureFlag(
+        "show_all_artifacts_in_spine",
+        wantOn,
+      );
+      setEnabled(updated.show_all_artifacts_in_spine);
+    } catch {
+      setEnabled(!wantOn);
+    }
+  };
+  return (
+    <div data-component="SpineAllArtifactsToggle">
+      <SegmentedToggle<"on" | "off">
+        ariaLabel="Show all artifacts in activity rail"
         value={enabled === null ? "off" : enabled ? "on" : "off"}
         onChange={onChange}
         options={[

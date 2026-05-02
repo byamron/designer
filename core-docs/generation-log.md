@@ -642,3 +642,17 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - invariants: pending
 - deviations: none
 - feedback: pending (DP-C work merged into the same PR as DP-B for the dogfood push)
+
+## 2026-05-02T00:30:00Z — manual (spine open-on-click + allowlist)
+
+- prompt: "Friction frc_019de704 (clicking artifacts in ActivitySpine had no effect) + frc_019de6fe (spine polluted with per-tool-use cards)"
+- trigger: manual (structural change to ArtifactRow: title becomes a button; new SettingsRow toggle; no full-skill firing)
+- archetype-reused: none
+- components-reused: ActivitySpine.ArtifactRow (now a button-as-row pattern, mirroring the existing `.spine-row` agent affordance), Tooltip (using its `shortcut` slot for the ⌘ hint), SegmentedToggle, SettingsRow, ipcClient
+- components-new: SpineAllArtifactsToggle (Settings → Preferences row driving `show_all_artifacts_in_spine` flag, mirroring ModelsSectionToggle)
+- components-retired: none
+- primitives: none
+- tokens: --focus-outline-width, --focus-outline-offset, --focus-outline-color, --radius-button, --motion-interactive, --motion-standard, --color-surface-raised, --color-surface-hover, --color-foreground, --color-muted, --type-caption-size, --space-1, --space-2, --space-4
+- invariants: 6/6 pass (`node tools/invariants/check.mjs` on changed CSS + TSX)
+- deviations: none
+- feedback: pending

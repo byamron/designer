@@ -824,6 +824,19 @@ impl AppCore {
         self.projector.artifacts_in(workspace_id)
     }
 
+    /// Activity-spine projection — same workspace scope as
+    /// `list_artifacts`, but with the substantive-kind allowlist
+    /// applied (spec / prototype / code-change / pr / recap & auditor
+    /// reports). `show_all` bypasses the filter for debugging via the
+    /// `show_all_artifacts_in_spine` feature flag.
+    pub async fn list_spine_artifacts(
+        &self,
+        workspace_id: WorkspaceId,
+        show_all: bool,
+    ) -> Vec<Artifact> {
+        self.projector.spine_artifacts_in(workspace_id, show_all)
+    }
+
     pub async fn get_artifact(&self, id: ArtifactId) -> Option<Artifact> {
         self.projector.artifact(id)
     }

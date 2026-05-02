@@ -56,6 +56,11 @@ export interface IpcClient {
   resolveApproval(id: string, granted: boolean, reason?: string): Promise<void>;
   // Artifacts (Phase 13.1)
   listArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
+  /// Activity-spine read — applies the substantive-kind allowlist
+  /// (spec / prototype / code-change / pr / recap & auditor reports)
+  /// so the rail isn't polluted by tool-use cards. Honors the
+  /// `show_all_artifacts_in_spine` feature flag for debugging.
+  listSpineArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
   listPinnedArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
   getArtifact(id: ArtifactId): Promise<ArtifactDetail>;
   togglePinArtifact(id: ArtifactId): Promise<boolean>;
@@ -142,6 +147,7 @@ export interface CostChipPreferences {
  */
 export interface FeatureFlags {
   show_models_section: boolean;
+  show_all_artifacts_in_spine: boolean;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -180,6 +186,9 @@ class TauriIpcClient implements IpcClient {
   }
   listArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_artifacts", { workspaceId });
+  }
+  listSpineArtifacts(workspaceId: WorkspaceId) {
+    return invoke<ArtifactSummary[]>("list_spine_artifacts", { workspaceId });
   }
   listPinnedArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_pinned_artifacts", { workspaceId });
@@ -320,6 +329,9 @@ class MockIpcClient implements IpcClient {
   listArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listArtifacts(workspaceId));
   }
+  listSpineArtifacts(workspaceId: WorkspaceId) {
+    return Promise.resolve(this.core.listSpineArtifacts(workspaceId));
+  }
   listPinnedArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listPinnedArtifacts(workspaceId));
   }
@@ -389,7 +401,10 @@ class MockIpcClient implements IpcClient {
   // DP-C — keep a small in-memory map so the dev/mock mode can flip
   // flags from Settings without a Tauri runtime. Default all flags off
   // to mirror the Rust default.
-  private mockFlags: FeatureFlags = { show_models_section: false };
+  private mockFlags: FeatureFlags = {
+    show_models_section: false,
+    show_all_artifacts_in_spine: false,
+  };
   getFeatureFlags() {
     return Promise.resolve<FeatureFlags>({ ...this.mockFlags });
   }

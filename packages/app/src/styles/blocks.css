@@ -789,6 +789,25 @@
   min-width: 0;
   color: var(--color-foreground);
   font-size: var(--type-caption-size);
+  /* Reset native button chrome so the row reads as a row, not a button —
+   * the click affordance is the hover background already on the parent.
+   * The element is keyboard-focusable so ⌘-Enter (open in new tab) and
+   * Enter (focus in rail) work without mouse. */
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  appearance: none;
+}
+
+.spine-artifact__body:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-button);
 }
 
 .spine-artifact__pin {

@@ -340,6 +340,103 @@ async fn artifact_lifecycle_projects_through_pin_unpin_archive() {
     assert!(projector.artifact(artifact_id).is_some());
 }
 
+/// Spine pollution guard — the projection's allowlist filters out
+/// per-tool-use `Used <X>` reports (kind=Report, no recap/auditor role)
+/// but keeps substantive artifacts (`Spec`, `Prototype`, etc.). Mirrors
+/// `frc_019de6fe-e719`: "the artifacts in the activity spine store
+/// basically every action — this gets polluted quickly".
+#[tokio::test]
+async fn spine_projection_filters_tool_use_reports_but_keeps_specs() {
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let projector = Projector::new();
+    let workspace_id = WorkspaceId::new();
+    let stream = StreamId::Workspace(workspace_id);
+
+    // A "Used Read" tool-use card from PR #19 — Report kind with no
+    // recap/auditor role. Should NOT enter the spine.
+    let tool_report_id = ArtifactId::new();
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactCreated {
+                artifact_id: tool_report_id,
+                workspace_id,
+                artifact_kind: ArtifactKind::Report,
+                title: "Used Read".into(),
+                summary: "tool: read · src/foo.rs".into(),
+                payload: PayloadRef::inline("{}"),
+                author_role: Some("tool".into()),
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+
+    // A real spec artifact — must enter the spine.
+    let spec_id = ArtifactId::new();
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactCreated {
+                artifact_id: spec_id,
+                workspace_id,
+                artifact_kind: ArtifactKind::Spec,
+                title: "Onboarding spec".into(),
+                summary: "Three-step link + autonomy choice.".into(),
+                payload: PayloadRef::inline("# Onboarding"),
+                author_role: Some("planner".into()),
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+
+    // A recap report — Report kind WITH the recap role. Allowlisted.
+    let recap_id = ArtifactId::new();
+    let env = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::ArtifactCreated {
+                artifact_id: recap_id,
+                workspace_id,
+                artifact_kind: ArtifactKind::Report,
+                title: "Daily recap".into(),
+                summary: "3 PRs landed; 1 needs review.".into(),
+                payload: PayloadRef::inline("…"),
+                author_role: Some("recap".into()),
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+
+    // Default (show_all=false) — only the substantive artifacts.
+    let spine = projector.spine_artifacts_in(workspace_id, false);
+    let ids: std::collections::HashSet<_> = spine.iter().map(|a| a.id).collect();
+    assert!(ids.contains(&spec_id), "spec must enter the spine");
+    assert!(ids.contains(&recap_id), "recap report must enter the spine");
+    assert!(
+        !ids.contains(&tool_report_id),
+        "tool-use 'Used Read' report must be filtered out"
+    );
+
+    // show_all=true — debug bypass surfaces every artifact.
+    let all = projector.spine_artifacts_in(workspace_id, true);
+    let all_ids: std::collections::HashSet<_> = all.iter().map(|a| a.id).collect();
+    assert!(all_ids.contains(&spec_id));
+    assert!(all_ids.contains(&recap_id));
+    assert!(
+        all_ids.contains(&tool_report_id),
+        "show_all bypass must surface tool-use reports for debugging"
+    );
+}
+
 #[tokio::test]
 async fn track_lifecycle_projects_through_pr_open_complete_archive() {
     let store = SqliteEventStore::open_in_memory().unwrap();
