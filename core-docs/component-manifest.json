@@ -26,12 +26,12 @@
     {
       "name": "WorkspaceSidebar",
       "path": "packages/app/src/layout/WorkspaceSidebar.tsx",
-      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover). Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar). 13.E: when the active workspace has at least one mergeable track, a Request Merge IconButton (GitPullRequest) renders inline next to the project title — runs cmd_request_merge on the most recent eligible track.",
+      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover). Each row reveals an Archive IconButton on hover/focus-within (workspace-row__actions slot). Below the active list, a collapsible Archived (N) group pins to the bottom of the sidebar via flex-column auto-margin; archived rows surface Restore + Delete IconButtons. Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar). 13.E: when the active workspace has at least one mergeable track, a Request Merge IconButton (GitPullRequest) renders inline next to the project title — runs cmd_request_merge on the most recent eligible track.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11"],
-      "last_updated": "2026-04-25"
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11", "icon-md"],
+      "last_updated": "2026-05-02"
     },
     {
       "name": "MainView",

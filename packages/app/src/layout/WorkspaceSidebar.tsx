@@ -187,7 +187,11 @@ export function WorkspaceSidebar() {
           </IconButton>
         </div>
         {workspaces.length === 0 ? (
-          <p className="sidebar-empty">No workspaces yet.</p>
+          <p className="sidebar-empty">
+            {archivedWorkspaces.length > 0
+              ? "No active workspaces — see Archived below."
+              : "No workspaces yet."}
+          </p>
         ) : (
           <ul className="sidebar-list" role="list">
             {workspaces.map((summary) => (
@@ -406,8 +410,13 @@ function ArchivedWorkspaceRow({
   };
   const onDelete = async () => {
     if (busy) return;
+    // The event log is append-only; past events tied to this workspace
+    // remain on disk for audit. What the user actually loses is access:
+    // the workspace stops resolving in the projector, so the chat is no
+    // longer reachable from the UI. The copy reflects that — "lost" was
+    // wrong (events stay) and "removed" is too vague.
     const ok = window.confirm(
-      `Permanently delete '${workspace.name}'? Chat history will be lost.`,
+      `Permanently delete '${workspace.name}'? Its chat will no longer be accessible.`,
     );
     if (!ok) return;
     setBusy(true);
