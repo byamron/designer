@@ -8,7 +8,7 @@
 use crate::core::AppCore;
 use crate::ipc;
 use crate::settings::{ResolvedTheme, Settings, ThemeChoice};
-use designer_core::{ArtifactId, ProjectId, Tab, WorkspaceId};
+use designer_core::{ArtifactId, ProjectId, Tab, TabId, WorkspaceId};
 use designer_ipc::{
     ArtifactDetail, ArtifactSummary, CreateProjectRequest, CreateWorkspaceRequest, IpcError,
     OpenTabRequest, ProjectSummary, SpineRow, TogglePinRequest, WorkspaceSummary,
@@ -57,6 +57,15 @@ pub async fn create_workspace(
 #[tauri::command]
 pub async fn open_tab(core: State<'_, Arc<AppCore>>, req: OpenTabRequest) -> Result<Tab, IpcError> {
     ipc::cmd_open_tab(&core, req).await
+}
+
+#[tauri::command]
+pub async fn close_tab(
+    core: State<'_, Arc<AppCore>>,
+    workspace_id: WorkspaceId,
+    tab_id: TabId,
+) -> Result<(), IpcError> {
+    ipc::cmd_close_tab(&core, workspace_id, tab_id).await
 }
 
 #[tauri::command]

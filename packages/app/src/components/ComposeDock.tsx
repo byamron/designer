@@ -56,9 +56,30 @@ export const ComposeDock = forwardRef<
      *  textarea stays editable so the user can keep refining a
      *  follow-up — only the dispatch is gated. */
     busy?: boolean;
+    /** Seed value for the draft on mount. Used by per-tab draft
+     *  persistence: when a tab is re-mounted (e.g. tab switch +
+     *  switch back), the parent reads the saved draft from the app
+     *  store and threads it in here so the textarea doesn't appear
+     *  empty. Empty string is the default and matches a fresh tab. */
+    initialDraft?: string;
+    /** Fires on every change to the draft (typing, paste, programmatic
+     *  setDraft, send-clear). Parents persist this to the app store
+     *  keyed by tab id so leaving + returning preserves the in-progress
+     *  text. */
+    onDraftChange?: (text: string) => void;
   }
->(function ComposeDock({ onSend, placeholder, busy = false }, ref) {
-  const [draft, setDraft] = useState("");
+>(function ComposeDock(
+  { onSend, placeholder, busy = false, initialDraft = "", onDraftChange },
+  ref,
+) {
+  const [draft, setDraftState] = useState(initialDraft);
+  // The draft setter is wrapped so every write — keystroke, paste,
+  // imperative setDraft, post-send clear — fires `onDraftChange` and
+  // the parent stays in sync without each callsite having to remember.
+  const setDraft = (next: string) => {
+    setDraftState(next);
+    onDraftChange?.(next);
+  };
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const [model, setModel] = useState<ComposeModel>("opus-4.7");

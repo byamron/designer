@@ -143,6 +143,16 @@ pub async fn cmd_open_tab(core: &Arc<AppCore>, req: OpenTabRequest) -> Result<Ta
         .map_err(IpcError::from)
 }
 
+pub async fn cmd_close_tab(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+    tab_id: designer_core::TabId,
+) -> Result<(), IpcError> {
+    core.close_tab(workspace_id, tab_id)
+        .await
+        .map_err(IpcError::from)
+}
+
 pub async fn cmd_spine(
     core: &Arc<AppCore>,
     workspace_id: Option<WorkspaceId>,

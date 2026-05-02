@@ -158,13 +158,13 @@
     {
       "name": "ComposeDock",
       "path": "packages/app/src/components/ComposeDock.tsx",
-      "purpose": "Shared compose surface for WorkspaceThread (and any future tab variants). Owns its own draft, attachments, model/effort/plan-mode controls, and drag-and-drop target. Imperative handle (`setDraft`, `focus`) lets the parent seed prompts and restore drafts on send failure (used by WorkspaceThread.onSend's catch handler — the dock clears its draft synchronously after `onSend` returns, so failure recovery has to re-seed via the handle). 13.D wired `onSend` through to `Orchestrator::post_message` via `cmd_post_message`; the parent is responsible for in-flight gating and error display.",
+      "purpose": "Shared compose surface for WorkspaceThread (and any future tab variants). Owns its own draft, attachments, model/effort/plan-mode controls, and drag-and-drop target. Imperative handle (`setDraft`, `focus`) lets the parent seed prompts and restore drafts on send failure (used by WorkspaceThread.onSend's catch handler — the dock clears its draft synchronously after `onSend` returns, so failure recovery has to re-seed via the handle). 13.D wired `onSend` through to `Orchestrator::post_message` via `cmd_post_message`; the parent is responsible for in-flight gating and error display. tab-ui-bugs (2026-05-02) added `initialDraft` (seeds the draft on mount from a parent-managed cache) and `onDraftChange` (fires on every keystroke, paste, programmatic setDraft, and post-send clear) so callers can persist per-tab drafts in the app store and survive tab switches.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "radius-pill", "border-thin", "color-foreground", "color-muted", "color-border", "color-border-soft", "color-content-surface", "color-background", "color-surface-flat", "color-surface-raised", "type-body-size", "type-caption-size", "weight-medium", "motion-interactive", "focus-outline-width", "focus-outline-color", "surface-inner-pad", "radius-surface", "dev-compose-mix", "dev-compose-radius"],
       "css_prefix": "compose__",
-      "last_updated": "2026-04-25"
+      "last_updated": "2026-05-02"
     },
     {
       "name": "SettingsPage",
