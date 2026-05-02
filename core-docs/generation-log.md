@@ -698,3 +698,18 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - invariants: not run (no CSS or TSX visual surface changed)
 - deviations: none
 - feedback: addresses frc_019de705 (Haiku selector errored on send) — the in-PR `frontend_model_to_claude_cli` mapper is locked by a Rust unit test so future Claude model renames force a single-test failure, not silent dispatch-as-default
+
+## 2026-05-02T20:00:00Z — manual (workspace archiving sidebar UI)
+
+- prompt: "Add workspace archiving as core sidebar functionality: per-row Archive button, collapsible Archived section pinned to the bottom with Restore + Delete actions."
+- trigger: manual (no Mini skill fired — sidebar chrome extends WorkspaceSidebar's existing flex-column register; staff-perspective-review caught the missing log entry and the missing prefers-reduced-motion guard)
+- archetype-reused: none (composes onto the existing .workspace-row pattern)
+- components-reused: WorkspaceSidebar, WorkspaceRow (extended with hover-revealed actions slot), IconButton, Tooltip
+- components-new: ArchivedWorkspaceRow (renders inert label + Restore/Delete IconButtons), `.sidebar-group--archived` collapsible group
+- primitives: none (consistent with this file's flex/grid idiom; Mini primitives still deferred at the layout level)
+- tokens: --space-1, --space-2, --space-4, --motion-interactive, --color-muted, --color-foreground, --color-border, --color-surface-overlay, --weight-medium, --focus-outline-* (existing in tokens.css; no new tokens)
+- icons: lucide-react Archive, ChevronDown, ChevronRight, RotateCcw, Trash2 — all sized 12 (icon-sm) or 14 (icon-md) at strokeWidth 1.5 per axiom #13
+- invariants: 6/6 pass (no raw px / hex / ms in changed CSS or TSX; the one literal `1px` is a hairline border, the named exception per design-language.md §axioms)
+- deviations: hover-only reveal of row actions is bespoke chrome rather than a Mini primitive — consistent with the rest of WorkspaceSidebar's idiom but a candidate for an explicit Mini archetype later
+- feedback: addresses frc_019dea6a-0f1d (no way to close/archive workspaces); also covers frc_019dea66/67/69 indirectly because PR #87 ships the chat-strip + archive together (per user instruction "archiving should also be in this PR because that's core functionality")
+

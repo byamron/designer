@@ -8,6 +8,7 @@ const LABELS: Record<string, string> = {
   workspace_created: "Workspace created",
   workspace_state_changed: "Workspace state changed",
   workspace_worktree_attached: "Worktree attached",
+  workspace_deleted: "Workspace deleted",
   tab_opened: "Tab opened",
   tab_renamed: "Tab renamed",
   tab_closed: "Tab closed",

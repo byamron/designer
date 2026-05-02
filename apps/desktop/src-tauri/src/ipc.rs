@@ -135,6 +135,33 @@ pub async fn cmd_list_workspaces(
         .collect())
 }
 
+pub async fn cmd_archive_workspace(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<(), IpcError> {
+    core.archive_workspace(workspace_id)
+        .await
+        .map_err(IpcError::from)
+}
+
+pub async fn cmd_restore_workspace(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<(), IpcError> {
+    core.restore_workspace(workspace_id)
+        .await
+        .map_err(IpcError::from)
+}
+
+pub async fn cmd_delete_workspace(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<(), IpcError> {
+    core.delete_workspace(workspace_id)
+        .await
+        .map_err(IpcError::from)
+}
+
 pub async fn cmd_open_tab(core: &Arc<AppCore>, req: OpenTabRequest) -> Result<Tab, IpcError> {
     if req.title.trim().is_empty() {
         return Err(IpcError::invalid_request("title must not be empty"));

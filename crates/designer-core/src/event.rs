@@ -92,6 +92,16 @@ pub enum EventPayload {
     WorkspaceWorktreeDetached {
         workspace_id: WorkspaceId,
     },
+    /// User permanently deleted a workspace from the sidebar Archived
+    /// section. The projection drops the workspace from its map; past
+    /// events tied to the id remain in the append-only log but are
+    /// orphaned (no projector handler resolves them once the workspace
+    /// entry is gone). Archiving is the soft-delete path
+    /// (`WorkspaceStateChanged { state: Archived }`); this is the
+    /// hard-delete path that follows it.
+    WorkspaceDeleted {
+        workspace_id: WorkspaceId,
+    },
 
     // Tab lifecycle
     TabOpened {
@@ -446,6 +456,7 @@ pub enum EventKind {
     WorkspaceStateChanged,
     WorkspaceWorktreeAttached,
     WorkspaceWorktreeDetached,
+    WorkspaceDeleted,
     TabOpened,
     TabRenamed,
     TabClosed,
@@ -498,6 +509,7 @@ impl EventPayload {
             EventPayload::WorkspaceStateChanged { .. } => EventKind::WorkspaceStateChanged,
             EventPayload::WorkspaceWorktreeAttached { .. } => EventKind::WorkspaceWorktreeAttached,
             EventPayload::WorkspaceWorktreeDetached { .. } => EventKind::WorkspaceWorktreeDetached,
+            EventPayload::WorkspaceDeleted { .. } => EventKind::WorkspaceDeleted,
             EventPayload::TabOpened { .. } => EventKind::TabOpened,
             EventPayload::TabRenamed { .. } => EventKind::TabRenamed,
             EventPayload::TabClosed { .. } => EventKind::TabClosed,

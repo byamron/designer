@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { House } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, House, RotateCcw, Trash2 } from "lucide-react";
 import {
   PANE_DEFAULT_WIDTH,
   commitSidebarWidth,
@@ -30,9 +30,20 @@ export function WorkspaceSidebar() {
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
   const sidebarWidth = useAppState((s) => s.sidebarWidth);
   const noticedLastViewedSeq = useAppState((s) => s.noticedLastViewedSeq);
-  const workspaces = useDataState<WorkspaceSummary[]>((s) =>
+  const allWorkspaces = useDataState<WorkspaceSummary[]>((s) =>
     activeProjectId ? s.workspaces[activeProjectId] ?? emptyArray() : emptyArray(),
   );
+  // Active rows render in the main list; archived rows appear in a
+  // collapsible section at the bottom of the sidebar.
+  const workspaces = useMemo(
+    () => allWorkspaces.filter((w) => w.workspace.state !== "archived"),
+    [allWorkspaces],
+  );
+  const archivedWorkspaces = useMemo(
+    () => allWorkspaces.filter((w) => w.workspace.state === "archived"),
+    [allWorkspaces],
+  );
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
   // Phase 21.A1.2 — badge counts proposals, not findings. Findings
   // are scratch buffer state (continuous, evidence-shaped); proposals
   // are the boundary-driven user-facing unit. Counting findings would
@@ -176,7 +187,11 @@ export function WorkspaceSidebar() {
           </IconButton>
         </div>
         {workspaces.length === 0 ? (
-          <p className="sidebar-empty">No workspaces yet.</p>
+          <p className="sidebar-empty">
+            {archivedWorkspaces.length > 0
+              ? "No active workspaces — see Archived below."
+              : "No workspaces yet."}
+          </p>
         ) : (
           <ul className="sidebar-list" role="list">
             {workspaces.map((summary) => (
@@ -184,11 +199,43 @@ export function WorkspaceSidebar() {
                 key={summary.workspace.id}
                 workspace={summary.workspace}
                 active={activeWorkspaceId === summary.workspace.id}
+                projectId={activeProjectId}
               />
             ))}
           </ul>
         )}
       </div>
+
+      {archivedWorkspaces.length > 0 && (
+        <div className="sidebar-group sidebar-group--archived">
+          <button
+            type="button"
+            className="sidebar-group__head sidebar-group__head--toggle"
+            onClick={() => setArchivedExpanded((v) => !v)}
+            aria-expanded={archivedExpanded}
+          >
+            {archivedExpanded ? (
+              <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={12} strokeWidth={1.5} aria-hidden="true" />
+            )}
+            <span className="sidebar-label">
+              Archived ({archivedWorkspaces.length})
+            </span>
+          </button>
+          {archivedExpanded && (
+            <ul className="sidebar-list" role="list">
+              {archivedWorkspaces.map((summary) => (
+                <ArchivedWorkspaceRow
+                  key={summary.workspace.id}
+                  workspace={summary.workspace}
+                  projectId={activeProjectId}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </aside>
   );
 }
@@ -270,9 +317,11 @@ function RequestMergeButton({ workspaceId }: { workspaceId: string }) {
 function WorkspaceRow({
   workspace,
   active,
+  projectId,
 }: {
   workspace: Workspace;
   active: boolean;
+  projectId: string | null;
 }) {
   // Pulse the state dot only while the workspace's stream has had a
   // recent event. The `state === "active"` projection alone counts a
@@ -283,8 +332,26 @@ function WorkspaceRow({
     latestActivityForWorkspace(s.recentActivityTs, workspace.id),
   );
   const recent = useRecentActivity(latestTs);
+  const [busy, setBusy] = useState(false);
+  const onArchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    setBusy(true);
+    try {
+      await ipcClient().archiveWorkspace(workspace.id);
+      if (projectId) await refreshWorkspaces(projectId);
+      // If the archived workspace was active, drop the selection so the
+      // main pane returns to the project home and doesn't render an
+      // archived tab thread.
+      if (active) selectWorkspace(null);
+    } catch (err) {
+      console.error("archive_workspace failed", err);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <li data-component="WorkspaceRow">
+    <li data-component="WorkspaceRow" className="workspace-row__wrap">
       <button
         type="button"
         className="workspace-row"
@@ -308,6 +375,81 @@ function WorkspaceRow({
         )}
         <span className="workspace-row__title">{workspace.name}</span>
       </button>
+      <span className="workspace-row__actions">
+        <IconButton
+          label={busy ? "Archiving…" : `Archive ${workspace.name}`}
+          onClick={onArchive}
+          disabled={busy}
+        >
+          <Archive size={14} strokeWidth={1.5} aria-hidden="true" />
+        </IconButton>
+      </span>
+    </li>
+  );
+}
+
+function ArchivedWorkspaceRow({
+  workspace,
+  projectId,
+}: {
+  workspace: Workspace;
+  projectId: string | null;
+}) {
+  const [busy, setBusy] = useState(false);
+  const onRestore = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await ipcClient().restoreWorkspace(workspace.id);
+      if (projectId) await refreshWorkspaces(projectId);
+    } catch (err) {
+      console.error("restore_workspace failed", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const onDelete = async () => {
+    if (busy) return;
+    // The event log is append-only; past events tied to this workspace
+    // remain on disk for audit. What the user actually loses is access:
+    // the workspace stops resolving in the projector, so the chat is no
+    // longer reachable from the UI. The copy reflects that — "lost" was
+    // wrong (events stay) and "removed" is too vague.
+    const ok = window.confirm(
+      `Permanently delete '${workspace.name}'? Its chat will no longer be accessible.`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await ipcClient().deleteWorkspace(workspace.id);
+      if (projectId) await refreshWorkspaces(projectId);
+    } catch (err) {
+      console.error("delete_workspace failed", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <li data-component="ArchivedWorkspaceRow" className="workspace-row__wrap">
+      <span className="workspace-row workspace-row--archived" title={workspace.name}>
+        <span className="workspace-row__title">{workspace.name}</span>
+      </span>
+      <span className="workspace-row__actions">
+        <IconButton
+          label={busy ? "Restoring…" : `Restore ${workspace.name}`}
+          onClick={onRestore}
+          disabled={busy}
+        >
+          <RotateCcw size={14} strokeWidth={1.5} aria-hidden="true" />
+        </IconButton>
+        <IconButton
+          label={busy ? "Deleting…" : `Delete ${workspace.name} permanently`}
+          onClick={onDelete}
+          disabled={busy}
+        >
+          <Trash2 size={14} strokeWidth={1.5} aria-hidden="true" />
+        </IconButton>
+      </span>
     </li>
   );
 }

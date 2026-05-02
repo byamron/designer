@@ -36,3 +36,29 @@ test-front:
 fix:
     cargo fmt --all
     cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged --locked
+
+# Launch Designer in dev mode against a sandboxed event store so the
+# branch-under-test can't corrupt the daily-driver's `~/.designer/`.
+# Hot-reloads the frontend; Rust edits trigger a rebuild + relaunch.
+# Ctrl-C in this terminal kills the app. Use this for inner-loop
+# dogfood of an in-progress branch.
+dev:
+    DESIGNER_DATA_DIR={{justfile_directory()}}/.dev-data cargo tauri dev
+
+# Same as `dev` but shares state with the installed Designer (uses
+# the default `~/.designer/`). Use when you want to repro a friction
+# report against your real workspace history.
+dev-shared:
+    cargo tauri dev
+
+# Build a real signed `.app` for local dogfood without cutting a
+# release. Lands at apps/desktop/src-tauri/target/release/bundle/
+# macos/Designer.app — drag to /Applications. ~5-10 min first build,
+# ~1-3 min on rebuilds. Signs with the Developer ID cert in your
+# keychain; no notarization (that's the release pipeline's job).
+dogfood:
+    cargo tauri build --bundles app
+    @echo ""
+    @echo "Built: apps/desktop/src-tauri/target/release/bundle/macos/Designer.app"
+    @echo "Drag to /Applications, or run with a sandbox data dir:"
+    @echo "  DESIGNER_DATA_DIR=~/.designer-dev open apps/desktop/src-tauri/target/release/bundle/macos/Designer.app"

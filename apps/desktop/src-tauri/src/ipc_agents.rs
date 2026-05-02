@@ -115,7 +115,7 @@ mod tests {
             .spawn_team(designer_claude::TeamSpec {
                 workspace_id: ws.id,
                 team_name: "t".into(),
-                lead_role: "team-lead".into(),
+                lead_role: "assistant".into(),
                 teammates: vec![],
                 env: Default::default(),
                 cwd: None,

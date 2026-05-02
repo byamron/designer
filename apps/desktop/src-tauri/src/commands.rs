@@ -55,6 +55,30 @@ pub async fn create_workspace(
 }
 
 #[tauri::command]
+pub async fn archive_workspace(
+    core: State<'_, Arc<AppCore>>,
+    workspace_id: WorkspaceId,
+) -> Result<(), IpcError> {
+    ipc::cmd_archive_workspace(&core, workspace_id).await
+}
+
+#[tauri::command]
+pub async fn restore_workspace(
+    core: State<'_, Arc<AppCore>>,
+    workspace_id: WorkspaceId,
+) -> Result<(), IpcError> {
+    ipc::cmd_restore_workspace(&core, workspace_id).await
+}
+
+#[tauri::command]
+pub async fn delete_workspace(
+    core: State<'_, Arc<AppCore>>,
+    workspace_id: WorkspaceId,
+) -> Result<(), IpcError> {
+    ipc::cmd_delete_workspace(&core, workspace_id).await
+}
+
+#[tauri::command]
 pub async fn open_tab(core: State<'_, Arc<AppCore>>, req: OpenTabRequest) -> Result<Tab, IpcError> {
     ipc::cmd_open_tab(&core, req).await
 }

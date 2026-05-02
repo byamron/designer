@@ -146,9 +146,11 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .manage(core_for_state)
         .invoke_handler(tauri::generate_handler![
+            commands::archive_workspace,
             commands::close_tab,
             commands::create_project,
             commands::create_workspace,
+            commands::delete_workspace,
             commands::get_artifact,
             commands::get_theme,
             commands::list_artifacts,
@@ -160,6 +162,7 @@ fn main() {
             commands::open_tab,
             commands::request_approval,
             commands::resolve_approval,
+            commands::restore_workspace,
             commands::reveal_in_finder,
             commands::set_theme,
             commands::spine,

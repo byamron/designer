@@ -479,3 +479,23 @@ The alternative — surfacing a Disconnect button per workspace row — was reje
 Why fan-out instead of a project-level `cmd_unlink_project`: the data model is already per-workspace and the event log is the source of truth. Adding a project-altitude command would either introduce a separate `ProjectUnlinked` event (overlap with the existing per-workspace `WorkspaceWorktreeDetached`) or compose multiple workspace events server-side (no real win — same loop, just hidden). Frontend fan-out keeps the contract simple and replay deterministic.
 
 Test coverage (`packages/app/src/test/repo-unlink.test.tsx`) pins the multi-workspace behavior — a fixture with two workspaces produces two `unlinkRepo` calls in order on a single Disconnect click.
+
+## 2026-05-02 — Workspace archiving splits soft-archive from hard-delete
+
+Workspaces have two independent lifecycle transitions — explicitly separated rather than collapsed into one Delete-with-undo affordance.
+
+**Soft-archive** (`WorkspaceStateChanged { state: Archived }`). The projector keeps the entry; the Archived sidebar group surfaces it with Restore + Delete actions. `archive_workspace` shuts down the orchestrator session so the claude subprocess doesn't keep ticking on an unused workspace; restoring lazy-spawns a fresh session on the next message. Idempotent in both directions.
+
+**Hard-delete** (`WorkspaceDeleted`, new additive event payload). The projector removes the entry; the UI no longer surfaces it. Past events tied to the workspace id remain in the append-only log for audit but no longer resolve to a workspace on replay (artifacts and tracks tied to the id orphan in their own maps — acceptable in v1; the UI never walks the orphans).
+
+The split is deliberate. (a) Archive preserves chat state for resume without retraining. (b) Hard-delete is genuinely permanent and deserves the two-step friction (must archive first, then explicit confirm). (c) The mental model is clean — "Archive (hide, keep)" and "Delete (discard)" map onto distinct user intents. Splitting also matches frc_019dea6a-0f1d's request literally ("archive a workspace, maintain chat history so I could unarchive… could see archived workspaces that I could restore or delete permanently").
+
+Why not a single `cmd_delete_workspace` with an undo timer: the user wanted explicit archive-as-state, not transient undo. Undo timers are worse for low-frequency destructive actions — you have to remember to undo before the timer expires, and the affordance vanishes the moment you stop watching. Explicit Restore + Delete on the archived row keeps the action visible until the user decides.
+
+Why `WorkspaceDeleted` is a new event payload rather than reusing `WorkspaceStateChanged { Deleted }`: `WorkspaceState` is a UI/projection state (Active / Paused / Archived / Errored) that the projector reads to decide *how* to render the workspace. Hard-delete doesn't render at all — it removes the entry. Adding a `Deleted` variant to `WorkspaceState` would require every consumer of the enum to learn "Deleted means: pretend it doesn't exist" — leakier than just emitting a separate event the projector handles by removing from its map. Additive event-vocabulary changes are allowed under ADR 0002's addendum.
+
+Confirm copy: "Permanently delete '{name}'? Its chat will no longer be accessible." — *not* "Chat history will be lost" (initial draft). The events stay on disk; the UI loses access to them. The corrected copy is more honest about what the operation does.
+
+The current confirm uses `window.confirm()` — a real follow-up is to swap it for a designed Modal (the codebase has `AppDialog` but it's hard-wired to the help dialog; building a generic ConfirmDialog primitive is a separate workstream). Until then, native confirm is the lowest-friction guard against accidental deletion.
+
+Test coverage (`apps/desktop/src-tauri/src/core.rs::archive_then_restore_round_trips_workspace_state` + `delete_workspace_drops_projection`) pins both transitions and the idempotency contract.

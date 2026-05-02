@@ -45,6 +45,15 @@ export interface IpcClient {
   createProject(req: CreateProjectRequest): Promise<ProjectSummary>;
   listWorkspaces(id: ProjectId): Promise<WorkspaceSummary[]>;
   createWorkspace(req: CreateWorkspaceRequest): Promise<WorkspaceSummary>;
+  /** Soft-archive a workspace. Idempotent. */
+  archiveWorkspace(workspaceId: WorkspaceId): Promise<void>;
+  /** Move an archived workspace back to active. Idempotent. */
+  restoreWorkspace(workspaceId: WorkspaceId): Promise<void>;
+  /** Hard-delete a workspace. Drops the projection; the event log
+   *  retains the historical events for audit. Caller is expected to
+   *  confirm with the user — the UI gates this behind the Archived
+   *  section and a confirm prompt. */
+  deleteWorkspace(workspaceId: WorkspaceId): Promise<void>;
   openTab(req: OpenTabRequest): Promise<Tab>;
   closeTab(workspaceId: WorkspaceId, tabId: TabId): Promise<void>;
   spine(id: WorkspaceId | null): Promise<SpineRow[]>;
@@ -176,6 +185,15 @@ class TauriIpcClient implements IpcClient {
   }
   createWorkspace(req: CreateWorkspaceRequest) {
     return invoke<WorkspaceSummary>("create_workspace", { req });
+  }
+  archiveWorkspace(workspaceId: WorkspaceId) {
+    return invoke<void>("archive_workspace", { workspaceId });
+  }
+  restoreWorkspace(workspaceId: WorkspaceId) {
+    return invoke<void>("restore_workspace", { workspaceId });
+  }
+  deleteWorkspace(workspaceId: WorkspaceId) {
+    return invoke<void>("delete_workspace", { workspaceId });
   }
   openTab(req: OpenTabRequest) {
     return invoke<Tab>("open_tab", { req });
@@ -325,6 +343,18 @@ class MockIpcClient implements IpcClient {
   }
   createWorkspace(req: CreateWorkspaceRequest) {
     return Promise.resolve(this.core.createWorkspace(req));
+  }
+  archiveWorkspace(workspaceId: WorkspaceId) {
+    this.core.archiveWorkspace(workspaceId);
+    return Promise.resolve();
+  }
+  restoreWorkspace(workspaceId: WorkspaceId) {
+    this.core.restoreWorkspace(workspaceId);
+    return Promise.resolve();
+  }
+  deleteWorkspace(workspaceId: WorkspaceId) {
+    this.core.deleteWorkspace(workspaceId);
+    return Promise.resolve();
   }
   openTab(req: OpenTabRequest) {
     return Promise.resolve(this.core.openTab(req));

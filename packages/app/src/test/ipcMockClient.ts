@@ -57,6 +57,9 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
     listWorkspaces: () => Promise.resolve<WorkspaceSummary[]>([]),
     createWorkspace: () =>
       Promise.reject(new Error("mockIpcClient: createWorkspace not stubbed")),
+    archiveWorkspace: () => Promise.resolve(),
+    restoreWorkspace: () => Promise.resolve(),
+    deleteWorkspace: () => Promise.resolve(),
     openTab: () =>
       Promise.reject(new Error("mockIpcClient: openTab not stubbed")),
     closeTab: () => Promise.resolve(),

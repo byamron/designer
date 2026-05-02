@@ -303,6 +303,15 @@ impl Projection for Projector {
                     w.worktree_path = None;
                 }
             }
+            EventPayload::WorkspaceDeleted { workspace_id } => {
+                // Hard-delete: drop the projection. Past events tied to this
+                // id remain in the append-only log but no longer resolve to
+                // a workspace on replay. Soft-archive (recoverable) is
+                // expressed via `WorkspaceStateChanged { Archived }`; this
+                // path is only entered after an explicit user confirm in
+                // the Archived sidebar section.
+                state.workspaces.remove(workspace_id);
+            }
             EventPayload::TabOpened {
                 tab_id,
                 workspace_id,
