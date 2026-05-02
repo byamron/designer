@@ -9,7 +9,12 @@ import {
   toggleSidebar,
   useAppState,
 } from "../store/app";
-import { refreshWorkspaces, useDataState } from "../store/data";
+import {
+  latestActivityForWorkspace,
+  refreshWorkspaces,
+  useDataState,
+  useRecentActivity,
+} from "../store/data";
 import { ipcClient } from "../ipc/client";
 import { invoke, isTauri } from "../ipc/tauri";
 import { EVENT_KIND, type TrackSummary, type Workspace, type WorkspaceSummary } from "../ipc/types";
@@ -269,6 +274,15 @@ function WorkspaceRow({
   workspace: Workspace;
   active: boolean;
 }) {
+  // Pulse the state dot only while the workspace's stream has had a
+  // recent event. The `state === "active"` projection alone counts a
+  // touched-but-quiet workspace as active; that's what made every row
+  // pulse forever after the first message. Combine the projection
+  // bit with this gate via `data-active-ts-recent` in CSS.
+  const latestTs = useDataState((s) =>
+    latestActivityForWorkspace(s.recentActivityTs, workspace.id),
+  );
+  const recent = useRecentActivity(latestTs);
   return (
     <li data-component="WorkspaceRow">
       <button
@@ -285,7 +299,12 @@ function WorkspaceRow({
         {workspace.status ? (
           <WorkspaceStatusIcon status={workspace.status} />
         ) : (
-          <span className="state-dot" data-state={workspace.state} aria-hidden="true" />
+          <span
+            className="state-dot"
+            data-state={workspace.state}
+            data-active-ts-recent={recent ? "true" : undefined}
+            aria-hidden="true"
+          />
         )}
         <span className="workspace-row__title">{workspace.name}</span>
       </button>

@@ -73,7 +73,9 @@ function HelpBody() {
           <dt>Close active tab</dt>
           <dd><kbd>⌘W</kbd></dd>
           <dt>Send message</dt>
-          <dd><kbd>⌘↵</kbd></dd>
+          <dd><kbd>↵</kbd></dd>
+          <dt>Newline in composer</dt>
+          <dd><kbd>⇧↵</kbd></dd>
           <dt>Toggle project strip</dt>
           <dd><kbd>⌘\</kbd></dd>
           <dt>Toggle workspaces</dt>
