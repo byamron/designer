@@ -670,3 +670,31 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - invariants: 6/6 pass (`node tools/invariants/check.mjs` on changed CSS + TSX)
 - deviations: none
 - feedback: pending
+
+## 2026-05-02T17:00:00Z — manual (release-prep: Help → Friction + dead-token cleanup)
+
+- prompt: "Closes friction frc_019de6ff (Help dialog 'Ask' input was a half-baked feature). Plus the dead-token cleanup pass surfaced by the v0.1.1 → HEAD multi-perspective review."
+- trigger: manual (release-prep cleanup driven by the staff-perspective-review skill in range mode)
+- archetype-reused: app-dialog__section (the new Report-issues section + the existing Keyboard-shortcuts and About sections)
+- components-reused: AppDialog, IconButton, toggleFrictionComposer, app-dialog__* CSS scaffolding
+- components-new: none (added two new CSS classes to the existing AppDialog component — `.app-dialog__hint` for caption-size muted multiline copy + `.app-dialog__inline-link` for inline button-as-link with focus-visible / hover / focus ring)
+- components-retired: HelpBody "Ask the help agent" input (was unwired placeholder; per FB-0036 no half-baked features in prod)
+- primitives: none
+- tokens: --color-foreground, --color-accent, --color-muted, --type-caption-size, --type-caption-leading, --border-thin, --focus-outline-offset, --radius-badge, --space-1 (replaced an inline `0.15em` text-underline-offset with `var(--space-1)` per token-fidelity audit)
+- invariants: clean (no raw px / hex / ms / rgba in changed CSS or TSX after the friction.css `rgba(255,255,255,0.12)` → `color-mix(in srgb, var(--color-accent) 12%, transparent)` swap)
+- deviations: none
+- feedback: addresses frc_019de6ff; manifest entry on AppDialog updated to list the new classes + tokens
+
+## 2026-05-02T17:30:00Z — manual (per-message model selection wired)
+
+- prompt: "Wire the model selector for real (not hide-behind-flag). For testing purposes, want Haiku/Sonnet so we don't burn Opus tokens during round-trip iteration."
+- trigger: manual (FB-0038-driven — cheap real fix beats hide-via-flag)
+- archetype-reused: none (composer chrome unchanged; only the flag gating around the existing ComposeSelect was removed)
+- components-reused: ComposeDock, ComposeSelect, WorkspaceThread, ipcClient
+- components-new: none (test helper `mockIpcClient` is test-infra, not user-facing UI)
+- components-retired: the temporary `showModels` `getFeatureFlags` gate inside ComposeDock (added then removed in the same session as FB-0038's triage)
+- primitives: none
+- tokens: none added (composer chrome is unchanged; the change is functional wiring, not visual)
+- invariants: not run (no CSS or TSX visual surface changed)
+- deviations: none
+- feedback: addresses frc_019de705 (Haiku selector errored on send) — the in-PR `frontend_model_to_claude_cli` mapper is locked by a Rust unit test so future Claude model renames force a single-test failure, not silent dispatch-as-default

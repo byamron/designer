@@ -267,12 +267,13 @@
     {
       "name": "AppDialog",
       "path": "packages/app/src/components/AppDialog.tsx",
-      "purpose": "Modal for Settings and Help. Settings carries a live Theme picker (System / Light / Dark SegmentedToggle) plus placeholder rows for Density / Account / Models / Preferences. Help shows a question input, a keyboard-shortcut dl, and an About row. Inner row dividers use --color-border-soft so they don't double up against the outer dialog frame. Scrim click and Escape close. Triggered from the ProjectStrip bottom cluster (Settings + Help IconButtons) and from the ⌘? shortcut.",
+      "purpose": "Modal for Help. Settings moved to the full-page SettingsPage (Decision 63); AppDialog now renders only when `dialog === 'help'`. Help body: keyboard-shortcut dl (⌘K / ⌘T / ⌘W / ↵ / ⇧↵ / ⌘\\ / ⌘[ / ⌘] / ⌘⇧F / ⌘?), a Report-issues section with an `.app-dialog__inline-link` button to launch Friction (closes Help and toggles the composer), and an About row. The previous 'Ask the help agent' input was removed per FB-0036 (no half-baked features in prod). Inner row dividers use --color-border-soft so they don't double against the outer dialog frame. Scrim click and Escape close. Triggered from the ProjectStrip bottom cluster (Help IconButton) and the ⌘? shortcut.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "space-8", "target-md", "radius-modal", "radius-badge", "border-thin", "color-foreground", "color-muted", "color-border", "color-surface-overlay", "type-body-size", "type-caption-size", "weight-medium", "elevation-modal", "layer-modal"],
-      "last_updated": "2026-04-22"
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "space-8", "target-md", "radius-modal", "radius-badge", "border-thin", "color-foreground", "color-muted", "color-accent", "color-border", "color-surface-overlay", "type-body-size", "type-caption-size", "type-caption-leading", "weight-medium", "elevation-modal", "layer-modal", "focus-outline-offset"],
+      "css_classes": ["app-dialog__hint", "app-dialog__inline-link"],
+      "last_updated": "2026-05-02"
     },
     {
       "name": "Onboarding",
@@ -291,7 +292,7 @@
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "color-foreground", "color-muted", "color-danger", "type-caption-size", "type-caption-leading", "type-body-size", "radius-modal", "elevation-modal", "layer-modal"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "color-foreground", "color-muted", "danger-11", "type-caption-size", "type-caption-leading", "type-body-size", "radius-modal", "elevation-modal", "layer-modal"],
       "css_prefix": "app-dialog__",
       "last_updated": "2026-05-01"
     },
@@ -302,9 +303,9 @@
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-2", "space-3", "color-text", "color-muted", "color-danger", "type-caption-size", "type-caption-leading", "danger-3", "danger-7", "danger-12"],
+      "tokens_referenced": ["space-2", "space-3", "color-foreground", "color-muted", "danger-11", "type-caption-size", "type-caption-leading", "danger-3", "danger-7", "danger-12"],
       "css_prefix": "app-dialog__",
-      "last_updated": "2026-05-01"
+      "last_updated": "2026-05-02"
     },
     {
       "name": "ComponentCatalog",
@@ -438,9 +439,9 @@
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "color-foreground", "color-muted", "color-danger", "color-border", "color-surface-overlay", "type-caption-size", "type-caption-leading", "type-body-size", "radius-modal", "radius-button", "elevation-modal", "layer-modal", "border-thin"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "color-foreground", "color-muted", "danger-11", "color-border", "color-surface-overlay", "type-caption-size", "type-caption-leading", "type-body-size", "radius-modal", "radius-button", "elevation-modal", "layer-modal", "border-thin"],
       "css_prefix": "app-dialog__",
-      "last_updated": "2026-04-26"
+      "last_updated": "2026-05-02"
     },
     {
       "name": "DesignerNoticedPage",

@@ -143,7 +143,11 @@
   color: var(--color-foreground);
   font: inherit;
   text-decoration: underline;
-  text-underline-offset: 0.15em;
+  /* Match the underline-offset register used elsewhere
+     (e.g. .friction-widget__toast-link). --space-1 (2px) reads ~the
+     same as 0.15em at the 15px body size but stays inside the token
+     scale so a future type-system retune carries it. */
+  text-underline-offset: var(--space-1);
   cursor: pointer;
 }
 
