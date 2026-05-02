@@ -33,6 +33,35 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0039: Don't spread class instances when building IPC test mocks
+**Date:** 2026-05-02
+**Source:** review feedback (release-review session, surfaced by ComposeDock's new `getFeatureFlags()` call)
+
+**What was said:** Tests in `workspace-thread.test.tsx` built per-test mock clients with `{...originalClient, ...overrides}`. `originalClient` was an instance of `MockIpcClient` (a class); spreading it copies own enumerable properties only, dropping every method that lives on the prototype. The pattern survived multiple PRs because the tested code paths never called the dropped methods. The moment a component (ComposeDock) added a new dependency on a method that hadn't been pre-overridden, the spread mocks blew up with `getFeatureFlags is not a function`. Fixed inline in 4 spots; the underlying pattern remains.
+
+**Synthesized rule:** Test fixtures that build IPC clients must not spread class instances. Use one of:
+1. **Plain-object base.** Define a `BASE_MOCK_CLIENT: IpcClient` literal somewhere shared and spread that — `{ ...BASE_MOCK_CLIENT, ...overrides }` works because the base is plain-object.
+2. **Builder helper.** A `mockClient(overrides: Partial<IpcClient>): IpcClient` function that returns a fresh plain-object client per call, with sensible defaults for every method.
+3. **Explicit override of every method the test needs** — verbose but unambiguous; only acceptable for one-off tests.
+
+When a new IPC method lands, also audit the test fixtures: any spread-from-instance patterns will silently lose it and surface as a runtime `is not a function` later.
+
+**Applies to:** test infrastructure, frontend, ipc, contract evolution
+
+### FB-0038: When a half-baked feature has a cheap real fix, wire it instead of hiding behind a flag
+**Date:** 2026-05-02
+**Source:** user direction (release-review, model-selector decision)
+
+**What was said:** During the v0.1.1 → HEAD release-review pass, the Haiku model-selector friction (`frc_019de705`) was initially "fixed" by hiding the Model + Effort selectors behind the `show_models_section` feature flag — the safe-by-default release-prep instinct, faithful to FB-0036 ("no half-baked features in prod"). The user pushed back: "we should fix the modal selector — this shouldn't be a difficult implementation. For testing purposes, I'd like the option to use Haiku (or Sonnet) so that I don't have to spend max tokens during testing when I'm not actually evaluating the quality of the model response, just that the responses are working correctly." The real wiring landed in ~150 LOC across the Rust crate boundary plus a frontend wire — well within "cheap" territory.
+
+**Synthesized rule:** The hide-behind-flag stopgap is correct **only** when the real implementation is non-trivial (multi-day, contract-breaking, or needs design input). When proposing to hide a half-baked feature, also estimate the wire-it-for-real cost; if it's < 1 day and uses existing primitives, default to wiring. The user's mental model is "this control should work" — flagging it off is a regression of intent, not a fix.
+
+This is the inverse of FB-0036, not a contradiction: FB-0036 says don't ship half-baked work. FB-0038 adds: hide-vs-wire is a cost-of-implementation decision, not a default. Combined: ship working features, hide what's genuinely half-baked, but reach for "wire it" first when the gap between half-baked and shipping is small.
+
+Pairs with FB-0033 (reuse user infrastructure before building runtime): both are "don't accept the easy framing if the harder one is cheaper than it looks."
+
+**Applies to:** scope, release readiness, agent behavior, dogfood discipline
+
 ### FB-0037: It's OK to undo shipped work when it yields simpler code or better UX
 **Date:** 2026-05-01
 **Source:** user preference (DP-B chat pass-through subtraction pass)
