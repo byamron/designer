@@ -33,6 +33,47 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0037: It's OK to undo shipped work when it yields simpler code or better UX
+**Date:** 2026-05-01
+**Source:** user preference (DP-B chat pass-through subtraction pass)
+
+**What was said:** Subtracting eight typed-artifact card renderers — code that landed across Phase 13.1 and was working — was the right call when the result was a chat surface that read as a continuation of Claude Code rather than a re-rendering of it. The user explicitly accepted the subtraction even though it removed shipped behavior.
+
+**Synthesized rule:** Don't anchor on "we shipped it, we have to keep it." If a subtraction pass yields simpler code, less surface area for bugs, or a clearer mental model — propose it. The bar for removal is the same as the bar for addition: does the change tighten the product? "Already shipped" is not on its own a reason to keep something that no longer fits.
+
+This applies to feature flags too — the half-baked / unused / placeholder ones should be removed (or hidden behind a flag) rather than left in prod under "we'll fix it later." DP-C's reliability audit (`plan.md` Feature readiness table) is the recurring pattern for this.
+
+**Applies to:** architecture, ux, agent behavior, scope discipline
+
+### FB-0036: No half-baked features in prod — dogfood readiness is P1/P2/P3, not "ship it and patch"
+**Date:** 2026-05-01
+**Source:** user direction (dogfood push, DP-C reliability audit)
+
+**What was said:** Designer is going to be downloaded and used by real people. A pane that looks shipping-ready but is wired to nothing (the placeholder Models pane), or a button that does nothing (the Help dialog "Ask" input), or a feature that hangs on first message (chat pre-#72) is worse than not shipping the surface at all — it teaches the user that Designer is unreliable. Dogfood is the gate; what isn't dogfoodable should be flagged off, hidden, or removed, not shipped half-baked with a TODO.
+
+**Synthesized rule:** Three-tier readiness:
+- **P1 — dogfoodable.** The surface does what it claims. Ships default-on.
+- **P2 — reliable but not yet polished.** No half-baked features in prod — gate behind a feature flag (default off) or hide outright.
+- **P3 — polished UI + working report-flow ("Friction").** The capture-and-fix loop has to work end-to-end so the user can move past defects without leaving the app.
+
+When proposing any new surface, identify which tier it lands in. P2/P3 work needs an explicit flag/hide decision before merge. The DP-C "Feature readiness" table in `plan.md` is the recurring discipline; new surfaces classify themselves there.
+
+**Applies to:** ux, scope, release readiness, feature flags
+
+### FB-0035: Chat is pass-through Claude Code by default; intercept only at approvals
+**Date:** 2026-05-01
+**Source:** user direction (DP-B chat pass-through, friction-driven subtraction pass)
+
+**What was said:** "If Claude Code chat already works well, we shouldn't mess with it if we aren't going to put in the time to truly do it better." Designer's value is **above** the model — workflow, trust, coordination. The chat surface should read as a continuation of the Claude Code register the user already trusts, not a parallel re-rendering with different chrome.
+
+**Synthesized rule:** The chat surface is pass-through by default. Agent prose flows; tool calls render as terse single-line `· read foo.rs` rows; rich artifacts (specs, PRs, code-changes) collapse to one-line `→ kind: title` references that focus the matching row in the spine on click. **The one must-intercept exception is approvals** — `ApprovalBlock` keeps full inline chrome because gating user trust is the core value prop and a one-line ref would let the user click through without seeing the request.
+
+The litmus test for any future intercept: if the surface stripped Designer's custom rendering and reverted to plain Claude Code, would the conversation still read naturally? If yes, our rendering is additive — keep it minimal. If no, we're replacing CC and need to justify it as a core-value-prop intercept (today: approvals; tomorrow: maybe team coordination, but the bar is high).
+
+Past the rendering surface, the same principle generalizes: when Designer's value-prop doesn't demand an intercept, pass through to the user's trusted Claude Code register rather than re-implementing.
+
+**Applies to:** ux, chat, agent surfaces, future intercept decisions
+
 ### FB-0034: North-star — a smooth AI enforcement loop that produces cohesive components on the first prompt
 **Date:** 2026-04-27
 **Source:** user direction (design-system audit, primitives discussion)
