@@ -24,7 +24,7 @@ jobs:
       matrix:
         job: [test, clippy, fmt]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -53,8 +53,8 @@ jobs:
     # lockfile generated on macOS — https://github.com/npm/cli/issues/4828).
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -72,8 +72,8 @@ jobs:
     # and FB-0034 for the AI-enforcement-loop motivation.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
       - name: invariants — no arbitrary px/hex/ms/z-index, primitives package-imported
@@ -88,8 +88,8 @@ jobs:
     # Linux — running the comparison anywhere else would be noise.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -106,7 +106,7 @@ jobs:
         run: npm --workspace @designer/app run test:visual
       - name: upload diff artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: visual-diffs
           path: |

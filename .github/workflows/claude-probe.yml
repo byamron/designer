@@ -27,7 +27,7 @@ jobs:
       issues: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve claude install path
         # Self-hosted runner spawns non-login, non-interactive shells; PATH
@@ -68,7 +68,7 @@ jobs:
 
       - name: Open drift issue
         if: steps.diff.outputs.drift == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const title = `Claude Code version drift: ${{ steps.diff.outputs.observed }} (pinned ${{ steps.diff.outputs.pinned }})`;
