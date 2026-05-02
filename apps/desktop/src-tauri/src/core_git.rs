@@ -291,6 +291,32 @@ impl AppCore {
         Ok(())
     }
 
+    /// Sever Designer's pointer to the workspace's linked repo. The
+    /// repo on disk is untouched; only the projection's `worktree_path`
+    /// is cleared. Idempotent — calling this on an already-unlinked
+    /// workspace returns `Ok(())` without emitting an event so the UI
+    /// can safely retry.
+    pub async fn unlink_repo(&self, workspace_id: WorkspaceId) -> Result<(), CoreError> {
+        let workspace = self
+            .projector
+            .workspace(workspace_id)
+            .ok_or_else(|| CoreError::NotFound(workspace_id.to_string()))?;
+        if workspace.worktree_path.is_none() {
+            return Ok(());
+        }
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceWorktreeDetached { workspace_id },
+            )
+            .await?;
+        self.projector.apply(&env);
+        Ok(())
+    }
+
     /// Spawn a new track inside `workspace_id`. Creates a worktree under
     /// `<repo>/.designer/worktrees/<track-id>-<slug>` rooted at `base`,
     /// emits `TrackStarted`, seeds `core-docs/*.md` and commits them on
@@ -1019,6 +1045,79 @@ mod tests {
         // returns the rejection.
         let res = core.link_repo(workspace.id, "/tmp".into()).await;
         assert!(res.is_err(), "non-repo path must be rejected");
+    }
+
+    #[tokio::test]
+    async fn unlink_repo_clears_worktree_and_emits_detached_event() {
+        let _g = test_lock().lock().await;
+        let core = boot_test_core().await;
+        let (_pid, ws, repo) = seed_workspace_with_repo(&core).await;
+        // Sanity: link_repo set the projection.
+        assert_eq!(
+            core.projector.workspace(ws).unwrap().worktree_path.as_ref(),
+            Some(&repo)
+        );
+
+        core.unlink_repo(ws).await.unwrap();
+        assert!(
+            core.projector
+                .workspace(ws)
+                .unwrap()
+                .worktree_path
+                .is_none(),
+            "projection's worktree_path cleared after unlink"
+        );
+        let stored = core
+            .store
+            .read_all(designer_core::StreamOptions::default())
+            .await
+            .unwrap();
+        let detached: Vec<_> = stored
+            .iter()
+            .filter(|env| {
+                matches!(
+                    env.payload,
+                    designer_core::EventPayload::WorkspaceWorktreeDetached { .. }
+                )
+            })
+            .collect();
+        assert_eq!(detached.len(), 1, "exactly one detached event emitted");
+    }
+
+    #[tokio::test]
+    async fn unlink_repo_is_idempotent_when_already_unlinked() {
+        let _g = test_lock().lock().await;
+        let core = boot_test_core().await;
+        let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
+        core.unlink_repo(ws).await.unwrap();
+        // Second call must succeed without emitting a duplicate event.
+        core.unlink_repo(ws).await.unwrap();
+        let stored = core
+            .store
+            .read_all(designer_core::StreamOptions::default())
+            .await
+            .unwrap();
+        let detached_count = stored
+            .iter()
+            .filter(|env| {
+                matches!(
+                    env.payload,
+                    designer_core::EventPayload::WorkspaceWorktreeDetached { .. }
+                )
+            })
+            .count();
+        assert_eq!(
+            detached_count, 1,
+            "second unlink must be a no-op success — no duplicate event"
+        );
+    }
+
+    #[tokio::test]
+    async fn unlink_repo_rejects_unknown_workspace() {
+        let _g = test_lock().lock().await;
+        let core = boot_test_core().await;
+        let res = core.unlink_repo(WorkspaceId::new()).await;
+        assert!(matches!(res, Err(CoreError::NotFound(_))));
     }
 
     #[tokio::test]

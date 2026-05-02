@@ -16,6 +16,14 @@ Each entry is a dated heading plus 3–6 sentences. Focus on the *why*. Referenc
 
 ## Entries
 
+## 2026-05-02 — Per-tab UI state lives on the app store, keyed by `TabId`
+
+Three friction reports (close-tab + ⌘W broken; tab switch flashed empty state; composer drafts vanished on switch) all converged on the same shape: WorkspaceThread is keyed `${workspace.id}:${activeTab}` in MainView, so a tab switch unmounts the old instance and mounts a fresh one. Local `useState` in WorkspaceThread therefore cannot survive a switch. Two slices were added to `appStore` (`packages/app/src/store/app.ts`): `composerDraftByTab: Record<TabId, string>` and `tabStartedById: Record<TabId, boolean>`. WorkspaceThread reads them via `useState(() => appStore.get().tabStartedById[stateKey])` (a lazy initializer that runs *synchronously* on first render). This is the load-bearing detail: the synchronous read guarantees the destination tab paints with `hasStarted = true` (and the saved draft seeded into ComposeDock) on frame 0 — no intermediate "Describe something new" suggestion strip ever lands on screen. Any future change that defers the read to `useEffect` will reintroduce the flash.
+
+Why a single global store dict instead of per-tab projections or per-tab store instances: the dict is the simplest shape that survives WorkspaceThread remounts and stays observable from sibling components (tests, dev panels, future "restore last closed tab"). Per-tab projections would require a parallel projector path; per-tab store instances would scatter mount/unmount lifecycle into every consumer. The dict pays an O(closed-tabs) memory cost over a session — addressed by `clearTabState(tabId)`, called from MainView's `closeTab` immediately after the IPC succeeds. `TabId` is a v7 UUID, so a synthetic test fallback (`__default__:${workspace.id}`) cannot collide with a real entry.
+
+The matching `ComposeDock` change adds `initialDraft` (seed on mount) and `onDraftChange` (fires on every keystroke, paste, programmatic setDraft, and post-send clear) so the dock stays an uncontrolled component while the store stays the source of truth.
+
 ## 2026-05-01 — `ChannelClosed` recovery: respawn-on-insert, not graceful-shutdown-then-respawn
 
 When `Orchestrator::post_message` returns `ChannelClosed` (the `claude` subprocess died and the writer task has gone with it), `core_agents::post_message` recovers by calling `spawn_team` directly — **not** by calling `shutdown` first. The orchestrator's `shutdown` runs a 60-second graceful-exit window (`SHUTDOWN_TIMEOUT` in `claude_code.rs`) that sends a "Clean up the team" prompt and waits for the lead to honor it. A dead lead never honors anything; the recovery would block the user for the full minute every time. `spawn_team`'s `self.teams.lock().insert(...)` overwrites the stale `TeamHandle` and drops it; `kill_on_drop(true)` on the contained `Child` kills the old subprocess synchronously, and the reader/writer/stderr tasks exit on their own when their pipes close. The user's retry "just works" within the message round-trip budget.
@@ -459,3 +467,15 @@ Settings now carry a `feature_flags` struct (`apps/desktop/src-tauri/src/setting
 
 Pattern for future half-baked surfaces: don't quietly hide them and don't ship them broken. Add a flag, document the placeholder rationale, default to off, expose the toggle in Preferences. The user can opt in when they want to evaluate; default-on dogfood stays honest. DP-C audit table in `plan.md` § Feature readiness names everything currently classified prod / flag / hide.
 
+
+## 2026-05-01 — Project-scoped unlink fans out across the project's workspaces
+
+The data model stores `worktree_path` per **workspace** (`crates/designer-core/src/domain.rs::Workspace.worktree_path`); `cmd_link_repo` and `cmd_unlink_repo` both take a `workspace_id`. But the user's mental model — surfaced in friction frc_019de6fa — is project-scoped: "I added a project, I want to disconnect it." Two conflicting altitudes.
+
+The `ProjectRepoSection` in `HomeTabA.tsx` resolves this by collapsing the action: one Disconnect click opens a single confirmation modal whose `workspaceIds` prop is the array of every workspace in the project that currently has a `worktree_path`. The modal's `submit()` awaits `unlinkRepo(workspace_id)` for each in sequence. The IPC is idempotent (no-op when already unlinked, per `core_git.rs::unlink_repo`), so a half-completed fan-out followed by a retry is safe.
+
+The alternative — surfacing a Disconnect button per workspace row — was rejected as ergonomically wrong: the user thinks of "the repo" as one thing, not as N separate links per workspace. Splitting the affordance would punish a clean mental model with bookkeeping work.
+
+Why fan-out instead of a project-level `cmd_unlink_project`: the data model is already per-workspace and the event log is the source of truth. Adding a project-altitude command would either introduce a separate `ProjectUnlinked` event (overlap with the existing per-workspace `WorkspaceWorktreeDetached`) or compose multiple workspace events server-side (no real win — same loop, just hidden). Frontend fan-out keeps the contract simple and replay deterministic.
+
+Test coverage (`packages/app/src/test/repo-unlink.test.tsx`) pins the multi-workspace behavior — a fixture with two workspaces produces two `unlinkRepo` calls in order on a single Disconnect click.

@@ -8,6 +8,7 @@ use crate::ipc;
 use designer_core::{TrackId, WorkspaceId};
 use designer_ipc::{
     IpcError, LinkRepoRequest, RequestMergeRequest, StartTrackRequest, TrackSummary,
+    UnlinkRepoRequest,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -18,6 +19,14 @@ pub async fn cmd_link_repo(
     req: LinkRepoRequest,
 ) -> Result<(), IpcError> {
     ipc::cmd_link_repo(&core, req).await
+}
+
+#[tauri::command]
+pub async fn cmd_unlink_repo(
+    core: State<'_, Arc<AppCore>>,
+    req: UnlinkRepoRequest,
+) -> Result<(), IpcError> {
+    ipc::cmd_unlink_repo(&core, req).await
 }
 
 #[tauri::command]

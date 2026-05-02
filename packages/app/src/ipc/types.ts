@@ -140,6 +140,11 @@ export interface OpenTabRequest {
   workspace_id: WorkspaceId;
   title: string;
   template: TabTemplate;
+  /** Seed for a tab opened in response to an artifact click (activity
+   *  spine). Optional — bare "+ tab" calls leave it null. The backend
+   *  round-trips the id without persisting it; the frontend uses it to
+   *  dispatch `designer:focus-artifact` once the tab activates. */
+  artifact_id?: ArtifactId | null;
 }
 
 // ---- Agent wire (Phase 13.D) ----
@@ -188,6 +193,10 @@ export interface TrackSummary {
 export interface LinkRepoRequest {
   workspace_id: WorkspaceId;
   repo_path: string;
+}
+
+export interface UnlinkRepoRequest {
+  workspace_id: WorkspaceId;
 }
 
 export interface StartTrackRequest {

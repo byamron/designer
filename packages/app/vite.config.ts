@@ -34,5 +34,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // Visual regression suites run via `npm run test:visual` against a
+    // separate vitest config (browser mode + Playwright). They depend on
+    // browser-only APIs (page, document.fonts) and would error under
+    // jsdom. Excluded so the default `npm run test` stays fast.
+    exclude: ["src/test/visual/**", "node_modules/**", "dist/**"],
   },
 });

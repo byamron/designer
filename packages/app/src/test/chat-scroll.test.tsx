@@ -43,11 +43,13 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
       Promise.resolve(mock.resolveApproval(id, granted, reason)),
     listArtifacts: () => Promise.resolve(listArtifactsCb()),
     listArtifactsInTab: () => Promise.resolve(listArtifactsCb()),
+    listSpineArtifacts: () => Promise.resolve(listArtifactsCb()),
     listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
     getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
     togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
     postMessage: (req) => Promise.resolve(mock.postMessage(req)),
     linkRepo: () => Promise.resolve(),
+    unlinkRepo: () => Promise.resolve(),
     startTrack: (req) => Promise.resolve(mock.startTrack(req)),
     requestMerge: (req) => Promise.resolve(mock.requestMerge(req)),
     listTracks: (w) => Promise.resolve(mock.listTracks(w)),
@@ -70,8 +72,17 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
       }),
     getCostChipPreference: () => Promise.resolve({ enabled: false }),
     setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
-    getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
-    setFeatureFlag: (_name, enabled) => Promise.resolve({ show_models_section: enabled }),
+    getFeatureFlags: () =>
+      Promise.resolve({
+        show_models_section: false,
+        show_all_artifacts_in_spine: false,
+      }),
+    setFeatureFlag: (name, enabled) =>
+      Promise.resolve({
+        show_models_section: name === "show_models_section" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
+      }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "f", local_path: "" }),
     listFriction: () => Promise.resolve([]),

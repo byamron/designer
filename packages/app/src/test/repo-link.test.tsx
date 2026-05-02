@@ -27,6 +27,7 @@ function makeClient() {
     },
     listArtifacts: (ws) => Promise.resolve(core.listArtifacts(ws)),
     listArtifactsInTab: (ws, t) => Promise.resolve(core.listArtifactsInTab(ws, t)),
+    listSpineArtifacts: (ws) => Promise.resolve(core.listSpineArtifacts(ws)),
     listPinnedArtifacts: (ws) => Promise.resolve(core.listPinnedArtifacts(ws)),
     getArtifact: (id) => Promise.resolve(core.getArtifact(id)),
     togglePinArtifact: (id) => Promise.resolve(core.togglePinArtifact(id)),
@@ -40,6 +41,7 @@ function makeClient() {
           reject(e);
         }
       }),
+    unlinkRepo: (req) => Promise.resolve(core.unlinkRepo(req)),
     startTrack: (req) => Promise.resolve(core.startTrack(req)),
     requestMerge: (req) => Promise.resolve(core.requestMerge(req)),
     listTracks: (ws) => Promise.resolve(core.listTracks(ws)),
@@ -62,8 +64,17 @@ function makeClient() {
       }),
     getCostChipPreference: () => Promise.resolve({ enabled: false }),
     setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
-    getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
-    setFeatureFlag: (_name, enabled) => Promise.resolve({ show_models_section: enabled }),
+    getFeatureFlags: () =>
+      Promise.resolve({
+        show_models_section: false,
+        show_all_artifacts_in_spine: false,
+      }),
+    setFeatureFlag: (name, enabled) =>
+      Promise.resolve({
+        show_models_section: name === "show_models_section" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
+      }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
     listFriction: () => Promise.resolve([]),

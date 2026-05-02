@@ -768,6 +768,38 @@ impl AppCore {
             .ok_or_else(|| designer_core::CoreError::NotFound(tab_id.to_string()))
     }
 
+    /// Close a tab. Idempotent — re-closing an already-closed tab is a no-op
+    /// so a double-clicked X button doesn't double-write `TabClosed`.
+    pub async fn close_tab(
+        &self,
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+    ) -> designer_core::Result<()> {
+        let workspace = self
+            .projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        let tab = workspace
+            .tabs
+            .into_iter()
+            .find(|t| t.id == tab_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(tab_id.to_string()))?;
+        if tab.closed_at.is_some() {
+            return Ok(());
+        }
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabClosed { tab_id },
+            )
+            .await?;
+        self.projector.apply(&env);
+        Ok(())
+    }
+
     /// Derive an activity-spine view from the projector. Summaries are `None`
     /// here; Phase 13.F replaces them with `LocalOps::summarize_row` output.
     pub async fn spine(&self, workspace_id: Option<WorkspaceId>) -> Vec<SpineRow> {
@@ -848,6 +880,19 @@ impl AppCore {
         tab_id: TabId,
     ) -> Vec<Artifact> {
         self.projector.artifacts_in_tab(workspace_id, tab_id)
+    }
+
+    /// Activity-spine projection — same workspace scope as
+    /// `list_artifacts`, but with the substantive-kind allowlist
+    /// applied (spec / prototype / code-change / pr / recap & auditor
+    /// reports). `show_all` bypasses the filter for debugging via the
+    /// `show_all_artifacts_in_spine` feature flag.
+    pub async fn list_spine_artifacts(
+        &self,
+        workspace_id: WorkspaceId,
+        show_all: bool,
+    ) -> Vec<Artifact> {
+        self.projector.spine_artifacts_in(workspace_id, show_all)
     }
 
     /// Read the most recent user-post tab for a workspace. The agent-

@@ -32,6 +32,7 @@ import type {
   TabId,
   TrackId,
   TrackSummary,
+  UnlinkRepoRequest,
   WorkspaceId,
   WorkspaceSummary,
   StreamEvent,
@@ -62,6 +63,11 @@ export interface IpcClient {
     workspaceId: WorkspaceId,
     tabId: TabId,
   ): Promise<ArtifactSummary[]>;
+  /// Activity-spine read — applies the substantive-kind allowlist
+  /// (spec / prototype / code-change / pr / recap & auditor reports)
+  /// so the rail isn't polluted by tool-use cards. Honors the
+  /// `show_all_artifacts_in_spine` feature flag for debugging.
+  listSpineArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
   listPinnedArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
   getArtifact(id: ArtifactId): Promise<ArtifactDetail>;
   togglePinArtifact(id: ArtifactId): Promise<boolean>;
@@ -69,6 +75,10 @@ export interface IpcClient {
   postMessage(req: PostMessageRequest): Promise<PostMessageResponse>;
   // Track + git wire (Phase 13.E)
   linkRepo(req: LinkRepoRequest): Promise<void>;
+  /// Sever Designer's pointer to the workspace's repo. Idempotent — safe
+  /// to call when the workspace is already unlinked. The repo on disk is
+  /// untouched; only Designer's projection is cleared.
+  unlinkRepo(req: UnlinkRepoRequest): Promise<void>;
   startTrack(req: StartTrackRequest): Promise<TrackId>;
   requestMerge(req: RequestMergeRequest): Promise<number>;
   listTracks(workspaceId: WorkspaceId): Promise<TrackSummary[]>;
@@ -148,6 +158,7 @@ export interface CostChipPreferences {
  */
 export interface FeatureFlags {
   show_models_section: boolean;
+  show_all_artifacts_in_spine: boolean;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -193,6 +204,9 @@ class TauriIpcClient implements IpcClient {
       tabId,
     });
   }
+  listSpineArtifacts(workspaceId: WorkspaceId) {
+    return invoke<ArtifactSummary[]>("list_spine_artifacts", { workspaceId });
+  }
   listPinnedArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_pinned_artifacts", { workspaceId });
   }
@@ -207,6 +221,9 @@ class TauriIpcClient implements IpcClient {
   }
   linkRepo(req: LinkRepoRequest) {
     return invoke<void>("cmd_link_repo", { req });
+  }
+  unlinkRepo(req: UnlinkRepoRequest) {
+    return invoke<void>("cmd_unlink_repo", { req });
   }
   startTrack(req: StartTrackRequest) {
     return invoke<TrackId>("cmd_start_track", { req });
@@ -335,6 +352,9 @@ class MockIpcClient implements IpcClient {
   listArtifactsInTab(workspaceId: WorkspaceId, tabId: TabId) {
     return Promise.resolve(this.core.listArtifactsInTab(workspaceId, tabId));
   }
+  listSpineArtifacts(workspaceId: WorkspaceId) {
+    return Promise.resolve(this.core.listSpineArtifacts(workspaceId));
+  }
   listPinnedArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listPinnedArtifacts(workspaceId));
   }
@@ -349,6 +369,9 @@ class MockIpcClient implements IpcClient {
   }
   linkRepo(req: LinkRepoRequest) {
     return Promise.resolve(this.core.linkRepo(req));
+  }
+  unlinkRepo(req: UnlinkRepoRequest) {
+    return Promise.resolve(this.core.unlinkRepo(req));
   }
   startTrack(req: StartTrackRequest) {
     return Promise.resolve(this.core.startTrack(req));
@@ -404,7 +427,10 @@ class MockIpcClient implements IpcClient {
   // DP-C — keep a small in-memory map so the dev/mock mode can flip
   // flags from Settings without a Tauri runtime. Default all flags off
   // to mirror the Rust default.
-  private mockFlags: FeatureFlags = { show_models_section: false };
+  private mockFlags: FeatureFlags = {
+    show_models_section: false,
+    show_all_artifacts_in_spine: false,
+  };
   getFeatureFlags() {
     return Promise.resolve<FeatureFlags>({ ...this.mockFlags });
   }

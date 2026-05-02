@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Autonomy, Project, WorkspaceSummary } from "../ipc/types";
 import {
   markNoticedViewed,
@@ -8,13 +8,20 @@ import {
   toggleInbox,
   useAppState,
 } from "../store/app";
-import { useDataState } from "../store/data";
+import {
+  latestActivityForWorkspace,
+  refreshWorkspaces,
+  useDataState,
+  useRecentActivity,
+} from "../store/data";
 import { emptyArray } from "../util/empty";
 import { humanizeKind } from "../util/humanize";
 import { TabLayout } from "../layout/TabLayout";
 import { SegmentedToggle } from "../components/SegmentedToggle";
 import { WorkspaceStatusIcon } from "../components/WorkspaceStatusIcon";
 import { DesignerNoticedHome } from "../components/DesignerNoticed";
+import { RepoUnlinkModal } from "../components/RepoUnlinkModal";
+import { RepoLinkModal } from "../components/RepoLinkModal";
 
 /**
  * Home — project dashboard (the committed variant; Palette lives on for
@@ -92,27 +99,16 @@ export function HomeTabA({ project }: { project: Project }) {
         >
           <ul className="home-a__list home-a__list--workspaces">
             {projectWorkspaces.slice(0, 8).map((w) => (
-              <li key={w.workspace.id}>
-                {w.workspace.status ? (
-                  <WorkspaceStatusIcon status={w.workspace.status} />
-                ) : (
-                  <span className="state-dot" data-state={w.state} aria-hidden="true" />
-                )}
-                <button
-                  type="button"
-                  className="home-a__row-title home-a__row-link"
-                  title={`Open ${w.workspace.name}`}
-                  onClick={() => openWorkspace(w.workspace.id)}
-                >
-                  {w.workspace.name}
-                </button>
-                <span className="home-a__row-meta">
-                  {workspaceSummary(w)}
-                </span>
-              </li>
+              <HomeWorkspaceRow
+                key={w.workspace.id}
+                summary={w}
+                onOpen={() => openWorkspace(w.workspace.id)}
+              />
             ))}
           </ul>
         </Section>
+
+        <ProjectRepoSection project={project} workspaces={projectWorkspaces} />
 
         <Section label="Autonomy">
           <p className="home-a__explain">
@@ -150,6 +146,153 @@ function workspaceSummary(w: WorkspaceSummary): string {
   const openTab = w.workspace.tabs.find((t) => !t.closed_at);
   if (openTab?.title) return openTab.title;
   return "no open tabs";
+}
+
+/**
+ * Per-project repository pane. Lives in Project Home rather than Settings
+ * because the linked repo is project-scoped — Settings → Account stays
+ * focused on global concerns (Keychain, Claude Code). See spec.md
+ * Decision §"Settings scope" (D2026-05).
+ *
+ * "Disconnect repository" severs Designer's pointer for every workspace
+ * in the project. The repo on disk is untouched.
+ */
+function ProjectRepoSection({
+  project,
+  workspaces,
+}: {
+  project: Project;
+  workspaces: WorkspaceSummary[];
+}) {
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const linkedWorkspaceIds = useMemo(
+    () =>
+      workspaces
+        .filter((w) => !!w.workspace.worktree_path)
+        .map((w) => w.workspace.id),
+    [workspaces],
+  );
+  const hasLinkedWorkspace = linkedWorkspaceIds.length > 0;
+  // Surface the live worktree path when a workspace is linked; fall back to
+  // the project root the user originally picked when nothing is linked
+  // (post-disconnect or before the first link).
+  const displayedPath = useMemo(() => {
+    const linked = workspaces.find((w) => w.workspace.worktree_path);
+    return linked?.workspace.worktree_path ?? project.root_path;
+  }, [workspaces, project.root_path]);
+  // Re-link target: prefer the active project's first workspace so the
+  // re-link flow picks up where the user is. Fine to be `null` — the
+  // modal short-circuits when there's no workspace yet.
+  const linkTarget = workspaces[0]?.workspace ?? null;
+  return (
+    <Section label="Repository">
+      <p className="home-a__explain">
+        Designer tracks changes inside this repo so agents can branch + worktree
+        without touching your main checkout.
+      </p>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "var(--space-3)",
+        }}
+      >
+        <span className="home-a__row-meta" title={displayedPath}>
+          {displayedPath}
+        </span>
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          {linkTarget && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setLinkOpen(true)}
+              title={
+                hasLinkedWorkspace
+                  ? "Re-link this project to a different repo"
+                  : "Link this project to a repo on disk"
+              }
+            >
+              {hasLinkedWorkspace ? "Re-link" : "Link"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn"
+            data-variant="danger"
+            onClick={() => setUnlinkOpen(true)}
+            disabled={!hasLinkedWorkspace}
+            title={
+              hasLinkedWorkspace
+                ? "Disconnect Designer from this repo"
+                : "Repo is not currently linked to any workspace"
+            }
+          >
+            Disconnect repository
+          </button>
+        </div>
+      </div>
+      <RepoUnlinkModal
+        workspaceIds={linkedWorkspaceIds}
+        repoPath={displayedPath}
+        open={unlinkOpen}
+        onClose={() => setUnlinkOpen(false)}
+        onUnlinked={() => void refreshWorkspaces(project.id)}
+      />
+      {linkTarget && (
+        <RepoLinkModal
+          workspaceId={linkTarget.id}
+          initialPath={linkTarget.worktree_path ?? project.root_path}
+          open={linkOpen}
+          onClose={() => setLinkOpen(false)}
+          onLinked={() => void refreshWorkspaces(project.id)}
+        />
+      )}
+    </Section>
+  );
+}
+
+/**
+ * Row component so each workspace can run its own `useRecentActivity`
+ * gate — keeps the home tab's pulse semantics in sync with the
+ * workspace sidebar (a state="active" dot only pulses while the
+ * workspace's stream has had a recent event).
+ */
+function HomeWorkspaceRow({
+  summary,
+  onOpen,
+}: {
+  summary: WorkspaceSummary;
+  onOpen: () => void;
+}) {
+  const latestTs = useDataState((s) =>
+    latestActivityForWorkspace(s.recentActivityTs, summary.workspace.id),
+  );
+  const recent = useRecentActivity(latestTs);
+  return (
+    <li>
+      {summary.workspace.status ? (
+        <WorkspaceStatusIcon status={summary.workspace.status} />
+      ) : (
+        <span
+          className="state-dot"
+          data-state={summary.state}
+          data-active-ts-recent={recent ? "true" : undefined}
+          aria-hidden="true"
+        />
+      )}
+      <button
+        type="button"
+        className="home-a__row-title home-a__row-link"
+        title={`Open ${summary.workspace.name}`}
+        onClick={onOpen}
+      >
+        {summary.workspace.name}
+      </button>
+      <span className="home-a__row-meta">{workspaceSummary(summary)}</span>
+    </li>
+  );
 }
 
 function Section({

@@ -44,6 +44,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       listArtifacts: (ws) => Promise.resolve(mock.listArtifacts(ws)),
       listArtifactsInTab: (ws, t) =>
         Promise.resolve(mock.listArtifactsInTab(ws, t)),
+      listSpineArtifacts: (ws) => Promise.resolve(mock.listSpineArtifacts(ws)),
       listPinnedArtifacts: (ws) =>
         Promise.resolve(mock.listPinnedArtifacts(ws)),
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -58,6 +59,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
             reject(e);
           }
         }),
+      unlinkRepo: (req) => Promise.resolve(mock.unlinkRepo(req)),
       startTrack: (req) => Promise.resolve(mock.startTrack(req)),
       requestMerge: (req) => Promise.resolve(mock.requestMerge(req)),
       listTracks: (ws) => Promise.resolve(mock.listTracks(ws)),
@@ -80,8 +82,18 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
         }),
       getCostChipPreference: () => Promise.resolve({ enabled: false }),
       setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
-      getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
-      setFeatureFlag: (_name, enabled) => Promise.resolve({ show_models_section: enabled }),
+      getFeatureFlags: () =>
+        Promise.resolve({
+          show_models_section: false,
+          show_all_artifacts_in_spine: false,
+        }),
+      setFeatureFlag: (name, enabled) =>
+        Promise.resolve({
+          show_models_section:
+            name === "show_models_section" ? enabled : false,
+          show_all_artifacts_in_spine:
+            name === "show_all_artifacts_in_spine" ? enabled : false,
+        }),
       reportFriction: () =>
         Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
       listFriction: () => Promise.resolve([]),
@@ -332,7 +344,7 @@ describe("WorkspaceThread per-tab thread isolation", () => {
     });
 
     // Render tab A and post a message there.
-    const a = render(<WorkspaceThread workspace={workspace} tab={tabA} />);
+    const a = render(<WorkspaceThread workspace={workspace} tabId={tabA.id} />);
     const textareaA = await waitFor(() =>
       a.container.querySelector<HTMLTextAreaElement>("textarea.compose__input"),
     );
@@ -352,7 +364,7 @@ describe("WorkspaceThread per-tab thread isolation", () => {
     a.unmount();
 
     // Render tab B — the user's "hello from A" must NOT appear here.
-    const b = render(<WorkspaceThread workspace={workspace} tab={tabB} />);
+    const b = render(<WorkspaceThread workspace={workspace} tabId={tabB.id} />);
     await waitFor(() => {
       // The thread region renders once `hasStarted` flips OR via initial paint.
       expect(
@@ -372,7 +384,7 @@ describe("WorkspaceThread per-tab thread isolation", () => {
       template: "thread",
     });
 
-    const a = render(<WorkspaceThread workspace={workspace} tab={tabA} />);
+    const a = render(<WorkspaceThread workspace={workspace} tabId={tabA.id} />);
     // Click "What are we building?" suggestion to flip into thread mode.
     // We have a seeded "Onboarding spec" (kind: spec, workspace-wide). It
     // should appear in tab A AND in tab B as a workspace-wide artifact.
@@ -385,7 +397,7 @@ describe("WorkspaceThread per-tab thread isolation", () => {
     });
     a.unmount();
 
-    const b = render(<WorkspaceThread workspace={workspace} tab={tabB} />);
+    const b = render(<WorkspaceThread workspace={workspace} tabId={tabB.id} />);
     await waitFor(() => {
       // tabB has no messages of its own. listArtifactsInTab returns the
       // workspace-wide spec; we assert the thread mounted (suggestion

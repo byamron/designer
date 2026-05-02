@@ -1,0 +1,83 @@
+name: regenerate-visual-baselines
+
+# One-shot helper for bootstrapping (or refreshing) the committed visual
+# regression baselines under packages/app/src/test/visual/__screenshots__/.
+#
+# Baselines must be Linux-generated so they match what the `visual-regression`
+# CI job sees on ubuntu-latest. Running this workflow rebuilds them on a
+# Linux runner and commits the result back to the chosen branch.
+#
+# Usage:
+#   gh workflow run regenerate-visual-baselines.yml -f branch=<branch>
+#   (only works after this workflow file has landed on the default branch)
+#
+# Also fires automatically on the first push to the `visual-regression`
+# bootstrap branch — needed because workflow_dispatch can't be triggered
+# from a PR before the workflow file is on `main`. Once baselines exist
+# the auto-trigger no-ops (the commit step skips when nothing changed).
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to regenerate baselines on
+        required: true
+        default: visual-regression
+  push:
+    branches: [visual-regression]
+    paths:
+      - 'packages/app/src/test/visual/**'
+      - 'packages/app/vitest.visual.config.ts'
+      - '.github/workflows/regenerate-visual-baselines.yml'
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: resolve target branch
+        id: target
+        run: |
+          if [ -n "${{ inputs.branch }}" ]; then
+            echo "branch=${{ inputs.branch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: install deps (linux-aware)
+        # The repo's package-lock.json is generated on macOS, which
+        # doesn't pin Linux-only optional deps like
+        # @rollup/rollup-linux-x64-gnu (npm/cli#4828). `npm ci` enforces
+        # the lockfile and fails on the missing platform binary; a fresh
+        # `npm install` resolves the right binary for this host without
+        # mutating the committed lockfile (we discard the regenerated
+        # one before commit).
+        run: |
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
+      - name: install playwright chromium
+        run: npx --workspace @designer/app playwright install --with-deps chromium
+      - name: regenerate baselines
+        run: npm --workspace @designer/app run test:visual:update
+      - name: commit baselines
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Discard the regenerated lockfile so the macOS-authored one
+          # stays canonical; only the screenshots are committed.
+          git checkout -- package-lock.json
+          git add packages/app/src/test/visual/__screenshots__
+          if git diff --cached --quiet; then
+            echo "No baseline changes."
+          else
+            git commit -m "chore: regenerate visual regression baselines"
+            git push origin HEAD:${{ steps.target.outputs.branch }}
+          fi

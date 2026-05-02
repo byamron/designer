@@ -27,6 +27,7 @@ import type {
   TrackId,
   TrackState,
   TrackSummary,
+  UnlinkRepoRequest,
   Workspace,
   WorkspaceId,
   WorkspaceSummary,
@@ -61,6 +62,7 @@ export interface MockCore {
     workspaceId: WorkspaceId,
     tabId: TabId,
   ): ArtifactSummary[];
+  listSpineArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
   listPinnedArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
   getArtifact(id: ArtifactId): ArtifactDetail;
   togglePinArtifact(id: ArtifactId): boolean;
@@ -70,6 +72,7 @@ export interface MockCore {
   postedMessages(): PostMessageRequest[];
   // Phase 13.E
   linkRepo(req: LinkRepoRequest): void;
+  unlinkRepo(req: UnlinkRepoRequest): void;
   startTrack(req: StartTrackRequest): TrackId;
   requestMerge(req: RequestMergeRequest): number;
   listTracks(workspaceId: WorkspaceId): TrackSummary[];
@@ -421,6 +424,28 @@ export function createMockCore(): MockCore {
         })
         .map(({ payload: _p, ...rest }) => rest);
     },
+    listSpineArtifacts(workspaceId) {
+      // Mirror the Rust SPINE_ARTIFACT_KINDS / SPINE_AUTHOR_ROLES so dev
+      // mode + tests behave the same as production. The mock has no
+      // settings layer; the show-all flag stays off.
+      const allowed = new Set([
+        "spec",
+        "prototype",
+        "code-change",
+        "pr",
+      ] as const);
+      const allowedRoles = new Set(["recap", "auditor"]);
+      return artifacts
+        .filter((a) => a.workspace_id === workspaceId)
+        .filter(
+          (a) =>
+            allowed.has(a.kind as "spec" | "prototype" | "code-change" | "pr") ||
+            (a.kind === "report" &&
+              a.author_role !== null &&
+              allowedRoles.has(a.author_role)),
+        )
+        .map(({ payload: _p, ...rest }) => rest);
+    },
     listPinnedArtifacts(workspaceId) {
       return artifacts
         .filter((a) => a.workspace_id === workspaceId && a.pinned)
@@ -545,6 +570,18 @@ export function createMockCore(): MockCore {
         stream_id: w.id,
         timestamp: now(),
         summary: `Linked ${req.repo_path}`,
+      });
+    },
+    unlinkRepo(req) {
+      const w = workspaces.find((w) => w.id === req.workspace_id);
+      if (!w) throw new Error(`workspace not found: ${req.workspace_id}`);
+      if (!w.worktree_path) return;
+      w.worktree_path = null;
+      emit({
+        kind: "workspace_worktree_detached",
+        stream_id: w.id,
+        timestamp: now(),
+        summary: "Unlinked repo",
       });
     },
     startTrack(req) {

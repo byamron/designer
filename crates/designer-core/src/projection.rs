@@ -13,6 +13,39 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use thiserror::Error;
 
+/// Artifact kinds that always land in the activity spine — substantive
+/// artifacts a user opens to inspect or pin. Tool-use `Report` artifacts
+/// (per-Read/Edit `Used <X>` cards from 13.G) are intentionally absent;
+/// they're useful inline in the thread but turn the spine into a firehose
+/// when surfaced as standalone rows.
+pub const SPINE_ARTIFACT_KINDS: &[ArtifactKind] = &[
+    ArtifactKind::Spec,
+    ArtifactKind::Prototype,
+    ArtifactKind::CodeChange,
+    ArtifactKind::Pr,
+];
+
+/// `author_role` values that promote a `Report` artifact into the spine.
+/// Recap + auditor are the meaningful synthesis surfaces; everything else
+/// (tool-use, helper warmup, etc.) stays in the thread.
+pub const SPINE_AUTHOR_ROLES: &[&str] = &["recap", "auditor"];
+
+/// Should this artifact appear in the activity spine? Returns `true` for
+/// allowlisted kinds, plus `Report` artifacts authored by `recap` /
+/// `auditor`. Filter only — `archived_at` / workspace scoping is the
+/// caller's responsibility.
+pub fn artifact_belongs_in_spine(a: &Artifact) -> bool {
+    if SPINE_ARTIFACT_KINDS.contains(&a.kind) {
+        return true;
+    }
+    if matches!(a.kind, ArtifactKind::Report) {
+        if let Some(role) = a.author_role.as_deref() {
+            return SPINE_AUTHOR_ROLES.contains(&role);
+        }
+    }
+    false
+}
+
 #[derive(Debug, Error)]
 pub enum ProjectionError {
     #[error("projection '{0}' inconsistent: {1}")]
@@ -119,6 +152,20 @@ impl Projector {
                 ArtifactKind::Message => a.tab_id == Some(tab_id),
                 _ => true,
             })
+            .cloned()
+            .collect()
+    }
+
+    /// Artifacts for the activity spine — same as `artifacts_in`, but
+    /// filtered to substantive kinds. `show_all` bypasses the filter for
+    /// debugging (mirrors the `show_all_artifacts_in_spine` feature flag).
+    pub fn spine_artifacts_in(&self, workspace_id: WorkspaceId, show_all: bool) -> Vec<Artifact> {
+        self.inner
+            .read()
+            .artifacts
+            .values()
+            .filter(|a| a.workspace_id == workspace_id && a.archived_at.is_none())
+            .filter(|a| show_all || artifact_belongs_in_spine(a))
             .cloned()
             .collect()
     }
@@ -249,6 +296,11 @@ impl Projection for Projector {
             EventPayload::WorkspaceWorktreeAttached { workspace_id, path } => {
                 if let Some(w) = state.workspaces.get_mut(workspace_id) {
                     w.worktree_path = Some(path.clone());
+                }
+            }
+            EventPayload::WorkspaceWorktreeDetached { workspace_id } => {
+                if let Some(w) = state.workspaces.get_mut(workspace_id) {
+                    w.worktree_path = None;
                 }
             }
             EventPayload::TabOpened {

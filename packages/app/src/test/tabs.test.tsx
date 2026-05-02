@@ -112,6 +112,176 @@ describe("Tab close", () => {
       ).toBe(initialCount - 1);
     });
   });
+
+  // Friction frc_019de6fc — the close-tab button + ⌘W both did nothing.
+  // ⌘W only fired when focus was on the tab button itself; the user
+  // expects a global keystroke to close the active tab regardless of
+  // where focus is.
+  it("⌘W closes the active tab when focus is in the composer", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>("button.workspace-row")!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBeGreaterThan(0),
+    );
+    // Open a second tab so closing one leaves a non-empty bar (and
+    // ⌘W has an unambiguous active tab to act on).
+    const plusBtn = document.querySelector<HTMLButtonElement>(
+      ".new-tab button[aria-label='New tab']",
+    );
+    fireEvent.click(plusBtn!);
+    await waitFor(() => {
+      expect(plusBtn!.getAttribute("aria-busy")).not.toBe("true");
+    });
+
+    const before = document.querySelectorAll('.tabs-bar [role="tab"]').length;
+    expect(before).toBeGreaterThanOrEqual(2);
+
+    // Move focus into the composer textarea — this is the case the
+    // friction report described (typing, then hitting ⌘W).
+    await waitFor(() =>
+      expect(document.querySelector("textarea.compose__input")).not.toBeNull(),
+    );
+    document.querySelector<HTMLTextAreaElement>("textarea.compose__input")!
+      .focus();
+
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBe(before - 1);
+    });
+  });
+});
+
+// Friction frc_019de6fd — switching tabs flashed an empty-state
+// suggestion strip before settling on the destination tab's content.
+// Once a tab has been "started" (a message was sent), switching back
+// must paint the thread synchronously on the first frame.
+describe("Tab switch does not flash empty state (frc_019de6fd)", () => {
+  it("a started tab paints the thread on the first render of a remount", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>("button.workspace-row")!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBeGreaterThan(0),
+    );
+
+    // Make sure two tabs exist — we'll switch between them.
+    const plusBtn = document.querySelector<HTMLButtonElement>(
+      ".new-tab button[aria-label='New tab']",
+    );
+    fireEvent.click(plusBtn!);
+    await waitFor(() => {
+      expect(plusBtn!.getAttribute("aria-busy")).not.toBe("true");
+    });
+
+    // Mark the currently active tab as "started" by sending a
+    // message. The send flips the per-tab `tabStartedById` flag in the
+    // app store so the suggestion strip never reappears on remount.
+    const composer = document.querySelector<HTMLTextAreaElement>(
+      "textarea.compose__input",
+    );
+    expect(composer).not.toBeNull();
+    fireEvent.change(composer!, { target: { value: "hi" } });
+    fireEvent.keyDown(composer!, { key: "Enter", metaKey: true });
+    await waitFor(() => {
+      // After send the suggestion list is gone — thread mode is on.
+      expect(document.querySelector(".thread--suggestions")).toBeNull();
+    });
+
+    // Switch to the other tab, then back. The destination tab must
+    // not flash the suggestion-list empty state — we assert there is
+    // no suggestion list synchronously after the switch.
+    const tabs = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.tabs-bar [role="tab"]'),
+    );
+    expect(tabs.length).toBeGreaterThanOrEqual(2);
+    const activeIdx = tabs.findIndex(
+      (t) => t.getAttribute("data-active") === "true",
+    );
+    const otherIdx = activeIdx === 0 ? 1 : 0;
+    fireEvent.click(tabs[otherIdx]);
+    fireEvent.click(tabs[activeIdx]);
+    // First frame after the switch back: the thread must already be
+    // mounted, not the suggestion strip.
+    expect(document.querySelector(".thread--suggestions")).toBeNull();
+  });
+});
+
+// Friction frc_019de703 — typing in tab A, switching to tab B, and
+// switching back lost the in-progress draft. The composer state must
+// be persisted per-tab in the app store.
+describe("Composer drafts persist across tab switches (frc_019de703)", () => {
+  it("preserves the textarea content when leaving and returning to a tab", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>("button.workspace-row")!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBeGreaterThan(0),
+    );
+    const plusBtn = document.querySelector<HTMLButtonElement>(
+      ".new-tab button[aria-label='New tab']",
+    );
+    fireEvent.click(plusBtn!);
+    await waitFor(() => {
+      expect(plusBtn!.getAttribute("aria-busy")).not.toBe("true");
+    });
+
+    const tabs = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.tabs-bar [role="tab"]'),
+    );
+    expect(tabs.length).toBeGreaterThanOrEqual(2);
+    const activeIdx = tabs.findIndex(
+      (t) => t.getAttribute("data-active") === "true",
+    );
+    const otherIdx = activeIdx === 0 ? 1 : 0;
+
+    // Type a distinctive draft into tab A.
+    const composer = document.querySelector<HTMLTextAreaElement>(
+      "textarea.compose__input",
+    );
+    expect(composer).not.toBeNull();
+    fireEvent.change(composer!, { target: { value: "draft for tab A" } });
+    expect(composer!.value).toBe("draft for tab A");
+
+    // Switch to tab B.
+    fireEvent.click(tabs[otherIdx]);
+    await waitFor(() => {
+      const t = document.querySelector<HTMLTextAreaElement>(
+        "textarea.compose__input",
+      );
+      // Tab B's composer is a fresh instance with its own (empty) draft.
+      expect(t).not.toBeNull();
+      expect(t!.value).toBe("");
+    });
+
+    // Switch back to tab A. The draft should be restored.
+    fireEvent.click(tabs[activeIdx]);
+    await waitFor(() => {
+      const t = document.querySelector<HTMLTextAreaElement>(
+        "textarea.compose__input",
+      );
+      expect(t).not.toBeNull();
+      expect(t!.value).toBe("draft for tab A");
+    });
+  });
 });
 
 // T1 — burst clicks on the + button must not produce duplicate tabs.

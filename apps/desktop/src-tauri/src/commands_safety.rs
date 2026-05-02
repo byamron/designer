@@ -35,12 +35,14 @@ pub struct CostChipPreferences {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureFlagsResponse {
     pub show_models_section: bool,
+    pub show_all_artifacts_in_spine: bool,
 }
 
 impl From<&FeatureFlags> for FeatureFlagsResponse {
     fn from(f: &FeatureFlags) -> Self {
         FeatureFlagsResponse {
             show_models_section: f.show_models_section,
+            show_all_artifacts_in_spine: f.show_all_artifacts_in_spine,
         }
     }
 }
@@ -113,6 +115,9 @@ pub fn cmd_set_feature_flag(
     let mut settings = Settings::load(&core.config.data_dir);
     match name.as_str() {
         "show_models_section" => settings.feature_flags.show_models_section = enabled,
+        "show_all_artifacts_in_spine" => {
+            settings.feature_flags.show_all_artifacts_in_spine = enabled
+        }
         other => {
             return Err(IpcError::invalid_request(format!(
                 "unknown feature flag: {other}"

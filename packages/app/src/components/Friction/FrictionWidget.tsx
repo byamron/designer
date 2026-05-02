@@ -23,8 +23,23 @@ interface ToastState {
 interface ScreenshotState {
   bytes: Uint8Array;
   filename: string;
+  /**
+   * `data:image/...` URL used as the preview <img>'s src. We use a
+   * data URL rather than `URL.createObjectURL` because the bundled
+   * window's CSP only whitelists `'self' data:` for img-src — a
+   * `blob:` URL silently fails to load (the friction report user saw
+   * an empty preview after dropping a file). data URLs are slower
+   * for huge images but the screenshot path here is < 1MB in
+   * practice, and the bytes are still kept separately for upload.
+   */
   previewUrl: string;
 }
+
+/**
+ * Maximum image size for the friction preview. Above this, the file
+ * is rejected with an inline error rather than silently failing.
+ */
+const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024; // 10 MB
 
 const HIDDEN_STYLE: React.CSSProperties = { visibility: "hidden" };
 
@@ -73,39 +88,28 @@ export function FrictionWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
-  // Final cleanup on unmount: revoke any in-flight object URL so route
-  // swaps / hot reloads don't leak the previewed PNG. The closure captures
-  // the *current* screenshot via state-setter access, so we don't need a
-  // ref-mirror.
-  useEffect(() => {
-    return () => {
-      setScreenshot((cur) => {
-        if (cur) URL.revokeObjectURL(cur.previewUrl);
-        return null;
-      });
-    };
-  }, []);
-
-  const adoptScreenshot = useCallback((bytes: Uint8Array, filename: string) => {
-    setScreenshot((prev) => {
-      if (prev) URL.revokeObjectURL(prev.previewUrl);
-      // The inner `Uint8Array(bytes)` forces an ArrayBuffer backing —
-      // TS rejects the bare `Uint8Array` because its buffer could be
-      // SharedArrayBuffer-typed, which `Blob` doesn't accept.
-      const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
-      return {
-        bytes,
-        filename,
-        previewUrl: URL.createObjectURL(blob),
-      };
-    });
-  }, []);
+  const adoptScreenshot = useCallback(
+    (bytes: Uint8Array, filename: string, mimeType: string = "image/png") => {
+      // Build a data: URL for the preview — `blob:` URLs are blocked
+      // by the Tauri window CSP (img-src 'self' data:), so an
+      // object-URL preview silently 404s. The byte buffer is still
+      // kept verbatim for upload.
+      let binary = "";
+      // Chunk the loop to avoid blowing the stack on large buffers
+      // when calling String.fromCharCode.apply with the spread form.
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const end = Math.min(i + chunkSize, bytes.length);
+        binary += String.fromCharCode(...bytes.subarray(i, end));
+      }
+      const dataUrl = `data:${mimeType};base64,${btoa(binary)}`;
+      setScreenshot({ bytes, filename, previewUrl: dataUrl });
+    },
+    [],
+  );
 
   const clearScreenshot = useCallback(() => {
-    setScreenshot((prev) => {
-      if (prev) URL.revokeObjectURL(prev.previewUrl);
-      return null;
-    });
+    setScreenshot(null);
   }, []);
 
   // Reset on full close. We avoid touching `screenshot` while bouncing into
@@ -132,6 +136,36 @@ export function FrictionWidget() {
     }
   }, [visible, hiddenForCapture]);
 
+  // Validates an incoming file, reads its bytes, and feeds the
+  // screenshot pipeline. Centralized so paste / pick / drop all
+  // surface the same inline error shape on rejection rather than
+  // silently dropping the file (the friction report's "no feedback"
+  // root cause).
+  const ingestFile = useCallback(
+    async (file: File): Promise<void> => {
+      if (!file.type.startsWith("image/")) {
+        setToast({
+          kind: "failed",
+          message: "Only image files are supported.",
+        });
+        return;
+      }
+      if (file.size > MAX_SCREENSHOT_BYTES) {
+        const mb = (file.size / (1024 * 1024)).toFixed(1);
+        setToast({
+          kind: "failed",
+          message: `Image too large (${mb} MB; max 10 MB).`,
+        });
+        return;
+      }
+      const buf = new Uint8Array(await file.arrayBuffer());
+      adoptScreenshot(buf, file.name || "image.png", file.type);
+      // Clear any prior failure toast — a successful ingest replaces it.
+      setToast((prev) => (prev?.kind === "failed" ? null : prev));
+    },
+    [adoptScreenshot],
+  );
+
   // Paste handler — clipboard image becomes the screenshot.
   useEffect(() => {
     if (!visible) return;
@@ -142,31 +176,40 @@ export function FrictionWidget() {
       e.preventDefault();
       const file = imageItem.getAsFile();
       if (!file) return;
-      const buf = new Uint8Array(await file.arrayBuffer());
-      adoptScreenshot(buf, file.name || "paste.png");
+      await ingestFile(file);
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [visible, adoptScreenshot]);
+  }, [visible, ingestFile]);
 
   const onPickFile = useCallback(
     async (file: File | null | undefined) => {
       if (!file) return;
-      const buf = new Uint8Array(await file.arrayBuffer());
-      adoptScreenshot(buf, file.name);
+      await ingestFile(file);
     },
-    [adoptScreenshot],
+    [ingestFile],
   );
 
-  const onDrop = useCallback(
+  // Lift drag/drop onto the *entire* widget (not just the small
+  // screenshot row) so the user can drop anywhere on the floating
+  // composer. The original drop zone was a ~40px row at the bottom,
+  // which is the proximate cause of "the file drop … doesn't work":
+  // most drops landed on the textarea or the header and were lost
+  // to the browser's default file-handling. preventDefault on
+  // dragOver is what keeps the browser from navigating to the file.
+  const onWidgetDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const onWidgetDrop = useCallback(
     async (e: React.DragEvent) => {
       e.preventDefault();
       const file = e.dataTransfer.files?.[0];
       if (!file) return;
-      const buf = new Uint8Array(await file.arrayBuffer());
-      adoptScreenshot(buf, file.name);
+      await ingestFile(file);
     },
-    [adoptScreenshot],
+    [ingestFile],
   );
 
   // ⌘⇧S — capture the viewport. Hides the composer for one paint frame so
@@ -227,6 +270,12 @@ export function FrictionWidget() {
   // the toast to "Filed as #abc123" once the projection confirms the
   // report. Effect-managed so React tears the subscription down on
   // unmount or follow-up submits without leaking listeners.
+  //
+  // Closing cadence: the previous 2200 ms idle wait felt like a hang
+  // (friction frc_019de6f8). The widget now cross-fades to a "Filed."
+  // slab using --motion-emphasized (400 ms), holds briefly so the
+  // confirmation registers, then unmounts. Total ~650 ms — fast
+  // enough to feel snappy, long enough to read.
   useEffect(() => {
     if (!submittedId) return;
     const tail = submittedId.slice(-6);
@@ -240,8 +289,7 @@ export function FrictionWidget() {
         linkToTriage: true,
       });
     });
-    // Close the widget after a beat so the user sees the upgrade.
-    const closeTimer = window.setTimeout(clearFriction, 2200);
+    const closeTimer = window.setTimeout(clearFriction, 650);
     return () => {
       unsubscribe();
       window.clearTimeout(closeTimer);
@@ -295,6 +343,8 @@ export function FrictionWidget() {
       role="dialog"
       aria-label="Capture friction"
       aria-keyshortcuts="Meta+Enter Meta+Shift+S Meta+Period Escape"
+      onDragOver={onWidgetDragOver}
+      onDrop={onWidgetDrop}
     >
       <div className="friction-widget__header">
         <span className="friction-widget__title">Friction</span>
@@ -364,14 +414,17 @@ export function FrictionWidget() {
         data-component="FrictionWidgetBody"
       />
 
-      <div
-        className="friction-widget__screenshot"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={onDrop}
-      >
+      <div className="friction-widget__screenshot">
         {screenshot ? (
-          <div className="friction-widget__shot-preview">
-            <img src={screenshot.previewUrl} alt="screenshot preview" />
+          <div
+            className="friction-widget__shot-preview"
+            data-component="FrictionWidgetPreview"
+          >
+            <img
+              src={screenshot.previewUrl}
+              alt="screenshot preview"
+              key={screenshot.previewUrl}
+            />
             <button
               type="button"
               className="friction-widget__shot-clear"
@@ -455,6 +508,20 @@ export function FrictionWidget() {
           </span>
         ))}
       </div>
+
+      {submittedId && (
+        // The slab is a *visual* confirmation; the existing toast
+        // (role="status" aria-live="polite") owns the SR announcement.
+        // Two simultaneous polite live-regions get either de-duped or
+        // read twice — both are bad. Keep the slab silent for AT.
+        <div
+          className="friction-widget__filed-slab"
+          data-component="FrictionFiledSlab"
+          aria-hidden="true"
+        >
+          <span>Filed.</span>
+        </div>
+      )}
     </div>
   );
 }
