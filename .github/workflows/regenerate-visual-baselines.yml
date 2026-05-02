@@ -7,7 +7,14 @@ name: regenerate-visual-baselines
 # CI job sees on ubuntu-latest. Running this workflow rebuilds them on a
 # Linux runner and commits the result back to the chosen branch.
 #
-# Usage: gh workflow run regenerate-visual-baselines.yml -f branch=<branch>
+# Usage:
+#   gh workflow run regenerate-visual-baselines.yml -f branch=<branch>
+#   (only works after this workflow file has landed on the default branch)
+#
+# Also fires automatically on the first push to the `visual-regression`
+# bootstrap branch — needed because workflow_dispatch can't be triggered
+# from a PR before the workflow file is on `main`. Once baselines exist
+# the auto-trigger no-ops (the commit step skips when nothing changed).
 
 on:
   workflow_dispatch:
@@ -16,6 +23,12 @@ on:
         description: Branch to regenerate baselines on
         required: true
         default: visual-regression
+  push:
+    branches: [visual-regression]
+    paths:
+      - 'packages/app/src/test/visual/**'
+      - 'packages/app/vitest.visual.config.ts'
+      - '.github/workflows/regenerate-visual-baselines.yml'
 
 jobs:
   regenerate:
@@ -23,9 +36,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: resolve target branch
+        id: target
+        run: |
+          if [ -n "${{ inputs.branch }}" ]; then
+            echo "branch=${{ inputs.branch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ steps.target.outputs.branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@v4
         with:
@@ -45,5 +66,5 @@ jobs:
             echo "No baseline changes."
           else
             git commit -m "chore: regenerate visual regression baselines"
-            git push origin HEAD:${{ inputs.branch }}
+            git push origin HEAD:${{ steps.target.outputs.branch }}
           fi
