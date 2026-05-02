@@ -34,6 +34,8 @@ jobs:
   build:
     name: build / ${{ matrix.target }}
     runs-on: macos-latest
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -60,9 +62,27 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # tauri-action's notarization step needs the App Store Connect API
+      # key as a file on disk (APPLE_API_KEY_PATH), not as an env-var
+      # blob. We hold the .p8 contents in the APPLE_API_KEY secret and
+      # materialize it here under a path the next step references.
+      - name: Materialize Apple API key
+        env:
+          APPLE_API_KEY_CONTENTS: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          mkdir -p ~/private_keys
+          KEY_PATH="$HOME/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY_CONTENTS" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
       - name: Build Designer (sign + notarize + bundle)
         uses: tauri-apps/tauri-action@v0
         env:
+          # GitHub release upload — without this tauri-action errors at
+          # the publish step with "GITHUB_TOKEN is required".
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Apple Developer ID signing — the bundler imports the .p12
           # into a temporary keychain and signs every binary in the
           # bundle with the named identity before the DMG is built.
@@ -73,8 +93,9 @@ jobs:
           # Notarization via App Store Connect API key. tauri-action
           # invokes notarytool which uploads the bundle, polls for
           # acceptance, and staples the ticket on success.
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          # APPLE_API_KEY here is the 10-char Key ID; the .p8 file is
+          # at APPLE_API_KEY_PATH (set by the previous step).
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
           # Tauri updater minisign keypair — separate from the Apple
           # cert. Used to sign the `.app.tar.gz` updater artifact + the
