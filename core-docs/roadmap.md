@@ -959,6 +959,47 @@ The user can: ⌘⇧F → submit a friction note → see it in the master list a
 #### Done when
 The user can hit ⌘⇧F, type a sentence, hit ⌘↵, and have a friction record persisted in <2s with zero DOM-walking. The 📍 button or ⌘. exposes the existing anchor flow as opt-in. No silent grace period; instructions are visible at all times. The toast confirms the persisted ID rather than implying it.
 
+### Track 13.N — Friction → agent loop follow-ups *(post-PR #67; non-blocking; pull as bandwidth allows)*
+
+**Why:** PR #67 shipped the dogfood loop end to end (file friction in app → fix from `designer` CLI → mark addressed → row updates live). Three larger items were called out in the PR body and the in-PR review and explicitly deferred. They're small enough not to block 13.M completion but big enough to need a name on the roadmap so they don't get lost.
+
+#### N.1 — Bundle the `designer` CLI inside Designer.app
+
+**Why:** today the CLI ships via `cargo install --path crates/designer-cli` (wrapped in `scripts/install-cli.sh`). Works for devs with Rust installed; non-dev users have no path. Until this lands, the agent loop is dev-only.
+
+**Steps:**
+- Configure Tauri's `bundle.externalBin` in `tauri.conf.json` to ship `designer-<target-triple>` in `Designer.app/Contents/Resources/`.
+- Pre-build hook (or CI step) that runs `cargo build -p designer-cli --release --target <target>` and renames the binary to the suffixed form Tauri expects.
+- In-app affordance in Settings → Account (or a new "CLI" section): detect whether `designer` is on PATH; if not, offer to symlink the bundled binary into `~/.local/bin/designer` (no sudo needed).
+- Update `scripts/install-cli.sh` to skip the symlink step when running inside the app bundle context.
+- Codesign + notarize the bundled binary as part of 16.R.
+
+**Done when:** a non-dev user can install Designer.app, open Settings → CLI, click "Install on PATH", and have `designer friction list` work in their next terminal session.
+
+#### N.2 — Friction triage row action consolidation
+
+**Why:** open rows now have five buttons (Mark addressed · Mark resolved · Show in Finder · Copy path · Copy prompt). Wraps at narrow widths and is approaching cognitive overload. The two state actions are the primary verbs; the three file/path actions are secondary.
+
+**Steps:**
+- Keep the two state-transition buttons inline (Mark addressed, Mark resolved / Reopen — depending on row state).
+- Collapse the three file actions (Show in Finder, Copy path, Copy prompt) into a single icon-button with a popover menu — pattern matches `IconButton` + the workspace sidebar overflow menu.
+- Tooltip on the trigger: "File actions"; ⌘⌥F or similar shortcut from row focus to open it.
+- Accessibility: menu uses `role="menu"`; arrow-key nav between items; ESC to close.
+
+**Done when:** the row never wraps at the default Settings width (≥640px main column); all five actions still reachable in ≤2 clicks and via keyboard.
+
+#### N.3 — fs-watcher self-trigger guard
+
+**Why:** the watcher in `apps/desktop/src-tauri/src/store_watcher.rs` fires on the desktop's *own* writes too, causing one redundant `list_friction()` per state transition. Cheap (small payload, in-process projection) but real overhead at scale and slightly noisy in tracing logs.
+
+**Steps:**
+- Track the last sequence the in-process event bridge has emitted (per stream or just a max).
+- On a watcher tick, peek at events.db's max sequence; if it equals (or trails) the bridge's last-emitted, skip the `store-changed` emit.
+- Keep the 500ms debounce as the outer cap.
+- Test with a tempdir-backed store: assert that an in-process append + emit produces zero `store-changed` notifications, and an externally-injected event produces exactly one.
+
+**Done when:** running the desktop app with the FE Friction tab open and clicking *Mark resolved* triggers exactly one frontend re-fetch (the optimistic update), not two.
+
 ---
 
 ## Phase 14 — Sync transport *(parallel with Phase 13 or 15)* (gap G10)

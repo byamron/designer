@@ -85,3 +85,40 @@ The compliance invariants in `spec.md` §5 are non-negotiable. Compliance checks
 - **Any mobile-related work** — verify the mobile client remains a remote control for the user's desktop, not a cloud-hosted Claude.
 
 If a proposed change would violate any invariant, stop and surface it to the user before proceeding.
+
+## Friction → agent loop
+
+The desktop's Friction triage page (Settings → Activity → Friction) and the `designer` CLI form a closed dogfood loop: file friction in the app, fix it from any agent that can run a subprocess.
+
+### One-time setup
+
+```sh
+./scripts/install-cli.sh
+```
+
+This `cargo install`s the `designer` CLI into `~/.cargo/bin`. Re-run to upgrade after pulling.
+
+### The loop
+
+1. **In the app** — press ⌘⇧F to file. The record lands at `<linked-repo>/.designer/friction/<id>.md` (or `~/.designer/friction/<id>.md` if no repo is linked) with optional PNG sidecar. The path is gitignored automatically when a repo is first linked.
+2. **From any agent** — read the inbox:
+   ```sh
+   designer friction list --state open --json
+   ```
+   For one-off triage you can also click *Copy prompt* on a row in the triage page; it puts a self-contained prompt on the clipboard (path + close-the-loop CLI command).
+3. **Fix → PR** — normal workflow.
+4. **Close the loop** — mark addressed:
+   ```sh
+   designer friction address frc_<id> --pr https://github.com/owner/repo/pull/123
+   ```
+   The running app picks this up automatically (the Rust core watches `events.db` and re-fetches the FE list within ~500ms of the CLI write).
+5. **After the PR merges and you've verified the fix:**
+   ```sh
+   designer friction resolve frc_<id>
+   ```
+
+### Why a CLI (not just files)
+
+The state machine (Open → Addressed → Resolved → Open) lives in the event store, not in the markdown. `ls .designer/friction/` shows every report ever filed; `designer friction list --state open` shows just the actionable ones, and `designer friction address|resolve|reopen` go through the same event vocabulary as the in-app buttons so the running app stays consistent.
+
+For overrides and flags see `designer help`.

@@ -22,6 +22,7 @@ use designer_desktop::core_proposals::spawn_track_completed_subscriber;
 use designer_desktop::events::spawn_event_bridge;
 use designer_desktop::menu::{build_menu, MENU_ID_FEEDBACK, MENU_ID_NEW_PROJECT};
 use designer_desktop::settings::{ResolvedTheme, Settings};
+use designer_desktop::store_watcher::spawn_store_watcher;
 use designer_desktop::{crash, AppConfig, AppCore};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -220,6 +221,12 @@ fn main() {
             // user-facing surface refreshes between contexts, not
             // mid-task.
             spawn_track_completed_subscriber(core.inner().clone());
+
+            // Watch `<data_dir>/events.db` for external mutations (the
+            // `designer` CLI, manual sqlite edits during dogfood, etc.)
+            // and emit `designer://store-changed` so derived UIs like
+            // the Friction triage list re-fetch without a tab bounce.
+            spawn_store_watcher(handle.clone(), core.inner().config.data_dir.clone());
 
             Ok(())
         })

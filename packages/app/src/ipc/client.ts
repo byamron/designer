@@ -89,6 +89,12 @@ export interface IpcClient {
   /// clipboard copy when the Tauri runtime isn't available so the user
   /// can paste the path into a Finder "Go to Folder" prompt.
   revealInFinder(path: string): Promise<void>;
+  /// Subscribe to `designer://store-changed`, which the Rust core emits
+  /// (debounced ~500ms) when an external process mutates the on-disk
+  /// event log — typically the `designer` CLI's `friction address|
+  /// resolve|reopen` subcommands. Listeners refetch derived data so the
+  /// UI doesn't drift from disk. Returns an unsubscribe fn.
+  onStoreChanged(handler: () => void): () => void;
   // Learning layer (Phase 21.A1)
   listFindings(projectId: ProjectId): Promise<FindingDto[]>;
   /** @deprecated Phase 21.A1.2 — calibration thumbs move to `signalProposal`. */
@@ -139,6 +145,7 @@ export interface FeatureFlags {
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
+export const STORE_CHANGED_CHANNEL = "designer://store-changed";
 
 class TauriIpcClient implements IpcClient {
   listProjects() {
@@ -255,6 +262,9 @@ class TauriIpcClient implements IpcClient {
       console.warn("reveal_in_finder failed; copying path", err);
       await navigator.clipboard.writeText(path).catch(() => {});
     }
+  }
+  onStoreChanged(handler: () => void) {
+    return listen<unknown>(STORE_CHANGED_CHANNEL, () => handler());
   }
   listFindings(projectId: ProjectId) {
     return invoke<FindingDto[]>("cmd_list_findings", { projectId });
@@ -424,6 +434,11 @@ class MockIpcClient implements IpcClient {
   async revealInFinder(path: string) {
     // Web/test runtime: copy the path so the user can paste into Finder.
     await navigator.clipboard?.writeText?.(path).catch(() => {});
+  }
+  onStoreChanged(_handler: () => void) {
+    // Mock runtime: no fs-watch source. Return a noop unsubscribe so
+    // tests don't have to special-case the absence.
+    return () => {};
   }
   listFindings(_projectId: ProjectId) {
     return Promise.resolve<FindingDto[]>([]);

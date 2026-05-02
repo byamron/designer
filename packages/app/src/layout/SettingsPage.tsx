@@ -17,7 +17,7 @@ import {
   type ThemeMode,
 } from "../theme";
 import { ipcClient } from "../ipc/client";
-import type { FrictionEntry, KeychainStatus } from "../ipc/types";
+import type { FrictionEntry, FrictionState, KeychainStatus } from "../ipc/types";
 import { COST_CHIP_PREFERENCE_EVENT } from "../components/CostChip";
 
 /**
@@ -526,6 +526,11 @@ const FILTERS: FilterDef[] = [
 
 type RowAction = "address" | "resolve" | "reopen" | "show-record" | "show-screenshot";
 
+// Slightly longer than `--motion-emphasized` (400ms) so the
+// `data-just-updated` attribute lingers a beat past the animation —
+// avoids the attribute clearing mid-frame and aborting the flash.
+const FLASH_TIMER_MS = 600;
+
 /// Parse a GitHub PR URL into `owner/repo#123` for the row-meta chip.
 /// Returns the raw host fallback if the URL doesn't match the expected
 /// shape — better to surface *something* than to drop the chip silently.
@@ -540,12 +545,66 @@ function shortPrLabel(url: string): string {
   }
 }
 
-function FrictionTriageSection() {
+/// Exported so the test suite can mount the section in isolation
+/// without booting the full SettingsPage.
+export function FrictionTriageSection() {
   const [entries, setEntries] = useState<FrictionEntry[] | null>(null);
   const [filter, setFilter] = useState<FrictionFilter>("open");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [addressTarget, setAddressTarget] = useState<FrictionEntry | null>(null);
+  // Highlight rows whose state changed since the last fetch so an
+  // external refresh (CLI write, optimistic update) is *visible*. Set
+  // is the source of truth; per-id timers in the ref clear entries
+  // ~1.8s after they're added.
+  const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(() => new Set());
+  const prevStateRef = useRef<Map<string, FrictionState> | null>(null);
+  const flashTimersRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (entries === null) return;
+    const next = new Map(entries.map((e) => [e.friction_id, e.state] as const));
+    const prev = prevStateRef.current;
+    prevStateRef.current = next;
+    // First fetch is the baseline — don't flash everything on mount.
+    if (prev === null) return;
+    const changed: string[] = [];
+    for (const [id, state] of next) {
+      const before = prev.get(id);
+      // Either a state transition OR a brand-new id (external creation).
+      if (before === undefined || before !== state) changed.push(id);
+    }
+    if (changed.length === 0) return;
+    setRecentlyUpdated((curr) => {
+      const merged = new Set(curr);
+      for (const id of changed) merged.add(id);
+      return merged;
+    });
+    for (const id of changed) {
+      const existing = flashTimersRef.current.get(id);
+      if (existing !== undefined) window.clearTimeout(existing);
+      // Slightly longer than `--motion-emphasized` (400ms) so the
+      // attribute clears after the animation has finished playing.
+      const handle = window.setTimeout(() => {
+        flashTimersRef.current.delete(id);
+        setRecentlyUpdated((curr) => {
+          if (!curr.has(id)) return curr;
+          const next2 = new Set(curr);
+          next2.delete(id);
+          return next2;
+        });
+      }, FLASH_TIMER_MS);
+      flashTimersRef.current.set(id, handle);
+    }
+  }, [entries]);
+  useEffect(
+    () => () => {
+      for (const handle of flashTimersRef.current.values()) {
+        window.clearTimeout(handle);
+      }
+      flashTimersRef.current.clear();
+    },
+    [],
+  );
 
   // Initial load — apply the projection synchronously and auto-fall-through
   // from the default "Open" filter to "All" when there's history but no
@@ -566,6 +625,31 @@ function FrictionTriageSection() {
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Re-fetch when the on-disk event store changes externally — the most
+  // common trigger is the `designer` CLI's `friction address|resolve|
+  // reopen` (the dogfood "ask Claude to fix it" loop). Deliberately
+  // does NOT touch `filter`: external writes shouldn't bounce the user
+  // off the chip they're sitting on.
+  useEffect(() => {
+    let cancelled = false;
+    const off = ipcClient().onStoreChanged(() => {
+      void (async () => {
+        try {
+          const list = await ipcClient().listFriction();
+          if (!cancelled) setEntries(list);
+        } catch {
+          // Swallow — the next refresh (or a manual tab bounce) will
+          // recover. A toast on every transient fs hiccup would be
+          // worse than the silent retry.
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+      off();
     };
   }, []);
 
@@ -637,6 +721,11 @@ function FrictionTriageSection() {
         label="Friction"
         description="Internal feedback captured via the bottom-right button or ⌘⇧F. Records persist as local markdown files in the linked repo (gitignored by default)."
       />
+      <p className="friction-triage__hint">
+        Working with agents? Triage from the terminal with{" "}
+        <code>designer friction list --json</code>, or click <em>Copy prompt</em> on a row.
+        Setup + the full loop are in <code>core-docs/workflow.md</code>.
+      </p>
       <div className="friction-triage__filters">
         <SegmentedToggle<FrictionFilter>
           ariaLabel="Filter friction by state"
@@ -659,6 +748,7 @@ function FrictionTriageSection() {
               entry={e}
               expanded={expanded.has(e.friction_id)}
               busy={busyId === e.friction_id}
+              justUpdated={recentlyUpdated.has(e.friction_id)}
               onToggle={() => toggleExpanded(e.friction_id)}
               onAction={(action) => runAction(e, action)}
             />
@@ -706,12 +796,14 @@ function FrictionRow({
   entry: e,
   expanded,
   busy,
+  justUpdated,
   onToggle,
   onAction,
 }: {
   entry: FrictionEntry;
   expanded: boolean;
   busy: boolean;
+  justUpdated: boolean;
   onToggle: () => void;
   onAction: (action: RowAction) => void | Promise<void>;
 }) {
@@ -719,6 +811,7 @@ function FrictionRow({
     <li
       className="friction-triage__row"
       data-state={e.state}
+      data-just-updated={justUpdated || undefined}
       data-component="FrictionTriageRow"
     >
       <button
@@ -793,6 +886,8 @@ function FrictionRow({
         >
           Show in Finder
         </button>
+        <CopyPathButton path={e.local_path} />
+        <CopyAgentPromptButton entry={e} />
       </div>
       {expanded && (
         <div
@@ -820,6 +915,94 @@ function FrictionRow({
         </div>
       )}
     </li>
+  );
+}
+
+/// Copy `text` to the clipboard and flip the button label to a confirm
+/// state for ~1.4s. Hook so the two row-level copy buttons share one
+/// feedback path without duplicating timer + cleanup wiring.
+function useCopyWithFeedback(): {
+  copied: boolean;
+  copy: (text: string) => Promise<void>;
+} {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    },
+    [],
+  );
+  const copy = async (text: string) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      // Clipboard can fail in non-secure contexts. Stay silent — the
+      // path is also reachable via "Show in Finder", and a thrown alert
+      // would punish a corner case (browser dev preview, no HTTPS).
+    }
+  };
+  return { copied, copy };
+}
+
+/// Copy the on-disk path of the friction record to the clipboard so the
+/// user can paste it into an agent prompt themselves.
+function CopyPathButton({ path }: { path: string }) {
+  const { copied, copy } = useCopyWithFeedback();
+  return (
+    <button
+      type="button"
+      className="btn"
+      disabled={!path}
+      onClick={() => copy(path)}
+      title={path || "No path recorded for this entry"}
+      aria-live="polite"
+    >
+      {copied ? "Copied!" : "Copy path"}
+    </button>
+  );
+}
+
+/// Build a self-contained prompt that hands an external agent (Claude Code,
+/// Codex CLI, etc.) everything needed to read the report and close the
+/// loop with `designer friction address`. The id is baked in so the user
+/// doesn't have to remember the round-trip command.
+function buildAgentPrompt(entry: FrictionEntry): string {
+  const lines = [
+    "Read this Designer friction report and propose a fix:",
+    entry.local_path,
+    "",
+    "After opening a PR, close the loop:",
+    `designer friction address ${entry.friction_id} --pr <PR_URL>`,
+  ];
+  return lines.join("\n");
+}
+
+/// Copy a pre-formatted agent prompt (path + close-the-loop CLI). Sits
+/// next to "Copy path" — the path button is the primitive; this one is
+/// the workflow shortcut for the dogfood "ask Claude to fix it" loop.
+function CopyAgentPromptButton({ entry }: { entry: FrictionEntry }) {
+  const { copied, copy } = useCopyWithFeedback();
+  const disabled = !entry.local_path;
+  return (
+    <button
+      type="button"
+      className="btn"
+      disabled={disabled}
+      onClick={() => copy(buildAgentPrompt(entry))}
+      title={
+        disabled
+          ? "No path recorded for this entry"
+          : "Copy a prompt for Claude / agent CLIs that includes the path and the close-the-loop command"
+      }
+      aria-live="polite"
+    >
+      {copied ? "Copied!" : "Copy prompt"}
+    </button>
   );
 }
 

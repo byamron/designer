@@ -79,6 +79,7 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     reopenFriction: () => Promise.resolve(),
     captureViewport: () => Promise.resolve(new Uint8Array()),
     revealInFinder: () => Promise.resolve(),
+    onStoreChanged: () => () => {},
     listFindings: () => Promise.resolve([]),
     signalFinding: () => Promise.resolve(),
     listProposals: () => Promise.resolve([]),
