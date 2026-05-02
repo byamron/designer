@@ -317,6 +317,14 @@ fn open_url(_url: &str) -> std::io::Result<()> {
 ///
 /// Default level: `info`. Override via `RUST_LOG=designer=debug,…` for a
 /// dev-only deeper trace; the env var is honored if set.
+///
+/// **Privacy.** At the default `info` level the file captures workspace
+/// IDs, subprocess PIDs, the resolved `claude` binary path, message
+/// *lengths* (`body_len`), and any stderr the `claude` subprocess emits.
+/// It deliberately does NOT capture user prompt bodies or claude reply
+/// bodies — `cmd_post_message` and the orchestrator's send-paths log
+/// `body_len`, never `body`. A `RUST_LOG=trace` envelope could surface
+/// more — only enable that during a deliberate diagnostic session.
 fn init_tracing(data_dir: &std::path::Path) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;

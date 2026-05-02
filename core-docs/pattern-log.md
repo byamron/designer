@@ -16,6 +16,14 @@ Each entry is a dated heading plus 3–6 sentences. Focus on the *why*. Referenc
 
 ## Entries
 
+## 2026-05-01 — `ChannelClosed` recovery: respawn-on-insert, not graceful-shutdown-then-respawn
+
+When `Orchestrator::post_message` returns `ChannelClosed` (the `claude` subprocess died and the writer task has gone with it), `core_agents::post_message` recovers by calling `spawn_team` directly — **not** by calling `shutdown` first. The orchestrator's `shutdown` runs a 60-second graceful-exit window (`SHUTDOWN_TIMEOUT` in `claude_code.rs`) that sends a "Clean up the team" prompt and waits for the lead to honor it. A dead lead never honors anything; the recovery would block the user for the full minute every time. `spawn_team`'s `self.teams.lock().insert(...)` overwrites the stale `TeamHandle` and drops it; `kill_on_drop(true)` on the contained `Child` kills the old subprocess synchronously, and the reader/writer/stderr tasks exit on their own when their pipes close. The user's retry "just works" within the message round-trip budget.
+
+Why this asymmetry exists at all: shutdown's graceful prompt is the right behavior for **user-initiated** teardown (close tab, project switch) where the lead is presumed alive. Recovery is **handle-is-known-dead** teardown — no point asking a corpse to clean up. Future code that needs the same fast cleanup should reach for `spawn_team` (idempotent via insert+drop) rather than adding a `shutdown_force` variant. Locked by `channel_closed_respawns_without_graceful_shutdown` + `channel_closed_then_respawn_fails_returns_clean_error` in `core_agents.rs`.
+
+Implication for streamed-tool-call work: per-task events broadcast through the orchestrator's `tx` are NOT preserved across a respawn — the new lead has its own session and no memory of the old one. Phase 13.E+ work that wires per-tool-call status will need to anchor on the event log (single source of truth) rather than assuming the writer task that originated the event is still alive.
+
 ## 2026-04-27 — Phase 21.A1 reuses 13.K's `Anchor` verbatim (no new variants on landing)
 
 Phase 21.A1 (PR #33) was initially developed against a vendored `Anchor` stub because Track 13.K hadn't merged yet. Once 13.K (#34) landed, the rebase dropped the stub and adopted 13.K's enum verbatim — same kebab-case tags, same `rename_all_fields = "camelCase"`, same `FilePath { path: String, ... }`. Phase 21.A1 only uses three of the six variants today (`MessageSpan`, `ToolCall`, `FilePath`); the others (`PrototypePoint`, `PrototypeElement`, `DomElement`) are reserved for 13.K + 15.H. Adding new variants for 21.A2 detector-specific evidence kinds is **explicitly off-limits** — that would be an ADR-level decision. If a detector's evidence doesn't fit the existing six, the conversation moves to ADR 0002 (or a successor), not a per-detector enum tweak.

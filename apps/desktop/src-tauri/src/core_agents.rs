@@ -85,10 +85,15 @@ impl AppCore {
         //    handle is in the orchestrator's map but its writer task has
         //    exited (typically because the `claude` subprocess died —
         //    bundled-`.app` chat-hang regression, see PR debug notes).
-        //    Shut down to clear the stale handle, then re-spawn so the
-        //    user's retry "just works" instead of surfacing the
-        //    second-attempt-only "stdin channel closed" error captured in
-        //    friction frc_019de705-6f55-7fc2-a585-ff7a6259d1c7.
+        //    The recovery path skips the orchestrator's graceful
+        //    `shutdown` (a 60-second wait window for a `Clean up the team`
+        //    prompt that a dead lead will never honor) — `spawn_team`'s
+        //    `self.teams.lock().insert(...)` overwrites the stale handle,
+        //    drops it, and `kill_on_drop(true)` on the old `Child` kills
+        //    the old subprocess synchronously. The reader/writer/stderr
+        //    tasks exit on their own when their pipes close. The user's
+        //    retry "just works" within the message round-trip budget
+        //    instead of staring at "submitting…" for a minute.
         match self
             .orchestrator
             .post_message(workspace_id, USER_AUTHOR_ROLE.into(), body.clone())
@@ -100,11 +105,8 @@ impl AppCore {
                 if matches!(e, OrchestratorError::ChannelClosed { .. }) {
                     info!(
                         %workspace_id,
-                        "post_message hit a stale team handle; clearing and respawning"
+                        "post_message hit a stale team handle; respawning (insert+drop will kill the old child via kill_on_drop)"
                     );
-                    if let Err(shutdown_err) = self.orchestrator.shutdown(workspace_id).await {
-                        warn!(error = %shutdown_err, %workspace_id, "shutdown of stale team failed; spawning anyway");
-                    }
                 }
                 let team_name = format!("workspace-{workspace_id}");
                 // Spawn in the project's repo root so the workspace lead's
@@ -126,9 +128,7 @@ impl AppCore {
                 };
                 if let Err(e) = self.orchestrator.spawn_team(spec).await {
                     warn!(error = %e, %workspace_id, "lazy spawn_team failed");
-                    return Err(CoreError::Invariant(format!(
-                        "orchestrator spawn_team failed: {e}"
-                    )));
+                    return Err(CoreError::Invariant(format!("couldn't reach Claude — {e}")));
                 }
                 if let Err(e) = self
                     .orchestrator
@@ -137,14 +137,14 @@ impl AppCore {
                 {
                     warn!(error = %e, %workspace_id, "post_message after lazy spawn failed");
                     return Err(CoreError::Invariant(format!(
-                        "orchestrator post_message failed: {e}"
+                        "couldn't deliver your message to Claude — {e}"
                     )));
                 }
             }
             Err(e) => {
                 warn!(error = %e, %workspace_id, "orchestrator post_message failed");
                 return Err(CoreError::Invariant(format!(
-                    "orchestrator post_message failed: {e}"
+                    "couldn't deliver your message to Claude — {e}"
                 )));
             }
         }
@@ -697,80 +697,76 @@ mod tests {
         assert_eq!(user_artifacts.len(), 1);
     }
 
-    /// Regression guard for the bundled-`.app` chat-hang.
-    ///
-    /// When `Orchestrator::post_message` returns `ChannelClosed` (the
-    /// claude subprocess died and the writer task has gone with it), the
-    /// post-message path must shut down the stale handle and re-spawn,
-    /// not bubble a confusing "stdin channel closed" error to the chat.
-    /// We exercise this with a stub orchestrator that fails the first
-    /// `post_message` call with `ChannelClosed`, expects a `shutdown`,
-    /// then accepts a `spawn_team` + second `post_message`.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn channel_closed_triggers_shutdown_and_respawn() {
-        use async_trait::async_trait;
-        use designer_claude::{
-            ClaudeSignal, OrchestratorError, OrchestratorResult, TaskAssignment,
-        };
-        use std::sync::atomic::{AtomicU32, Ordering};
-        use tokio::sync::broadcast;
+    /// Reusable stub that returns `ChannelClosed` on the first
+    /// `post_message`, then yields whatever `second_post_result` provides
+    /// for subsequent calls. Tracks call counts so tests can assert the
+    /// recovery shape.
+    #[cfg(test)]
+    struct FlakyOrchestrator {
+        tx: tokio::sync::broadcast::Sender<OrchestratorEvent>,
+        calls: std::sync::atomic::AtomicU32,
+        spawn_calls: std::sync::atomic::AtomicU32,
+        shutdown_calls: std::sync::atomic::AtomicU32,
+        second_post_result: parking_lot::Mutex<Option<designer_claude::OrchestratorError>>,
+    }
 
-        struct FlakyOrchestrator {
-            tx: broadcast::Sender<OrchestratorEvent>,
-            calls: AtomicU32,
-            spawn_calls: AtomicU32,
-            shutdown_calls: AtomicU32,
+    #[cfg(test)]
+    #[async_trait::async_trait]
+    impl designer_claude::Orchestrator for FlakyOrchestrator {
+        async fn spawn_team(&self, _spec: TeamSpec) -> designer_claude::OrchestratorResult<()> {
+            self.spawn_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
         }
-
-        #[async_trait]
-        impl designer_claude::Orchestrator for FlakyOrchestrator {
-            async fn spawn_team(&self, _spec: TeamSpec) -> OrchestratorResult<()> {
-                self.spawn_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-            async fn assign_task(
-                &self,
-                _ws: WorkspaceId,
-                _a: TaskAssignment,
-            ) -> OrchestratorResult<()> {
-                Ok(())
-            }
-            async fn post_message(
-                &self,
-                workspace_id: WorkspaceId,
-                _author_role: String,
-                _body: String,
-            ) -> OrchestratorResult<()> {
-                let n = self.calls.fetch_add(1, Ordering::SeqCst);
-                // First call: the writer is dead — surface ChannelClosed so
-                // the recovery path engages.
-                // Second call: post-recovery — succeed.
-                if n == 0 {
-                    Err(OrchestratorError::ChannelClosed { workspace_id })
-                } else {
-                    Ok(())
+        async fn assign_task(
+            &self,
+            _ws: WorkspaceId,
+            _a: designer_claude::TaskAssignment,
+        ) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
+        async fn post_message(
+            &self,
+            workspace_id: WorkspaceId,
+            _author_role: String,
+            _body: String,
+        ) -> designer_claude::OrchestratorResult<()> {
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n == 0 {
+                Err(designer_claude::OrchestratorError::ChannelClosed { workspace_id })
+            } else {
+                match self.second_post_result.lock().take() {
+                    Some(err) => Err(err),
+                    None => Ok(()),
                 }
             }
-            fn subscribe(&self) -> broadcast::Receiver<OrchestratorEvent> {
-                self.tx.subscribe()
-            }
-            fn subscribe_signals(&self) -> broadcast::Receiver<ClaudeSignal> {
-                let (tx, rx) = broadcast::channel(1);
-                drop(tx);
-                rx
-            }
-            async fn shutdown(&self, _ws: WorkspaceId) -> OrchestratorResult<()> {
-                self.shutdown_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
         }
+        fn subscribe(&self) -> tokio::sync::broadcast::Receiver<OrchestratorEvent> {
+            self.tx.subscribe()
+        }
+        fn subscribe_signals(
+            &self,
+        ) -> tokio::sync::broadcast::Receiver<designer_claude::ClaudeSignal> {
+            let (tx, rx) = tokio::sync::broadcast::channel(1);
+            drop(tx);
+            rx
+        }
+        async fn shutdown(&self, _ws: WorkspaceId) -> designer_claude::OrchestratorResult<()> {
+            self.shutdown_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
 
-        let (tx, _rx) = broadcast::channel(16);
+    #[cfg(test)]
+    async fn boot_core_with_flaky() -> (Arc<AppCore>, Arc<FlakyOrchestrator>) {
+        let (tx, _rx) = tokio::sync::broadcast::channel(16);
         let flaky = Arc::new(FlakyOrchestrator {
             tx,
-            calls: AtomicU32::new(0),
-            spawn_calls: AtomicU32::new(0),
-            shutdown_calls: AtomicU32::new(0),
+            calls: std::sync::atomic::AtomicU32::new(0),
+            spawn_calls: std::sync::atomic::AtomicU32::new(0),
+            shutdown_calls: std::sync::atomic::AtomicU32::new(0),
+            second_post_result: parking_lot::Mutex::new(None),
         });
         let dir = tempdir().unwrap();
         let config = AppConfig {
@@ -788,6 +784,26 @@ mod tests {
         let core = AppCore::boot_with_orchestrator(config, Some(flaky_dyn))
             .await
             .unwrap();
+        (core, flaky)
+    }
+
+    /// Regression guard for the bundled-`.app` chat-hang.
+    ///
+    /// When `Orchestrator::post_message` returns `ChannelClosed` (the
+    /// claude subprocess died and the writer task has gone with it), the
+    /// post-message path must respawn (not graceful-shutdown — that
+    /// would block the user for up to 60s on a dead lead). We exercise
+    /// this with a stub orchestrator that fails the first `post_message`
+    /// call with `ChannelClosed`, expects a `spawn_team` + second
+    /// `post_message`, and asserts `shutdown` is NOT called (the
+    /// orchestrator's `kill_on_drop(true)` on the old `Child` does the
+    /// cleanup synchronously when `spawn_team`'s `insert` overwrites the
+    /// stale handle).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn channel_closed_respawns_without_graceful_shutdown() {
+        use std::sync::atomic::Ordering;
+
+        let (core, flaky) = boot_core_with_flaky().await;
         let project = core
             .create_project("P".into(), "/tmp".into())
             .await
@@ -797,9 +813,6 @@ mod tests {
             .await
             .unwrap();
 
-        // The send must succeed despite the stub returning ChannelClosed
-        // on the first call: the recovery path shuts down + re-spawns +
-        // re-sends.
         core.post_message(ws.id, "hello".into()).await.unwrap();
 
         assert_eq!(
@@ -809,8 +822,8 @@ mod tests {
         );
         assert_eq!(
             flaky.shutdown_calls.load(Ordering::SeqCst),
-            1,
-            "stale handle should be shut down before respawn"
+            0,
+            "shutdown must NOT be called on the recovery path — kill_on_drop handles cleanup synchronously, and shutdown's 60s graceful wait would block the user for the full SHUTDOWN_TIMEOUT on every recovery"
         );
         assert_eq!(
             flaky.spawn_calls.load(Ordering::SeqCst),
@@ -818,7 +831,7 @@ mod tests {
             "respawn should run exactly once"
         );
 
-        // And the user artifact lands exactly once after recovery.
+        // The user artifact lands exactly once after recovery.
         let after = core.list_artifacts(ws.id).await;
         let user_count = after
             .iter()
@@ -828,5 +841,67 @@ mod tests {
             })
             .count();
         assert_eq!(user_count, 1);
+    }
+
+    /// When recovery itself fails (the second `post_message` after
+    /// respawn also returns an error), the user must see a clean,
+    /// human-readable error — not engineering jargon — and *no* user
+    /// artifact may land in the projector. The "couldn't deliver your
+    /// message to Claude" copy is the contract; future re-wording is
+    /// fine but the prefix must stay manager-readable, not start with
+    /// `orchestrator post_message failed:`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn channel_closed_then_respawn_fails_returns_clean_error() {
+        use std::sync::atomic::Ordering;
+
+        let (core, flaky) = boot_core_with_flaky().await;
+        // Arm the second call to ALSO fail with ChannelClosed (claude is
+        // genuinely broken — bad path, missing entitlement, etc.).
+        *flaky.second_post_result.lock() =
+            Some(designer_claude::OrchestratorError::ChannelClosed {
+                workspace_id: WorkspaceId::new(),
+            });
+
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+
+        let err = core
+            .post_message(ws.id, "hello".into())
+            .await
+            .expect_err("recovery-also-fails must surface a clean error");
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("couldn't deliver"),
+            "expected manager-readable copy, got: {msg}"
+        );
+        assert!(
+            !msg.starts_with("orchestrator post_message failed:"),
+            "the legacy jargon prefix must not surface to the user (got: {msg})"
+        );
+
+        // No user artifact may have landed (the dispatch-first ordering
+        // protects against duplicates on retry).
+        let after = core.list_artifacts(ws.id).await;
+        let user_count = after
+            .iter()
+            .filter(|a| {
+                a.kind == ArtifactKind::Message
+                    && a.author_role.as_deref() == Some(USER_AUTHOR_ROLE)
+            })
+            .count();
+        assert_eq!(
+            user_count, 0,
+            "no user artifact should land on a failed dispatch"
+        );
+
+        assert_eq!(flaky.spawn_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(flaky.calls.load(Ordering::SeqCst), 2);
     }
 }
