@@ -346,6 +346,8 @@ export function createVisualIpcClient(
     requestApproval: () => Promise.resolve("appr_stub"),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve(artifacts),
+    listArtifactsInTab: () => Promise.resolve(artifacts),
+    listSpineArtifacts: () => Promise.resolve(artifacts),
     listPinnedArtifacts: () => Promise.resolve([]),
     getArtifact: (id) => {
       const detail = payloads[id];
@@ -355,6 +357,7 @@ export function createVisualIpcClient(
     togglePinArtifact: () => Promise.resolve(true),
     postMessage: () => Promise.resolve({ artifact_id: "art_new" }),
     linkRepo: () => Promise.resolve(),
+    unlinkRepo: () => Promise.resolve(),
     startTrack: () => Promise.resolve("trk_stub"),
     requestMerge: () => Promise.resolve(0),
     listTracks: () => Promise.resolve([]),
@@ -364,9 +367,17 @@ export function createVisualIpcClient(
     getKeychainStatus: () => Promise.resolve(STABLE_KEYCHAIN),
     getCostChipPreference: () => Promise.resolve(STABLE_COST_PREFS),
     setCostChipPreference: (enabled) => Promise.resolve({ enabled }),
-    getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
-    setFeatureFlag: (_n, enabled) =>
-      Promise.resolve({ show_models_section: enabled }),
+    getFeatureFlags: () =>
+      Promise.resolve({
+        show_models_section: false,
+        show_all_artifacts_in_spine: false,
+      }),
+    setFeatureFlag: (name, enabled) =>
+      Promise.resolve({
+        show_models_section: name === "show_models_section" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
+      }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
     listFriction: () => Promise.resolve([]),

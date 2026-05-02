@@ -26,6 +26,7 @@ function makeClient() {
       return Promise.resolve();
     },
     listArtifacts: (ws) => Promise.resolve(core.listArtifacts(ws)),
+    listArtifactsInTab: (ws, t) => Promise.resolve(core.listArtifactsInTab(ws, t)),
     listSpineArtifacts: (ws) => Promise.resolve(core.listSpineArtifacts(ws)),
     listPinnedArtifacts: (ws) => Promise.resolve(core.listPinnedArtifacts(ws)),
     getArtifact: (id) => Promise.resolve(core.getArtifact(id)),
@@ -40,6 +41,7 @@ function makeClient() {
           reject(e);
         }
       }),
+    unlinkRepo: (req) => Promise.resolve(core.unlinkRepo(req)),
     startTrack: (req) => Promise.resolve(core.startTrack(req)),
     requestMerge: (req) => Promise.resolve(core.requestMerge(req)),
     listTracks: (ws) => Promise.resolve(core.listTracks(ws)),

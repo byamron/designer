@@ -12,8 +12,9 @@ import type { WorkspaceId } from "../ipc/types";
  * Surfaces:
  *   1. Onboarding (extends the welcome slabs with a fourth, action-oriented
  *      step). Surfaces only when the user reaches the final slide.
- *   2. Settings → Account (replaces the "GitHub: not connected" placeholder
- *      with an actionable button).
+ *   2. Project Home → Repository (Link / Re-link button). Per Decision 63
+ *      the link/relink affordance moved out of Settings → Account so all
+ *      per-project concerns live in Project Home.
  *
  * Interaction: focus moves to the input on open, Escape dismisses, Enter on
  * the input submits. We use the existing `app-dialog*` token-driven CSS so

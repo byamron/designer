@@ -611,6 +611,13 @@ fn event_to_payload(
                     workspace_id: *workspace_id,
                     author: author.clone(),
                     body: body.clone(),
+                    // Real-Claude reply path: the agent doesn't know the
+                    // user's active tab. Per-tab attribution for replies
+                    // is handled by AppCore's coalescer (which tracks the
+                    // most recent user-post tab per workspace) — events
+                    // persisted here are best-effort `None` and will be
+                    // attributed to the workspace's first tab on replay.
+                    tab_id: None,
                 },
                 author,
             ))

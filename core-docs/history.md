@@ -37,6 +37,549 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Settings scope split + project unlink (RepoUnlinkModal + `cmd_unlink_repo`) SAFETY
+**Date:** 2026-05-02
+**Branch:** settings-scope-unlink
+**PR:** #78
+
+**What was done:**
+
+A project-scoped **Disconnect repository** affordance lives in **Project Home → Repository** with a confirmation modal ("Designer will no longer track changes in `<path>`. Your repo files are not touched."). Fans out across every workspace in the project that has a linked worktree. Settings is now global-only — the previous Repository row in Settings → Account moved out. New `cmd_unlink_repo` IPC and an additive `WorkspaceWorktreeDetached` event (the inverse of `WorkspaceWorktreeAttached`); idempotent on re-call.
+
+**Why:**
+
+Two friction reports (`frc_019de6f7`, `frc_019de6fa`) — Settings was mixing global and per-project concerns, and there was no way to disconnect a repo without editing state by hand. Closes the friction loop and clears the way for further global-vs-per-project Settings work.
+
+**Design decisions:**
+
+- **Per-project surface lives on Project Home, not Settings.** Settings is global-altitude only (Decision 63 in `spec.md`). Anything tied to a single project lives on the project surface so the rule "Settings = chrome that applies everywhere" is enforceable by inspection.
+- **Modal copy is reassuring, not technical.** "Your repo files are not touched" addresses the actual user fear (data loss); the path is shown for trust, not as a path-edit affordance.
+- **Cancel is the default focus.** Destructive primary, safe default — matches the convention across the existing modals.
+
+**Technical decisions:**
+
+- **`WorkspaceWorktreeDetached` is additive, mirrors the Attached event.** The frozen contract (ADR 0002) takes additions, not changes. The detached event reuses the worktree-id payload shape so projection is symmetric.
+- **Fan-out at the IPC layer, not the projection.** A project-level unlink iterates every workspace's worktree under the project and emits one detach per worktree. Idempotent on re-call so a partial failure is safely re-runnable.
+- **Three Rust tests pin the contract:** emit-then-clear, idempotency on re-call, unknown-workspace error. Four vitests cover the modal flow (single-workspace happy path, Cancel skips IPC, fan-out across N workspaces preserves order).
+
+**Tradeoffs discussed:**
+
+- **Per-workspace unlink rows vs. one project-level button.** A row-per-workspace would surface fan-out cardinality but multiplies the destructive surface and clutters the Repository pane. The single project-level affordance keeps the surface clean; surfacing the count in the modal copy ("Disconnect from N workspaces") is a follow-up, not a blocker.
+- **Rename `WorkspaceWorktreeAttached` to `…Linked` for symmetry vs. preserve the locked event name.** Frozen contracts win — additive only. The English asymmetry (Attached/Detached vs Linked/Unlinked) is a documentation concern, not a correctness one.
+
+**Lessons learned:**
+
+- Three modals reference `--color-danger`, which is not a canonical token (the canonical scale is `--danger-3..12`). Pre-existing across the codebase; flagged as a one-pass cleanup separate from this PR rather than fixed inline. Drift like this accumulates when modal patterns get copy-pasted.
+- The destructive-default-Cancel pattern was inconsistent across the existing destructive modals; codifying it here means the next destructive surface inherits the right default focus.
+
+---
+
+### Polish bundle: Enter-to-send, pulse gating, friction file drop + submit
+**Date:** 2026-05-02
+**Branch:** polish-bundle
+**PR:** #76
+
+**What was done:**
+
+Four file-disjoint polish fixes from open friction reports, bundled because the surfaces don't overlap and each is under an hour.
+
+- **Return-to-send.** ComposeDock sends on plain Enter; Shift+Enter inserts a newline. ⌘↵ kept as a muscle-memory alias.
+- **Activity-dot pulse gating.** State dots used to pulse forever once a workspace flipped to `state="active"`. They now pulse only while the stream has had a recent event in an 8s window — new `recentActivityTs` map in `dataStore` + `useRecentActivity` hook applied to `WorkspaceSidebar`, `ActivitySpine`, and `HomeTabA`.
+- **Friction file drop.** Drop zone lifted to the whole widget root (was a tiny screenshot row). `ingestFile` validates MIME (image/\*) and size (10MB) and surfaces an inline failed toast. Switched preview from `URL.createObjectURL(blob)` to a base64 `data:` URL — Tauri window CSP (`img-src 'self' data:`) was silently dropping `blob:` URLs, the visible "preview doesn't load" symptom.
+- **Submit smoothness.** Replaced the 2200ms dead-air close timer with a 400ms cross-fade to a "Filed." slab over the composer interior, then unmount at ~650ms.
+
+**Why:**
+
+Four open friction reports — each a small visible defect that eroded trust in the chat surface and the friction loop itself. Cheap to fix, expensive to leave, and the pulse-forever issue in particular was visible on every workspace home.
+
+**Design decisions:**
+
+- **Enter sends, Shift+Enter inserts a newline.** Matches the dominant convention in chat surfaces; ⌘↵ kept so anyone with the existing keystroke wired into muscle memory doesn't lose it.
+- **Pulse is an activity signal, not a state badge.** Once it pulses forever, the user reads it as "this is the active workspace" rather than "something just happened" — semantically wrong. The 8s recency window restores the original "look here, now" intent.
+- **"Filed." slab is `aria-hidden="true"`.** The existing toast owns the SR announcement; declaring `aria-live="polite"` on the slab too would double-announce. Cross-fade is visual chrome only.
+
+**Technical decisions:**
+
+- **Base64 `data:` URL for the friction preview.** Tauri's CSP (`img-src 'self' data:`) drops `blob:` URLs without a console error — the symptom was an empty preview. Switched to `String.fromCharCode + btoa` (the standard latin-1 binary-string encoding for image bytes 0–255).
+- **`HomeWorkspaceRow` extracted.** First pass missed threading `useRecentActivity` through HomeTabA's workspace dot. Extracting the row shares the gating logic across surfaces.
+- **IME-composition test added** so the keymap doesn't mis-fire mid-composition for IME users.
+
+**Tradeoffs discussed:**
+
+- **"Filed." vs. "Submitted" tone.** Pending product review of `feedback.md`; deferred. Both work; this isn't the surface that decides voice.
+- **Tune `ACTIVE_RECENCY_MS` once we have real-world heartbeat data** vs. **ship a chosen constant.** Picked 8s by inspection; calibration follow-up captured.
+
+**Lessons learned:**
+
+- CSP failures on `blob:` URLs are silent. Worth a project-wide note when a future surface tries `URL.createObjectURL` for any preview.
+- Multi-perspective review caught the double-announcement on the slab + toast combination — easy to ship as an a11y regression in a polish PR if no one is looking.
+
+---
+
+### Tab UI bugs: close, ⌘W, no-flash on switch, per-tab drafts
+**Date:** 2026-05-02
+**Branch:** tab-ui-bugs
+**PR:** #75
+
+**What was done:**
+
+Three friction reports that made the multi-tab workflow feel broken:
+
+- **`frc_019de6fc`** — close-tab X button + ⌘W did nothing. Frontend IPC called `close_tab` but no Rust handler existed; added `AppCore::close_tab` → `cmd_close_tab` → registered in `tauri::generate_handler!`. Global ⌘W keymap inside the workspace branch of MainView so the keystroke fires regardless of focus.
+- **`frc_019de6fd`** — tab switch flashed the empty-state suggestion strip before destination content rendered. Persisted a per-tab `tabStartedById` flag; WorkspaceThread reads it synchronously via lazy `useState` so the destination paints with the thread on frame 0.
+- **`frc_019de703`** — composer drafts vanished on tab switch. Persisted per-tab drafts in `composerDraftByTab`; ComposeDock accepts `initialDraft` + `onDraftChange` so the textarea round-trips through the store on every keystroke. Closed tabs are reaped via `clearTabState`.
+
+**Why:**
+
+Three of the highest-attention friction reports in the open queue — every multi-tab session hit at least one of them. The tab system shipped functional but rough; this is the polish pass that makes it feel intentional.
+
+**Design decisions:**
+
+- **⌘W matches browser convention.** Modal-aware guard (skip if `appStore.dialog` or `quickSwitcherOpen` is open) so the keystroke doesn't close a tab while a dialog is dismissable.
+- **Lazy `useState` initializer** for the started-flag read so the destination tab paints right on frame 0. The flicker was small but read as "broken" — destination should never look empty before the data lands.
+- **Per-tab drafts are session-scoped, not persistent across launches.** Original symptom was tab-switch loss; cross-session loss is a different P3 polish. Don't conflate.
+
+**Technical decisions:**
+
+- **Per-tab state on the app store, not the component tree.** The store is the right scope — closing a tab needs to reap the entry, and the component unmount is where reaping fires.
+- **`clearTabState` reaper called from `closeTab`.** Without it the per-tab maps grow unboundedly. Cheap fix, surfaced by the engineering review.
+
+**Tradeoffs discussed:**
+
+- **Cross-tab thread isolation now vs. follow-up.** A `TODO(tabs-thread-isolation):` marker flags the cross-tab artifact read in WorkspaceThread; the architectural fix (per-tab thread isolation) is a parallel PR. Keep this PR scoped to the three filed friction reports.
+
+**Lessons learned:**
+
+- Frontend was calling an IPC command that had no Rust handler — typecheck couldn't catch it because the IPC client surface is string-keyed at the boundary. The new contract test (handler registered, signature matches) belongs in the IPC smoke suite from PR #74.
+
+---
+
+### Testing Phase A floor — updater, safety, IPC smoke, update-prompt SAFETY
+**Date:** 2026-05-02
+**Branch:** testing-strategy
+**PR:** #74
+
+**What was done:**
+
+First slice of the testing strategy in `core-docs/testing-strategy.md`. Risk-driven, not coverage-driven — every test exists because a regression in that surface would silently brick or compromise the app.
+
+- **Updater config invariants** (4 tests): `tauri.conf.json` has `createUpdaterArtifacts: true`, a real GitHub Releases endpoint, a non-placeholder minisign pubkey, and a version that matches the Cargo workspace. **Caught real drift on first run** — Cargo was `0.1.0` while `tauri.conf.json` was `0.1.1` from commit `85ad2e4`. Bumped Cargo to reconcile.
+- **Approval-gate expansion** (+6 → 12 total): denied-path replay survival, double-resolve last-write-wins, cost-tracker per-workspace isolation, scope deny-over-allow precedence, empty-allow fallback, full CSP baseline lock.
+- **IPC integration smoke** (4 tests): project + workspace + tab round-trip; validate-project-path boundaries; multi-workspace projection; restart persistence. Drives `ipc::cmd_*` directly via the shim seam — no Tauri runtime needed.
+- **UpdatePrompt component** (7 tests): state machine + the timeout-after-install race contract.
+
+416 Rust workspace tests (was ~408); 125 frontend (was 118). Strategy doc + a `justfile` for local-dev ergonomics also land here.
+
+**Why:**
+
+Designer is approaching dogfood-readiness, and several safety-critical paths (updater config, approval gates, persistence round-trip) had no automated regression coverage. A silent updater config regression bricks every installed user; a silent approval-gate regression bypasses the safety story. Lock those down first.
+
+**Design decisions:**
+
+- **Risk-driven, not coverage-driven.** Test surfaces ranked by what fails silently if it regresses, not by line count. The four chosen surfaces all have that property.
+- **No new test runner.** Stays inside `cargo test` + `vitest` so CI doesn't grow a new gate to maintain.
+
+**Technical decisions:**
+
+- **IPC tests drive `cmd_*` via the shim seam.** Avoids spinning a Tauri runtime per test (cold expensive, flaky); the shim is the testable seam Designer was already using internally.
+- **`updater_config` reads `tauri.conf.json` at test time.** Production code reads it at build time, but the assertion shape is the same. Drift between the two is impossible — both go through the same JSON.
+- **CSP baseline test asserts the exact policy string.** Sorting both sides would lose the lock-on-exact-output property; the comment explains the enum-order coupling is intentional.
+
+**Tradeoffs discussed:**
+
+- **Phase A scope creep — six items vs. three.** The strategy doc originally claimed visual-regression and performance-budget tests in Phase A; both ship in parallel workspaces (#73 for perf). Branch-protection on `main` is user-side. Doc rewritten to match reality (3 lanes), no scope hidden in a footnote.
+- **Add an error-pill-absence assertion to the UpdatePrompt race-contract test** vs. **leave a comment.** The error pill *is* briefly visible before relaunch closes the window — the assertion would fail. Captured the real behavior in a comment as an intentional non-contract; the cleanup belongs on the polish list, not in the test.
+
+**Lessons learned:**
+
+- Version-sync drift between Cargo and `tauri.conf.json` is the kind of bug that ships silently — the auto-updater no-ops without raising a CI signal. The new invariant test catches it on every PR.
+- The strategy doc claimed more than the PR shipped on the first commit; the staff-engineer review caught it before merge. Worth tightening the rule: doc updates land with the PR that ships them, not as scope cover.
+
+---
+
+### Performance budget tests for cold start and IPC roundtrip
+**Date:** 2026-05-01
+**Branch:** perf-budget
+**PR:** #73
+
+**What was done:**
+
+Two integration tests in `apps/desktop/src-tauri/tests/perf_budget.rs`:
+
+- `cold_start_under_budget` — times `AppCore::boot()` (SQLite open + first projector replay) against a 250 ms budget.
+- `ipc_list_projects_p99_under_budget` — 100 sequential `cmd_list_projects` calls on a populated AppCore (10 projects × 3 workspaces); asserts p99 under 2 ms.
+
+Stdlib-only timing (`std::time::Instant`); no `criterion` or other benchmark crate. Runs on the existing `cargo test --workspace` path; no CI changes.
+
+**Why:**
+
+Designer's "<100ms interaction latency, <200MB idle memory" Quality Bar item had no automated guardrail. A 10% per-commit creep over 10 commits is 2.7× total — undetected. These two budgets catch order-of-magnitude regressions before they ship.
+
+**Design decisions:**
+
+- **Two surfaces only — boot and IPC roundtrip.** They cover the two hot paths the user experiences as "the app starts" and "the app responds." Adding more surfaces would dilute the signal until thresholds get tuned away.
+- **Methodology comment lives at the top of the test file.** Future budget changes need to know how the numbers were chosen — the comment is the audit trail.
+
+**Technical decisions:**
+
+- **Stdlib `Instant`, not `criterion`.** Criterion adds a dep, a separate runner, and harness overhead that masks the regressions we want to see. The threshold is order-of-magnitude, not microbenchmark-precision.
+- **Final budgets at 2× max-of-5-runs hit by noise; bumped twice as parallel-test contention surfaced more spike modes.** Final 250 ms / 2 ms catches order-of-magnitude regressions while tolerating runner jitter and parallel cargo-test scheduling. Observed maxes across ~40 darwin/aarch64 debug runs: cold_start 103.5 ms under contention (~30 ms typical), IPC p99 626 µs under contention (~22 µs typical).
+
+**Tradeoffs discussed:**
+
+- **Stricter budgets that catch a 50% regression** vs. **looser budgets that survive CI noise.** Stricter would have flaked on every parallel-cargo-test run. Looser-but-still-meaningful (10× headroom over typical, 2.5× over observed max) is the right register for an integration test that runs on every PR.
+- **Process-global `INBOX_HANDLER` `OnceCell` — race risk?** Verified inert: both tests use `use_mock_orchestrator: true` and the handler is only wired into the real orchestrator. Comment added to head off future review confusion.
+
+**Lessons learned:**
+
+- This test measures `AppCore::boot()` — not window paint, first-draw latency, or anything the user actually sees as "launch time." A user-perceived startup-time check belongs in the dogfood gate (manual signal) until a real end-to-end test exists. Captured as a follow-up.
+
+---
+
+### Bundled chat: file logging + auto-recover stale claude handle SAFETY
+**Date:** 2026-05-01
+**Branch:** bundled-chat-hang
+**PR:** #72
+
+**What was done:**
+
+Bundled `Designer.app` was reporting chat hanging on first message, then `orchestrator post_message failed: spawn failed: stdin channel closed` on retry (friction `frc_019de701`, `frc_019de705`). Two failure modes, one root cause: when the `claude` subprocess dies, the writer task exits, the team handle in the orchestrator's map goes stale, and the next `post_message` fails with no recovery. The bundled `.app`'s launchd-stripped environment + hardened runtime makes claude die in ways that don't reproduce under `cargo tauri dev`, and stdout/stderr were routed to /dev/null — **zero on-disk traces**.
+
+This PR ships the diagnostic + recovery layer:
+
+- **Daily-rotating file appender** at `~/.designer/logs/designer.log.<date>` (`tracing-appender`).
+- **Auto-recover stale handle** in `core_agents::post_message`: on `OrchestratorError::ChannelClosed`, re-spawn so the user's retry just works. Skips the orchestrator's graceful `shutdown` (60s wait); `spawn_team`'s `insert` overwrites the stale `TeamHandle` and `kill_on_drop(true)` on the old `Child` kills synchronously.
+- **Softer user-visible errors**: "couldn't deliver your message to Claude — …" instead of "orchestrator post_message failed: …".
+- **New typed `OrchestratorError::ChannelClosed { workspace_id }`** so recovery matches on a typed error, not string-matching `Spawn("stdin channel closed")`.
+- **Boundary trace at `cmd_post_message`** + writer/reader exit lines promoted from `debug` → `info`, tagged with `workspace=…` and `pid=…`.
+
+**Why:**
+
+Chat is the primary surface; a bundled-only chat hang with no logs is unobservable and bricks every dogfood loop. Without on-disk traces, every bundled-only regression is invisible. The recovery layer fixes the user-visible second-attempt error in the meantime.
+
+**Design decisions:**
+
+- **Recovery skips graceful shutdown.** Recovery happens on the user's retry — a 60s `shutdown` wait is unacceptable UX. `kill_on_drop(true)` bounds cleanup to the drop, so the message round-trip stays snappy.
+- **User copy is human-language, not jargon.** Three error sites all use the same softer copy; the legacy "orchestrator post_message failed: …" prefix is asserted-against in the new test so it can't regress.
+- **Pattern-log entry written.** The spawn-on-insert recovery shape (vs. graceful-shutdown-then-respawn) has implications for Phase 13.E+ tool-call status work — per-task events don't survive a respawn. Logged for the next author.
+
+**Technical decisions:**
+
+- **Typed error variant beats string-matching.** `OrchestratorError::ChannelClosed { workspace_id }` is the right shape for a recovery branch; string-matching the previous `Spawn("stdin channel closed")` would silently drift the moment that string changed.
+- **Panic hook installs before tracing guard.** Intentional ordering — `init_tracing` panics get captured by the crash file. Explicit comment in `main.rs`.
+- **Daily rotation.** Log files don't grow unboundedly; old logs are easy to share without a "find the latest" step.
+
+**Tradeoffs discussed:**
+
+- **Diagnose root cause first vs. ship visibility + recovery now.** Without logs, diagnosis is impossible — claude is reachable from the bundle (`claude --version` works in the bundled context, returns 2.1.126), but what happens between spawn and the first stdout byte is invisible. The cheapest path to that visibility is the file appender; the recovery layer makes the second-attempt-failure mode disappear in the meantime. Not a root-cause fix, and the PR body says so plainly.
+- **Concurrent recovery race.** Real but mitigated by `kill_on_drop(true)` on the old `Child`. Demoted to FOLLOW-UP rather than blocking; stress test for concurrent recovery is on the post-merge list.
+
+**Lessons learned:**
+
+- Bundled-only failure modes need on-disk traces from day one. Every future Tauri release should ship with the file appender armed, not added after the first invisible regression.
+- The `staff-perspective-review` skill was also added to this repo as a project skill — three reviews ran before opening for human review and caught both the 60s graceful-shutdown UX failure and the missing respawn-also-fails test.
+
+---
+
+### Release pipeline ready: signing, updater, icon, routine-release docs SAFETY
+**Date:** 2026-05-01
+**Branch:** dogfood-build-status / enable-updater-bundle / sand-icon-and-release-docs / update-app-icon
+**Spans:** PR #65, #66, #69, #71
+
+**What was done:**
+
+Four bundled PRs that took the v0.1.0 release pipeline from "fires the workflow" to "ships a signed, notarized, auto-updating DMG with the right icon and a documented routine-release path."
+
+- **#65 — Notarization + Release publish.** `tauri-action` expects the App Store Connect API key as a file on disk (`APPLE_API_KEY_PATH`) plus the 10-char Key ID in `APPLE_API_KEY`. The original workflow passed the `.p8` contents in `APPLE_API_KEY` and never set a path → `notarytool` was never invoked → builds were signed but **un-notarized**. Fixed by materializing the `.p8` to `~/private_keys/AuthKey_<id>.p8` and exporting `APPLE_API_KEY_PATH`. Added `permissions: contents: write` and `GITHUB_TOKEN` env so the Release publish step actually works.
+- **#66 — `createUpdaterArtifacts: true`.** v0.1.0 published, but the auto-updater needed `latest.json` and the `.tar.gz.sig` minisign signature — neither was emitted. Tauri 2 only produces the updater bundle when `bundle.createUpdaterArtifacts: true` AND `TAURI_SIGNING_PRIVATE_KEY` is set. The env var was wired; the conf flag wasn't. One-line edit. (First-pass attempt added `"updater"` to `bundle.targets` — Tauri's enum doesn't accept that value; second commit corrects to the real spelling.)
+- **#69 — `PACKAGING.md` routine release + sand-tile app icon.** Three-line release doc replaced with a routine-release walk-through, version-sync invariant (tag MUST equal `"v" +` `tauri.conf.json` `"version"` or the auto-updater silently no-ops), monotonic-versions rule, broken-release recovery (prefer bumping forward, not delete-and-retag), weekly cadence guidance, and an App-icon section. Sand-tile icon composited the transparent "d" mark on `rgb(243,243,242)` (the actual computed `--color-background` in light mode) so the dock icon reads as a continuation of the app surface.
+- **#71 — `d` mark icon update.** Replaced the sand-tile icon with the new Designer "d" mark; regenerated all icon variants.
+
+**Why:**
+
+The v0.1.0 tag-push exposed three pipeline gaps and one icon issue, all of which would have blocked the dogfood loop. None were caught in pre-tag testing because the release workflow only fires on tag push. The routine-release docs codify the recovery path so the next time something breaks, the playbook is on disk, not in someone's head.
+
+**Design decisions:**
+
+- **Document the version-sync rule prominently.** A tag/conf mismatch fails silently — the build succeeds, the user installs cleanly, and the auto-updater quietly no-ops forever. The doc calls it out as a critical invariant.
+- **Bump forward, don't delete-and-retag.** Delete-and-retag is only safe when no user has installed the broken version yet; once anyone has, the new build under the same tag corrupts the auto-update path. Bump-forward is the default.
+- **Weekly release cadence.** Recommended for dogfood — fast enough to keep the loop tight, slow enough that each release feels deliberate.
+
+**Technical decisions:**
+
+- **`APPLE_API_KEY_PATH` is materialized in a step, not a secret.** GitHub Actions secrets are env strings, not files; writing to disk in a step is the canonical pattern. Path goes under `~/private_keys/` per `notarytool`'s expectation.
+- **`createUpdaterArtifacts: true` instead of adding `"updater"` to `bundle.targets`.** Tauri 2's `BundleTargetInner` enum doesn't accept `"updater"` — first attempt rejected with `data did not match any variant of untagged enum BundleTargetInner`. The conf flag is the documented mechanism.
+- **Sand-tile background = `color-mix(in oklab, sand-3 80%, sand-1)`.** That's the actual computed `--color-background` value in light mode — the dock icon should read as a continuation of the app surface, not a chip floating on it. Superseded by the "d" mark in #71 once a clean source asset existed.
+
+**Tradeoffs discussed:**
+
+- **Delete-and-retag vs. bump-forward for the broken v0.1.0.** Bump-forward (`v0.1.0 → v0.1.1`) shipped because the v0.1.0 release had been tagged and surfaced briefly; bump-forward is the safe choice once any user could have hit the broken artifact. Codified in the routine-release doc.
+- **Sand-tile icon vs. transparent-source on the system background.** Sand tile reads as part of the app surface; transparent on system background reads as a chip on whatever wallpaper the user has. Picked the sand tile, then revised again in #71 once the "d" mark felt right against the dock.
+
+**Lessons learned:**
+
+- The release workflow's failure modes are invisible until the first tag push fires it. Worth treating release-path tests (PR #74's updater_config invariants) as first-class — silent broken auto-update is the worst kind of regression because it bricks every installed user.
+- Tauri 2's bundler is quiet about config errors that mean "signature not found" — `tauri-action` falls back to re-tarring `.app` without re-signing rather than failing loudly. The PR body's link to the failing run log is the kind of evidence trail every release-path PR should ship with.
+
+---
+
+### Friction: batch-copy + first wave of fixes (3 of 18) + dispatch packs
+**Date:** 2026-05-01
+**Branch:** friction-batch-and-fixes
+**PR:** #70
+
+**What was done:**
+
+Three bundled deliverables:
+
+1. **Batch-copy** — Settings → Activity → Friction now has a "Copy {N} as one prompt" button that bundles every record matching the active filter into one clipboard payload. New `buildBatchAgentPrompt(entries, filter)` mirrors the per-record shape; uses path-only payload (the agent reads each record itself) so the prompt stays small for 50+ entries.
+2. **Wave 1 fixes (3 of 18 friction reports addressed in-PR):**
+   - `frc_019de6f6` — Friction not available in settings tab. New `--layer-floating: 150` token (between modal=100 and titlebar=200). All five friction surfaces moved to it so the trigger + composer remain reachable while SettingsPage is mounted.
+   - `frc_019de6fb` — Dark mode main tab lighter than surface. Inverted dark-mode `--color-content-surface` mix from sand-5+sand-9 → sand-1+sand-3.
+   - `frc_019de6ff` — Help dialog "Ask" input does nothing. Removed. Per the dogfood rule "no half-baked features in prod."
+3. **Parallel-agent dispatch packs** — six self-contained markdown prompts under `.context/friction-batches/` (gitignored). Each is paste-ready for a fresh agent session. File-disjoint by design so groups land in any order without rebase contention.
+
+**Why:**
+
+18 open friction reports after the first dogfood-pass week. Single-agent serial fix-up would take days; the dispatch-pack pattern lets parallel agents fix file-disjoint groups concurrently. Batch-copy is the explicit ask: triage one prompt, not 18.
+
+**Design decisions:**
+
+- **Single source of truth for the close-the-loop CLI** — `ADDRESS_CLI` constant. A future change to `designer friction address` only edits one spot.
+- **Three explicit registers for the batch button: loading / loaded-empty / ready.** Loading shows no count (was briefly "Copy 0 as one prompt" mid-fetch); loaded-empty disables; ready shows the count.
+- **Header phrasing adapts to the active filter** — "3 open Designer friction reports" rather than "3 Designer friction reports (filter: open)". Reads naturally in the agent's first message.
+- **Removed > half-baked.** The Help dialog "Ask" input was a placeholder waiting on an answering agent; in prod, it dishonestly suggested capability. Removed per the dogfood rule.
+
+**Technical decisions:**
+
+- **Path-only payload for the batch prompt.** Lets the agent read each record itself and keeps the prompt small for 50+ entries. Bundling full record bodies would have made the clipboard payload unwieldy and noisy.
+- **`--layer-floating: 150` is a new token between modal=100 and titlebar=200.** All five friction surfaces moved to it. Without this token, friction was unreachable while Settings was mounted (Settings is at the same layer as the friction trigger).
+- **Test-isolation bug fixed:** the new vitest mutated `window.navigator.clipboard` globally with no restoration, leaking into later tests. Snapshot descriptor in `try`, restore in `finally`.
+
+**Tradeoffs discussed:**
+
+- **One PR per friction fix vs. wave-of-3 + dispatch packs for the rest.** Single-PR-per-fix has clean rollback granularity but slow throughput. Bundling 3 in-PR + dispatching 15 by group is the throughput choice; the dispatch packs are file-disjoint so they don't fight on rebase.
+- **Bundle full records in the batch prompt vs. paths only.** Path-only assumes the agent has filesystem access to the friction records (true under Designer's data-dir convention). Bundling records would work for any agent but bloats the clipboard. Picked path-only; the prompt template itself names the read step.
+- **Fix the `--layer-floating` issue with a new token vs. raise friction trigger one layer.** New token is the structural answer — friction needs a defined layer between modal and titlebar; ad-hoc raising would have caused a different overlap somewhere else.
+
+**Lessons learned:**
+
+- Test-isolation bugs from globally-mutated browser APIs are easy to write and hard to catch — the new vitest test passed but left the next test broken. `try/finally` snapshot is the standard fix; worth a CONTRIBUTING note if a third test trips it.
+- "Copy 3 as prompt" parsed ambiguously — did "as prompt" mean the format or the destination? "Copy 3 as one prompt" disambiguates without a tooltip. Multi-perspective UX review catches copy ambiguity that the engineer-author misses.
+
+---
+
+### Friction → agent loop: CLI subcommands + copy-path + fs-watch
+**Date:** 2026-05-01
+**Branch:** friction-explainer
+**PR:** #67
+
+**What was done:**
+
+Closes the dogfood loop: file friction in the desktop app, fix it from any agent (Claude Code, Codex CLI, terminal) without a tab bounce.
+
+- **Shared projection** — `project_friction()` moves to `designer-ipc::friction` so the desktop IPC handler and the new CLI surface reduce the same events the same way. Single source of truth for the Open / Addressed / Resolved state machine.
+- **`designer friction` CLI** — `list`, `address`, `resolve`, `reopen`, with `--state` filter, `--json` for agents, and `--data-dir` / `$DESIGNER_DATA_DIR` for per-environment isolation. Tracing default dropped to `warn` so `--json | jq` is clean on stderr.
+- **Row affordances** — `Copy path` and `Copy prompt` buttons on every Friction triage row. The prompt template embeds the path and the close-the-loop CLI command so an agent can act on a single paste.
+- **fs-watcher** — `store_watcher.rs` debounces fs events on `<data_dir>/events.db` and emits `designer://store-changed`; `FrictionTriageSection` re-fetches on receipt without disturbing the active filter chip. External CLI writes appear in the open inbox in ~500ms.
+- **Distribution + docs** — `scripts/install-cli.sh` and a Friction → agent loop section in `core-docs/workflow.md`.
+
+**Why:**
+
+The friction-file step worked, but the close-the-loop step required tab-bouncing back to Designer to mark records addressed/resolved. That broke the dogfood flow ("file friction → switch to agent → fix → switch back to mark resolved"). Putting the state-machine on the CLI lets any agent close the loop natively.
+
+**Design decisions:**
+
+- **CLI uses the same projection as the desktop UI.** Shared `project_friction()` lives in `designer-ipc::friction`. Two surfaces, one state machine — no drift possible.
+- **fs-watcher debounce on `events.db`, not per-record files.** SQLite's WAL means many writes per logical change; debounce at the file level keeps the watcher cheap and the UI re-fetch single-shot.
+- **`Copy prompt` template embeds the close-the-loop CLI.** A single paste gives the agent the path and the resolve command. Fewer steps to remember.
+
+**Technical decisions:**
+
+- **Tracing default `warn` on the CLI** so `--json | jq` is clean on stderr. The desktop binary stays at `info` because its log destination is on disk, not stderr.
+- **`--data-dir` / `$DESIGNER_DATA_DIR` for per-environment isolation.** Agents running in different worktrees should target different data dirs without cross-contamination.
+- **`notify-debouncer-mini` already in the workspace.** No new dependency added — the debouncer was a transitive dep already pulled in by another crate.
+
+**Tradeoffs discussed:**
+
+- **CLI bundled inside `Designer.app` vs. `cargo install` install path.** `cargo install` works for devs with Rust; non-dev release needs Tauri `externalBin` or a Homebrew formula. Belongs in the public-release prep PR; out of scope here.
+- **Desktop write also fires the fs-watcher → one redundant `list_friction`.** Cheap; future fix is to track the last sequence the bridge emitted internally and skip when `events.db`'s max matches. Not worth a clever optimization in the v1.
+- **Five buttons on open Friction rows.** Will wrap at narrow widths. Consolidate into a "more" menu in a polish pass.
+
+**Lessons learned:**
+
+- The shared-projection pattern (one function, two surfaces) generalizes — anywhere desktop and CLI surface the same data, putting the projection in `designer-ipc` is the right home. Worth a CONTRIBUTING note when the second surface lands.
+- fs-watch latency on macOS sat at ~500ms — well within the "feels live" threshold without any UI optimism. Captured for future "should we use optimism here?" decisions on related surfaces.
+
+---
+
+### Dogfood push (v0.1.0): updater + chat pass-through + reliability audit SAFETY
+**Date:** 2026-05-01
+**Branch:** dogfood-readiness
+**PR:** #63
+
+**What was done:**
+
+Three bundled tracks that took Designer from terminal-build-only to a downloadable, auto-updating macOS app you can dogfood seriously.
+
+- **DP-A — Updater + signed/notarized release workflow.** `tauri-plugin-updater` on `v*` tags. New `UpdatePrompt` floats bottom-left when an update is available; one click downloads + applies + relaunches.
+- **DP-B — Pass-through chat.** Eight artifact card renderers collapse into one-line `→ kind: title` references that focus the matching row in `ActivitySpine` on click; the spine auto-shows itself if collapsed when a focus event fires. `ToolCallGroup` disclosure becomes terse `· Read src/foo.rs` lines. `ApprovalBlock` is the must-intercept that keeps its chrome.
+- **DP-C — Reliability audit.** Honest *Feature readiness* table in `plan.md` (19 prod / 1 flag / 12 hide). New `FeatureFlags { show_models_section }` gates the placeholder Models pane.
+
+**Why:**
+
+Designer had been terminal-build-only — every dogfood session required `cargo tauri dev`, no auto-update path, and a chat surface that buried the Claude Code experience under custom artifact-card chrome. Three principles drove the bundle: dogfood means downloadable + auto-updating; chat is pass-through by default and only intercepts where the core value prop demands (approvals); features that aren't dogfoodable get flagged or hidden, not shipped half-baked.
+
+**Design decisions:**
+
+- **Pass-through chat by default; intercept only at approvals.** The chat philosophy memo (`feedback.md`) — Designer's value is above the model, not in re-rendering it. Eight artifact card renderers collapsed to one-line references; tool-call disclosure goes terse. `ApprovalBlock` stays full-chrome because gating is the must-intercept.
+- **`UpdatePrompt` floats bottom-left.** Persistent but ignorable; doesn't interrupt flow. One-click downloads + applies + relaunches.
+- **Models pane is flag-gated, not removed.** It's a real planned feature with no shipping behavior yet — flag-gate keeps the development path clear without lying about prod capability.
+
+**Technical decisions:**
+
+- **`projector_apply_is_idempotent_per_sequence`.** The CI-failing `core::tests::open_tab_appends_and_projects` was a pre-existing dual-apply race — projector applied every event twice (synchronously at the write site + via the broadcast subscriber). Fixed by adding `last_applied: HashMap<StreamId, u64>` to `ProjectorState` so `apply` is sequence-idempotent. Regression test broadened to cover three variants: manual dual-apply, the production replay→live transition, and 16-way concurrent applies.
+- **`ActivitySpine` auto-shows on focus events.** A click on an artifact reference in the chat needs the spine visible — the auto-show keeps the click feeling like a destination, not a no-op.
+- **`UpdatePrompt` race-fix:** unmount guard + reduced-motion + timeout/success race tightened in Round 2 review.
+
+**Tradeoffs discussed:**
+
+- **Custom artifact cards vs. pass-through one-line refs.** Custom cards were bigger and prettier but masked Claude Code's actual streaming feel and made the chat feel like a different product. Pass-through is the chat-philosophy choice; the references still let the user drill into the spine when they want detail.
+- **Hide unfinished features vs. ship them with placeholder UI.** Hiding behind a feature flag preserves the development path; placeholder UI in prod would have lied about capability. The 19/1/12 audit codified the rule.
+- **Streaming polish — partial-chunk emission to match Claude Code's true streaming feel** vs. the existing 120ms idle-flush coalescer. Out of DP-B's frontend scope; tracked as a backend follow-up.
+
+**Lessons learned:**
+
+- The dual-apply projector race had been latent for several phases; a CI test that ran in parallel finally surfaced it under the new test load. Dual-apply at the projector level is a class of bug that needs an explicit test surface — the three-variant regression test is the right shape.
+- Three rounds of review (pre-commit, post-CI, post-race-fix) caught issues in each pass. The cadence — implement, review, fix, re-review — is the right one for a multi-track bundle PR; each round caught different categories (UX copy, IPC race, test-coverage gaps).
+
+---
+
+### Phase 22 — Project Home redesign (roadmap + spec + plan)
+**Date:** 2026-04-30
+**Branch:** home-spec-roadmap
+**PR:** #62
+
+**What was done:**
+
+Folded the home-page spec into the roadmap as **Phase 22** — a three-surface project Home tab (Recent Reports / Roadmap / Designer Noticed). Pure roadmap/spec/plan, no code. Decomposed into 8 independently shippable sub-phases (22.G color, 22.B reports, 22.A roadmap canvas, 22.I track completion, 22.D edit & proposal, 22.E adjacent attention, 22.H click-into-agent, 22.C origination). 23 new entries (40–62) in `core-docs/spec.md`. 37 acceptance tests gated per-sub-phase.
+
+**Why:**
+
+Project Home was a placeholder pane — no clear axis between "what shipped," "what's planned," and "what Designer noticed." A coherent surface story was needed before any of the eight component features could land without stepping on each other. The phase exists to lock the architecture before parallel implementation work starts.
+
+**Design decisions:**
+
+- **Three-surface composition.** Recent Reports (single high-level voice), Roadmap canvas, Designer Noticed. One tab, three altitudes. Other compositions were tried in spec — separate tabs, mixed sidebars — none cleaved as cleanly.
+- **Single voice for Reports.** Multi-voice deferred behind a future settings affordance; single high-level "manager" voice ships v1.
+- **Done = shipped.** Enforced at *two* paths (IPC writes + projection auto-derivation), both gating on `NodeShipment` evidence. Authored-Done-without-shipment demotes to InReview at the projector with an inline tooltip.
+- **No project-altitude Reports tab.** Expand-in-place inside Project Home preserves Decision 36 (no project-altitude tab kind).
+- **Snappy motion, no spring** for adjacent-attention column fill — preserves axiom #5.
+
+**Technical decisions:**
+
+- **Multi-claim status precedence.** Previously undefined. Now: max claiming-track state under an all-must-ship Done gate.
+- **`summary_high` migration safety.** Additive field; falls back to existing `summary` for pre-22.B reports. No crash, no backfill.
+- **Read-state projection scoped to `(ProjectId,)` for v1.** No premature `(UserId, ProjectId)` shape; extends additively when team-tier lands.
+- **`AttentionItem` fields bounded** (`title ≤ 80`, `body_summary ≤ 240`). Per-kind derivation table covers all 5 kinds.
+- **`TrackStarted` gains additive `anchor_node_id`** per Lane 0 ADR.
+
+**Tradeoffs discussed:**
+
+- **Linear integration vs. cut.** Linear users live in Linear; the canvas's value is markdown-first plans living in the repo (Decision 17). Two-source-of-truth confusion the original spec couldn't fully resolve. Cut from v1 — interop, not moat.
+- **Three-voice Reports vs. single voice.** Multi-voice would have diluted the "summarize by default, drill on demand" principle on the home tab. Single voice ships; the multi-voice hatch can come back behind a settings affordance once dogfood signal motivates it.
+- **Projector vs. IPC enforcement boundary on Done = shipped.** Both. Belt-and-braces — projector catches authored-event drift, IPC catches client misbehavior.
+- **First-slice recommendation: 22.G + 22.B + 22.A + 22.I behind a feature flag.** Lands team identity, "what shipped" highlights, and a live plan view with shipping badges in three landed PRs without committing to edit/attention infra until dogfood signal motivates it.
+
+**Lessons learned:**
+
+- Pure roadmap/spec/plan PRs benefit from staff-perspective review even with no code surface. The three review lenses surfaced eight bugs that would have leaked into implementation: undefined multi-claim precedence, anchor-split determinism, AttentionItem field bounds, etc. Writing the spec carefully before sub-phases land is cheap; writing it sloppily and patching during sub-phase implementation is expensive.
+- Cuts at architecture time are cheaper than cuts at implementation time. Linear, three-voice Reports, the project-level Reports tab, and the five-category re-skin are all easier to leave out of v1 than to retract once shipped.
+
+---
+
+### Chat UX overhaul — 14 bug fixes + conversational polish
+**Date:** 2026-04-30
+**Branch:** chat-ux-audit
+**PR:** #61
+
+**What was done:**
+
+User reported 8 issues running Designer for the first time. Branch ships a focused fix per issue plus a conversational-polish pass. 107 tests pass (was 60); production build clean; Mini design invariants clean on every touched file. Audit, root causes, fix plan, and updated test taxonomy live in `core-docs/chat-ui-audit.md`.
+
+**Bug fixes (14):** re-entry guard on tab open; visible active/inactive tab font-weight + opaque-fill delta; project-home contract test (no `role=tab` when on home); `data-author` wired on message blocks (user bubble + agent flat distinct); `ToolCallGroup` coalesces consecutive `report` artifacts into one disclosure; sticky-scroll thread + jump-to-latest pill; activity indicator with idle/submitting/stuck states + 15s stuck timeout; global ⌘T shortcut wired; tab titles use `max + 1` so closes don't produce duplicate "Tab 3"; closing a tab moves focus to the next tab or new-tab button; send button disables + `aria-busy` while in flight; compose form (not textarea) carries `aria-busy`; `aria-relevant="additions"` on the live region.
+
+**Conversational polish (6):** `humanizeRole()` strips `_agent` qualifiers; new artifacts fade + slide in (with tab-switch suppression); inline relative timestamps with 30s tick; spec/PR/code-change blocks demoted to inline-attachment chrome; same-author runs tighten + first message in a run owns the meta header; inline markdown for bold/italic/code/URLs (XSS-hardened, hand-rolled tokenizer, no `react-markdown` dep).
+
+**Why:**
+
+First-run user testing surfaced 8 issues that broke the "this feels like real-time communication" register. Pre-cursor to the chat pass-through work in PR #63 — the pass-through philosophy means the chat surface has to feel live and well-mannered first.
+
+**Design decisions:**
+
+- **`aria-busy` on the form, not the textarea.** Textarea-busy locks the user out of typing follow-up drafts during in-flight sends; form-busy lets them keep typing.
+- **Conversation rhythm scoped to user-after-user / agent-after-agent only.** First-pass tightened the agent → user turn boundary too; that read as the agent "catching up to" the user. Scoping to same-author runs preserves the turn cadence.
+- **No `react-markdown` dep.** Hand-rolled tokenizer for the four supported inlines; XSS-hardened by construction. Adding a markdown lib for four inlines is a heavy hammer.
+
+**Technical decisions:**
+
+- **`.thread--initial` gates per-child arrival animation on first paint.** Without this, a tab switch stampedes 50 simultaneous animations. The class clears on first commit so subsequent arrivals animate individually.
+- **Artifact count moved to a ref.** Keeps `onSend` callback identity stable so React doesn't re-bind it on every render.
+- **`animation` shorthand fix** — `--motion-enter` is a transition shorthand, not a duration; the original code parsed inconsistently across engines.
+
+**Tradeoffs discussed:**
+
+- **Custom artifact-card chrome (preserved here) vs. pass-through one-line refs (the eventual choice in PR #63).** Polish-first is the right move when the chat philosophy hasn't been written down yet — fix the in-tree register, then decide whether to keep or collapse it. The collapse landed in DP-B; this PR's polish is what makes the ref-only register feel acceptable.
+- **Activity dots 4 → 8 px.** 4 px reads as punctuation, not status. 8 px is the smallest size that reads as "an indicator."
+
+**Lessons learned:**
+
+- Three-perspective review (staff engineer, staff UX designer, staff design engineer) before opening for human review caught six issues the implementation missed. The cadence works; documented in PR body so future audit-style PRs follow it.
+- "Run this in dev for 5 minutes and write down what feels off" generated 8 issues + 6 polish items that no test would have surfaced. First-run friction is a different category from regression risk — both belong in the test taxonomy.
+
+---
+
+### Phase 16.S — Supply-chain CI gates (audits + SBOM)
+**Date:** 2026-04-30
+**Branch:** supply-chain-ci
+**PR:** #60
+
+**What was done:**
+
+Audits-only scope of Phase 16.S — adds blocking supply-chain CI gates without taking on signing, SLSA L3 provenance, updater dual-key, or `cargo-vet` calibration (those are 16.R / follow-up 16.S work).
+
+`.github/workflows/supply-chain.yml` runs five jobs on PRs to `main`, pushes to `main`, daily 07:17 UTC drift schedule, and `workflow_dispatch`: `cargo audit` (HIGH/CRITICAL block, MEDIUM/LOW + unmaintained warn), `cargo deny check`, CycloneDX SBOM (one BOM per workspace member, uploaded as artifact), `npm audit --omit=dev --audit-level=high`, and `lockfile-lint`. A `drift-issue` job opens or updates a stable-titled tracking Issue when the daily cron run fails. `deny.toml` at workspace root pins the policy: macOS-only targets, license allowlist matching the resolved tree, GPL/AGPL/LGPL excluded. `core-docs/security.md` §16.S new "Supply-chain CI policy" subsection documents the severity gate and exemption discipline.
+
+**Why:**
+
+Designer is heading toward dogfood-distributable. Without supply-chain CI, a transitive dep with a HIGH advisory could ship into a signed DMG and infect every install. Audits-only first to lock the gate, then layer signing/provenance on top later.
+
+**Design decisions:**
+
+- **HIGH/CRITICAL block, MEDIUM/LOW warn.** Severity gate, not all-or-nothing. Blocking on every advisory would yield ignored alerts; HIGH/CRITICAL is the right signal-to-noise threshold for a small team.
+- **`unmaintained = "workspace"`.** Transitive unmaintained advisories (`unic-*`, `fxhash` via tauri) surface as warnings rather than blocking — fixing them requires upstream tauri to update, and we shouldn't gate Designer's merges on that. RUSTSEC IDs documented inline.
+- **License allowlist matches today's resolved tree exactly.** Explicitly excludes GPL-* / AGPL-* / LGPL — workspace-level posture for shipping a closed-source binary. Future deps that pull in new licenses fail the check until a deliberate allowlist update.
+- **Daily drift schedule + stable-titled tracking issue.** Catches the case where a previously-passing dep develops a new advisory between PRs. Single issue, comments append — easier to triage than one issue per drift.
+
+**Technical decisions:**
+
+- **`deny.toml` targets restricted to `aarch64-apple-darwin` + `x86_64-apple-darwin`.** Designer is macOS-only for v1; trims Linux-only `gtk-rs` / Windows-only `windows-*` transitives from the check graph. Smaller surface, fewer false positives.
+- **`publish = false` at the workspace level + `publish.workspace = true` per crate.** Lets `cargo deny`'s `[licenses.private].ignore = true` correctly identify the workspace's `license = "UNLICENSED"` crates as private rather than failing the license check.
+- **Severity gate is a Python post-processor on `cargo audit --json`.** `cargo audit`'s built-in CLI gate is all-or-nothing; the post-processor implements the HIGH-blocks/MEDIUM-warns split.
+
+**Tradeoffs discussed:**
+
+- **Block all advisories vs. severity gate.** All-advisories blocks every PR until each is triaged — dev-killing, fosters ignore-list bloat. Severity gate keeps the "real" advisories blocking while giving lower-severity ones a daily-cron safety net.
+- **Audits-only vs. signing+SBOM+provenance in one PR.** Audits land cheaply and protect the merge surface; signing/SLSA/dual-key need more design work and shouldn't gate the audit gate. Documented split in `security.md`.
+
+**Lessons learned:**
+
+- Today's posture (0 blocking vulnerabilities, 19 informational warnings, all upstream-tauri-controlled) means the gate's signal-to-noise is what the daily-cron will reveal over time, not the day-1 numbers. Worth re-reading the drift issue weekly to calibrate.
+- Empty `[advisories].ignore` and `[bans].deny` lists today is a feature — every future exemption goes there with a citation comment, no silent passes.
+
+---
+
+
 ### Phase 21.A2 — `domain_specific_in_claude_md` detector (Forge-overlap)
 **Date:** 2026-04-30
 **Branch:** domain-specific-claude-md

@@ -467,3 +467,15 @@ Settings now carry a `feature_flags` struct (`apps/desktop/src-tauri/src/setting
 
 Pattern for future half-baked surfaces: don't quietly hide them and don't ship them broken. Add a flag, document the placeholder rationale, default to off, expose the toggle in Preferences. The user can opt in when they want to evaluate; default-on dogfood stays honest. DP-C audit table in `plan.md` § Feature readiness names everything currently classified prod / flag / hide.
 
+
+## 2026-05-01 — Project-scoped unlink fans out across the project's workspaces
+
+The data model stores `worktree_path` per **workspace** (`crates/designer-core/src/domain.rs::Workspace.worktree_path`); `cmd_link_repo` and `cmd_unlink_repo` both take a `workspace_id`. But the user's mental model — surfaced in friction frc_019de6fa — is project-scoped: "I added a project, I want to disconnect it." Two conflicting altitudes.
+
+The `ProjectRepoSection` in `HomeTabA.tsx` resolves this by collapsing the action: one Disconnect click opens a single confirmation modal whose `workspaceIds` prop is the array of every workspace in the project that currently has a `worktree_path`. The modal's `submit()` awaits `unlinkRepo(workspace_id)` for each in sequence. The IPC is idempotent (no-op when already unlinked, per `core_git.rs::unlink_repo`), so a half-completed fan-out followed by a retry is safe.
+
+The alternative — surfacing a Disconnect button per workspace row — was rejected as ergonomically wrong: the user thinks of "the repo" as one thing, not as N separate links per workspace. Splitting the affordance would punish a clean mental model with bookkeeping work.
+
+Why fan-out instead of a project-level `cmd_unlink_project`: the data model is already per-workspace and the event log is the source of truth. Adding a project-altitude command would either introduce a separate `ProjectUnlinked` event (overlap with the existing per-workspace `WorkspaceWorktreeDetached`) or compose multiple workspace events server-side (no real win — same loop, just hidden). Frontend fan-out keeps the contract simple and replay deterministic.
+
+Test coverage (`packages/app/src/test/repo-unlink.test.tsx`) pins the multi-workspace behavior — a fixture with two workspaces produces two `unlinkRepo` calls in order on a single Disconnect click.

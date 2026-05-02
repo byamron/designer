@@ -93,6 +93,7 @@ mod fixture_data {
                 workspace_id: workspace_id(),
                 author: Actor::user(),
                 body: body.into(),
+                tab_id: None,
             },
         )
     }
@@ -108,6 +109,7 @@ mod fixture_data {
                 summary: String::new(),
                 payload: PayloadRef::inline(""),
                 author_role: Some(author_roles::AGENT.into()),
+                tab_id: None,
             },
         )
     }

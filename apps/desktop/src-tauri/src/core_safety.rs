@@ -360,6 +360,7 @@ impl AppCore {
                     summary,
                     payload: PayloadRef::inline(payload_body),
                     author_role: Some(author_roles::SAFETY.into()),
+                    tab_id: None,
                 },
             )
             .await?;

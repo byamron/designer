@@ -83,6 +83,7 @@ fn user_msg(seq: u64, ws: WorkspaceId, body: &str) -> EventEnvelope {
             workspace_id: ws,
             author: Actor::user(),
             body: body.into(),
+            tab_id: None,
         },
     }
 }

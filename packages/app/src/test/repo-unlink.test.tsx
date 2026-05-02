@@ -1,12 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { CreateProjectModal } from "../components/CreateProjectModal";
+import { RepoUnlinkModal } from "../components/RepoUnlinkModal";
 import { __setIpcClient } from "../ipc/client";
 import { createMockCore } from "../ipc/mock";
-import { appStore, openCreateProject, closeCreateProject } from "../store/app";
 
 function makeClient() {
   const core = createMockCore();
+  const unlinkCalls: string[] = [];
   __setIpcClient({
     listProjects: () => Promise.resolve(core.listProjects()),
     createProject: (req) => Promise.resolve(core.createProject(req)),
@@ -27,13 +27,25 @@ function makeClient() {
     },
     listArtifacts: (ws) => Promise.resolve(core.listArtifacts(ws)),
     listArtifactsInTab: (ws, t) => Promise.resolve(core.listArtifactsInTab(ws, t)),
-    listSpineArtifacts: (ws) => Promise.resolve(core.listSpineArtifacts(ws)),
+    listSpineArtifacts: (ws) => Promise.resolve(core.listArtifacts(ws)),
     listPinnedArtifacts: (ws) => Promise.resolve(core.listPinnedArtifacts(ws)),
     getArtifact: (id) => Promise.resolve(core.getArtifact(id)),
     togglePinArtifact: (id) => Promise.resolve(core.togglePinArtifact(id)),
     postMessage: (req) => Promise.resolve(core.postMessage(req)),
-    linkRepo: (req) => Promise.resolve(core.linkRepo(req)),
-    unlinkRepo: (req) => Promise.resolve(core.unlinkRepo(req)),
+    linkRepo: (req) =>
+      new Promise((resolve, reject) => {
+        try {
+          core.linkRepo(req);
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      }),
+    unlinkRepo: (req) => {
+      unlinkCalls.push(req.workspace_id);
+      core.unlinkRepo(req);
+      return Promise.resolve();
+    },
     startTrack: (req) => Promise.resolve(core.startTrack(req)),
     requestMerge: (req) => Promise.resolve(core.requestMerge(req)),
     listTracks: (ws) => Promise.resolve(core.listTracks(ws)),
@@ -82,72 +94,90 @@ function makeClient() {
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
   });
+  const project = core.listProjects()[0];
+  const workspace = core.listWorkspaces(project.project.id)[0];
+  return { core, workspace, unlinkCalls };
 }
 
-describe("CreateProjectModal", () => {
-  it("renders nothing when dialog is not 'create-project'", () => {
-    closeCreateProject();
-    makeClient();
-    const { container } = render(<CreateProjectModal />);
-    expect(container.firstChild).toBeNull();
-  });
-
-  it("submits with autofilled name from path basename", async () => {
-    makeClient();
-    openCreateProject();
-    const onCreated = vi.fn();
-    render(<CreateProjectModal onCreated={onCreated} />);
-    const pathInput = screen.getByLabelText("Project folder") as HTMLInputElement;
-    fireEvent.change(pathInput, {
-      target: { value: "/Users/me/code/example" },
-    });
-    // Name should auto-derive from the path's basename.
-    const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
-    expect(nameInput.value).toBe("example");
-
-    fireEvent.click(screen.getByText("Create project"));
-    await waitFor(() => expect(onCreated).toHaveBeenCalled());
-    // Modal closes after success.
-    expect(appStore.get().dialog).toBe(null);
-  });
-
-  it("lets the user override the auto-name", () => {
-    makeClient();
-    openCreateProject();
-    render(<CreateProjectModal />);
-    const pathInput = screen.getByLabelText("Project folder") as HTMLInputElement;
-    fireEvent.change(pathInput, { target: { value: "/Users/me/code/foo" } });
-    const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
-    fireEvent.change(nameInput, { target: { value: "My Custom Name" } });
-    expect(nameInput.value).toBe("My Custom Name");
-    // Changing the path afterwards should NOT clobber the user's override.
-    fireEvent.change(pathInput, { target: { value: "/Users/me/code/bar" } });
-    expect(nameInput.value).toBe("My Custom Name");
-    closeCreateProject();
-  });
-
-  it("disables submit while either field is empty", () => {
-    makeClient();
-    openCreateProject();
-    render(<CreateProjectModal />);
-    const submit = screen.getByText("Create project") as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Project folder"), {
-      target: { value: "/x/y" },
-    });
-    expect((screen.getByText("Create project") as HTMLButtonElement).disabled).toBe(
-      false,
+describe("RepoUnlinkModal", () => {
+  it("renders the repo path and the irreversible-but-safe explanation", () => {
+    const { workspace } = makeClient();
+    render(
+      <RepoUnlinkModal
+        workspaceIds={[workspace.workspace.id]}
+        repoPath="/Users/me/code/example"
+        open={true}
+        onClose={() => {}}
+      />,
     );
-    closeCreateProject();
+    expect(screen.getByText(/will no longer track/i)).toBeTruthy();
+    expect(screen.getByText("/Users/me/code/example")).toBeTruthy();
+    expect(screen.getByText(/repo files are not touched/i)).toBeTruthy();
   });
 
-  it("uses the dialog discriminant from app store", () => {
-    makeClient();
-    closeCreateProject();
-    expect(appStore.get().dialog).toBe(null);
-    openCreateProject();
-    expect(appStore.get().dialog).toBe("create-project");
-    closeCreateProject();
-    expect(appStore.get().dialog).toBe(null);
+  it("Confirm calls cmd_unlink_repo for each workspace and closes the modal", async () => {
+    const { workspace, unlinkCalls } = makeClient();
+    const onClose = vi.fn();
+    const onUnlinked = vi.fn();
+    render(
+      <RepoUnlinkModal
+        workspaceIds={[workspace.workspace.id]}
+        repoPath="/Users/me/code/example"
+        open={true}
+        onClose={onClose}
+        onUnlinked={onUnlinked}
+      />,
+    );
+    fireEvent.click(screen.getByText("Disconnect"));
+    await waitFor(() => {
+      expect(onUnlinked).toHaveBeenCalledTimes(1);
+    });
+    expect(unlinkCalls).toEqual([workspace.workspace.id]);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("Cancel dismisses without calling cmd_unlink_repo", () => {
+    const { workspace, unlinkCalls } = makeClient();
+    const onClose = vi.fn();
+    render(
+      <RepoUnlinkModal
+        workspaceIds={[workspace.workspace.id]}
+        repoPath="/Users/me/code/example"
+        open={true}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(onClose).toHaveBeenCalled();
+    expect(unlinkCalls).toEqual([]);
+  });
+
+  it("fans out across multiple workspaces in one confirm", async () => {
+    const { core, unlinkCalls } = makeClient();
+    const project = core.listProjects()[0];
+    // Mock seeds one workspace; create one more so the fan-out is testable.
+    const second = core.createWorkspace({
+      project_id: project.project.id,
+      name: "second",
+      base_branch: "main",
+    });
+    const ids = core
+      .listWorkspaces(project.project.id)
+      .map((w) => w.workspace.id);
+    expect(ids).toContain(second.workspace.id);
+    const onClose = vi.fn();
+    render(
+      <RepoUnlinkModal
+        workspaceIds={ids}
+        repoPath="/Users/me/code/example"
+        open={true}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByText("Disconnect"));
+    await waitFor(() => {
+      expect(unlinkCalls.length).toBe(ids.length);
+    });
+    expect(unlinkCalls).toEqual(ids);
   });
 });

@@ -32,6 +32,7 @@ import type {
   TabId,
   TrackId,
   TrackSummary,
+  UnlinkRepoRequest,
   WorkspaceId,
   WorkspaceSummary,
   StreamEvent,
@@ -56,6 +57,12 @@ export interface IpcClient {
   resolveApproval(id: string, granted: boolean, reason?: string): Promise<void>;
   // Artifacts (Phase 13.1)
   listArtifacts(workspaceId: WorkspaceId): Promise<ArtifactSummary[]>;
+  /** Per-tab thread view (per-tab thread isolation). Returns
+   *  workspace-wide artifacts plus only the messages for `tabId`. */
+  listArtifactsInTab(
+    workspaceId: WorkspaceId,
+    tabId: TabId,
+  ): Promise<ArtifactSummary[]>;
   /// Activity-spine read — applies the substantive-kind allowlist
   /// (spec / prototype / code-change / pr / recap & auditor reports)
   /// so the rail isn't polluted by tool-use cards. Honors the
@@ -68,6 +75,10 @@ export interface IpcClient {
   postMessage(req: PostMessageRequest): Promise<PostMessageResponse>;
   // Track + git wire (Phase 13.E)
   linkRepo(req: LinkRepoRequest): Promise<void>;
+  /// Sever Designer's pointer to the workspace's repo. Idempotent — safe
+  /// to call when the workspace is already unlinked. The repo on disk is
+  /// untouched; only Designer's projection is cleared.
+  unlinkRepo(req: UnlinkRepoRequest): Promise<void>;
   startTrack(req: StartTrackRequest): Promise<TrackId>;
   requestMerge(req: RequestMergeRequest): Promise<number>;
   listTracks(workspaceId: WorkspaceId): Promise<TrackSummary[]>;
@@ -187,6 +198,12 @@ class TauriIpcClient implements IpcClient {
   listArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_artifacts", { workspaceId });
   }
+  listArtifactsInTab(workspaceId: WorkspaceId, tabId: TabId) {
+    return invoke<ArtifactSummary[]>("list_artifacts_in_tab", {
+      workspaceId,
+      tabId,
+    });
+  }
   listSpineArtifacts(workspaceId: WorkspaceId) {
     return invoke<ArtifactSummary[]>("list_spine_artifacts", { workspaceId });
   }
@@ -204,6 +221,9 @@ class TauriIpcClient implements IpcClient {
   }
   linkRepo(req: LinkRepoRequest) {
     return invoke<void>("cmd_link_repo", { req });
+  }
+  unlinkRepo(req: UnlinkRepoRequest) {
+    return invoke<void>("cmd_unlink_repo", { req });
   }
   startTrack(req: StartTrackRequest) {
     return invoke<TrackId>("cmd_start_track", { req });
@@ -329,6 +349,9 @@ class MockIpcClient implements IpcClient {
   listArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listArtifacts(workspaceId));
   }
+  listArtifactsInTab(workspaceId: WorkspaceId, tabId: TabId) {
+    return Promise.resolve(this.core.listArtifactsInTab(workspaceId, tabId));
+  }
   listSpineArtifacts(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listSpineArtifacts(workspaceId));
   }
@@ -346,6 +369,9 @@ class MockIpcClient implements IpcClient {
   }
   linkRepo(req: LinkRepoRequest) {
     return Promise.resolve(this.core.linkRepo(req));
+  }
+  unlinkRepo(req: UnlinkRepoRequest) {
+    return Promise.resolve(this.core.unlinkRepo(req));
   }
   startTrack(req: StartTrackRequest) {
     return Promise.resolve(this.core.startTrack(req));

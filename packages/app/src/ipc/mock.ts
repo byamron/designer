@@ -27,6 +27,7 @@ import type {
   TrackId,
   TrackState,
   TrackSummary,
+  UnlinkRepoRequest,
   Workspace,
   WorkspaceId,
   WorkspaceSummary,
@@ -55,6 +56,12 @@ export interface MockCore {
   approvals(): Approval[];
   // Phase 13.1
   listArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
+  /** Per-tab thread view (per-tab thread isolation). Returns
+   *  workspace-wide artifacts plus only the messages for `tabId`. */
+  listArtifactsInTab(
+    workspaceId: WorkspaceId,
+    tabId: TabId,
+  ): ArtifactSummary[];
   listSpineArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
   listPinnedArtifacts(workspaceId: WorkspaceId): ArtifactSummary[];
   getArtifact(id: ArtifactId): ArtifactDetail;
@@ -65,6 +72,7 @@ export interface MockCore {
   postedMessages(): PostMessageRequest[];
   // Phase 13.E
   linkRepo(req: LinkRepoRequest): void;
+  unlinkRepo(req: UnlinkRepoRequest): void;
   startTrack(req: StartTrackRequest): TrackId;
   requestMerge(req: RequestMergeRequest): number;
   listTracks(workspaceId: WorkspaceId): TrackSummary[];
@@ -400,6 +408,22 @@ export function createMockCore(): MockCore {
         .filter((a) => a.workspace_id === workspaceId)
         .map(({ payload: _p, ...rest }) => rest);
     },
+    listArtifactsInTab(workspaceId, tabId) {
+      // Per-tab thread isolation: messages live on a tab; everything
+      // else stays workspace-wide. Legacy seeded messages (no tab_id)
+      // attribute to the workspace's first non-closed tab so demo data
+      // remains visible.
+      const ws = workspaces.find((w) => w.id === workspaceId);
+      const fallbackTab = ws?.tabs.find((t) => !t.closed_at)?.id ?? null;
+      return artifacts
+        .filter((a) => a.workspace_id === workspaceId)
+        .filter((a) => {
+          if (a.kind !== "message") return true;
+          const owner = a.tab_id ?? fallbackTab;
+          return owner === tabId;
+        })
+        .map(({ payload: _p, ...rest }) => rest);
+    },
     listSpineArtifacts(workspaceId) {
       // Mirror the Rust SPINE_ARTIFACT_KINDS / SPINE_AUTHOR_ROLES so dev
       // mode + tests behave the same as production. The mock has no
@@ -451,6 +475,9 @@ export function createMockCore(): MockCore {
       // artifact synchronously, then the mock simulates an agent reply
       // (and an optional diagram/report when the prompt mentions one)
       // so the thread visibly progresses without a real subprocess.
+      // Per-tab isolation: both the user message and the reply are
+      // attributed to the active tab (when one is provided).
+      const tabId: TabId | null = req.tab_id ?? null;
       const userArtifact: MockArtifact = {
         id: uuid(),
         workspace_id: req.workspace_id,
@@ -463,6 +490,7 @@ export function createMockCore(): MockCore {
         updated_at: now(),
         pinned: false,
         payload: { kind: "inline", body: req.text },
+        tab_id: tabId,
       };
       artifacts.push(userArtifact);
       emit({
@@ -485,6 +513,7 @@ export function createMockCore(): MockCore {
         updated_at: now(),
         pinned: false,
         payload: { kind: "inline", body: reply },
+        tab_id: tabId,
       };
       artifacts.push(replyArtifact);
       emit({
@@ -541,6 +570,18 @@ export function createMockCore(): MockCore {
         stream_id: w.id,
         timestamp: now(),
         summary: `Linked ${req.repo_path}`,
+      });
+    },
+    unlinkRepo(req) {
+      const w = workspaces.find((w) => w.id === req.workspace_id);
+      if (!w) throw new Error(`workspace not found: ${req.workspace_id}`);
+      if (!w.worktree_path) return;
+      w.worktree_path = null;
+      emit({
+        kind: "workspace_worktree_detached",
+        stream_id: w.id,
+        timestamp: now(),
+        summary: "Unlinked repo",
       });
     },
     startTrack(req) {

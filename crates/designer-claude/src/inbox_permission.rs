@@ -308,6 +308,7 @@ impl<S: EventStore + 'static> PermissionHandler for InboxPermissionHandler<S> {
                     summary: req.summary.clone(),
                     payload: PayloadRef::inline(payload_body),
                     author_role: Some(author_roles::SAFETY.into()),
+                    tab_id: None,
                 },
             )
             .await

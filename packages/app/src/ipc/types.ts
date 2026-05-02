@@ -57,6 +57,9 @@ export interface ArtifactSummary {
   created_at: string;
   updated_at: string;
   pinned: boolean;
+  /** Per-tab thread isolation: only `Message` artifacts populate this.
+   *  Other kinds (spec, pr, code-change, …) stay workspace-wide. */
+  tab_id?: TabId | null;
 }
 
 export interface ArtifactDetail {
@@ -155,6 +158,9 @@ export interface PostMessageRequest {
   workspace_id: WorkspaceId;
   text: string;
   attachments: PostMessageAttachment[];
+  /** Per-tab thread isolation: the active tab the user typed in.
+   *  Optional for backward compat; production frontends always set this. */
+  tab_id?: TabId | null;
 }
 
 export interface PostMessageResponse {
@@ -187,6 +193,10 @@ export interface TrackSummary {
 export interface LinkRepoRequest {
   workspace_id: WorkspaceId;
   repo_path: string;
+}
+
+export interface UnlinkRepoRequest {
+  workspace_id: WorkspaceId;
 }
 
 export interface StartTrackRequest {
