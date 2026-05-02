@@ -33,15 +33,11 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const EVENT_MENU_NEW_PROJECT: &str = "designer://menu/new-project";
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
-
     let mut config = AppConfig::default_in_home();
+    // Install the panic hook before tracing so a logger init panic is
+    // captured by the crash file.
     crash::install_panic_hook(config.data_dir.join("crashes"));
+    let _log_guard = init_tracing(&config.data_dir);
 
     // Settings load is synchronous-by-design: we need the resolved theme
     // *before* the window opens so the first paint is already the right color.
@@ -306,4 +302,72 @@ fn open_url(url: &str) -> std::io::Result<()> {
 #[cfg(not(target_os = "macos"))]
 fn open_url(_url: &str) -> std::io::Result<()> {
     Ok(())
+}
+
+/// Initialize the tracing subscriber with both stderr and a daily-rotating
+/// file appender at `<data_dir>/logs/designer.log.<YYYY-MM-DD>`.
+///
+/// The bundled `.app` is launched by launchd, which routes stdout/stderr
+/// to `/dev/null`. Without an on-disk sink, every chat-flow regression
+/// in the bundle is invisible — exactly the gap that delayed root-causing
+/// the chat-hang reported in friction
+/// frc_019de701-d11f-7c40-825e-8c0b1a7c0a23. The returned guard must be
+/// held by `main` for the appender to flush on graceful exit; dropping
+/// it eagerly silently truncates the trailing log lines.
+///
+/// Default level: `info`. Override via `RUST_LOG=designer=debug,…` for a
+/// dev-only deeper trace; the env var is honored if set.
+///
+/// **Privacy.** At the default `info` level the file captures workspace
+/// IDs, subprocess PIDs, the resolved `claude` binary path, message
+/// *lengths* (`body_len`), and any stderr the `claude` subprocess emits.
+/// It deliberately does NOT capture user prompt bodies or claude reply
+/// bodies — `cmd_post_message` and the orchestrator's send-paths log
+/// `body_len`, never `body`. A `RUST_LOG=trace` envelope could surface
+/// more — only enable that during a deliberate diagnostic session.
+fn init_tracing(data_dir: &std::path::Path) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    let stderr_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_target(true);
+
+    let log_dir = data_dir.join("logs");
+    let mk_file_layer = || -> std::io::Result<_> {
+        std::fs::create_dir_all(&log_dir)?;
+        let file_appender = tracing_appender::rolling::daily(&log_dir, "designer.log");
+        let (writer, guard) = tracing_appender::non_blocking(file_appender);
+        let layer = tracing_subscriber::fmt::layer()
+            .with_writer(writer)
+            .with_target(true)
+            .with_ansi(false);
+        Ok((layer, guard))
+    };
+
+    match mk_file_layer() {
+        Ok((file_layer, guard)) => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(stderr_layer)
+                .with(file_layer)
+                .init();
+            tracing::info!(dir = %log_dir.display(), "log file appender armed");
+            Some(guard)
+        }
+        Err(err) => {
+            // Fall back to stderr-only. Don't panic the boot just because
+            // we can't write logs — the app can still run; we'll just
+            // miss the diagnostics.
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(stderr_layer)
+                .init();
+            tracing::warn!(error = %err, dir = %log_dir.display(), "could not arm file appender; logs go to stderr only");
+            None
+        }
+    }
 }
