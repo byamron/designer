@@ -83,6 +83,7 @@ async fn project_workspace_tab_round_trip() {
             workspace_id: ws.workspace.id,
             title: "Plan".into(),
             template: designer_core::TabTemplate::Thread,
+            artifact_id: None,
         },
     )
     .await

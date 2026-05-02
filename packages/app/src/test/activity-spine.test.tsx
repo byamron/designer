@@ -1,10 +1,10 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivitySpine } from "../layout/ActivitySpine";
 import { appStore, toggleSpine } from "../store/app";
 import { __setIpcClient, ipcClient } from "../ipc/client";
 import type { IpcClient } from "../ipc/client";
-import type { ArtifactSummary } from "../ipc/types";
+import type { ArtifactSummary, OpenTabRequest, Tab } from "../ipc/types";
 
 /**
  * DP-B — chat references dispatch `designer:focus-artifact` when the
@@ -50,6 +50,7 @@ function stubClient(artifacts: ArtifactSummary[]): IpcClient {
     requestApproval: () => Promise.resolve(""),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve(artifacts),
+    listSpineArtifacts: () => Promise.resolve(artifacts),
     listPinnedArtifacts: () => Promise.resolve([]),
     getArtifact: noop,
     togglePinArtifact: () => Promise.resolve(true),
@@ -77,9 +78,20 @@ function stubClient(artifacts: ArtifactSummary[]): IpcClient {
       }),
     getCostChipPreference: () => Promise.resolve({ enabled: false }),
     setCostChipPreference: (enabled: boolean) => Promise.resolve({ enabled }),
-    getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
-    setFeatureFlag: (_name: "show_models_section", enabled: boolean) =>
-      Promise.resolve({ show_models_section: enabled }),
+    getFeatureFlags: () =>
+      Promise.resolve({
+        show_models_section: false,
+        show_all_artifacts_in_spine: false,
+      }),
+    setFeatureFlag: (
+      name: "show_models_section" | "show_all_artifacts_in_spine",
+      enabled: boolean,
+    ) =>
+      Promise.resolve({
+        show_models_section: name === "show_models_section" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
+      }),
     reportFriction: noop,
     listFriction: () => Promise.resolve([]),
     resolveFriction: () => Promise.resolve(),
@@ -188,6 +200,98 @@ describe("ActivitySpine — designer:focus-artifact handler (DP-B)", () => {
     );
     expect(removed).toBe(true);
     removeSpy.mockRestore();
+  });
+});
+
+describe("ActivitySpine — open-on-click (frc_019de704)", () => {
+  let originalClient: IpcClient;
+
+  beforeEach(() => {
+    originalClient = ipcClient();
+    if (!Element.prototype.scrollIntoView) {
+      Element.prototype.scrollIntoView = function () {
+        /* noop in jsdom */
+      };
+    }
+    appStore.set((s) => ({
+      ...s,
+      activeProject: "proj-1",
+      activeWorkspace: "ws-1",
+      activeTabByWorkspace: { ...s.activeTabByWorkspace },
+    }));
+  });
+
+  afterEach(() => {
+    __setIpcClient(originalClient);
+    appStore.set((s) => ({
+      ...s,
+      activeProject: null,
+      activeWorkspace: null,
+    }));
+  });
+
+  it("Cmd+click on an artifact row calls openTab seeded with the artifact id", async () => {
+    const a = artifact("art-open-1", "spec.md");
+    const stub = stubClient([a]);
+    const calls: OpenTabRequest[] = [];
+    const tabId = "tab-new-1";
+    stub.openTab = (req: OpenTabRequest) => {
+      calls.push(req);
+      const tab: Tab = {
+        id: tabId,
+        title: req.title,
+        template: req.template,
+        created_at: "2026-05-01T00:00:00Z",
+        closed_at: null,
+      };
+      return Promise.resolve(tab);
+    };
+    stub.listWorkspaces = () => Promise.resolve([]);
+    __setIpcClient(stub);
+
+    const { container } = render(<ActivitySpine />);
+    await waitFor(() => {
+      expect(container.querySelector(".spine-artifact__body")).not.toBeNull();
+    });
+    const body = container.querySelector(
+      ".spine-artifact__body",
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      fireEvent.click(body, { metaKey: true });
+      // Let the await chain inside the handler flush.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].workspace_id).toBe("ws-1");
+    expect(calls[0].artifact_id).toBe("art-open-1");
+    expect(calls[0].title).toBe("spec.md");
+    expect(calls[0].template).toBe("thread");
+    expect(appStore.get().activeTabByWorkspace["ws-1"]).toBe(tabId);
+  });
+
+  it("Bare click on an artifact row does NOT open a tab — stays in the rail", async () => {
+    const a = artifact("art-bare-1", "spec.md");
+    const stub = stubClient([a]);
+    const calls: OpenTabRequest[] = [];
+    stub.openTab = (req: OpenTabRequest) => {
+      calls.push(req);
+      throw new Error("openTab should not be called on bare click");
+    };
+    __setIpcClient(stub);
+
+    const { container } = render(<ActivitySpine />);
+    await waitFor(() => {
+      expect(container.querySelector(".spine-artifact__body")).not.toBeNull();
+    });
+    const body = container.querySelector(
+      ".spine-artifact__body",
+    ) as HTMLButtonElement;
+
+    fireEvent.click(body);
+    expect(calls).toHaveLength(0);
   });
 });
 

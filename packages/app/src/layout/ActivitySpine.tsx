@@ -3,6 +3,7 @@ import { FileText, Pin } from "lucide-react";
 import {
   PANE_DEFAULT_WIDTH,
   commitSpineWidth,
+  selectTab,
   setFollowingAgent,
   setSpineWidthLive,
   toggleSpine,
@@ -11,6 +12,7 @@ import {
 import {
   latestActivityForStream,
   latestActivityForWorkspace,
+  refreshWorkspaces,
   useDataState,
   useRecentActivity,
 } from "../store/data";
@@ -40,6 +42,7 @@ import { IconCollapseRight } from "../components/icons";
  */
 export function ActivitySpine() {
   const activeWorkspace = useAppState((s) => s.activeWorkspace);
+  const activeProject = useAppState((s) => s.activeProject);
   const spineWidth = useAppState((s) => s.spineWidth);
   const spine = useDataState<SpineRow[]>((s) =>
     activeWorkspace
@@ -61,14 +64,17 @@ export function ActivitySpine() {
 
   // Artifacts are driven by the real 13.1 projection, not the legacy spine
   // row pass-through. We re-fetch when the workspace changes or when a
-  // stream event signals an artifact lifecycle change.
+  // stream event signals an artifact lifecycle change. The spine call
+  // applies the substantive-kind allowlist; the thread view uses the
+  // unfiltered `listArtifacts` instead so per-tool-use cards still
+  // render inline.
   const [artifacts, setArtifacts] = useState<ArtifactSummary[]>([]);
   const refreshArtifacts = useCallback(async () => {
     if (!activeWorkspace) {
       setArtifacts([]);
       return;
     }
-    setArtifacts(await ipcClient().listArtifacts(activeWorkspace));
+    setArtifacts(await ipcClient().listSpineArtifacts(activeWorkspace));
   }, [activeWorkspace]);
   useEffect(() => {
     void refreshArtifacts();
@@ -125,6 +131,39 @@ export function ActivitySpine() {
       void refreshArtifacts();
     },
     [refreshArtifacts],
+  );
+
+  // Bare click on a spine artifact dispatches `designer:focus-artifact` so
+  // the user gets a flash confirmation. Cmd/Opt+click is the new-tab path:
+  // open a tab seeded with the artifact id, then dispatch focus once it's
+  // active so the row also highlights in the rail.
+  const focusArtifact = useCallback((id: string) => {
+    window.dispatchEvent(
+      new CustomEvent("designer:focus-artifact", { detail: { id } }),
+    );
+  }, []);
+  const openArtifactInNewTab = useCallback(
+    async (artifact: ArtifactSummary) => {
+      // Capture state at click time. The handler awaits IPC and the user
+      // can switch workspaces underneath us — without the local copy,
+      // `selectTab` would activate the new tab in the wrong workspace.
+      const ws = activeWorkspace;
+      const proj = activeProject;
+      if (!ws) return;
+      const tab = await ipcClient().openTab({
+        workspace_id: ws,
+        title: artifact.title,
+        template: "thread",
+        artifact_id: artifact.id,
+      });
+      if (proj) {
+        await refreshWorkspaces(proj);
+      }
+      selectTab(ws, tab.id);
+      // Dispatch after activation so the spine flashes the row.
+      focusArtifact(artifact.id);
+    },
+    [activeWorkspace, activeProject, focusArtifact],
   );
 
   // DP-B — chat references dispatch `designer:focus-artifact` when the user
@@ -246,6 +285,8 @@ export function ActivitySpine() {
                     key={a.id}
                     artifact={a}
                     onTogglePin={() => void togglePin(a)}
+                    onOpen={() => focusArtifact(a.id)}
+                    onOpenInNewTab={() => void openArtifactInNewTab(a)}
                     flash={flashId === a.id}
                     setRowRef={setRowRef}
                   />
@@ -260,7 +301,7 @@ export function ActivitySpine() {
               <p className="sidebar-empty">
                 {pinnedArtifacts.length > 0
                   ? "Everything's pinned."
-                  : "No artifacts yet. Pin blocks from the thread."}
+                  : "No specs, prototypes, or PRs yet. Tool activity stays inline in the thread."}
               </p>
             ) : (
               <ul className="spine-items" role="list">
@@ -269,6 +310,8 @@ export function ActivitySpine() {
                     key={a.id}
                     artifact={a}
                     onTogglePin={() => void togglePin(a)}
+                    onOpen={() => focusArtifact(a.id)}
+                    onOpenInNewTab={() => void openArtifactInNewTab(a)}
                     flash={flashId === a.id}
                     setRowRef={setRowRef}
                   />
@@ -396,32 +439,71 @@ function countState(rows: SpineRow[], state: SpineRow["state"]): number {
 function ArtifactRow({
   artifact,
   onTogglePin,
+  onOpen,
+  onOpenInNewTab,
   flash,
   setRowRef,
 }: {
   artifact: ArtifactSummary;
   onTogglePin: () => void;
+  /** Bare click — flashes the row in the rail. */
+  onOpen: () => void;
+  /** Cmd/Opt/middle click — opens the artifact in a new tab. */
+  onOpenInNewTab: () => void;
   flash: boolean;
   setRowRef: (id: string, el: HTMLLIElement | null) => void;
 }) {
   const label = artifact.title;
-  // The summary is preserved in the tooltip — there's only room for one
-  // line of text in the rail, and the title carries more identity than
-  // the right-aligned summary did.
-  const tooltip = artifact.summary
-    ? `${label} · ${artifact.summary}`
-    : label;
+  // Tooltip body keeps the human title + summary; the shortcut hint goes
+  // through Tooltip's `shortcut` slot (right-aligned kbd) so it matches
+  // the rest of the app — see MainView's tab-close tooltip and the
+  // SurfaceDevPanel trigger. Bare click flashes the row in the rail;
+  // ⌘-click opens the artifact in a new tab.
+  const tooltip = artifact.summary ? `${label} · ${artifact.summary}` : label;
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.button === 1) {
+      e.preventDefault();
+      onOpenInNewTab();
+      return;
+    }
+    onOpen();
+  };
+  // Middle-click ("aux") is the platform convention for "open in new
+  // tab" in browsers; mirror it so muscle memory works in the rail too.
+  const handleAuxClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    onOpenInNewTab();
+  };
+  // Enter / Space focus the row in the rail; ⌘+Enter opens a new tab so
+  // keyboard users have parity with the click affordance.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    if (e.metaKey || e.ctrlKey) {
+      onOpenInNewTab();
+    } else {
+      onOpen();
+    }
+  };
   return (
     <li
       className="spine-artifact"
       data-flash={flash || undefined}
       ref={(el) => setRowRef(artifact.id, el)}
     >
-      <Tooltip label={tooltip}>
-        <div className="spine-artifact__body">
+      <Tooltip label={tooltip} shortcut="⌘ click">
+        <button
+          type="button"
+          className="spine-artifact__body"
+          onClick={handleClick}
+          onAuxClick={handleAuxClick}
+          onKeyDown={handleKeyDown}
+          aria-label={`Open ${label} in a new tab`}
+        >
           <FileText size={14} strokeWidth={1.5} aria-hidden="true" />
           <span className="spine-item__label">{label}</span>
-        </div>
+        </button>
       </Tooltip>
       <button
         type="button"

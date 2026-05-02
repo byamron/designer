@@ -154,6 +154,7 @@ fn main() {
             commands::list_artifacts,
             commands::list_pinned_artifacts,
             commands::list_projects,
+            commands::list_spine_artifacts,
             commands::list_workspaces,
             commands::open_tab,
             commands::request_approval,

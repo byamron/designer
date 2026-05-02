@@ -150,6 +150,14 @@ pub async fn list_artifacts(
 }
 
 #[tauri::command]
+pub async fn list_spine_artifacts(
+    core: State<'_, Arc<AppCore>>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<ArtifactSummary>, IpcError> {
+    ipc::cmd_list_spine_artifacts(&core, workspace_id).await
+}
+
+#[tauri::command]
 pub async fn get_artifact(
     core: State<'_, Arc<AppCore>>,
     artifact_id: ArtifactId,
