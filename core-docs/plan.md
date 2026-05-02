@@ -33,9 +33,110 @@ Near-term focus and active work items. See `roadmap.md` for the full phased sequ
 
 Plus: `--app-titlebar-height` and `--layer-titlebar` defined as design tokens, `createProjectOpen` boolean migrated to extending `AppDialog` discriminant, shared `collectFocusable` + `messageFromError` helpers extracted to `lib/modal.ts` (used by both `RepoLinkModal` and `CreateProjectModal`).
 
-**Next: parallel-agent execution while the user dogfoods.** Designer is now actually runnable in `/Applications` against real Claude. Rather than serialize phases, frontload everything that's agent-parallelizable so the user's dogfood signal feeds back into focused work. The lanes below are the working sequence.
+**Pivot 2026-04-30: Dogfood Push.** User reported that despite real-Claude integration shipping, the app still isn't dogfoodable in practice — they're rebuilding from terminal each iteration, the chat over-styles tool output relative to plain Claude Code, and they aren't confident which features are prod-ready vs. half-baked. The Dogfood Push (below) is the new top priority. After it lands, the parallel-agent lanes resume as the working sequence.
 
 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
+
+## Dogfood Push — 2026-04-30
+
+**Priority order** (frozen for the push):
+
+1. **P1 — Dogfoodable.** Designer must be downloadable + auto-updating without terminal builds.
+2. **P2 — Reliable.** Every shipped feature must work; half-baked features get flagged or hidden until they earn their way back in. Honesty rule: no half-baked features in prod.
+3. **P3 — Polished + reportable.** UI feels intentional; Friction is the user's channel for reporting any UI issue during dogfood. Verify Friction is reliable as the reporting tool.
+
+The push runs three lanes (DP-A / DP-B / DP-C) in parallel into one `v0.1.0` dogfood build, followed by a sequential QA sweep (DP-D) once the build auto-delivers. Lanes are file-disjoint by design.
+
+### DP-A — Distribution + auto-updater *(infra; one agent; 1–3 days depending on cert path)*
+
+Files: `apps/desktop/src-tauri/Cargo.toml`, `apps/desktop/src-tauri/tauri.conf.json`, `.github/workflows/release.yml` (new), `apps/desktop/PACKAGING.md`.
+
+- Add `tauri-plugin-updater`; point at a GitHub Releases endpoint.
+- Generate minisign updater keys; public in conf, private in CI secret.
+- Release workflow on `git tag v*`: build darwin-aarch64 DMG → sign → (notarize) → upload DMG + `latest.json` manifest to Releases.
+- Frontend: minimal "update available — restart" prompt on launch.
+- **Open decision (DP-A1 vs DP-A2):** plan.md previously claimed the user had the Apple Developer cert; investigation 2026-04-30 confirmed it is still a TODO acquisition.
+  - **DP-A1 (unsigned, ~1 day):** ship unsigned DMG; user right-click→Open once; updates apply in-place. Real cert deferred to a follow-up phase.
+  - **DP-A2 (signed, ~2–3 days):** acquire Apple Developer ID + wire notarization from day one. Folds Phase 16.R into the dogfood push. Better UX (no Gatekeeper warning), unblocks share-with-others later.
+
+### DP-B — Chat pass-through pass *(frontend; one agent; 1–2 days)*
+
+Files: `packages/app/src/blocks/blocks.tsx`, `packages/app/src/styles/blocks.css`, `core-docs/component-manifest.json`, `core-docs/pattern-log.md`.
+
+Subtraction pass implementing "pass-through Claude Code by default; intercept only where Designer's core value prop demands it." Approvals are the must-intercept; specs/PRs/reports move to the sidebar.
+
+- Strip card chrome from MessageBlock for agent messages → flowing markdown, no bubble.
+- Demote ToolCallGroup from coalesced disclosure to terse inline lines (`· read src/foo.rs`), expand-on-click for details. Mirrors CC CLI's compact rendering.
+- Verify streaming works for assistant messages; fix if not (the prior audit suggested messages currently arrive as complete artifacts — fundamental "fighting CC" issue if true).
+- Move SpecBlock / PrBlock / ReportBlock / CodeChangeBlock out of the chat stream → sidebar Artifacts list; chat shows one-line `→ artifact-name` references that focus the sidebar item.
+- ApprovalBlock stays inline as the distinctive intercept.
+- Update component-manifest.json; log the architectural pivot in pattern-log.md.
+
+Preserves from `ffd1c3c` (the recent Chat UX overhaul): ⌘T global, sticky-scroll + jump-to-latest, activity dots, focus-trap on tab close, role labels, timestamps, markdown rendering. Subtraction is structural (block types), not behavioral.
+
+### DP-C — Reliability audit + flag/hide pass *(audit + light implementation; one agent; 1–2 days)*
+
+Files: scoped per finding; likely touches Settings → Preferences (feature flags), some block renderers, possibly some IPC commands. File-disjoint from DP-B if the audit is run first and implementing edits avoid the chat surface.
+
+- Inventory every shipped feature: block kinds (12 registered, 5 are stubs per Phase 13.1), Settings panes, IPC commands, agent surfaces, "Designer noticed," recap, audit, prototype preview.
+- For each, classify: **prod-ready** / **half-baked-keep-with-flag** / **hide-until-ready**.
+- Land Settings → Preferences flags for the middle bucket (default off); no-op or remove the third bucket.
+- Output: a "Feature readiness" table in `plan.md` immediately following this section, plus the implementing PR.
+
+### DP-D — UI bug sweep + Friction reliability check *(QA pass; sequential after v0.1.0 build; 1 day)*
+
+Runs after DP-A delivers a downloadable build to the user. Friction is confirmed shipped end-to-end (Tracks 13.K / 13.L / 13.M, 2026-04-27/28) — local-first persistence to `<repo>/.designer/friction/<id>.md`, ⌘⇧F composer, ⌘⇧S `screencapture`, triage list at Settings → Activity → Friction.
+
+- Confirm Friction works end-to-end on a fresh install (⌘⇧F → composer; ⌘⇧S → capture; paste / drop; triage list; mark resolved; reopen). Log glitches as Friction records — the meta-test.
+- Walk golden paths: new tab (re-test the `ffd1c3c` claimed-fix that the user saw broken), multi-tab, project switch, agent start/stop, approval flow, scroll behavior, focus management, keyboard shortcuts.
+- File concrete bugs into Friction; sweep low-hanging glitches in a single follow-up PR.
+
+### Sequencing & parallelism
+
+- **Truly parallel:** DP-A, DP-B, DP-C — file-disjoint, no merge contention. Three agents simultaneously.
+- **Integration:** rebase DP-B and DP-C on DP-A as it lands (DP-A's `tauri.conf.json` change is the only shared touch point and shouldn't conflict with frontend / settings work).
+- **Tag `v0.1.0`** once all three are merged.
+- **Then DP-D** against the auto-delivered build.
+
+### Open decisions before kickoff
+
+1. **DP-A signed vs unsigned.** User answer needed: acquire Apple Developer ID this week (DP-A2) or ship unsigned first (DP-A1)?
+2. **DP-C scope.** First step is research; the readiness table will surface choices about which features get flagged vs. hidden — user weighs in once the table is drafted.
+
+Existing in-flight phases (Phase 21.A1.2 surface rework, Phase 21.A2 detector squad, etc.) continue but are deprioritized below the dogfood push. Lane 3 (`Phase 15.J`) remains gated on Friction signal — DP-D will surface that signal naturally.
+
+### Feature readiness *(DP-C audit; 2026-04-30)*
+
+Honest inventory of every shipped surface against the P2 rule "no half-baked features in prod." 19 prod-ready / 1 flagged / 12 hidden.
+
+| Surface | Status | Reason |
+|---|---|---|
+| MessageBlock, ApprovalBlock, CommentBlock | prod | Real-data, fully wired. |
+| ToolUseLine + ArtifactReferenceBlock (DP-B) | prod | Replaces 8 retired card renderers. |
+| Block: spec, code-change, pr, task-list, prototype | prod | Render as ArtifactReferenceBlock; full content lives in sidebar. |
+| Block: report (recap / auditor / tool-use) | prod | Dispatched via `ReportBlock`. |
+| Block: diagram, variant, track-rollup | hide | Stub renderers — no payload source. Unregistered; GenericBlock fallback catches stray events. TODO(DP-C) markers in `blocks/index.ts`. |
+| Settings → Appearance | prod | Theme toggle works; persistent. |
+| Settings → Account | prod | Repo link + Keychain status are real reads. |
+| Settings → Models | flag (`show_models_section`, default off) | Static placeholder strings — no model selection wired. |
+| Settings → Preferences → Cost chip toggle | prod | Real preference; default on. |
+| Settings → Preferences → "Default autonomy" row | hide | Static placeholder; real autonomy override lives per-project on HomeTab. Removed; TODO(DP-C). |
+| Settings → Activity → Friction | prod | Tracks 13.K + 13.L + 13.M shipped end-to-end. |
+| Settings → Activity → Designer noticed | prod | Phase 21.A1.2 shipped. |
+| Onboarding, CreateProjectModal, RepoLinkModal | prod | First-run polish (PR #24). |
+| Cost chip + replay | prod | Default on; replays from store. |
+| Friction (⌘⇧F + ⌘⇧S + triage) | prod | Local-first. |
+| Designer-noticed (proposals + findings) | prod | Phase 21.A1.2. |
+| Detector squad (8 shipped) | prod | All eight active by default; Forge-overlap detectors auto-disable when Forge co-installed. |
+| ActivitySpine: Pinned, Artifacts, Agents, Recent events | prod | Driven by real projections. |
+| ActivitySpine: "Code files" section | hide | Empty-state placeholder, no file index. Removed; TODO(DP-C). |
+| `cmd_recap_workspace`, `cmd_audit_artifact` | hide | Backend wired but no FE consumer. Handlers stay registered (additive), but no UI surface. |
+| `cmd_helper_status` | hide | Same — backend tracks, no FE consumer. |
+| `cmd_list_findings`, `cmd_signal_finding` | hide | Soft-deprecated by Phase 21.A1.2; superseded by proposals. Already `#[allow(deprecated)]`. |
+| Lab: ComponentCatalog, AnnotationLayer, VariantExplorer, PrototypePreviewLab workspace-form | hide | Dead code paths (never imported in shipped UI). Preserved as-is. |
+| `SurfaceDevPanel` | prod (dev-only) | Already gated on `MODE === 'development'`. |
+
+When a hidden surface earns its way back, remove the `TODO(DP-C):` marker, re-register the renderer (or unhide the section), and update this table. New flag-gated surfaces follow the `show_models_section` template: add a field to `FeatureFlags`, extend the `cmd_set_feature_flag` match arm, add a `Settings → Preferences` toggle, default off.
 
 ## Parallel-agent execution lanes *(2026-04-26 reorder; revised after 3-perspective review of PR #25; Lane 1.5 inserted 2026-04-27 after the four-perspective review of PRs #28–34)*
 

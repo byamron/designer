@@ -614,3 +614,31 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - frontend: `WorkspaceSidebar` gains `useRef` import + busy guard; `HomeTabA` loses two `<Section>` blocks; `home.css` loses 4 selectors (29 LOC).
 - deviations: none.
 - feedback: pending
+
+## 2026-05-01T04:10:57Z — manual (DP-B chat pass-through subtraction)
+
+- prompt: "DP-B: subtract chat chrome; pass-through Claude Code register; intercept only approvals"
+- trigger: manual (subtraction pass; Mini procedure followed by hand)
+- archetype-reused: none (subtraction; existing primitives untouched)
+- components-reused: MessageBlock, ApprovalBlock, CommentBlock, ActivitySpine.ArtifactRow
+- components-new: ToolUseLine, ArtifactReferenceBlock, ReportBlock-as-dispatcher
+- components-retired: BlockHeader, SpecBlock-as-card, PrBlock-as-card, ReportBlock-as-card, CodeChangeBlock-as-card, PrototypeBlock-as-card, DiagramBlock, VariantBlock, TaskListBlock-as-card, TrackRollupBlock-as-card, ToolCallGroup
+- primitives: none (CSS-only)
+- tokens: --space-1, --space-2, --space-3, --space-4, --color-muted, --color-foreground, --color-surface-hover, --color-surface-raised, --color-border-soft, --type-caption-size, --type-family-mono, --type-family-sans, --motion-interactive, --motion-standard, --focus-outline-width, --focus-outline-offset, --focus-outline-color
+- invariants: pending (deferred to integration PR)
+- deviations: none
+- feedback: pending (DP-B branch; awaiting integration merge)
+
+## 2026-05-01T04:10:57Z — manual (DP-C reliability audit + flag/hide pass)
+
+- prompt: "DP-C: inventory shipped features; flag or hide half-baked ones"
+- trigger: manual (audit + targeted implementation; no full-skill firing)
+- archetype-reused: none
+- components-reused: SegmentedToggle, SettingsRow, ipcClient
+- components-new: ModelsSectionToggle (Settings → Preferences row driving `show_models_section` flag)
+- components-retired: SettingsPage Models nav-item (default off; behind `show_models_section` flag), Preferences "Default autonomy" placeholder row, ActivitySpine "Code files" placeholder section
+- primitives: none
+- tokens: inherits SegmentedToggle / SettingsRow tokens
+- invariants: pending
+- deviations: none
+- feedback: pending (DP-C work merged into the same PR as DP-B for the dogfood push)

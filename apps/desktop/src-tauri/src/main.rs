@@ -139,6 +139,14 @@ fn main() {
         // `cmd_validate_project_path` IPC validates server-side before
         // any project state is created.
         .plugin(tauri_plugin_dialog::init())
+        // Auto-updater plugin (DP-A). Reads the GitHub Releases manifest
+        // on demand; the frontend triggers the check via the plugin's
+        // JS API and renders the prompt. Public key + endpoint live in
+        // tauri.conf.json `plugins.updater`.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Process plugin gives the frontend `relaunch()` after the
+        // updater applies a new bundle.
+        .plugin(tauri_plugin_process::init())
         .manage(core_for_state)
         .invoke_handler(tauri::generate_handler![
             commands::create_project,
@@ -179,9 +187,11 @@ fn main() {
             commands_local::cmd_recap_workspace,
             commands_safety::cmd_get_cost_chip_preference,
             commands_safety::cmd_get_cost_status,
+            commands_safety::cmd_get_feature_flags,
             commands_safety::cmd_get_keychain_status,
             commands_safety::cmd_list_pending_approvals,
             commands_safety::cmd_set_cost_chip_preference,
+            commands_safety::cmd_set_feature_flag,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

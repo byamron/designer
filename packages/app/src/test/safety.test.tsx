@@ -67,6 +67,8 @@ function makeStubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     getKeychainStatus: notImpl("getKeychainStatus"),
     getCostChipPreference: notImpl("getCostChipPreference"),
     setCostChipPreference: notImpl("setCostChipPreference"),
+    getFeatureFlags: () => Promise.resolve({ show_models_section: false }),
+    setFeatureFlag: notImpl("setFeatureFlag"),
     listFindings: notImpl("listFindings"),
     signalFinding: notImpl("signalFinding"),
     ...overrides,
@@ -108,7 +110,7 @@ describe("ApprovalBlock", () => {
 
     // Optimistic state: the resolution status renders immediately.
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toMatch(/granted/i);
+      expect(screen.getByRole("status").textContent).toMatch(/approved/i);
     });
 
     // Call shape: (id, true) — no extra reason on Grant.
@@ -191,7 +193,7 @@ describe("ApprovalBlock", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toMatch(/granted/i);
+      expect(screen.getByRole("status").textContent).toMatch(/approved/i);
     });
   });
 });

@@ -73,6 +73,9 @@ export interface IpcClient {
   getKeychainStatus(): Promise<KeychainStatus>;
   getCostChipPreference(): Promise<CostChipPreferences>;
   setCostChipPreference(enabled: boolean): Promise<CostChipPreferences>;
+  // Feature flags (DP-C reliability audit)
+  getFeatureFlags(): Promise<FeatureFlags>;
+  setFeatureFlag(name: keyof FeatureFlags, enabled: boolean): Promise<FeatureFlags>;
   // Friction (Tracks 13.K + 13.L + 13.M)
   reportFriction(req: ReportFrictionRequest): Promise<ReportFrictionResponse>;
   listFriction(): Promise<FrictionEntry[]>;
@@ -123,6 +126,16 @@ export interface KeychainStatus {
 
 export interface CostChipPreferences {
   enabled: boolean;
+}
+
+/**
+ * DP-C feature flags. Each field is an opt-in toggle for a surface that
+ * isn't ready for default-on dogfood (placeholder UI, missing payload
+ * source, etc.). Default OFF. Mirrors `FeatureFlagsResponse` on the
+ * Rust side; add new flags in lock-step.
+ */
+export interface FeatureFlags {
+  show_models_section: boolean;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -204,6 +217,12 @@ class TauriIpcClient implements IpcClient {
   }
   setCostChipPreference(enabled: boolean) {
     return invoke<CostChipPreferences>("cmd_set_cost_chip_preference", { enabled });
+  }
+  getFeatureFlags() {
+    return invoke<FeatureFlags>("cmd_get_feature_flags");
+  }
+  setFeatureFlag(name: keyof FeatureFlags, enabled: boolean) {
+    return invoke<FeatureFlags>("cmd_set_feature_flag", { name, enabled });
   }
   reportFriction(req: ReportFrictionRequest) {
     return invoke<ReportFrictionResponse>("cmd_report_friction", { req });
@@ -356,6 +375,17 @@ class MockIpcClient implements IpcClient {
   }
   setCostChipPreference(enabled: boolean) {
     return Promise.resolve<CostChipPreferences>({ enabled });
+  }
+  // DP-C — keep a small in-memory map so the dev/mock mode can flip
+  // flags from Settings without a Tauri runtime. Default all flags off
+  // to mirror the Rust default.
+  private mockFlags: FeatureFlags = { show_models_section: false };
+  getFeatureFlags() {
+    return Promise.resolve<FeatureFlags>({ ...this.mockFlags });
+  }
+  setFeatureFlag(name: keyof FeatureFlags, enabled: boolean) {
+    this.mockFlags = { ...this.mockFlags, [name]: enabled };
+    return Promise.resolve<FeatureFlags>({ ...this.mockFlags });
   }
   reportFriction(_req: ReportFrictionRequest) {
     // Mock keeps an in-memory record so dev mode + tests can render the

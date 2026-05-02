@@ -69,6 +69,32 @@ const SECTIONS: { id: SettingsSection; label: string; description: string }[] = 
 
 export function SettingsPage() {
   const [active, setActive] = useState<SettingsSection>("appearance");
+  // DP-C — `models` is a placeholder pane (no real selection wired); hide
+  // it behind the `show_models_section` feature flag so a fresh dogfood
+  // install doesn't bump into a half-baked surface. Falls back to the
+  // first visible section if the user is somehow on `models` when the
+  // flag flips off.
+  const [showModels, setShowModels] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcClient()
+      .getFeatureFlags()
+      .then((f) => {
+        if (!cancelled) setShowModels(f.show_models_section);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const visibleSections = useMemo(
+    () => SECTIONS.filter((s) => s.id !== "models" || showModels),
+    [showModels],
+  );
+  useEffect(() => {
+    if (!visibleSections.some((s) => s.id === active)) {
+      setActive(visibleSections[0]?.id ?? "appearance");
+    }
+  }, [visibleSections, active]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -95,7 +121,7 @@ export function SettingsPage() {
       <div className="settings-page__body">
         <nav className="settings-page__nav" aria-label="Settings sections">
           <ul className="settings-page__nav-list" role="list">
-            {SECTIONS.map((section) => (
+            {visibleSections.map((section) => (
               <li key={section.id}>
                 <button
                   type="button"
@@ -271,16 +297,65 @@ function PreferencesSection() {
         label="Preferences"
         description="Default behaviors across projects. Per-project overrides still apply."
       />
-      <SettingsRow label="Default autonomy" description="Suggest-only, act-on-approval, or scheduled autonomy.">
-        <span className="settings-page__meta">suggest</span>
-      </SettingsRow>
+      {/* TODO(DP-C): re-add a "Default autonomy" row once we wire a real
+          global default that backs the per-project autonomy override
+          (currently per-project only via HomeTab's SegmentedToggle).
+          Audit table: core-docs/plan.md § Feature readiness. */}
       <SettingsRow
         label="Show cost in topbar"
         description="Adds a chip to the workspace topbar showing spend against the cap. Off by default — turn on if you want spend visible at all times."
       >
         <CostChipToggle />
       </SettingsRow>
+      <SettingsRow
+        label="Show placeholder Models section"
+        description="The Models pane is a placeholder — defaults are static and not yet selectable. Off by default; flip on if you want to peek at the planned layout."
+      >
+        <ModelsSectionToggle />
+      </SettingsRow>
     </>
+  );
+}
+
+function ModelsSectionToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcClient()
+      .getFeatureFlags()
+      .then((f) => {
+        if (!cancelled) setEnabled(f.show_models_section);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const onChange = async (next: "on" | "off") => {
+    const wantOn = next === "on";
+    setEnabled(wantOn);
+    try {
+      const updated = await ipcClient().setFeatureFlag(
+        "show_models_section",
+        wantOn,
+      );
+      setEnabled(updated.show_models_section);
+    } catch {
+      // Roll back the optimistic flip; preference write failed.
+      setEnabled(!wantOn);
+    }
+  };
+  return (
+    <div data-component="ModelsSectionToggle">
+      <SegmentedToggle<"on" | "off">
+        ariaLabel="Show placeholder Models section"
+        value={enabled === null ? "off" : enabled ? "on" : "off"}
+        onChange={onChange}
+        options={[
+          { value: "off", label: "Off" },
+          { value: "on", label: "On" },
+        ]}
+      />
+    </div>
   );
 }
 

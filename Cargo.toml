@@ -84,6 +84,16 @@ tauri-build = { version = "2", features = [] }
 # fails the "manager, not engineer" principle — every filepath input
 # in the app should default to a Finder picker.
 tauri-plugin-dialog = "2"
+# Auto-updater (DP-A). On launch, the plugin checks the GitHub Releases
+# manifest, optionally prompts the user, and applies the update in
+# place. Updater bundle is signed with a minisign keypair separate from
+# the Apple Developer ID — public key in tauri.conf.json, private key
+# in the TAURI_SIGNING_PRIVATE_KEY GitHub secret.
+tauri-plugin-updater = "2"
+# Process plugin — gives the frontend `relaunch()` after the updater
+# applies a new bundle. Exits the current process and restarts the
+# binary at its current install path.
+tauri-plugin-process = "2"
 
 # macOS Keychain bindings. MIT/Apache-2.0 dual-licensed (compatible with our
 # workspace license posture). Phase 13.G uses *only* `passwords::get_generic_password`

@@ -1,7 +1,11 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { MessageBlock } from "../blocks/blocks";
-import { groupArtifacts } from "../tabs/WorkspaceThread";
+import { describe, expect, it, vi } from "vitest";
+import {
+  ArtifactReferenceBlock,
+  MessageBlock,
+  ReportBlock,
+  ToolUseLine,
+} from "../blocks/blocks";
 import type { ArtifactKind, ArtifactSummary } from "../ipc/types";
 
 function artifact(role: string | null, summary: string): ArtifactSummary {
@@ -19,13 +23,35 @@ function artifact(role: string | null, summary: string): ArtifactSummary {
   };
 }
 
-function reportArtifact(title: string): ArtifactSummary {
+function reportArtifact(
+  title: string,
+  opts: { author_role?: string; summary?: string } = {},
+): ArtifactSummary {
   return {
     id: `art_${Math.random().toString(36).slice(2, 8)}`,
     workspace_id: "ws_test",
     kind: "report" as ArtifactKind,
     title,
-    summary: title,
+    summary: opts.summary ?? title,
+    author_role: opts.author_role ?? "agent",
+    version: 1,
+    created_at: "2026-04-30T00:00:00Z",
+    updated_at: "2026-04-30T00:00:00Z",
+    pinned: false,
+  };
+}
+
+function richArtifact(
+  kind: ArtifactKind,
+  title: string,
+  summary = title,
+): ArtifactSummary {
+  return {
+    id: `art_${Math.random().toString(36).slice(2, 8)}`,
+    workspace_id: "ws_test",
+    kind,
+    title,
+    summary,
     author_role: "agent",
     version: 1,
     created_at: "2026-04-30T00:00:00Z",
@@ -34,19 +60,20 @@ function reportArtifact(title: string): ArtifactSummary {
   };
 }
 
+const noProps = {
+  payload: null,
+  isPinned: false,
+  onTogglePin: () => {},
+  expanded: false,
+  onToggleExpanded: () => {},
+};
+
 // T4 — User and agent messages must render with distinct authorship
 // attributes so the canonical bubble/flat asymmetry can attach. B4
 // regression: the renderer used to omit `data-author` entirely, so the
 // CSS selector for the user bubble never matched.
 describe("MessageBlock authorship (B4)", () => {
   it("emits data-author='you' for user role", () => {
-    const noProps = {
-      payload: null,
-      isPinned: false,
-      onTogglePin: () => {},
-      expanded: false,
-      onToggleExpanded: () => {},
-    };
     const { container } = render(
       <MessageBlock artifact={artifact("user", "hello")} {...noProps} />,
     );
@@ -56,13 +83,6 @@ describe("MessageBlock authorship (B4)", () => {
   });
 
   it("emits data-author='you' when role is null (default-treats-as-user)", () => {
-    const noProps = {
-      payload: null,
-      isPinned: false,
-      onTogglePin: () => {},
-      expanded: false,
-      onToggleExpanded: () => {},
-    };
     const { container } = render(
       <MessageBlock artifact={artifact(null, "hi")} {...noProps} />,
     );
@@ -74,13 +94,6 @@ describe("MessageBlock authorship (B4)", () => {
   });
 
   it("emits data-author='agent' for non-user roles", () => {
-    const noProps = {
-      payload: null,
-      isPinned: false,
-      onTogglePin: () => {},
-      expanded: false,
-      onToggleExpanded: () => {},
-    };
     const cases = ["agent", "assistant", "team-lead", "Claude"];
     for (const role of cases) {
       const { container } = render(
@@ -92,13 +105,6 @@ describe("MessageBlock authorship (B4)", () => {
   });
 
   it("omits the author label on user messages but shows it on agent messages", () => {
-    const noProps = {
-      payload: null,
-      isPinned: false,
-      onTogglePin: () => {},
-      expanded: false,
-      onToggleExpanded: () => {},
-    };
     const userR = render(
       <MessageBlock artifact={artifact("user", "x")} {...noProps} />,
     );
@@ -117,13 +123,6 @@ describe("MessageBlock authorship (B4)", () => {
   // CC1 — agent messages render the humanized role, not the raw
   // backend role string.
   it("displays the humanized role on agent messages", () => {
-    const noProps = {
-      payload: null,
-      isPinned: false,
-      onTogglePin: () => {},
-      expanded: false,
-      onToggleExpanded: () => {},
-    };
     const r = render(
       <MessageBlock artifact={artifact("team-lead", "ok")} {...noProps} />,
     );
@@ -135,35 +134,16 @@ describe("MessageBlock authorship (B4)", () => {
   // CC3 — agent messages carry a <time> element with both the raw
   // ISO datetime (machine-readable) and a relative label.
   it("renders a <time> element on agent messages with dateTime + relative label", () => {
-    const noProps = {
-      payload: null,
-      isPinned: false,
-      onTogglePin: () => {},
-      expanded: false,
-      onToggleExpanded: () => {},
-    };
     const r = render(
       <MessageBlock artifact={artifact("agent", "ok")} {...noProps} />,
     );
     const time = r.container.querySelector("time");
     expect(time).not.toBeNull();
     expect(time!.getAttribute("datetime")).toBe("2026-04-30T00:00:00Z");
-    // The label is whatever formatRelativeTime returns at test time; we
-    // assert non-empty rather than couple to wall-clock drift.
     expect(time!.textContent ?? "").not.toBe("");
   });
 
-  // CC3 (continued) — user messages do NOT mount the meta header
-  // because the bubble already differentiates them; doubling up
-  // would add noise without information.
   it("does not mount the meta header on user messages", () => {
-    const noProps = {
-      payload: null,
-      isPinned: false,
-      onTogglePin: () => {},
-      expanded: false,
-      onToggleExpanded: () => {},
-    };
     const r = render(
       <MessageBlock artifact={artifact("user", "ok")} {...noProps} />,
     );
@@ -179,13 +159,6 @@ describe("MessageBlock authorship (B4)", () => {
 // own artifact kinds.
 describe("MessageProse markdown (CC6)", () => {
   function renderProse(text: string) {
-    const noProps = {
-      payload: null,
-      isPinned: false,
-      onTogglePin: () => {},
-      expanded: false,
-      onToggleExpanded: () => {},
-    };
     return render(
       <MessageBlock artifact={artifact("agent", text)} {...noProps} />,
     );
@@ -227,78 +200,120 @@ describe("MessageProse markdown (CC6)", () => {
   });
 });
 
-// T5 — runs of consecutive `report` artifacts must coalesce into a
-// single ToolCallGroup row, not render as N separate boxed cards.
-// Non-report artifacts pass through. B5.
-describe("Tool-call coalescing (B5)", () => {
-  it("groupArtifacts merges consecutive report artifacts into one group", () => {
-    const xs = [
-      reportArtifact("Used ToolSearch"),
-      reportArtifact("Used TeamCreate"),
+// DP-B — tool-use reports render as one terse line each (· Read foo.rs),
+// not as N coalesced cards. The prior B5 coalescing pass-through was
+// removed in service of "pass-through Claude Code by default".
+describe("Tool-use line rendering (DP-B)", () => {
+  it("renders one ToolUseLine per tool-use report — no coalescing", () => {
+    const reports = [
       reportArtifact("Read plan.md"),
-      artifact("agent", "Here's where the project stands"),
-      reportArtifact("Ran ls"),
+      reportArtifact("Edited blocks.tsx"),
+      reportArtifact("Used Bash", { summary: "cargo test" }),
     ];
-    const units = groupArtifacts(xs);
-    expect(units.length).toBe(3);
-    expect(units[0].kind).toBe("group");
-    if (units[0].kind === "group") {
-      expect(units[0].artifacts.length).toBe(3);
-    }
-    expect(units[1].kind).toBe("single");
-    expect(units[2].kind).toBe("single"); // a single report passes through as single
+    const { container } = render(
+      <div>
+        {reports.map((a) => (
+          <ToolUseLine key={a.id} artifact={a} {...noProps} />
+        ))}
+      </div>,
+    );
+    const lines = container.querySelectorAll(
+      '[data-component="ToolUseLine"]',
+    );
+    expect(lines.length).toBe(3);
+    // No coalesced wrapper
+    expect(container.querySelector('[data-component="ToolCallGroup"]')).toBeNull();
   });
 
-  it("renders a single [data-component=ToolCallGroup] for a 5-report run, not 5 cards", () => {
-    function Harness({ list }: { list: ArtifactSummary[] }) {
-      const units = groupArtifacts(list);
-      return (
-        <div className="thread">
-          {units.map((u) =>
-            u.kind === "group" ? (
-              <ToolCallGroupForTest
-                key={u.artifacts[0].id}
-                artifacts={u.artifacts}
-              />
-            ) : (
-              <div key={u.artifact.id} className="block block--report">
-                {u.artifact.title}
-              </div>
-            ),
-          )}
-        </div>
+  it("expands to show the detail line on click when summary differs from title", () => {
+    const a = reportArtifact("Used Bash", { summary: "cargo test --workspace" });
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    const line = container.querySelector('[data-component="ToolUseLine"]')!;
+    expect(line.getAttribute("data-expanded")).toBe("false");
+    fireEvent.click(line.querySelector("button")!);
+    expect(line.getAttribute("data-expanded")).toBe("true");
+    expect(container.querySelector(".tool-line__detail--expanded")).not.toBeNull();
+  });
+
+  it("hides the head-button click target when summary matches title (no detail)", () => {
+    const a = reportArtifact("Used Read", { summary: "Used Read" });
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    const button = container.querySelector(".tool-line__head") as HTMLButtonElement;
+    // No aria-expanded means no expander is wired
+    expect(button.getAttribute("aria-expanded")).toBeNull();
+  });
+});
+
+// DP-B — ReportBlock dispatches: tool-use reports → ToolUseLine,
+// recap/auditor/freeform reports → ArtifactReferenceBlock.
+describe("ReportBlock dispatcher (DP-B)", () => {
+  it("renders tool-use reports (Used/Read/Wrote/...) as ToolUseLine", () => {
+    const a = reportArtifact("Read plan.md");
+    const { container } = render(<ReportBlock artifact={a} {...noProps} />);
+    expect(container.querySelector('[data-component="ToolUseLine"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-component="ArtifactReferenceBlock"]'),
+    ).toBeNull();
+  });
+
+  it("renders recap reports as ArtifactReferenceBlock", () => {
+    const a = reportArtifact("Wednesday recap", { author_role: "recap" });
+    const { container } = render(<ReportBlock artifact={a} {...noProps} />);
+    expect(
+      container.querySelector('[data-component="ArtifactReferenceBlock"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-component="ToolUseLine"]')).toBeNull();
+  });
+
+  it("renders auditor comments via the recap path (sidebar reference)", () => {
+    const a = reportArtifact("Audit: race risk", { author_role: "auditor" });
+    const { container } = render(<ReportBlock artifact={a} {...noProps} />);
+    expect(
+      container.querySelector('[data-component="ArtifactReferenceBlock"]'),
+    ).not.toBeNull();
+  });
+});
+
+// DP-B — ArtifactReferenceBlock dispatches a focus-artifact event so
+// the ActivitySpine can scroll the matching row into view + flash it.
+describe("ArtifactReferenceBlock focus dispatch (DP-B)", () => {
+  it("dispatches designer:focus-artifact on click with the artifact id", () => {
+    const a = richArtifact("spec", "auth-rewrite.md");
+    const onFocus = vi.fn();
+    window.addEventListener("designer:focus-artifact", onFocus);
+    try {
+      const { container } = render(
+        <ArtifactReferenceBlock artifact={a} {...noProps} />,
       );
+      fireEvent.click(container.querySelector("button")!);
+      expect(onFocus).toHaveBeenCalledTimes(1);
+      const ev = onFocus.mock.calls[0][0] as CustomEvent<{ id: string }>;
+      expect(ev.detail.id).toBe(a.id);
+    } finally {
+      window.removeEventListener("designer:focus-artifact", onFocus);
     }
+  });
+
+  it("renders the humanized kind label and the title", () => {
+    const a = richArtifact("spec", "auth-rewrite.md");
     const { container } = render(
-      <Harness
-        list={[
-          reportArtifact("a"),
-          reportArtifact("b"),
-          reportArtifact("c"),
-          reportArtifact("d"),
-          reportArtifact("e"),
-        ]}
-      />,
+      <ArtifactReferenceBlock artifact={a} {...noProps} />,
     );
-    const groups = container.querySelectorAll(
-      '[data-component="ToolCallGroup"]',
-    );
-    expect(groups.length).toBe(1);
-    // Collapsed by default — only the head row, no list yet.
-    expect(container.querySelector(".tool-group__list")).toBeNull();
-    // Click to expand and assert the list mounts with one row per
-    // tool call.
-    fireEvent.click(groups[0].querySelector("button")!);
-    const rows = container.querySelectorAll(".tool-group__row");
-    expect(rows.length).toBe(5);
+    // humanizeKind has no canonical label for `spec`, so it falls
+    // through to the title-case helper which capitalizes the first
+    // letter and leaves the rest. The interesting assertion is that
+    // both the kind chip and the title render.
+    const kindLabel = container.querySelector(".artifact-ref__kind");
+    const titleLabel = container.querySelector(".artifact-ref__title");
+    expect(kindLabel?.textContent ?? "").toMatch(/spec/i);
+    expect(titleLabel?.textContent).toBe("auth-rewrite.md");
   });
 });
 
 // CC5 (CSS-source guard) — Slack/Linear-style meta-collapse on
 // same-author runs is implemented entirely in CSS via an
 // adjacent-sibling selector. jsdom doesn't compute styles so we lock
-// the rule in at the source level: future "harmonize" passes can't
-// silently re-enable repeating headers without flipping this red.
+// the rule in at the source level.
 describe("Same-author meta header collapse (CC5)", () => {
   it("CSS source declares an adjacent-sibling rule that hides the meta header", async () => {
     const fs = await import("node:fs");
@@ -326,38 +341,3 @@ describe("Same-author meta header collapse (CC5)", () => {
     expect(css).toMatch(/\.thread--initial\s*>\s*\*\s*\{[^}]*animation:\s*none/);
   });
 });
-
-// Inline mirror of ToolCallGroup so the harness above doesn't depend on
-// the WorkspaceThread render context (which carries IPC + state setup
-// that this unit-level test should not exercise). The ToolCallGroup
-// component's behavior is tested through this; a stricter integration
-// test would render WorkspaceThread end-to-end, but that lives in
-// chat-states for sequencing.
-import { useState } from "react";
-function ToolCallGroupForTest({
-  artifacts,
-}: {
-  artifacts: ArtifactSummary[];
-}) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div
-      className="tool-group"
-      data-component="ToolCallGroup"
-      data-expanded={expanded}
-    >
-      <button type="button" onClick={() => setExpanded((v) => !v)}>
-        Used {artifacts.length} tools
-      </button>
-      {expanded && (
-        <ul className="tool-group__list">
-          {artifacts.map((a) => (
-            <li key={a.id} className="tool-group__row">
-              {a.title}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}

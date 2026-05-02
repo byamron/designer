@@ -106,6 +106,133 @@ async fn projector_replays_events_into_aggregate_state() {
     assert_eq!(projector.workspaces_in(project_id).len(), 1);
 }
 
+/// Regression: the live runtime applies every event twice — once
+/// synchronously at the call site of `store.append` (read-your-own-
+/// writes consistency) and once again from the broadcast subscriber
+/// (`spawn_projector_task`). The projector must be sequence-idempotent
+/// so the second apply doesn't double-project. Until 2026-05-01 this
+/// raced silently; CI eventually surfaced it as `tabs.len() == 2`
+/// instead of 1 in `core::tests::open_tab_appends_and_projects`.
+#[tokio::test]
+async fn projector_apply_is_idempotent_per_sequence() {
+    use designer_core::{TabId, TabTemplate};
+
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let project_id = ProjectId::new();
+    let workspace_id = WorkspaceId::new();
+    let tab_id = TabId::new();
+
+    // Write minimal history: project + workspace + one tab.
+    store
+        .append(
+            StreamId::Project(project_id),
+            None,
+            Actor::user(),
+            EventPayload::ProjectCreated {
+                project_id,
+                name: "P".into(),
+                root_path: PathBuf::from("/tmp/p"),
+            },
+        )
+        .await
+        .unwrap();
+    let ws_env = store
+        .append(
+            StreamId::Workspace(workspace_id),
+            None,
+            Actor::user(),
+            EventPayload::WorkspaceCreated {
+                workspace_id,
+                project_id,
+                name: "ws".into(),
+                base_branch: "main".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let tab_env = store
+        .append(
+            StreamId::Workspace(workspace_id),
+            None,
+            Actor::user(),
+            EventPayload::TabOpened {
+                tab_id,
+                workspace_id,
+                title: "Plan".into(),
+                template: TabTemplate::Plan,
+            },
+        )
+        .await
+        .unwrap();
+
+    // Variant 1 — manual dual-apply (the original CI-failing class).
+    let projector = Projector::new();
+    projector.apply(&ws_env);
+    projector.apply(&tab_env);
+    projector.apply(&ws_env);
+    projector.apply(&tab_env);
+    let ws = projector
+        .workspace(workspace_id)
+        .expect("workspace projected");
+    assert_eq!(
+        ws.tabs.len(),
+        1,
+        "manual dual-apply: must collapse to one tab (was {})",
+        ws.tabs.len()
+    );
+    assert_eq!(ws.tabs[0].id, tab_id);
+
+    // Variant 2 — the actual production boot path: `replay()` over the
+    // full history (cold-boot snapshot rebuild) followed by a live
+    // `apply()` that the broadcast subscriber would deliver for events
+    // that happened during boot. The replay applies up through the
+    // tab; the subsequent live apply of the same envelope must not
+    // duplicate.
+    let projector = Projector::new();
+    let all = store.read_all(StreamOptions::default()).await.unwrap();
+    projector.replay(&all);
+    // Simulate the broadcast subscriber re-applying the most recent event.
+    projector.apply(&tab_env);
+    let ws = projector
+        .workspace(workspace_id)
+        .expect("workspace projected after replay");
+    assert_eq!(
+        ws.tabs.len(),
+        1,
+        "replay -> live apply: must not duplicate tab (was {})",
+        ws.tabs.len()
+    );
+
+    // Variant 3 — concurrent applies of the same envelope from many
+    // threads. The fix's atomicity comes from `parking_lot::RwLock`
+    // wrapping the whole apply body, so two threads racing on the same
+    // sequence both serialize through the write lock; whichever wins
+    // first claims the sequence, and the loser's check sees the
+    // claimed value and returns. Asserts the contract under load.
+    let projector = std::sync::Arc::new(Projector::new());
+    projector.apply(&ws_env);
+    let mut handles = Vec::new();
+    for _ in 0..16 {
+        let p = projector.clone();
+        let env = tab_env.clone();
+        handles.push(std::thread::spawn(move || {
+            p.apply(&env);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let ws = projector
+        .workspace(workspace_id)
+        .expect("workspace projected after concurrent applies");
+    assert_eq!(
+        ws.tabs.len(),
+        1,
+        "16-way concurrent apply: must collapse to one tab (was {})",
+        ws.tabs.len()
+    );
+}
+
 #[tokio::test]
 async fn subscriber_receives_live_events() {
     let store = SqliteEventStore::open_in_memory().unwrap();

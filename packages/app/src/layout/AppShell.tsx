@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { ProjectStrip } from "./ProjectStrip";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { MainView } from "./MainView";
@@ -11,6 +11,19 @@ export function AppShell() {
   const stripVisible = useAppState((s) => s.projectStripVisible);
   const sidebarVisible = useAppState((s) => s.sidebarVisible);
   const spineVisible = useAppState((s) => s.spineVisible);
+
+  // DP-B — auto-show the activity spine when the user clicks an inline
+  // artifact reference (e.g. `→ Spec: foo.md`) in chat. Without this,
+  // a click on a hidden-spine workspace flashes a row the user never
+  // sees. ActivitySpine attaches its own listener for the scroll +
+  // flash; this one only handles the visibility flip. The shell is
+  // always mounted, so the listener catches events that fire before
+  // ActivitySpine itself mounts.
+  useEffect(() => {
+    const onFocus = () => toggleSpine(true);
+    window.addEventListener("designer:focus-artifact", onFocus);
+    return () => window.removeEventListener("designer:focus-artifact", onFocus);
+  }, []);
 
   // data-component drives Track 13.K Friction smart-snap;
   // pattern-log.md captures the convention.

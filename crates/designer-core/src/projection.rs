@@ -7,9 +7,9 @@ use crate::domain::{
     WorkspaceState,
 };
 use crate::event::{EventEnvelope, EventPayload};
-use crate::ids::{ArtifactId, ProjectId, TrackId, WorkspaceId};
+use crate::ids::{ArtifactId, ProjectId, StreamId, TrackId, WorkspaceId};
 use parking_lot::RwLock;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -51,6 +51,17 @@ struct ProjectorState {
     tracks: BTreeMap<TrackId, Track>,
     /// Track ids in insertion order per workspace.
     tracks_by_workspace: BTreeMap<WorkspaceId, Vec<TrackId>>,
+    /// Highest sequence already applied per stream. Backs the trait
+    /// `apply` doc-comment promise of "idempotent within a given
+    /// sequence" — without it, the dual-apply boot path
+    /// (synchronous `apply` at the call site of `store.append` plus
+    /// the broadcast-subscriber task that fans events back into the
+    /// same projector) double-projects every event. Symptom: any
+    /// payload that mutates by `push` (e.g. `TabOpened`) duplicates
+    /// under load. The race surfaced in CI on 2026-05-01 against
+    /// `core::tests::open_tab_appends_and_projects` (`tabs.len()`
+    /// observed 2 instead of 1).
+    last_applied: HashMap<StreamId, u64>,
 }
 
 impl Projector {
@@ -135,6 +146,21 @@ impl Projector {
 impl Projection for Projector {
     fn apply(&self, event: &EventEnvelope) {
         let mut state = self.inner.write();
+        // Drop events we have already projected for this stream. Two
+        // call sites apply the same event in the live runtime — the
+        // synchronous apply at the write site (read-your-own-writes)
+        // and the broadcast subscriber spawned at boot — and the
+        // payload arms below are not all idempotent on their own.
+        // Strict-greater (>) so a re-replay from sequence 0 still
+        // works; equal-or-lower is the duplicate path.
+        if let Some(&prev) = state.last_applied.get(&event.stream) {
+            if event.sequence <= prev {
+                return;
+            }
+        }
+        state
+            .last_applied
+            .insert(event.stream.clone(), event.sequence);
         match &event.payload {
             EventPayload::ProjectCreated {
                 project_id,
