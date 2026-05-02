@@ -146,6 +146,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .manage(core_for_state)
         .invoke_handler(tauri::generate_handler![
+            commands::close_tab,
             commands::create_project,
             commands::create_workspace,
             commands::get_artifact,

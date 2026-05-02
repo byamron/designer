@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { openCreateProject, selectTab, useAppState } from "../store/app";
+import {
+  appStore,
+  clearTabState,
+  openCreateProject,
+  selectTab,
+  useAppState,
+} from "../store/app";
 import { refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
-import type { Project, Tab, Workspace } from "../ipc/types";
+import type { Project, Tab, TabId, Workspace } from "../ipc/types";
 import { HomeTabA } from "../home/HomeTabA";
 import { WorkspaceThread } from "../tabs/WorkspaceThread";
 import { emptyArray } from "../util/empty";
@@ -148,12 +154,93 @@ export function MainView() {
     );
   }
 
+  return (
+    <WorkspaceMain
+      workspace={workspace}
+      activeTabByWorkspace={activeTabByWorkspace}
+      opening={opening}
+      onOpenTab={onOpenTab}
+    />
+  );
+}
+
+/** Workspace branch of MainView, lifted into its own component so the
+ *  ⌘W and tab-close hooks can use refs/effects without violating Rules
+ *  of Hooks across the no-project / no-workspace early returns above. */
+function WorkspaceMain({
+  workspace,
+  activeTabByWorkspace,
+  opening,
+  onOpenTab,
+}: {
+  workspace: Workspace;
+  activeTabByWorkspace: Record<string, TabId>;
+  opening: boolean;
+  onOpenTab: () => Promise<void>;
+}) {
   const visibleTabs = workspace.tabs.filter((t) => !t.closed_at);
   const storedTab = activeTabByWorkspace[workspace.id];
   const activeTab =
     storedTab && storedTab !== "home" && visibleTabs.some((t) => t.id === storedTab)
       ? storedTab
       : visibleTabs[0]?.id ?? null;
+
+  // Both the X button and the global ⌘W shortcut close through the same
+  // helper so a click and a keystroke take the exact same path. Without
+  // a shared closer the X button worked while ⌘W only fired when focus
+  // was on the tab button itself — the close-tab friction report.
+  const closeTab = async (tabId: TabId) => {
+    const wasActive = activeTab === tabId;
+    const remaining = visibleTabs.filter((t) => t.id !== tabId);
+    await ipcClient().closeTab(workspace.id, tabId);
+    // Reap per-tab UI state (composer draft, started flag) so the
+    // store doesn't accumulate entries for closed tabs over a long
+    // session. Same id never reopens — TabId is a v7 UUID — so no risk
+    // of inadvertently restoring a stale draft on reopen.
+    clearTabState(tabId);
+    await refreshWorkspaces(workspace.project_id);
+    if (wasActive && remaining[0]) {
+      selectTab(workspace.id, remaining[0].id);
+    }
+    // B11 — closing a tab via the X button leaves focus on a node that
+    // just unmounted; without an explicit move, the browser drops focus
+    // to <body> and keyboard users lose their place. Send focus to the
+    // next tab if there is one, otherwise to the new-tab button.
+    requestAnimationFrame(() => {
+      const next =
+        document.querySelector<HTMLButtonElement>(
+          `#tab-${workspace.id}-${remaining[0]?.id}`,
+        ) ?? document.querySelector<HTMLButtonElement>(".new-tab button");
+      next?.focus();
+    });
+  };
+  const closeTabRef = useRef(closeTab);
+  closeTabRef.current = closeTab;
+
+  // Global ⌘W. Closes the currently active tab regardless of focus —
+  // matches the in-tab keydown so a user typing in the composer
+  // textarea can still close the tab without tabbing out first.
+  // Skipped when any modal scrim is open (help / create-project
+  // dialogs, quick switcher) so the keystroke can still dismiss
+  // those layers via their own listeners (App.tsx ESC handler) and
+  // doesn't reach through the overlay to silently close a tab.
+  // Settings is a full-page takeover that unmounts MainView entirely,
+  // so it doesn't need a guard here.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() !== "w") return;
+      if (e.shiftKey || e.altKey) return;
+      const s = appStore.get();
+      if (s.dialog !== null || s.quickSwitcherOpen) return;
+      const id = activeTab;
+      if (!id) return;
+      e.preventDefault();
+      void closeTabRef.current(id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeTab]);
 
   return (
     <main className="app-main" data-component="MainView" aria-label="Main" id="main-content" tabIndex={-1}>
@@ -167,30 +254,7 @@ export function MainView() {
             id={tab.id}
             label={displayLabel(tab, idx)}
             active={activeTab === tab.id}
-            onClose={async () => {
-              const wasActive = activeTab === tab.id;
-              const remaining = visibleTabs.filter((t) => t.id !== tab.id);
-              await ipcClient().closeTab(workspace.id, tab.id);
-              await refreshWorkspaces(workspace.project_id);
-              if (wasActive && remaining[0]) {
-                selectTab(workspace.id, remaining[0].id);
-              }
-              // B11 — closing a tab via the X button leaves focus on a
-              // node that just unmounted; without an explicit move, the
-              // browser drops focus to <body> and keyboard users lose
-              // their place. Send focus to the next tab if there is one,
-              // otherwise to the new-tab button.
-              requestAnimationFrame(() => {
-                const next =
-                  document.querySelector<HTMLButtonElement>(
-                    `#tab-${workspace.id}-${remaining[0]?.id}`,
-                  ) ??
-                  document.querySelector<HTMLButtonElement>(
-                    ".new-tab button",
-                  );
-                next?.focus();
-              });
-            }}
+            onClose={() => void closeTab(tab.id)}
           />
         ))}
         <div className="new-tab">
@@ -219,6 +283,7 @@ export function MainView() {
             <WorkspaceThread
               key={`${workspace.id}:${activeTab}`}
               workspace={workspace}
+              tabId={activeTab}
             />
           </section>
         ) : (

@@ -13,10 +13,11 @@ import {
   type ComposeSendPayload,
 } from "../components/ComposeDock";
 import { getBlockRenderer, GenericBlock } from "../blocks";
-import type { Workspace } from "../ipc/types";
+import type { TabId, Workspace } from "../ipc/types";
 import type { ArtifactDetail, ArtifactId, ArtifactSummary, PayloadRef } from "../ipc/types";
 import { ipcClient } from "../ipc/client";
 import { describeIpcError } from "../ipc/error";
+import { appStore, markTabStarted, setTabDraft } from "../store/app";
 import "../blocks";
 
 /**
@@ -60,15 +61,47 @@ function buildSuggestions(artifacts: ArtifactSummary[]): string[] {
  * non-trivial. Unknown kinds fall through to GenericBlock so new event
  * types never crash the thread.
  */
-export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
+export function WorkspaceThread({
+  workspace,
+  tabId,
+}: {
+  workspace: Workspace;
+  // Optional so existing component-level vitest renders that don't care
+  // about per-tab state can still mount the thread without scaffolding
+  // a workspace + tab pair. In production every caller (MainView) passes
+  // the active tab id; the fallback only matters in tests.
+  //
+  // TODO(tabs-thread-isolation): once per-tab event scoping lands, narrow
+  // the artifact reads in this component to events scoped to `tabId`. Today
+  // every tab in the workspace sees the workspace-wide artifact stream.
+  tabId?: TabId;
+}) {
+  const stateKey: TabId = (tabId ?? `__default__:${workspace.id}`) as TabId;
   const [artifacts, setArtifacts] = useState<ArtifactSummary[] | null>(null);
   const [payloads, setPayloads] = useState<Record<ArtifactId, PayloadRef>>({});
   const [expanded, setExpanded] = useState<Record<ArtifactId, boolean>>({});
   // A freshly mounted tab starts in "suggest" mode — shows roadmap /
   // recent-activity prompts instead of the thread. First send (or first
-  // suggestion pick) flips it to "thread" mode. State is per-tab because
-  // WorkspaceThread is keyed on `${workspace}:${tab}` in MainView.
-  const [hasStarted, setHasStarted] = useState(false);
+  // suggestion pick) flips it to "thread" mode and that flip persists in
+  // the app store keyed by tab id. The lazy initializer reads from the
+  // store synchronously so a re-mount of an already-started tab paints
+  // the thread on the very first frame — no flash of the suggestion
+  // strip on tab switch (the tab-switch flash friction report).
+  const [hasStarted, setHasStartedLocal] = useState(
+    () => !!appStore.get().tabStartedById[stateKey],
+  );
+  const setHasStarted = (next: boolean) => {
+    setHasStartedLocal(next);
+    if (next) markTabStarted(stateKey);
+  };
+  // Same pattern for the composer draft — read the saved draft from
+  // the store before paint so a tab switch back doesn't flash an empty
+  // textarea (the draft-loss friction report). ComposeDock fires
+  // onDraftChange on every keystroke so the store stays current.
+  const initialDraft = useMemo(
+    () => appStore.get().composerDraftByTab[stateKey] ?? "",
+    [stateKey],
+  );
   const composeRef = useRef<ComposeDockHandle | null>(null);
 
   const refresh = useCallback(async () => {
@@ -456,6 +489,8 @@ export function WorkspaceThread({ workspace }: { workspace: Workspace }) {
           onSend={onSend}
           placeholder={sending ? "Sending…" : undefined}
           busy={sending}
+          initialDraft={initialDraft}
+          onDraftChange={(text) => setTabDraft(stateKey, text)}
         />
       </div>
     </div>
