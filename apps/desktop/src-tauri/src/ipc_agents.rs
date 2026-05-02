@@ -39,10 +39,11 @@ pub async fn cmd_post_message(
     // layer.
     info!(
         workspace = %req.workspace_id, body_len = req.text.len(),
+        model = ?req.model,
         "cmd_post_message: dispatching to AppCore"
     );
     let result = core
-        .post_message(req.workspace_id, req.tab_id, req.text)
+        .post_message(req.workspace_id, req.tab_id, req.model, req.text)
         .await
         .map_err(IpcError::from);
     match &result {
@@ -118,6 +119,7 @@ mod tests {
                 teammates: vec![],
                 env: Default::default(),
                 cwd: None,
+                model: None,
             })
             .await
             .unwrap();
@@ -133,6 +135,7 @@ mod tests {
                 text: "Please draft a sequence diagram for the auth flow".into(),
                 attachments: vec![],
                 tab_id: None,
+                model: None,
             },
         )
         .await
@@ -188,6 +191,7 @@ mod tests {
                 text: "   ".into(),
                 attachments: vec![],
                 tab_id: None,
+                model: None,
             },
         )
         .await
@@ -214,6 +218,7 @@ mod tests {
                 text: big,
                 attachments: vec![],
                 tab_id: None,
+                model: None,
             },
         )
         .await
@@ -262,6 +267,7 @@ mod tests {
                 text: "hello".into(),
                 attachments: vec![],
                 tab_id: None,
+                model: None,
             },
         )
         .await

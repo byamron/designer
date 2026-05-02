@@ -161,6 +161,12 @@ export interface PostMessageRequest {
   /** Per-tab thread isolation: the active tab the user typed in.
    *  Optional for backward compat; production frontends always set this. */
   tab_id?: TabId | null;
+  /** Frontend model identifier (e.g. "haiku-4.5"). The Rust IPC maps
+   *  this to the Claude CLI's `--model` argument; switching models
+   *  respawns the workspace's team. Optional — `undefined` keeps
+   *  whatever model the workspace's current team is running on (or
+   *  the orchestrator default for a fresh workspace). */
+  model?: string | null;
 }
 
 export interface PostMessageResponse {

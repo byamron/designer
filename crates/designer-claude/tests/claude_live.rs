@@ -75,6 +75,7 @@ async fn spawn_team_and_observe_lifecycle() {
         teammates: vec![],
         env: Default::default(),
         cwd: None,
+        model: None,
     };
 
     orch.spawn_team(spec)
@@ -185,6 +186,7 @@ async fn permission_prompt_round_trip() {
         teammates: vec![],
         env: Default::default(),
         cwd: Some(workdir.path().to_path_buf()),
+        model: None,
     };
     orch.spawn_team(spec)
         .await

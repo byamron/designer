@@ -50,6 +50,13 @@ pub struct TeamSpec {
     /// always set this.
     #[serde(default)]
     pub cwd: Option<std::path::PathBuf>,
+    /// Per-team Claude model override (e.g. `claude-haiku-4-5`). When
+    /// `None`, falls back to `ClaudeCodeOptions::model`. The Claude
+    /// subprocess takes `--model` once at spawn; switching model for an
+    /// existing team requires respawning. Additive on the wire so legacy
+    /// specs decode unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

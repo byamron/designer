@@ -52,6 +52,20 @@ pub fn coalesce_window_from_env() -> Duration {
         .unwrap_or(DEFAULT_COALESCE_WINDOW)
 }
 
+/// Map the frontend's user-facing model identifier (as defined in
+/// `ComposeDock.tsx`) to the Claude CLI's `--model` argument. Unknown
+/// identifiers return `None` — the orchestrator falls back to its own
+/// default model. Kept as a pure function so a unit test can lock the
+/// mapping.
+pub fn frontend_model_to_claude_cli(id: &str) -> Option<String> {
+    match id {
+        "opus-4.7" => Some("claude-opus-4-7".to_string()),
+        "sonnet-4.6" => Some("claude-sonnet-4-6".to_string()),
+        "haiku-4.5" => Some("claude-haiku-4-5".to_string()),
+        _ => None,
+    }
+}
+
 impl AppCore {
     /// Dispatch the user's message to the orchestrator, then — only on
     /// successful dispatch — persist the user's `MessagePosted` event and
@@ -69,6 +83,7 @@ impl AppCore {
         &self,
         workspace_id: WorkspaceId,
         tab_id: Option<TabId>,
+        model: Option<String>,
         body: String,
     ) -> Result<ArtifactId, CoreError> {
         if body.trim().is_empty() {
@@ -84,7 +99,34 @@ impl AppCore {
             self.set_last_user_tab(workspace_id, t);
         }
 
-        // 1. Dispatch to the orchestrator first. Lazy-spawn a team if
+        // Map the frontend identifier (e.g. `haiku-4.5`) to the Claude
+        // CLI's `--model` argument. Unknown identifiers fall through as
+        // `None` — orchestrator default applies.
+        let requested_cli_model = model.as_deref().and_then(frontend_model_to_claude_cli);
+
+        // If the user has switched to a different model than the team
+        // is currently running on, force a respawn before the message
+        // dispatches. Claude takes `--model` once at process start; the
+        // only way to change models for an existing session is to
+        // restart the subprocess. Session id is workspace-derived
+        // (UUIDv5) so Claude resumes the same session — conversation
+        // history is preserved across the swap.
+        let current_cli_model = self.team_model(workspace_id);
+        if requested_cli_model.is_some()
+            && requested_cli_model.as_deref() != current_cli_model.as_deref()
+        {
+            info!(
+                %workspace_id,
+                from = ?current_cli_model,
+                to = ?requested_cli_model,
+                "model change requested; respawning team"
+            );
+            self.spawn_workspace_team(workspace_id, requested_cli_model.clone())
+                .await
+                .map_err(|e| CoreError::Invariant(format!("couldn't reach Claude — {e}")))?;
+        }
+
+        // 1. Dispatch to the orchestrator. Lazy-spawn a team if
         //    none exists yet — the demo workspace and any fresh workspace
         //    start without a team, and the user's first message is what
         //    kicks one off.
@@ -116,28 +158,9 @@ impl AppCore {
                         "post_message hit a stale team handle; respawning (insert+drop will kill the old child via kill_on_drop)"
                     );
                 }
-                let team_name = format!("workspace-{workspace_id}");
-                // Spawn in the project's repo root so the workspace lead's
-                // tools resolve against the user's code, not Designer's
-                // own cwd. Track-scoped spawns will override with the
-                // worktree path once the track UI lands.
-                let cwd = self
-                    .projector
-                    .workspace(workspace_id)
-                    .and_then(|ws| self.projector.project(ws.project_id))
-                    .map(|p| p.root_path);
-                let spec = TeamSpec {
-                    workspace_id,
-                    team_name,
-                    lead_role: "team-lead".into(),
-                    teammates: vec![],
-                    env: Default::default(),
-                    cwd,
-                };
-                if let Err(e) = self.orchestrator.spawn_team(spec).await {
-                    warn!(error = %e, %workspace_id, "lazy spawn_team failed");
-                    return Err(CoreError::Invariant(format!("couldn't reach Claude — {e}")));
-                }
+                self.spawn_workspace_team(workspace_id, requested_cli_model.clone())
+                    .await
+                    .map_err(|e| CoreError::Invariant(format!("couldn't reach Claude — {e}")))?;
                 if let Err(e) = self
                     .orchestrator
                     .post_message(workspace_id, USER_AUTHOR_ROLE.into(), body.clone())
@@ -198,6 +221,43 @@ impl AppCore {
             .await?;
         self.projector.apply(&env);
         Ok(artifact_id)
+    }
+
+    /// Lazy-spawn (or respawn) the workspace's chat team with the given
+    /// Claude CLI model override. Records the model in
+    /// `team_model_by_workspace` so a later `post_message` can detect a
+    /// model change without re-querying the orchestrator. Reuses the
+    /// project's repo root as the cwd so the lead's tools resolve
+    /// against the user's code.
+    pub(crate) async fn spawn_workspace_team(
+        &self,
+        workspace_id: WorkspaceId,
+        model: Option<String>,
+    ) -> Result<(), OrchestratorError> {
+        let cwd = self
+            .projector
+            .workspace(workspace_id)
+            .and_then(|ws| self.projector.project(ws.project_id))
+            .map(|p| p.root_path);
+        let spec = TeamSpec {
+            workspace_id,
+            team_name: format!("workspace-{workspace_id}"),
+            lead_role: "team-lead".into(),
+            teammates: vec![],
+            env: Default::default(),
+            cwd,
+            model: model.clone(),
+        };
+        match self.orchestrator.spawn_team(spec).await {
+            Ok(()) => {
+                self.set_team_model(workspace_id, model);
+                Ok(())
+            }
+            Err(e) => {
+                warn!(error = %e, %workspace_id, "spawn_team failed");
+                Err(e)
+            }
+        }
     }
 
     /// Append an agent-produced artifact (diagram or report) directly. The
@@ -605,6 +665,7 @@ mod tests {
                 teammates: vec![],
                 env: Default::default(),
                 cwd: None,
+                model: None,
             })
             .await
             .unwrap();
@@ -616,7 +677,7 @@ mod tests {
         // user-author and a team-lead-author event. We then verify that
         // exactly one extra (non-user) message artifact lands —
         // confirming the user echo was dropped.
-        core.post_message(ws.id, None, "hello team".into())
+        core.post_message(ws.id, None, None, "hello team".into())
             .await
             .unwrap();
         // Wait past the coalescer window. Generous 3 s headroom for
@@ -664,10 +725,10 @@ mod tests {
             .create_workspace(project.id, "b".into(), "main".into())
             .await
             .unwrap();
-        core.post_message(ws_a.id, None, "alpha".into())
+        core.post_message(ws_a.id, None, None, "alpha".into())
             .await
             .unwrap();
-        core.post_message(ws_b.id, None, "beta".into())
+        core.post_message(ws_b.id, None, None, "beta".into())
             .await
             .unwrap();
         let deadline = Instant::now() + Duration::from_millis(3000);
@@ -753,6 +814,7 @@ mod tests {
                 teammates: vec![],
                 env: Default::default(),
                 cwd: None,
+                model: None,
             })
             .await
             .unwrap();
@@ -762,7 +824,7 @@ mod tests {
         // we flip last_user_tab to B before the 200ms idle window
         // elapses, simulating "user switches tabs while agent is
         // streaming a reply".
-        core.post_message(ws.id, Some(tab_a.id), "hello from A".into())
+        core.post_message(ws.id, Some(tab_a.id), None, "hello from A".into())
             .await
             .unwrap();
         core.set_last_user_tab(ws.id, tab_b.id);
@@ -824,7 +886,7 @@ mod tests {
             .create_workspace(project.id, "ws".into(), "main".into())
             .await
             .unwrap();
-        core.post_message(ws.id, None, "first".into())
+        core.post_message(ws.id, None, None, "first".into())
             .await
             .unwrap();
         let after = core.list_artifacts(ws.id).await;
@@ -954,7 +1016,7 @@ mod tests {
             .await
             .unwrap();
 
-        core.post_message(ws.id, None, "hello".into())
+        core.post_message(ws.id, None, None, "hello".into())
             .await
             .unwrap();
 
@@ -1015,7 +1077,7 @@ mod tests {
             .unwrap();
 
         let err = core
-            .post_message(ws.id, None, "hello".into())
+            .post_message(ws.id, None, None, "hello".into())
             .await
             .expect_err("recovery-also-fails must surface a clean error");
 
@@ -1046,5 +1108,103 @@ mod tests {
 
         assert_eq!(flaky.spawn_calls.load(Ordering::SeqCst), 1);
         assert_eq!(flaky.calls.load(Ordering::SeqCst), 2);
+    }
+
+    /// The frontend identifier → Claude CLI model mapper is the
+    /// contract the IPC layer commits to. Lock the mapping so a future
+    /// model rename has to update both ends together.
+    #[test]
+    fn frontend_model_mapping_is_locked() {
+        assert_eq!(
+            frontend_model_to_claude_cli("opus-4.7"),
+            Some("claude-opus-4-7".into())
+        );
+        assert_eq!(
+            frontend_model_to_claude_cli("sonnet-4.6"),
+            Some("claude-sonnet-4-6".into())
+        );
+        assert_eq!(
+            frontend_model_to_claude_cli("haiku-4.5"),
+            Some("claude-haiku-4-5".into())
+        );
+        // Unknown identifiers fall through silently — the orchestrator
+        // default takes over.
+        assert_eq!(frontend_model_to_claude_cli("opus"), None);
+        assert_eq!(frontend_model_to_claude_cli(""), None);
+    }
+
+    /// Posting with a model identifier records the mapped Claude CLI
+    /// model on the workspace. Subsequent posts with the same model are
+    /// no-ops; switching models triggers a respawn (and updates the
+    /// recorded model).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn post_message_with_model_records_team_model() {
+        let core = boot_test_core().await;
+        spawn_message_coalescer(core.clone(), Duration::from_millis(5));
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+
+        // No model pinned at start.
+        assert_eq!(core.team_model(ws.id), None);
+
+        // First post with `haiku-4.5` lazy-spawns a team and pins the
+        // Claude CLI name.
+        core.post_message(ws.id, None, Some("haiku-4.5".into()), "first".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            core.team_model(ws.id).as_deref(),
+            Some("claude-haiku-4-5"),
+            "first post should pin the Claude CLI model name"
+        );
+
+        // Second post with the same model — no respawn, model
+        // unchanged.
+        core.post_message(ws.id, None, Some("haiku-4.5".into()), "second".into())
+            .await
+            .unwrap();
+        assert_eq!(core.team_model(ws.id).as_deref(), Some("claude-haiku-4-5"));
+
+        // Switching to sonnet respawns; the recorded model flips.
+        core.post_message(ws.id, None, Some("sonnet-4.6".into()), "third".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            core.team_model(ws.id).as_deref(),
+            Some("claude-sonnet-4-6"),
+            "model switch should respawn and update the recorded model"
+        );
+    }
+
+    /// Posting with `model = None` is the legacy path: the team is
+    /// lazy-spawned without a model override (orchestrator default
+    /// applies), and the workspace's recorded team_model stays unset.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn post_message_without_model_leaves_team_model_unset() {
+        let core = boot_test_core().await;
+        spawn_message_coalescer(core.clone(), Duration::from_millis(5));
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+
+        core.post_message(ws.id, None, None, "hello".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            core.team_model(ws.id),
+            None,
+            "no model pinned when the request omits one"
+        );
     }
 }
