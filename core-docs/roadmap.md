@@ -2312,13 +2312,13 @@ These tests are the gate. PR review for each sub-phase asserts every test in its
 
 **Problem:** `spawn_message_coalescer` accumulates streamed agent tokens in `PendingMessage.body` and flushes one `ArtifactCreated` per (workspace, author_role) once a 120ms idle window passes. The artifact id is `ArtifactId::new()` — UUIDv7 with the *flush-time* timestamp. Tool-use artifacts emitted during the agent's turn carry their *execution-time* UUIDv7. If the user replies between the last agent token and the flush, the user's artifact lands chronologically before the agent text artifact; tool-use artifacts that ran during the response get earlier timestamps than the flushed agent text. Result: the chat reads bottom-up-and-jumbled.
 
-**Fix:** capture `Instant::now()` (and a parallel `SystemTime::now()` for UUIDv7's clock basis) on the *first* token of each burst — same place `tab_id` is captured today (`PendingMessage.tab_id` set when `entry.body.is_empty()`). At flush, build the `ArtifactId` via `Uuid::new_v7_with_timestamp(first_seen)` instead of `ArtifactId::new()`. Pre-existing artifacts retain their (incorrect) timestamps; only new flushes are correct.
+**Fix:** capture the first chunk's timestamp in `PendingMessage` on the same `entry.body.is_empty()` guard that captures `tab_id` today. At flush, build the `ArtifactId` via `Uuid::new_v7(captured_timestamp)` (the actual `uuid` 1.x API — *not* `new_v7_with_timestamp`, which doesn't exist). Pre-existing artifacts retain their (incorrect) timestamps; only new flushes are correct.
 
 **Deliverables:**
-- New field `PendingMessage.first_seen_at: Option<uuid::Timestamp>` populated on first chunk, cleared on flush.
-- Helper `fn first_seen_artifact_id(first_seen: uuid::Timestamp) -> ArtifactId` — wraps `Uuid::new_v7_with_timestamp(...)`.
+- New field `PendingMessage.first_seen_at: Option<uuid::Timestamp>` populated on first chunk in the same `entry.body.is_empty()` branch that captures `tab_id`, cleared on flush.
+- Helper `fn first_seen_artifact_id(first_seen: uuid::Timestamp) -> ArtifactId` — wraps `Uuid::new_v7(first_seen)`. Build the `Timestamp` from a `SystemTime::now()` captured alongside `Instant::now()` on first chunk (they're not derivable from each other).
 - Flush path uses the helper; all existing coalescer tests stay green.
-- New test: `coalescer_flushed_artifact_predates_subsequent_user_post` — burst starts at T0, user posts at T100ms, flush fires at T120+ms (after idle window), assert flushed artifact's id < user's artifact's id.
+- New test: `coalescer_flushed_artifact_predates_subsequent_user_post` — burst starts at T0, user posts at T+50ms, flush fires at T+120+ms (after idle window), assert flushed artifact's id < user's artifact's id.
 
 **Acceptance tests:**
 - T-23A-1 — first-seen capture. PendingMessage entry created on first chunk has `first_seen_at = Some(...)`; subsequent chunks don't overwrite it.
@@ -2332,14 +2332,18 @@ These tests are the gate. PR review for each sub-phase asserts every test in its
 
 **Problem:** today the only chat-activity signal is the artifact-stream itself. When the user switches tabs or the agent goes quiet mid-turn, there is no way to tell whether the agent is computing, parked on a permission prompt, or has died. The user sees a frozen tab and assumes "stopped responding" — which is friction `019dea69`.
 
-**Fix:** orchestrator emits a coarse activity state per tab. Three states: `Idle`, `Working`, `AwaitingApproval`. Frontend renders a status row pinned to the top of the compose dock with a pulsing dot, an elapsed-time counter (`MM:SS`), and an optional current-action label.
+**Fix:** orchestrator emits a coarse activity state per tab. Three backend states: `Idle`, `Working`, `AwaitingApproval` (Rust enum names; user-facing labels are different — see Copy deliverable below). Frontend renders a status row pinned to the top of the compose dock with a pulsing dot, an elapsed-time counter, and an optional current-action label. *Plus* a small badge on the tab strip so the user can see at a glance that work is happening in a tab they're not currently viewing — without that, switching away makes the activity invisible and re-creates the original "stops responding" friction.
 
 **Deliverables:**
-- `OrchestratorEvent::ActivityChanged { workspace_id, tab_id, state, since: SystemTime }` — additive to the orchestrator's broadcast surface.
-- Translator emits `Working` on first stream event of a turn, `AwaitingApproval` when a `control_request` permission-prompt fires (the same site that already routes to `PermissionHandler::decide`), `Idle` on `result/success` or `result/error`.
-- Frontend activity slice in `useDataState` keyed by `(workspace_id, tab_id)`; `ComposeDockActivityRow` renders pulse + `MM:SS` from `since`.
-- Pulse uses the existing `--motion-pulse` token (already respects `prefers-reduced-motion`); fallback is a static dot.
-- No "Stop" button in v1 — Designer can't actually interrupt claude mid-turn yet without a wider protocol change. v2 adds it; v1 ships honest read-only.
+- `OrchestratorEvent::ActivityChanged { workspace_id, tab_id, state, since: SystemTime }` — *additive* variant on `OrchestratorEvent` (broadcast-only enum in `crates/designer-claude/src/orchestrator.rs`; not subject to ADR 0002's `EventPayload` freeze because there is no projector arm to break and no replay invariant to preserve. Document the precedent in `pattern-log.md` so future broadcast-only additions don't re-litigate).
+- Translator emits `Working` on first stream event of a turn, `AwaitingApproval` when a `control_request` permission-prompt fires (the same site that already routes to `PermissionHandler::decide`), `Idle` on `result/success` or `result/error`. **Subprocess death** (reader task exits on EOF) also emits `Idle` — covers the crash-mid-turn case so the UI doesn't show a phantom "Working" forever.
+- Frontend activity slice in `useDataState` keyed by `(workspace_id, tab_id)`; `ComposeDockActivityRow` renders pulse + elapsed time from `since`.
+- **User-facing copy** (translate from backend states): `Working` → `"Working… {elapsed}"`; `AwaitingApproval` → `"Approve to continue"` (with a chevron pointing at the inbox / approval block); `Idle` → render nothing (the row hides). Never expose the Rust enum name to the user.
+- **Elapsed-time format**: `MM:SS` for the first hour, `H:MM:SS` after. Typography: `--type-family-mono` (changing numbers feel calmer in mono), `--type-caption-size`, `--weight-regular`, `--color-muted`. Tabular figures.
+- **Tab-strip badge**: when `state != Idle` for a tab the user isn't currently viewing, the tab button in the tab strip shows a small `●` badge (uses `--color-accent` for `Working`, `--color-warning` for `AwaitingApproval`). Same `prefers-reduced-motion` handling as the dock pulse — solid dot, no animation.
+- **Reduced-motion**: project-wide `axioms.css` already sets `animation-duration: 0.01ms !important` under `@media (prefers-reduced-motion: reduce)`, which collapses the `--motion-pulse` keyframe effectively to a static dot. Acceptance test T-23B-3 must accept this *or* explicitly add `.compose-dock-activity-row__pulse { animation: none; }` under the same media query to satisfy the strict `animation: none` assertion. Pick one and document the choice; do not ship both.
+- No "Stop" button in v1 — Designer can't actually interrupt claude mid-turn yet without a wider protocol change. v2 adds it; v1 ships honest read-only. **Known tradeoff**: a "Working… 0:47" indicator with no Stop affordance can read as "frozen but I can't act on it" for users who habitually interrupt; revisit if dogfood surfaces this as its own friction.
+- **Mini procedure**: append a `core-docs/generation-log.md` entry covering the activity row + tab-badge pattern; append a `core-docs/pattern-log.md` entry for the `OrchestratorEvent` additive-variant precedent. Update the `ComposeDock` entry in `core-docs/component-manifest.json` to include the activity row in its purpose; if `ComposeDockActivityRow` is a separately-extractable component, give it its own manifest entry with the tokens it references.
 
 **Acceptance tests:**
 - T-23B-1 — state transitions. Translator fixtures: assert each (input event → emitted ActivityChanged) pair.
@@ -2357,9 +2361,10 @@ These tests are the gate. PR review for each sub-phase asserts every test in its
 
 **Deliverables:**
 - `ToolUseLine` expand-on-click triggers `getArtifact(artifact.id)` (cached after first fetch in `payloads` state, same as `MessageBlock`).
-- Expanded body renders `payload.body` as `<pre>` with `--type-family-mono`, `--space-4` left padding, `--color-muted` foreground.
-- Long output (>40 lines) truncates to 40 with a "Show full" disclosure that drops the cap.
+- Expanded body renders `payload.body` as `<pre>` with `--type-family-mono`, `--space-4` left padding, `--color-muted` foreground. **Wrapping**: `white-space: pre-wrap` so long lines wrap inside the parent's max-width (`.tool-line` already caps at `min(48rem, 100%)`); horizontal scroll is acceptable on overflow rather than the row stretching the whole thread.
+- Long output (>40 lines) truncates to 40 with a "Show full" disclosure that drops the cap. (40 lines mirrors a typical terminal viewport at common laptop sizes; revisit if dogfood says it's wrong.)
 - Visual snapshot test against existing fixture; new test for "expand fetches and renders payload."
+- **Mini procedure**: append a `core-docs/generation-log.md` entry for the tool-use expand-to-payload pattern; no new pattern-log entry needed (the disclosure pattern is already established).
 
 **Acceptance tests:**
 - T-23C-1 — expand triggers payload fetch (mock IPC asserts `getArtifact` called once per artifact).
