@@ -91,7 +91,11 @@
 }
 
 .friction-banner__cancel:hover {
-  background: rgba(255, 255, 255, 0.12);
+  /* 12% deliberately exceeds the 8% used for the snapped-element
+     wash on .friction-overlay--snapped — hover needs to read as a
+     stronger-than-resting affordance. Locked by inspection in light
+     + dark; revisit if a future accent scale dilutes the read. */
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 
 .friction-overlay {

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { closeDialog, useAppState } from "../store/app";
+import { closeDialog, toggleFrictionComposer, useAppState } from "../store/app";
 import { IconButton } from "./IconButton";
 import { IconX } from "./icons";
 
@@ -60,7 +60,13 @@ function HelpBody() {
   // The "Ask the help agent" input was a static placeholder with no
   // backing handler. Removed per the dogfood rule "no half-baked
   // features in prod"; the section returns once an answering agent
-  // actually exists.
+  // actually exists. In the meantime, the Report-issues hint below
+  // points users at Friction so they have a clear action when they
+  // came here looking for help.
+  const reportFriction = () => {
+    closeDialog();
+    toggleFrictionComposer();
+  };
   return (
     <>
       <section className="app-dialog__section" aria-label="Keyboard shortcuts">
@@ -82,9 +88,26 @@ function HelpBody() {
           <dd><kbd>⌘[</kbd></dd>
           <dt>Toggle activity</dt>
           <dd><kbd>⌘]</kbd></dd>
+          <dt>Report friction</dt>
+          <dd><kbd>⌘⇧F</kbd></dd>
           <dt>Help</dt>
           <dd><kbd>⌘?</kbd></dd>
         </dl>
+      </section>
+      <section className="app-dialog__section" aria-label="Report issues">
+        <span className="app-dialog__section-label">Report issues</span>
+        <p className="app-dialog__hint">
+          Found a glitch or have feedback? Use{" "}
+          <button
+            type="button"
+            className="app-dialog__inline-link"
+            onClick={reportFriction}
+          >
+            Friction
+          </button>{" "}
+          (<kbd>⌘⇧F</kbd>) to capture a screenshot and a note. Reports
+          stay local in your linked repo.
+        </p>
       </section>
       <section className="app-dialog__section" aria-label="About">
         <span className="app-dialog__section-label">About</span>

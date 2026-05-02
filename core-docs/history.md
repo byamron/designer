@@ -37,6 +37,163 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Per-message model selection — frontend selector wired through to Claude CLI
+**Date:** 2026-05-02
+**Branch:** release-review
+**Commits:** local; not yet PR'd
+
+**What was done:**
+
+The composer's Model dropdown (Opus 4.7 / Sonnet 4.6 / Haiku 4.5) is now real — picking a model and sending respawns the workspace's Claude subprocess with the matching `--model` argument. Conversation history survives the swap because session ids are workspace-derived (UUIDv5), so Claude resumes the same session under the new model.
+
+Concretely:
+
+- `TeamSpec.model: Option<String>` — additive, per-team Claude CLI model override.
+- `PostMessageRequest.model: Option<String>` — additive, per-message identifier from the frontend.
+- `ClaudeCodeOrchestrator::build_command` accepts a model override that beats the orchestrator default when present.
+- `AppCore::team_model_by_workspace` tracks which Claude CLI model the current team was spawned with; `team_model()` / `set_team_model()` are the read/write helpers.
+- `core_agents::post_message` takes a `model: Option<String>` parameter. When the requested model differs from what the workspace's team is running, it calls a new `spawn_workspace_team(workspace_id, model)` helper to respawn before dispatching the message.
+- `frontend_model_to_claude_cli` maps `opus-4.7 → claude-opus-4-7`, `sonnet-4.6 → claude-sonnet-4-6`, `haiku-4.5 → claude-haiku-4-5`. Unknown identifiers fall through to the orchestrator default (no-op).
+- Frontend: `WorkspaceThread.onSend` passes `payload.meta.model` through to `ipcClient().postMessage`. ComposeDock un-gated — Model + Effort selectors render unconditionally; the `show_models_section` flag now only gates the placeholder Settings → Models pane.
+- Five new tests pin the contract: Rust `frontend_model_mapping_is_locked` (frontend ↔ CLI mapping), `post_message_with_model_records_team_model` (lazy-spawn pins model, same-model post is no-op, switch respawns), `post_message_without_model_leaves_team_model_unset` (legacy-path unchanged); frontend `forwards the user's selected model on postMessage` (Haiku reaches the IPC), `omits a model when the default selection is in effect` (default opus-4.7 still rides along — the no-op path).
+
+**Why:**
+
+Closes friction `frc_019de705` ("got this error when I switched to Haiku") with a real fix instead of the hide-behind-flag stopgap proposed during the release review. The user explicitly wanted the cheap-model option for testing — burning Opus tokens during round-trip / regression iteration is wasteful when the user isn't evaluating model quality, just that the path works. Model selection is also the simplest demonstration that Designer's chat surface respects per-message preferences without intercepting Claude Code's own model-routing semantics.
+
+**Design decisions:**
+
+- **Per-team `TeamSpec.model`, not per-message.** Claude Code accepts `--model` once at process start; there is no in-session mid-stream swap. Plumbing a per-message field into `TeamSpec` would be a contract lie. The user-visible behavior is per-message because the UI exposes it that way, but the runtime mechanism is per-team-with-respawn-on-change.
+- **Switching models = respawn the subprocess.** `kill_on_drop(true)` on the prior `Child` makes the kill synchronous; `spawn_team`'s `insert` overwrite drops the stale handle. Empirically the round-trip is fast enough that a model-switch doesn't feel laggy — comparable to one fresh chat message.
+- **Sessions resume on respawn.** The session id is `Uuid::new_v5(SESSION_NAMESPACE, workspace_id)` — deterministic per workspace, not per process. Claude Code persists session state to `~/.claude/sessions/`, so a respawn under a new model picks up the same conversation. The user's mental model is "switch model and keep talking," and the implementation honours it.
+- **Always pass `meta.model` through, even when it matches the running team.** The backend detects the no-op case (`team_model() == Some(requested)`) and skips respawn. Frontend stays simple; backend owns the comparator.
+- **Keep `show_models_section` as the gate for the Settings → Models pane.** The pane is still placeholder — model defaults / per-project preferences haven't been designed yet. The composer selector is the per-message override that most users want today; the pane is the future "set the workspace default" surface.
+
+**Technical decisions:**
+
+- **`spawn_workspace_team` extracted as a helper** that both the lazy-spawn path (`TeamNotFound` / `ChannelClosed` recovery) and the model-mismatch path call. Keeps `cwd` resolution and `set_team_model` side-effects in one place; the recovery and switch paths can't drift apart.
+- **`frontend_model_to_claude_cli` is a pure function** so the mapping is testable in isolation. Locks the frontend-to-CLI translation as a single-line edit rather than scattered string manipulation.
+- **Additive serde on both the IPC DTO and the orchestrator spec** — `#[serde(default, skip_serializing_if = "Option::is_none")]` everywhere — so legacy frontends and persisted specs decode unchanged. No ADR needed (per ADR 0002 addendum: additive event-vocabulary changes are free).
+- **`team_model_by_workspace` lives on `AppCore`** alongside `last_user_tab_by_workspace`. Same lifecycle (cleared lazily; stale entries are harmless because the comparator falls back to "spawn" on `TeamNotFound`).
+
+**Tradeoffs discussed:**
+
+- **Hide selector behind flag (release-review's first instinct) vs. wire it for real.** The user explicitly chose the real fix: "this shouldn't be a difficult implementation." It wasn't (~150 LOC across the Rust crate boundary plus the frontend wire). The hide-via-flag move is the right release-prep instinct when implementation is non-trivial; when it's cheap, do the work. Captured as FB-0038.
+- **Send `/model <name>` as a slash command vs. respawn the subprocess.** Claude CLI's native `--model` is a process arg, not a runtime command. The slash-command path would couple Designer to an undocumented Claude internal; the respawn path uses public CLI surface and resumes via the existing session mechanism. Respawn wins on portability and observability.
+- **Per-message model in `TeamSpec` vs. global `ClaudeCodeOptions::model`.** Per-team scope is correct for the multi-workspace case — different workspaces can run different models concurrently. The global option still works as the orchestrator-wide default when a workspace has no team yet.
+
+**Lessons learned:**
+
+- The "hide it behind a flag" stopgap was the safe-by-default release move, but the user pushed back the moment the implementation was understood to be cheap. The discipline is: when proposing to hide a half-baked feature, also estimate the wire-it-for-real cost. If it's < 1 day, default to wiring.
+- Existing test mocks that used `{...originalClient, ...overrides}` silently lost prototype methods on the `MockIpcClient` class instance. ComposeDock's new `getFeatureFlags()` call exposed the bug. Fixed in 4 spots inline, but the pattern should be replaced with a plain-object base or a builder helper. Captured as FB-0039.
+- Locking the model mapping in a unit test is small (~10 lines) but high-leverage — it makes "add a new model variant" a single-test failure instead of a silent dispatch-as-default bug.
+
+---
+
+### Release v0.1.1 → HEAD multi-perspective review pass (release-prep)
+**Date:** 2026-05-02
+**Branch:** release-review
+**Commits:** local; not yet PR'd
+
+**What was done:**
+
+A range-mode staff-perspective review of the cumulative diff from `v0.1.1` to `HEAD` — 13 PRs / ~8,018 LOC across 111 files / staging set for the next release. Three parallel reviews (staff engineer / staff UX designer / staff design engineer) ran against the saved diff. Findings triaged into BLOCKER / NIT / FOLLOW-UP.
+
+Two original blockers fixed inline on `release-review`:
+
+- **`RepoUnlinkModal.tsx:125` referenced undefined token `--color-text`.** The `<strong>` wrapping the repo path silently fell back to UA default — a dark-mode contrast regression that wouldn't show up in light-mode visual baselines. Replaced with the canonical `--color-foreground`. New in PR #78; introduced when the modal was authored.
+- **AppDialog Help dialog had no path to Friction.** The "Ask the help agent" input was correctly removed in the dogfood push (no backing handler), but the dialog was left with only keyboard shortcuts + version — a user looking for help had nowhere to go. Added a "Report issues" section pointing at ⌘⇧F via a tokenized inline link (`.app-dialog__inline-link` — focus-visible, hover, tokenized colors), plus the missing ⌘⇧F entry in the keyboard shortcut list. Closes friction `frc_019de6ff`.
+
+The third UX blocker (`frc_019de705` Haiku selector error) was first hidden behind `show_models_section`, then properly wired in the per-message-model entry above. The "hide first" move was the wrong choice once the user clarified the testing use case — entry above for the rationale.
+
+A pre-existing test bug surfaced as collateral: `workspace-thread.test.tsx` used `{...originalClient, ...overrides}` to build IPC mocks, which silently drops prototype methods on the underlying `MockIpcClient` class instance. ComposeDock's new `getFeatureFlags()` call (added during the flag-gating pass, then kept after the model wiring) made the missing method explode. Fixed in 4 mock setups; deeper refactor to a plain-object base or builder helper deferred (FB-0039).
+
+Friction status going into the review: 14 of 18 reports closed. End of session: all 18 effectively addressed (12 by direct PR fix during v0.1.1 → HEAD, 2 by the in-session release-prep, 2 already addressed but not previously cross-referenced).
+
+Five files changed by the review pass: `RepoUnlinkModal.tsx`, `AppDialog.tsx`, `dialogs.css` (new `.app-dialog__hint` + `.app-dialog__inline-link`), `ComposeDock.tsx` (flag dance — added then removed), `workspace-thread.test.tsx` (mock fixes).
+
+**Why:**
+
+Designer is approaching its second release after v0.1.1 (which itself was the dogfood push). The user asked for a comprehensive pre-release review with explicit priority on chat reliability, tab function correctness, and friction-loop completeness. Range-mode review (against the tag, not a single PR) is the right shape for release-staging — there is no single PR to review; the staging set is the cumulative diff.
+
+The three dead-token / half-baked-feature / broken-selector findings are exactly the class of issues that erode dogfood trust per FB-0036 ("no half-baked features in prod"). Catching them in a multi-perspective sweep before tagging is cheaper than catching them in friction reports after.
+
+**Design decisions:**
+
+- **Range mode is the right shape for release reviews.** A PR-mode review wouldn't fit — there's no single PR. A per-PR review of all 13 would dilute the lens. Reviewing the cumulative diff against the previous tag is the correct altitude: the reviewer sees the staging set as one unit, can spot cross-PR drift (e.g., the two dead tokens in different modals, only one introduced this window), and produces a single set of findings the user can act on before cutting.
+- **Help dialog: link to Friction, don't add an in-progress ask agent.** The "Ask" input was removed correctly in the dogfood pass per FB-0036. Adding it back in any half-state would re-violate that rule. The right fix is a clear Report-issues path, since most users hit "help" because something feels off — and Friction is the channel for that.
+- **Cancel default focus + tokenized danger remain the destructive-modal pattern.** RepoUnlinkModal's pattern (PR #78) holds; the `--color-text` fix is a token-correctness cleanup, not a pattern change.
+
+**Technical decisions:**
+
+- **`.app-dialog__inline-link` is a new tokenized class** rather than inline styles. The Help dialog's "Friction" trigger is a button (because clicking it should close the dialog and call `toggleFrictionComposer`), but it must read as a textual link inside flowing copy. The class enforces tokens: `--color-foreground` for resting, `--color-accent` for hover, `--border-thin` + `--color-accent` + `--focus-outline-offset` + `--radius-badge` for focus-visible. No raw px / hex / ms.
+- **Did not fix the pre-existing `--color-danger` references** across `RepoLinkModal.tsx:168`, `CreateProjectModal.tsx:261`, `RepoUnlinkModal.tsx:136`, or `friction.css:94`'s raw `rgba(255,255,255,0.12)` hover. All pre-date v0.1.1; cleanup pass is its own PR (history entry on PR #78 already flagged this for follow-up).
+- **Did not regenerate visual-regression baselines.** PR #79 ships infra; baseline PNGs need to be generated on the Linux CI runner (macOS local renders differ in Skia + fontconfig). Captured as a release-blocker question for the user, not a fix.
+
+**Tradeoffs discussed:**
+
+- **Hide model selector vs. wire it.** Initially hidden behind `show_models_section` as the safe release move. User pushed back: "this shouldn't be a difficult implementation." Reverted the hide and shipped the real wiring (entry above). The lesson: when a half-baked feature has a cheap real fix, hide-via-flag is the wrong stopgap. Captured as FB-0038.
+- **Single review pass vs. per-PR sweep across 13 PRs.** Single pass wins on coherence and effort. The cost is that reviewer attention is amortized across the whole staging set; a single PR with subtle issues might get less attention than it would in PR mode. Trade is acceptable for release prep where the goal is "what's missing for the release" rather than "did each PR meet its bar."
+
+**Lessons learned:**
+
+- A test mock that spreads a class instance (`{...originalClient}`) drops prototype methods. The pattern survived multiple PRs because no test-setup code path needed prototype methods until ComposeDock added `getFeatureFlags()`. Worth capturing as FB-0039 + a future test-helper refactor.
+- The dead-token sweep that PR #78's lessons-learned section flagged is still outstanding. Each new modal that copy-pastes the danger-styling pattern adds another `--color-danger` reference. The cleanup pass should also lock the tokens via an invariant in `tools/invariants/check.mjs`.
+- The release-review model (range mode against the previous tag) was new this session and worked well. Codified into the staff-perspective-review skill — entry below.
+
+---
+
+### `staff-perspective-review` skill: branch + range modes
+**Date:** 2026-05-02
+**Branch:** release-review
+**File:** `.claude/skills/staff-perspective-review/SKILL.md`
+
+**What was done:**
+
+The staff-perspective-review skill previously assumed an open PR and refused to run otherwise. Updated to support three modes based on git state:
+
+- **PR mode** *(unchanged)* — PR open against the current branch. Review the PR's diff; on success, update the PR body with "Reviewer notes" and leave it open for the human reviewer.
+- **Branch mode** *(new)* — no PR open but the branch is ahead of main. Review against `origin/main`; if reviews conclude the branch is ready (gates green, no unfixable blockers), `git push -u` and `gh pr create` with a full PR body (Summary, Test plan, Reviewer notes, Follow-ups).
+- **Range mode** *(new)* — caller passes `--base <ref>` (e.g. `--base v0.1.1`). Review the range; summarise findings inline; do **not** open a PR. Used for release-staging reviews where the staging set spans many already-merged PRs and there is no PR to update.
+
+The mode-detection step at the top of the workflow runs `gh pr list --head` + `git rev-list --count origin/main..HEAD` in parallel and picks the matching mode. Caller can override via `--base`. Diff base resolution: `<base>...HEAD` for PR/branch, `<tag>..HEAD` for range.
+
+Three new gotchas codify hard-won lessons:
+
+- **Don't open a PR with red gates.** If the human reviewer's first action would be "fix the failing build," the skill failed.
+- **Confirm before auto-PRing on sensitive branches.** Branch names like `release-*`, `hotfix-*`, `v[0-9]*`, or diffs that touch release infra (`tauri.conf.json`, `Cargo.toml` version, GitHub Actions release workflows) need an explicit user OK before opening a PR.
+- **Range mode: don't push fixes without explicit instruction.** Range mode is often run on a local `release-review` branch the user created for the survey. Pushing or auto-PRing there is rarely what they want.
+
+The "Don't merge" guard restated for all three modes. Branch mode includes a new PR template (Summary / Test plan / Reviewer notes / Follow-ups) drawn from the style of recent merged PRs.
+
+**Why:**
+
+The original skill conflated "review the work" with "update the PR." The release-prep flow exposed the gap: there's no single PR for a release-staging review, and asking the user to fabricate one to satisfy the skill is process theater. Worse, branch-mode (work complete but no PR yet) was unsupported even though it's a common shape — the user finishes a workstream and the skill should be able to pick up from there.
+
+**Design decisions:**
+
+- **Mode detection over mode selection.** The user shouldn't have to remember to pass a flag — the skill infers PR vs. branch from `gh pr list`. Range mode requires the explicit `--base` arg because release-staging is the only intent for it (`gh pr list` would match a feature-branch PR otherwise).
+- **Range mode never opens a PR.** Release prep is a survey, not a workstream. The findings are inputs to the user's release-cut decision, not a deliverable to be merged.
+- **Branch mode gates PR-opening on review readiness.** Reviews can find blockers the agent fixes inline; they can also find FOLLOW-UPs that don't block opening but should be noted in the body. The skill draws the line at "would a human reviewer immediately bounce this back?" — if yes, stop and report; if no, ship the PR.
+- **The "Don't merge" invariant holds across all modes.** PR mode leaves the PR open; branch mode opens but doesn't merge; range mode produces a written summary. The skill's value is the polish step before human review, not autonomous shipping.
+
+**Technical decisions:**
+
+- **Branch-name guards on `release-*` / `hotfix-*` / `v[0-9]*`.** These branches are sensitive enough that auto-PRing without confirmation would be surprising. The guard isn't paternalistic — it preserves user agency over the most consequential PRs.
+- **`<base>...HEAD` (three dots) for PR/branch, `<tag>..HEAD` (two dots) for range.** The semantic difference matters: `...` is the symmetric difference (what's in the branch but not in main); `..` is the inclusive set of commits since the tag. Release reviewers want every commit since the previous tag, including those added via merges from main.
+
+**Tradeoffs discussed:**
+
+- **Auto-open PR in branch mode vs. always wait for user.** Auto-open wins because the review-then-PR sequence is the dominant workstream-completion shape; making the user manually open after a successful review adds friction. The sensitive-branch guard handles the genuinely-different cases.
+- **Single skill with three modes vs. separate skills.** Single skill wins because the review machinery is identical across modes — only the input surface (diff base) and output surface (PR vs. summary) change. Three skills would duplicate the agent-spawn / triage / fix machinery.
+
+**Lessons learned:**
+
+- The first version of the skill encoded a workflow assumption ("PR exists") that was true 90% of the time. The remaining 10% — release prep, branch-completion — was where the skill silently failed. Encoding mode-detection at the top is cheap and saves the user from working around the skill.
+- The PR-opening template needs to mirror recent merged PRs in style (short title, Summary as bullets, Test plan as checklist, Reviewer notes as the new section). Drift from that style means the human reviewer reads two different PR shapes and the skill's PRs feel foreign.
+
+---
+
 ### Settings scope split + project unlink (RepoUnlinkModal + `cmd_unlink_repo`) SAFETY
 **Date:** 2026-05-02
 **Branch:** settings-scope-unlink

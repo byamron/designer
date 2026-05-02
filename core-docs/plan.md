@@ -39,6 +39,8 @@ Plus: `--app-titlebar-height` and `--layer-titlebar` defined as design tokens, `
 
 **Phase 22 advance slice promoted 2026-05-02.** v3 of the Project Home redesign spec (`.context/attachments/pasted_text_2026-05-02_08-41-00.txt`) reviewed; all first-principles cuts in `roadmap.md` § Phase 22 hold (no new evidence in v3 to re-litigate three-voice reports, hover preview, project-level Reports tab, five-category Designer Noticed re-skin, Linear integration, or spring confirmation animation). **22.G** (color system) and **22.B** (Recent Reports redesign) pulled forward into Lane 2 — both are file-disjoint from the just-shipped Dogfood Push deliverables and the in-flight Lane 2 work, and provide standalone value: 22.G unlocks team identity for any future canvas work; 22.B replaces the current Home-tab report rendering with a manager-voice digest backed by a read-state projection. 22.A (canvas) and the rest of Phase 22 stay in Lane 5 deferred until dogfood signal motivates them.
 
+**Pre-release review of v0.1.1 → HEAD shipped 2026-05-02 (release-review branch, not yet PR'd).** Range-mode `staff-perspective-review` against the `v0.1.1` tag covered the full 13-PR / ~8,018-LOC staging set for the next release. Three findings fixed inline: dead `--color-text` token in `RepoUnlinkModal` (dark-mode contrast regression), missing Friction guidance in the Help dialog (closes `frc_019de6ff`), and a properly-wired Model selector (closes `frc_019de705` — replaces the initial hide-behind-flag fix with real per-message model selection that respawns the workspace's Claude subprocess on switch and resumes the same UUIDv5 session so conversation history survives). Test mocks in `workspace-thread.test.tsx` were patched in 4 spots after a pre-existing `{...originalClient}` spread bug surfaced — class-instance methods get dropped, exposed by ComposeDock's new `getFeatureFlags()` call. Friction inbox: all 18 reports effectively addressed (12 directly via PRs in the release window, 2 in the release-prep session, 4 already covered but not previously cross-referenced). The `staff-perspective-review` skill itself was extended with branch + range modes during this session — see `history.md`. **Open release-cut question: visual-regression baselines (PR #79) need to be regenerated on the Linux CI runner before tagging, or the workflow accepts as warn-only for one more release.**
+
 12.B's real-binary round-trip still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
 
 ## Dogfood Push — 2026-04-30
@@ -111,7 +113,7 @@ Existing in-flight phases (Phase 21.A1.2 surface rework, Phase 21.A2 detector sq
 
 ### Feature readiness *(DP-C audit; 2026-04-30)*
 
-Honest inventory of every shipped surface against the P2 rule "no half-baked features in prod." 19 prod-ready / 1 flagged / 12 hidden.
+Honest inventory of every shipped surface against the P2 rule "no half-baked features in prod." 21 prod-ready / 1 flagged / 12 hidden *(updated 2026-05-02 release-review pass: composer Model selector moved from flag to prod, Help dialog promoted to prod with Friction link)*.
 
 | Surface | Status | Reason |
 |---|---|---|
@@ -122,12 +124,15 @@ Honest inventory of every shipped surface against the P2 rule "no half-baked fea
 | Block: diagram, variant, track-rollup | hide | Stub renderers — no payload source. Unregistered; GenericBlock fallback catches stray events. TODO(DP-C) markers in `blocks/index.ts`. |
 | Settings → Appearance | prod | Theme toggle works; persistent. |
 | Settings → Account | prod | Repo link + Keychain status are real reads. |
-| Settings → Models | flag (`show_models_section`, default off) | Static placeholder strings — no model selection wired. |
+| Settings → Models pane | flag (`show_models_section`, default off) | Pane is still placeholder — no per-workspace default UI. Composer selector below replaces the per-message ask. |
+| ComposeDock Model selector (Opus / Sonnet / Haiku) | prod | Per-message model selection wired end-to-end. Switching models respawns the workspace's Claude subprocess; UUIDv5 session id resumes conversation under the new model. Test the cheap models without burning Opus tokens. |
+| ComposeDock Effort selector | prod (decorative) | Sends `meta.effort` through to the IPC; backend has no effort routing yet. UI is honest: the control writes to the payload that's accepted by IPC, no half-baked claim of model behavior. |
 | Settings → Preferences → Cost chip toggle | prod | Real preference; default on. |
 | Settings → Preferences → "Default autonomy" row | hide | Static placeholder; real autonomy override lives per-project on HomeTab. Removed; TODO(DP-C). |
 | Settings → Activity → Friction | prod | Tracks 13.K + 13.L + 13.M shipped end-to-end. |
 | Settings → Activity → Designer noticed | prod | Phase 21.A1.2 shipped. |
 | Onboarding, CreateProjectModal, RepoLinkModal | prod | First-run polish (PR #24). |
+| Help dialog (⌘?) | prod | Keyboard shortcut list + About + Report-issues link to ⌘⇧F. The "Ask the help agent" input was removed in DP-C; release-review added the Friction link so a help-seeking user has a clear next action. |
 | Cost chip + replay | prod | Default on; replays from store. |
 | Friction (⌘⇧F + ⌘⇧S + triage) | prod | Local-first. |
 | Designer-noticed (proposals + findings) | prod | Phase 21.A1.2. |

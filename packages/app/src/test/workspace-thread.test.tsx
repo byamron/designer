@@ -4,6 +4,7 @@ import { act } from "react";
 import { WorkspaceThread } from "../tabs/WorkspaceThread";
 import { __setIpcClient, ipcClient, type IpcClient } from "../ipc/client";
 import { createMockCore, type MockCore } from "../ipc/mock";
+import { mockIpcClient } from "./ipcMockClient";
 import type {
   ArtifactSummary,
   PostMessageRequest,
@@ -154,9 +155,60 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
     expect(mock.postedMessages()).toEqual([]);
   });
 
+  it("forwards the user's selected model on postMessage", async () => {
+    render(<WorkspaceThread workspace={workspace} />);
+
+    const textarea = await waitFor(() =>
+      document.querySelector<HTMLTextAreaElement>("textarea.compose__input"),
+    );
+    expect(textarea).not.toBeNull();
+    fireEvent.change(textarea!, { target: { value: "test the cheap model" } });
+
+    // Switch the Model selector to Haiku before sending.
+    const modelSelect = document.querySelector<HTMLSelectElement>(
+      "select[aria-label='Model']",
+    );
+    expect(modelSelect).not.toBeNull();
+    fireEvent.change(modelSelect!, { target: { value: "haiku-4.5" } });
+
+    const sendBtn = document.querySelector<HTMLButtonElement>(
+      "button.btn-icon--primary",
+    );
+    fireEvent.click(sendBtn!);
+
+    await waitFor(() => {
+      expect(mock.postedMessages().length).toBe(1);
+    });
+    const sent: PostMessageRequest = mock.postedMessages()[0];
+    expect(sent.model).toBe("haiku-4.5");
+  });
+
+  it("omits a model when the default selection is in effect", async () => {
+    render(<WorkspaceThread workspace={workspace} />);
+
+    const textarea = await waitFor(() =>
+      document.querySelector<HTMLTextAreaElement>("textarea.compose__input"),
+    );
+    fireEvent.change(textarea!, { target: { value: "default opus path" } });
+
+    const sendBtn = document.querySelector<HTMLButtonElement>(
+      "button.btn-icon--primary",
+    );
+    fireEvent.click(sendBtn!);
+
+    await waitFor(() => {
+      expect(mock.postedMessages().length).toBe(1);
+    });
+    const sent: PostMessageRequest = mock.postedMessages()[0];
+    // The default selection ("opus-4.7") still rides along — backend
+    // treats it as a no-op when it matches the running team. Tests
+    // that care about the no-op path live in the Rust suite (see
+    // `post_message_with_model_records_team_model`).
+    expect(sent.model).toBe("opus-4.7");
+  });
+
   it("restores the draft and surfaces an alert when postMessage rejects", async () => {
-    const failClient: IpcClient = {
-      ...originalClient,
+    const failClient = mockIpcClient({
       listProjects: () => Promise.resolve(mock.listProjects()),
       listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
       spine: (id) => Promise.resolve(mock.spine(id)),
@@ -168,7 +220,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       // Reject with the production-shaped IpcError envelope.
       postMessage: () =>
         Promise.reject({ kind: "cost_cap_exceeded", message: "$10 cap" }),
-    } as IpcClient;
+    });
     __setIpcClient(failClient);
 
     render(<WorkspaceThread workspace={workspace} />);
@@ -203,8 +255,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
     const firstPromise = new Promise<{ artifact_id: string }>((r) => {
       resolveFirst = r;
     });
-    const slowMock: IpcClient = {
-      ...originalClient,
+    const slowMock = mockIpcClient({
       listProjects: () => Promise.resolve(mock.listProjects()),
       listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
       spine: (id) => Promise.resolve(mock.spine(id)),
@@ -214,7 +265,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
       togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
       postMessage: vi.fn(() => firstPromise),
-    } as IpcClient;
+    });
     __setIpcClient(slowMock);
 
     render(<WorkspaceThread workspace={workspace} />);
@@ -245,8 +296,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
 
   it("refreshes when a production-shape stream_id (`workspace:<uuid>`) artifact event arrives", async () => {
     let captured: ((e: StreamEvent) => void) | null = null;
-    const customMock: IpcClient = {
-      ...originalClient,
+    const customMock = mockIpcClient({
       listProjects: () => Promise.resolve(mock.listProjects()),
       listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
       spine: (id) => Promise.resolve(mock.spine(id)),
@@ -264,7 +314,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
       togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
       postMessage: (req) => Promise.resolve(mock.postMessage(req)),
-    } as IpcClient;
+    });
     __setIpcClient(customMock);
 
     render(<WorkspaceThread workspace={workspace} />);
@@ -306,27 +356,28 @@ describe("WorkspaceThread per-tab thread isolation", () => {
     mock = createMockCore();
     const project = mock.listProjects()[0];
     workspace = mock.listWorkspaces(project.project.id)[0].workspace;
-    __setIpcClient({
-      ...originalClient,
-      listProjects: () => Promise.resolve(mock.listProjects()),
-      listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
-      spine: (id) => Promise.resolve(mock.spine(id)),
-      stream: (h) => mock.subscribe(h),
-      listArtifacts: (ws) => Promise.resolve(mock.listArtifacts(ws)),
-      listArtifactsInTab: (ws, t) =>
-        Promise.resolve(mock.listArtifactsInTab(ws, t)),
-      listPinnedArtifacts: (ws) =>
-        Promise.resolve(mock.listPinnedArtifacts(ws)),
-      getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
-      togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
-      postMessage: (req) => Promise.resolve(mock.postMessage(req)),
-      requestApproval: (ws, gate, summary) =>
-        Promise.resolve(mock.requestApproval(ws, gate, summary)),
-      resolveApproval: (id, granted, reason) =>
-        Promise.resolve(mock.resolveApproval(id, granted, reason)),
-      openTab: (req) => Promise.resolve(mock.openTab(req)),
-      closeTab: (ws, t) => Promise.resolve(mock.closeTab(ws, t)),
-    } as IpcClient);
+    __setIpcClient(
+      mockIpcClient({
+        listProjects: () => Promise.resolve(mock.listProjects()),
+        listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
+        spine: (id) => Promise.resolve(mock.spine(id)),
+        stream: (h) => mock.subscribe(h),
+        listArtifacts: (ws) => Promise.resolve(mock.listArtifacts(ws)),
+        listArtifactsInTab: (ws, t) =>
+          Promise.resolve(mock.listArtifactsInTab(ws, t)),
+        listPinnedArtifacts: (ws) =>
+          Promise.resolve(mock.listPinnedArtifacts(ws)),
+        getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
+        togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
+        postMessage: (req) => Promise.resolve(mock.postMessage(req)),
+        requestApproval: (ws, gate, summary) =>
+          Promise.resolve(mock.requestApproval(ws, gate, summary)),
+        resolveApproval: (id, granted, reason) =>
+          Promise.resolve(mock.resolveApproval(id, granted, reason)),
+        openTab: (req) => Promise.resolve(mock.openTab(req)),
+        closeTab: (ws, t) => Promise.resolve(mock.closeTab(ws, t)),
+      }),
+    );
   });
 
   afterEach(() => {

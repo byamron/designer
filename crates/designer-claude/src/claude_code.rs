@@ -188,7 +188,12 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
         Uuid::new_v5(&SESSION_NAMESPACE, workspace_id.as_uuid().as_bytes())
     }
 
-    fn build_command(&self, workspace_id: WorkspaceId, session_id: Uuid) -> Command {
+    fn build_command(
+        &self,
+        workspace_id: WorkspaceId,
+        session_id: Uuid,
+        model_override: Option<&str>,
+    ) -> Command {
         let mut cmd = Command::new(self.binary());
         cmd.env("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1")
             .env("DESIGNER_WORKSPACE_ID", workspace_id.to_string());
@@ -224,7 +229,11 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
             .args(["--max-turns", &self.options.max_turns.to_string()])
             .args(["--permission-mode", "default"]);
 
-        if let Some(model) = &self.options.model {
+        // Per-spec model overrides the orchestrator default. The Claude
+        // subprocess accepts `--model` once at spawn, so switching models
+        // mid-session requires the caller to respawn the team (see
+        // `core_agents::post_message` for the workspace-scoped detector).
+        if let Some(model) = model_override.or(self.options.model.as_deref()) {
             cmd.args(["--model", model]);
         }
 
@@ -242,7 +251,7 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
     async fn spawn_team(&self, spec: TeamSpec) -> OrchestratorResult<()> {
         let session_id = self.derive_session_id(spec.workspace_id);
         let bin = self.binary();
-        let mut cmd = self.build_command(spec.workspace_id, session_id);
+        let mut cmd = self.build_command(spec.workspace_id, session_id, spec.model.as_deref());
         for (k, v) in &spec.env {
             cmd.env(k, v);
         }
@@ -786,6 +795,7 @@ mod tests {
             teammates: vec!["design-reviewer".into(), "test-runner".into()],
             env: Default::default(),
             cwd: None,
+            model: None,
         };
         let p = build_spawn_prompt(&spec);
         assert!(p.contains("\"onboarding\""));
@@ -804,6 +814,7 @@ mod tests {
             teammates: vec![],
             env: Default::default(),
             cwd: None,
+            model: None,
         };
         let p = build_spawn_prompt(&spec);
         assert!(p.contains("Do not spawn any teammates yet"));

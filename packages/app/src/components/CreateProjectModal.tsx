@@ -258,7 +258,7 @@ export function CreateProjectModal({ onCreated }: CreateProjectModalProps = {}) 
                 role="alert"
                 style={{
                   margin: 0,
-                  color: "var(--color-danger)",
+                  color: "var(--danger-11)",
                   fontSize: "var(--type-caption-size)",
                 }}
               >

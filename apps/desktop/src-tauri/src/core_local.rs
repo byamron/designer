@@ -858,6 +858,9 @@ pub(crate) mod tests {
             last_user_tab_by_workspace: Arc::new(parking_lot::RwLock::new(
                 std::collections::HashMap::new(),
             )),
+            team_model_by_workspace: Arc::new(parking_lot::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
         })
     }
 

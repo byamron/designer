@@ -47,6 +47,12 @@ const STARTER_SUGGESTIONS = [
  *  return the static starter set every time. The richer, "dynamic
  *  from workspace context" mode is deferred to a v2 follow-up
  *  (`suggest_tab_seeds` LocalOps op + UX spec).
+ *
+ *  **Dead-by-design, not dead code.** The `_artifacts` parameter is
+ *  intentionally unread — the function is kept (not inlined) as the
+ *  obvious seam for the v2 dynamic-suggestions wiring. When v2 lands,
+ *  drop the underscore and read the slice; callers and tests stay
+ *  unchanged.
  */
 function buildSuggestions(_artifacts: ArtifactSummary[]): string[] {
   return STARTER_SUGGESTIONS;
@@ -260,6 +266,11 @@ export function WorkspaceThread({
           // active tab so the projector files it under this tab's
           // thread only.
           tab_id: tabId,
+          // Per-message model selection (frontend identifier — Rust
+          // maps to the Claude CLI `--model` arg). Switching models
+          // respawns the team in core_agents; the workspace-derived
+          // session id keeps conversation history intact.
+          model: payload.meta.model,
         });
         // The backend coalescer streams the agent reply into the
         // workspace event log; the artifact-event listener above

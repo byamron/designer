@@ -1,17 +1,25 @@
 ---
 name: staff-perspective-review
-description: Reviews an open Designer PR from three parallel staff-level perspectives — staff engineer, staff UX designer, staff design engineer — to catch bugs, regressions, accessibility gaps, Mini-token violations, and craft issues before human review. Triages findings into blockers, nits, and follow-ups; fixes blockers and cheap nits in the same branch; updates the PR body with reviewer notes; never merges. Use whenever a workstream's implementation is complete and the PR is open, whenever the user asks for a "multi-perspective" or "staff" review, or before requesting human review on any non-trivial change. Do not use for security audits (defer to security-review) or for already-merged PRs.
+description: Reviews Designer changes from three parallel staff-level perspectives — staff engineer, staff UX designer, staff design engineer — to catch bugs, regressions, accessibility gaps, Mini-token violations, and craft issues before human review. Reviews an open PR if one exists, otherwise reviews the current branch (or a custom diff range like `<tag>..HEAD` for release-staging). Triages findings into blockers, nits, and follow-ups; fixes blockers and cheap nits in the branch; if no PR exists and reviews conclude the branch is ready, opens one. Never merges. Use whenever a workstream's implementation is complete, whenever the user asks for a "multi-perspective" or "staff" review, before requesting human review on any non-trivial change, or as a release-prep pass against a tag. Do not use for security audits (defer to security-review) or for already-merged PRs.
 ---
 
 # Staff-perspective review
 
-A Designer PR is open and the implementation is complete. Run three independent reviews **in parallel**, each from a distinct staff-level lens, then triage and fix the findings before requesting human review. **Never merge** — leaving the PR open for the user is the whole point. These reviews are the polish step before that hand-off, not a substitute for it.
+Designer changes are ready for review. Run three independent reviews **in parallel**, each from a distinct staff-level lens, then triage and fix the findings before human review. The skill works in three modes depending on git state:
+
+- **PR mode** — a PR is open against the current branch. Review the PR's diff; on success, update the PR body and leave it open for the human reviewer.
+- **Branch mode** — no PR is open but the branch is ahead of main. Review the branch's diff against main; on success, open a PR for the user to review.
+- **Range mode** — the caller passes `--base <ref>` (e.g. `--base v0.1.1` for release staging across many merged PRs). Review the range; on success, summarise findings inline (no PR is opened — the caller drives next steps like cutting a release).
+
+**Never merge.** The skill ends with a PR open (PR or branch mode) or a written summary (range mode). Merging is a separate decision the user makes after reviewing.
 
 ## When to invoke
 
 - A workstream prompt's last workflow step instructs running this review pattern.
 - The user opens (or has just opened) a PR and asks for a review, "multi-perspective" review, or "staff" review.
-- A non-trivial change has just been pushed and the user wants independent eyes before it goes for human review.
+- A non-trivial change has just been pushed and the user wants independent eyes before requesting human review.
+- The user is preparing a release and wants a review of the cumulative diff since the last tag (range mode).
+- Implementation is complete on a feature branch but the user hasn't opened a PR yet (branch mode).
 
 Skip this skill if:
 - The change is a doc-only edit, a typo fix, or a status refresh — overhead exceeds value.
@@ -66,38 +74,81 @@ If a perspective genuinely has nothing to look at (a pure-Rust IPC-only change h
 
 ## Workflow
 
-1. **Confirm the PR is open and tied to the current branch.** Run `gh pr view` (or `gh pr list --head $(git branch --show-current)`). If no PR exists, ask the user how to proceed; do not run reviews on a branch that has nothing open.
+### 1. Detect mode and pick the diff base
 
-2. **Save the diff for the reviewers.** `git diff origin/main... > /tmp/pr-diff.patch`. Reviewers reference it by path so the prompt stays small.
+Run these in parallel and pick the first match:
 
-3. **Launch the three reviews in parallel.** A single tool message with three `Agent` calls, each `subagent_type: Explore`. Each prompt names its lens, the diff path, the changed files, the relevant docs to read (`CLAUDE.md`, `core-docs/spec.md` §5, `core-docs/plan.md` Dogfood Push section, `core-docs/feedback.md`, `core-docs/design-language.md`, `core-docs/component-manifest.json`, the workstream's PR body), and asks for findings classified as **BLOCKER / NIT / FOLLOW-UP**. Cap each review at ~1200 words.
+```sh
+gh pr list --head "$(git branch --show-current)" --json number,baseRefName --limit 1
+git rev-list --count origin/main..HEAD   # commits ahead of main
+```
 
-4. **Triage the findings.** A finding is:
-   - **BLOCKER** if it would cause a user-visible regression, a panic / data loss, an accessibility violation, a compliance invariant breach (`spec.md` §5), a contract break (frozen IPC DTO / event vocab / trait), or a Mini token rule violation that would ship to dogfood. Fix in this PR.
-   - **NIT** if it's a real improvement that's cheap (single-file, no architectural change, no new tests). Fix in this PR.
-   - **FOLLOW-UP** if it's a real issue but expanding scope here is wrong — the right fix belongs to a different workstream / lane, requires a separate ADR, or needs design input. Capture it; do not fix here.
+- **PR mode** — `gh pr list` returns one row. Diff base = the PR's `baseRefName` (usually `main`). Note the PR number for later.
+- **Range mode** — caller passed `--base <ref>` in args. Diff base = that ref. No PR will be opened.
+- **Branch mode** — no PR, but commits-ahead > 0 and the current branch is not `main`. Diff base = `origin/main`.
+- **Nothing to review** — no PR, branch == main, or commits-ahead == 0. Stop and tell the user there's nothing to review on this branch.
 
-   Some reviewer claims will be wrong on closer inspection. Spot-check the highest-impact items against the actual code before fixing or filing — reviewers can be confidently incorrect about subtle code paths.
+If the current branch has uncommitted changes, ask the user whether to include them (commit first) or stash before reviewing — the reviewers see the diff, not the working tree.
 
-5. **Apply blocker + cheap-nit fixes.** Re-run the quality gates after the fixes:
+### 2. Save the diff for the reviewers
 
-   ```sh
-   cargo fmt --check
-   cargo clippy --workspace --all-targets -- -D warnings
-   cargo test --workspace
-   npm --workspace @designer/app run typecheck
-   npm --workspace @designer/app run test
-   ```
+```sh
+git diff <base>...HEAD > /tmp/pr-diff.patch
+git diff <base>...HEAD --name-only > /tmp/pr-files.txt
+```
 
-6. **Push the fixes to the same branch** (`git push`).
+Reviewers reference both by path so the prompt stays small. (Use `..` instead of `...` for range mode against a tag — `<tag>..HEAD` is the inclusive set of commits since the tag, which is what release reviews want.)
 
-7. **Capture follow-ups so they aren't lost.** Either:
-   - Add a "Follow-ups" section to the PR body listing them with one-line descriptions and (if they cleanly map) the workstream / lane that owns them.
-   - Or, if there are several substantive ones, write them to `.context/<branch>-followups.md` and link from the PR body.
+### 3. Launch the three reviews in parallel
 
-8. **Update the PR body with a "Reviewer notes" section.** Summarise what each review found, what was fixed, and what was deferred. Format below.
+A single tool message with three `Agent` calls, each `subagent_type: Explore`. Each prompt names its lens, the diff path, the changed files, the relevant docs to read (`CLAUDE.md`, `core-docs/spec.md` §5, `core-docs/plan.md` Dogfood Push section, `core-docs/feedback.md`, `core-docs/design-language.md`, `core-docs/component-manifest.json`, and — in PR mode — the PR body for the workstream's stated intent), and asks for findings classified as **BLOCKER / NIT / FOLLOW-UP**. Cap each review at ~1200 words.
 
-9. **Stop.** Do **not** run `gh pr merge`. Do **not** approve. Tell the user the PR is ready for their review and link to it.
+### 4. Triage the findings
+
+A finding is:
+- **BLOCKER** if it would cause a user-visible regression, a panic / data loss, an accessibility violation, a compliance invariant breach (`spec.md` §5), a contract break (frozen IPC DTO / event vocab / trait), or a Mini token rule violation that would ship to dogfood. Fix in the branch.
+- **NIT** if it's a real improvement that's cheap (single-file, no architectural change, no new tests). Fix in the branch.
+- **FOLLOW-UP** if it's a real issue but expanding scope here is wrong — the right fix belongs to a different workstream / lane, requires a separate ADR, or needs design input. Capture it; do not fix here.
+
+Some reviewer claims will be wrong on closer inspection. Spot-check the highest-impact items against the actual code before fixing or filing — reviewers can be confidently incorrect about subtle code paths.
+
+### 5. Apply blocker + cheap-nit fixes; re-run gates
+
+```sh
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+npm --workspace @designer/app run typecheck
+npm --workspace @designer/app run test
+```
+
+If gates fail, iterate. Don't move on with red gates.
+
+### 6. Commit the fixes (PR + branch mode)
+
+Stage only the files you touched; commit with a message naming what the review caught (e.g. `fix(review): dead --color-text token; gate Haiku selector; Help → Friction link`). Do not amend pre-existing commits.
+
+### 7. Hand off based on mode
+
+**PR mode:**
+1. `git push` to the PR's branch.
+2. Update the PR body — append (or replace existing) "Reviewer notes" + "Follow-ups" sections (templates below).
+3. Tell the user the PR is ready for their review; include the PR URL.
+4. **Stop.** Do not merge. Do not approve. Do not request review from a human (the user owns that step).
+
+**Branch mode:**
+1. Decide whether the branch is ready for a PR:
+   - **Ready** — all blockers fixed, gates green, no FOLLOW-UPs that should block opening (i.e. nothing the human reviewer would immediately bounce back).
+   - **Not ready** — unresolved blockers, gates red, or the change still feels half-baked. Stop and report what's missing; do not open a PR.
+2. If ready: `git push -u origin <branch>`, then `gh pr create --base <base> --title "<short title>" --body "$(cat <<'EOF' ... EOF)"`. The body must include a Summary section (drawn from the commits / diff), a Test plan, the "Reviewer notes" section, and a "Follow-ups" section if there are any.
+3. Tell the user the PR has been opened; include the PR URL.
+4. **Stop.** Do not merge.
+
+**Range mode:**
+1. No PR is opened — the caller is doing release prep or a survey, not shipping a single workstream.
+2. Write the findings inline as the assistant's reply (the format the user asked for — release notes, summary, etc.).
+3. If fixes were applied to the branch, mention what was changed but do not push without explicit user instruction (range mode is often run on a `release-review` branch local to the user's machine).
+4. **Stop.**
 
 ## "Reviewer notes" PR-body template
 
@@ -121,9 +172,38 @@ Quality gates re-run after fixes; results [link or one-liner].
 
 The bar is honesty over polish — if a review found nothing of consequence, say so. If you disagreed with a reviewer's finding and didn't fix it, say so and why.
 
+## "Branch mode" PR template
+
+When opening a fresh PR (branch mode), the body needs more than just Reviewer notes — the human reviewer is seeing this for the first time.
+
+```markdown
+## Summary
+- [1–3 bullets — what changed and why, drawn from the commits in the branch]
+
+## Test plan
+- [ ] [bulleted, manual test steps if applicable]
+- [ ] cargo test --workspace
+- [ ] npm --workspace @designer/app run test
+
+## Reviewer notes
+[same template as above]
+
+## Follow-ups
+- [bulleted FOLLOW-UPs deferred to other lanes / future PRs]
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+Title: short (under 70 chars), no prefix, concrete (e.g. "Settings split + project unlink", not "Update settings"). Mirror the style of recent merged PRs in `git log --oneline origin/main`.
+
 ## Don't merge
 
 The `gh pr merge` command is not part of this skill. The whole point of this review pass is to hand a polished, pre-vetted PR to the user. Merging short-circuits the hand-off and turns the skill into an autonomous-shipping skill, which is not what the user is asking for.
+
+This holds in all three modes:
+- **PR mode** — the PR was already open; leave it open.
+- **Branch mode** — the skill just opened the PR; the user reviews it next.
+- **Range mode** — no PR involved; the user drives next steps (cut a tag, ship, etc.).
 
 If the user explicitly asks to merge after the reviews, that's a separate decision — confirm and run `gh pr merge` directly. Do not infer permission from the success of the reviews.
 
@@ -143,4 +223,10 @@ If the user explicitly asks to merge after the reviews, that's a separate decisi
 
 - **Frozen contracts are frozen.** Per `CLAUDE.md` §"Parallel track conventions": event shapes (`designer-core/src/event.rs`), IPC DTOs (`designer-ipc/src/lib.rs`), `PermissionHandler` trait, `Anchor` enum, `Detector` trait. A reviewer suggesting "just add a field" to one of these is suggesting a new ADR, not a fix in this PR.
 
-- **The skill ends with the PR open.** No merge, no approval, no comment-with-LGTM. The user reviews next.
+- **Branch mode: don't open a PR with red gates.** The whole point of the skill is to deliver a vetted PR. If the human reviewer's first action would be "fix the failing build," the skill failed. Iterate on fixes until gates are green or stop and report what's blocking — do not open a half-baked PR.
+
+- **Branch mode: don't auto-push and auto-PR if the branch is sensitive.** If the branch name suggests release-prep or a hotfix (`release-*`, `hotfix-*`, `v[0-9]*`), or the diff touches release infrastructure (`tauri.conf.json`, `Cargo.toml` version, GitHub Actions release workflows), confirm with the user before opening the PR. The default flow assumes a workstream branch.
+
+- **Range mode: don't push fixes without explicit instruction.** Range mode is often run on a local branch the user created for the review (e.g. `release-review`). Pushing or opening a PR there is rarely what they want. Apply fixes, report them, and let the user decide whether to push, cherry-pick, or discard.
+
+- **The skill ends with the PR open or a written summary.** No merge, no approval, no comment-with-LGTM. The user reviews next.

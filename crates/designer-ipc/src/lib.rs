@@ -218,6 +218,14 @@ pub struct PostMessageRequest {
     /// frontends always send this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<TabId>,
+    /// Frontend model identifier (e.g. `opus-4.7`, `sonnet-4.6`,
+    /// `haiku-4.5`). Mapped to the Claude CLI's `--model` argument by
+    /// `core_agents`. When the requested model differs from the team's
+    /// current model, the team is respawned (Claude takes `--model`
+    /// once at process start). `None` keeps the orchestrator default.
+    /// Additive — legacy frontends decode unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

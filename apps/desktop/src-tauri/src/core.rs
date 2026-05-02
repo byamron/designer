@@ -311,6 +311,16 @@ pub struct AppCore {
     /// back to first-tab attribution.
     pub(crate) last_user_tab_by_workspace:
         Arc<parking_lot::RwLock<std::collections::HashMap<WorkspaceId, TabId>>>,
+    /// Per-workspace record of the Claude CLI model the current team
+    /// was spawned with (e.g. `claude-haiku-4-5`). `core_agents::post_message`
+    /// reads this to decide whether the user's requested model differs
+    /// from the running team — if so, the team is respawned. `None` for
+    /// a workspace means no model has been pinned (lazy-spawn will use
+    /// the orchestrator default). Cleared lazily; a stale entry is
+    /// harmless because the respawn comparator falls back to "spawn"
+    /// on `TeamNotFound` anyway.
+    pub(crate) team_model_by_workspace:
+        Arc<parking_lot::RwLock<std::collections::HashMap<WorkspaceId, String>>>,
 }
 
 #[async_trait]
@@ -411,6 +421,9 @@ impl AppCore {
             finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
             proposal_state: crate::core_proposals::ProposalState::new(),
             last_user_tab_by_workspace: Arc::new(parking_lot::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
+            team_model_by_workspace: Arc::new(parking_lot::RwLock::new(
                 std::collections::HashMap::new(),
             )),
         });
@@ -915,6 +928,33 @@ impl AppCore {
         self.last_user_tab_by_workspace
             .write()
             .insert(workspace_id, tab_id);
+    }
+
+    /// Read the Claude CLI model the workspace's current team was
+    /// spawned with (e.g. `claude-haiku-4-5`). Returns `None` if no
+    /// team is pinned to a model — the next spawn will use the
+    /// orchestrator's default.
+    pub fn team_model(&self, workspace_id: WorkspaceId) -> Option<String> {
+        self.team_model_by_workspace
+            .read()
+            .get(&workspace_id)
+            .cloned()
+    }
+
+    /// Pin the current team's Claude CLI model. Called from
+    /// `core_agents::post_message` after a successful spawn so the
+    /// next message can detect a model change without re-querying the
+    /// orchestrator.
+    pub fn set_team_model(&self, workspace_id: WorkspaceId, model: Option<String>) {
+        let mut w = self.team_model_by_workspace.write();
+        match model {
+            Some(m) => {
+                w.insert(workspace_id, m);
+            }
+            None => {
+                w.remove(&workspace_id);
+            }
+        }
     }
 
     pub async fn get_artifact(&self, id: ArtifactId) -> Option<Artifact> {
