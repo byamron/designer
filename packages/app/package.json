@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:visual": "vitest run --config vitest.visual.config.ts",
+    "test:visual:update": "UPDATE_VISUAL_BASELINES=1 vitest run --config vitest.visual.config.ts"
   },
   "dependencies": {
     "@designer/ui": "*",
@@ -23,12 +25,19 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@fontsource/geist": "^5.2.8",
+    "@fontsource/geist-mono": "^5.2.7",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^25.6.0",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/browser": "^2.1.8",
     "jsdom": "^25.0.1",
+    "pixelmatch": "^7.2.0",
+    "playwright": "^1.59.1",
+    "pngjs": "^7.0.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
     "vitest": "^2.1.8"
