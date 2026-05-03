@@ -3,6 +3,7 @@
 // with recognizable demo data so the first-run experience is substantial.
 
 import type {
+  ActivityChanged,
   ArtifactDetail,
   ArtifactId,
   ArtifactKind,
@@ -34,6 +35,7 @@ import type {
 } from "./types";
 
 type Listener = (event: StreamEvent) => void;
+type ActivityListener = (event: ActivityChanged) => void;
 interface Approval {
   id: string;
   workspaceId: WorkspaceId;
@@ -54,6 +56,8 @@ export interface MockCore {
   closeTab(workspaceId: WorkspaceId, tabId: TabId): void;
   spine(id: WorkspaceId | null): SpineRow[];
   subscribe(h: Listener): () => void;
+  /** Phase 23.B — subscribe to per-tab activity transitions. */
+  subscribeActivity(h: ActivityListener): () => void;
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string): string;
   resolveApproval(id: string, granted: boolean, reason?: string): void;
   approvals(): Approval[];
@@ -99,12 +103,16 @@ export function createMockCore(): MockCore {
   const workspaces: Workspace[] = [];
   const tracks: TrackSummary[] = [];
   const listeners = new Set<Listener>();
+  const activityListeners = new Set<ActivityListener>();
   const approvals: Approval[] = [];
   const postedMessages: PostMessageRequest[] = [];
   let sequence = 0;
   const emit = (event: Omit<StreamEvent, "sequence">) => {
     const payload: StreamEvent = { ...event, sequence: ++sequence };
     for (const l of listeners) l(payload);
+  };
+  const emitActivity = (event: ActivityChanged) => {
+    for (const l of activityListeners) l(event);
   };
 
   // Seed recognizable demo data so empty-state design still has body.
@@ -408,6 +416,10 @@ export function createMockCore(): MockCore {
       listeners.add(handler);
       return () => listeners.delete(handler);
     },
+    subscribeActivity(handler) {
+      activityListeners.add(handler);
+      return () => activityListeners.delete(handler);
+    },
     requestApproval(workspaceId, gate, summary) {
       const approval: Approval = {
         id: uuid(),
@@ -514,6 +526,18 @@ export function createMockCore(): MockCore {
       // Per-tab isolation: both the user message and the reply are
       // attributed to the active tab (when one is provided).
       const tabId: TabId | null = req.tab_id ?? null;
+      // Phase 23.B parity with the real orchestrator: emit `Working`
+      // synchronously on dispatch and `Idle` after the simulated
+      // reply lands. Lets dev mode + frontend tests exercise the
+      // full state machine without a real subprocess.
+      if (tabId) {
+        emitActivity({
+          workspace_id: req.workspace_id,
+          tab_id: tabId,
+          state: "working",
+          since_ms: Date.now(),
+        });
+      }
       const userArtifact: MockArtifact = {
         id: uuid(),
         workspace_id: req.workspace_id,
@@ -558,6 +582,15 @@ export function createMockCore(): MockCore {
         timestamp: now(),
         summary: replyArtifact.title,
       });
+
+      if (tabId) {
+        emitActivity({
+          workspace_id: req.workspace_id,
+          tab_id: tabId,
+          state: "idle",
+          since_ms: Date.now(),
+        });
+      }
 
       const lower = req.text.toLowerCase();
       if (lower.includes("diagram") || lower.includes("report")) {

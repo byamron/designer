@@ -5,8 +5,8 @@
 
 use crate::claude_code::ClaudeSignal;
 use crate::orchestrator::{
-    Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult, TaskAssignment,
-    TeamSpec,
+    ActivityState, Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult,
+    TaskAssignment, TeamSpec,
 };
 use async_trait::async_trait;
 use designer_core::{
@@ -16,7 +16,7 @@ use designer_core::{
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::sync::broadcast;
 use tracing::{debug, info};
 
@@ -232,6 +232,18 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
         // diagram/report renderers (13.D scope is intentionally limited
         // to those two kinds).
         if author_role == "user" {
+            // Phase 23.B parity with the real orchestrator: synthesize a
+            // `Working` activity edge as soon as the user's message is
+            // dispatched. The matching `Idle` follows after the reply
+            // is broadcast. Mock subscribers (dev-mode UI, integration
+            // tests) see the same per-tab ActivityChanged contract the
+            // real Claude path emits via the stream translator.
+            self.emit(OrchestratorEvent::ActivityChanged {
+                workspace_id,
+                tab_id,
+                state: ActivityState::Working,
+                since: SystemTime::now(),
+            });
             self.pace().await;
             let reply = format!("Acknowledged: {body}");
             self.store
@@ -292,6 +304,16 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
                     author_role: Some(team.lead_role.clone()),
                 });
             }
+            // Phase 23.B parity: turn end emits `Idle` so the per-tab
+            // dock + tab-strip badge clear when the simulated reply
+            // lands. Mirrors the real translator's `result/success`
+            // arm.
+            self.emit(OrchestratorEvent::ActivityChanged {
+                workspace_id,
+                tab_id,
+                state: ActivityState::Idle,
+                since: SystemTime::now(),
+            });
         }
 
         Ok(())

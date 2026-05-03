@@ -5,10 +5,12 @@ import { useEffect, useState } from "react";
 import { createStore, useStore } from "./index";
 import { ipcClient } from "../ipc/client";
 import type {
+  ActivityState,
   ProjectId,
   ProjectSummary,
   SpineRow,
   StreamEvent,
+  TabId,
   WorkspaceId,
   WorkspaceSummary,
 } from "../ipc/types";
@@ -27,7 +29,32 @@ export interface DataState {
    * the agent stopped). Combined with `state="active"` in CSS.
    */
   recentActivityTs: Record<string, number>;
+  /**
+   * Phase 23.B — coarse per-tab activity surface keyed by
+   * `${workspace_id}:${tab_id}`. The compose-dock activity row reads
+   * this to render the pulsing dot + elapsed counter; the tab-strip
+   * badge reads it to mark non-active tabs as `working` /
+   * `awaiting_approval`. Entries persist while their state !=
+   * `idle`; we drop the entry on `idle` so render-time membership
+   * checks ("anything happening here?") stay cheap.
+   *
+   * `since_ms` is the unix-epoch wall-clock at the transition; the
+   * dock's elapsed counter renders `now - since_ms`.
+   */
+  activity: Record<string, { state: ActivityState; since_ms: number }>;
   loaded: boolean;
+}
+
+/**
+ * Phase 23.B — derive the activity-slice key for a (workspace, tab)
+ * pair. Centralized so producers (the orchestrator subscriber) and
+ * consumers (ComposeDock, TabButton badge) can't drift on the
+ * encoding. Empty/missing tab id falls back to `*` so legacy
+ * workspace-wide events still find a slot, mirroring the Rust
+ * default-tab fallback in `core_agents`.
+ */
+export function activityKey(workspaceId: WorkspaceId, tabId: TabId | null | undefined): string {
+  return `${workspaceId}:${tabId ?? "*"}`;
 }
 
 /**
@@ -42,6 +69,7 @@ export const dataStore = createStore<DataState>({
   spines: {},
   events: [],
   recentActivityTs: {},
+  activity: {},
   loaded: false,
 });
 
@@ -75,6 +103,7 @@ export async function bootData() {
     spines,
     events: [],
     recentActivityTs: {},
+    activity: {},
     loaded: true,
   });
 
@@ -86,6 +115,22 @@ export async function bootData() {
       events: [...s.events, event].slice(-500),
       recentActivityTs: { ...s.recentActivityTs, [event.stream_id]: ts },
     }));
+  });
+
+  // Phase 23.B: per-tab activity slice. `idle` transitions drop the
+  // entry so a one-shot membership check on the activity map answers
+  // "is anything happening for this tab?" without iterating values.
+  client.activityStream((event) => {
+    const key = activityKey(event.workspace_id, event.tab_id);
+    dataStore.set((s) => {
+      const next = { ...s.activity };
+      if (event.state === "idle") {
+        delete next[key];
+      } else {
+        next[key] = { state: event.state, since_ms: event.since_ms };
+      }
+      return { ...s, activity: next };
+    });
   });
 }
 

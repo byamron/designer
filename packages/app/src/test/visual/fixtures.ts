@@ -346,6 +346,7 @@ export function createVisualIpcClient(
     // No event emission — fixtures are static. Returning a noop unsubscribe
     // keeps subscribers happy without leaking timers or promises.
     stream: () => () => {},
+    activityStream: () => () => {},
     requestApproval: () => Promise.resolve("appr_stub"),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve(artifacts),

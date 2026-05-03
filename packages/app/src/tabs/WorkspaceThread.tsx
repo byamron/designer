@@ -535,6 +535,8 @@ export function WorkspaceThread({
           busy={sending}
           initialDraft={initialDraft}
           onDraftChange={(text) => setTabDraft(stateKey, text)}
+          workspaceId={workspace.id}
+          tabId={tabId ?? null}
         />
       </div>
     </div>

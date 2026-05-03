@@ -29,6 +29,7 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     closeTab: (w, t) => Promise.resolve(mock.closeTab(w, t)),
     spine: (id) => Promise.resolve(mock.spine(id)),
     stream: (h) => mock.subscribe(h),
+    activityStream: () => () => {},
     requestApproval: (w, g, s) =>
       Promise.resolve(mock.requestApproval(w, g, s)),
     resolveApproval: (id, granted, reason) =>

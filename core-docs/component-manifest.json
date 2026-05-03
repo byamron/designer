@@ -158,13 +158,24 @@
     {
       "name": "ComposeDock",
       "path": "packages/app/src/components/ComposeDock.tsx",
-      "purpose": "Shared compose surface for WorkspaceThread (and any future tab variants). Owns its own draft, attachments, model/effort/plan-mode controls, and drag-and-drop target. Imperative handle (`setDraft`, `focus`) lets the parent seed prompts and restore drafts on send failure (used by WorkspaceThread.onSend's catch handler — the dock clears its draft synchronously after `onSend` returns, so failure recovery has to re-seed via the handle). 13.D wired `onSend` through to `Orchestrator::post_message` via `cmd_post_message`; the parent is responsible for in-flight gating and error display. tab-ui-bugs (2026-05-02) added `initialDraft` (seeds the draft on mount from a parent-managed cache) and `onDraftChange` (fires on every keystroke, paste, programmatic setDraft, and post-send clear) so callers can persist per-tab drafts in the app store and survive tab switches.",
+      "purpose": "Shared compose surface for WorkspaceThread (and any future tab variants). Owns its own draft, attachments, model/effort/plan-mode controls, and drag-and-drop target. Imperative handle (`setDraft`, `focus`) lets the parent seed prompts and restore drafts on send failure (used by WorkspaceThread.onSend's catch handler — the dock clears its draft synchronously after `onSend` returns, so failure recovery has to re-seed via the handle). 13.D wired `onSend` through to `Orchestrator::post_message` via `cmd_post_message`; the parent is responsible for in-flight gating and error display. tab-ui-bugs (2026-05-02) added `initialDraft` (seeds the draft on mount from a parent-managed cache) and `onDraftChange` (fires on every keystroke, paste, programmatic setDraft, and post-send clear) so callers can persist per-tab drafts in the app store and survive tab switches. Phase 23.B (2026-05-03) added optional `workspaceId` + `tabId` props that pin a `ComposeDockActivityRow` above the textarea — the row reads the per-tab activity slice and renders pulse + elapsed counter (Working) or 'Approve to continue' (AwaitingApproval).",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "radius-pill", "border-thin", "color-foreground", "color-muted", "color-border", "color-border-soft", "color-content-surface", "color-background", "color-surface-flat", "color-surface-raised", "type-body-size", "type-caption-size", "weight-medium", "motion-interactive", "focus-outline-width", "focus-outline-color", "surface-inner-pad", "radius-surface", "dev-compose-mix", "dev-compose-radius"],
       "css_prefix": "compose__",
-      "last_updated": "2026-05-02"
+      "last_updated": "2026-05-03"
+    },
+    {
+      "name": "ComposeDockActivityRow",
+      "path": "packages/app/src/components/ComposeDockActivityRow.tsx",
+      "purpose": "Phase 23.B — pinned status row above the compose textarea. Subscribes to the per-tab activity slice (keyed by `${workspace_id}:${tab_id}`) and renders three states: `idle` hides the row entirely; `working` shows a pulsing accent dot + 'Working… {MM:SS|H:MM:SS}' counter (mono, tabular-nums); `awaiting_approval` shows a warning-tinted pulse + 'Approve to continue' with a chevron pointing at the inbox. Translates Rust enum names to user-facing copy on the frontend; the Rust DTO never carries the user-facing strings. The 1Hz elapsed counter only ticks while state == 'working' — no setInterval cost during AwaitingApproval. Reduced motion: the pulse keyframe is explicitly overridden to `animation: none` under `prefers-reduced-motion: reduce` (chosen over relying on axioms.css's collapse-to-0.01ms so the T-23B-3 acceptance test reads naturally with `getComputedStyle`). Documented in pattern-log.md.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "type-family-mono", "type-caption-size", "weight-regular", "color-muted", "color-border-soft", "border-thin", "accent-9", "warning-9", "radius-pill", "motion-pulse"],
+      "css_prefix": "compose-dock-activity-row__",
+      "last_updated": "2026-05-03"
     },
     {
       "name": "SettingsPage",

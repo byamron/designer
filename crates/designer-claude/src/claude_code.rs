@@ -371,11 +371,13 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         let stdin_tx_for_reader = stdin_tx.clone();
         let team_name = spec.team_name.clone();
         let lead_role = spec.lead_role.clone();
+        let tab = spec.tab_id;
         let reader_task = tokio::spawn(async move {
             run_reader_loop(
                 BufReader::new(stdout),
                 ReaderLoopCtx {
                     workspace_id: ws,
+                    tab_id: tab,
                     team_name,
                     lead_role,
                     store: store_for_reader,
@@ -648,10 +650,12 @@ fn event_to_payload(
         // ArtifactProduced / ArtifactUpdated are broadcast-only — AppCore's
         // coalescer is the single writer for ArtifactCreated /
         // ArtifactUpdated, so we deliberately don't persist a duplicate
-        // `EventPayload` here.
-        OrchestratorEvent::ArtifactProduced { .. } | OrchestratorEvent::ArtifactUpdated { .. } => {
-            None
-        }
+        // `EventPayload` here. Phase 23.B `ActivityChanged` is also
+        // broadcast-only by design (no projector arm, no replay
+        // invariant) — see pattern-log.md.
+        OrchestratorEvent::ArtifactProduced { .. }
+        | OrchestratorEvent::ArtifactUpdated { .. }
+        | OrchestratorEvent::ActivityChanged { .. } => None,
     }
 }
 
@@ -664,6 +668,11 @@ where
     S: EventStore + 'static,
 {
     pub workspace_id: WorkspaceId,
+    /// Phase 23.B / 23.E — every `OrchestratorEvent::ActivityChanged`
+    /// the translator emits from this loop is keyed by
+    /// `(workspace_id, tab_id)` so the per-tab dock + tab-strip badge
+    /// can target the right tab.
+    pub tab_id: TabId,
     pub team_name: String,
     pub lead_role: String,
     pub store: Arc<S>,
@@ -687,6 +696,7 @@ where
 {
     let ReaderLoopCtx {
         workspace_id,
+        tab_id,
         team_name,
         lead_role,
         store,
@@ -695,7 +705,7 @@ where
         permission_handler,
         stdin_tx,
     } = ctx;
-    let mut translator = ClaudeStreamTranslator::new(workspace_id, team_name.clone());
+    let mut translator = ClaudeStreamTranslator::new(workspace_id, tab_id, team_name.clone());
     let mut buf = String::new();
     loop {
         buf.clear();
@@ -766,6 +776,20 @@ where
                 break;
             }
         }
+    }
+
+    // Phase 23.B — subprocess death / reader EOF emits a final
+    // `Idle` so the per-tab activity dock doesn't show a phantom
+    // "Working… 47:00" forever after Claude crashes mid-turn. The
+    // emit is idempotent (the translator suppresses no-op
+    // transitions) — turns that ended cleanly with `result/success`
+    // are already `Idle`, so this only fires on the unclean-exit
+    // path. Runs on **both** loop-exit branches (clean `Ok(0)` EOF
+    // and the `Err(e)` read failure) because it sits *after* the
+    // loop, unconditionally. Persistence is intentionally skipped:
+    // `ActivityChanged` is broadcast-only.
+    if let Some(idle) = translator.flush_idle() {
+        let _ = tx.send(idle);
     }
 }
 
@@ -1000,6 +1024,7 @@ mod tests {
             BufReader::new(cursor),
             ReaderLoopCtx {
                 workspace_id: ws,
+                tab_id: TabId::new(),
                 team_name: "team-h".into(),
                 lead_role: "team-lead".into(),
                 store,
@@ -1062,6 +1087,7 @@ mod tests {
             BufReader::new(std::io::Cursor::new(bytes)),
             ReaderLoopCtx {
                 workspace_id: ws,
+                tab_id: TabId::new(),
                 team_name: "team-h".into(),
                 lead_role: "team-lead".into(),
                 store,
@@ -1122,6 +1148,7 @@ mod tests {
                 BufReader::new(std::io::Cursor::new(bytes)),
                 ReaderLoopCtx {
                     workspace_id: ws,
+                    tab_id: TabId::new(),
                     team_name: team,
                     lead_role: lead,
                     store: store_clone,
@@ -1151,8 +1178,23 @@ mod tests {
             .expect("reply should arrive after release")
             .expect("stdin channel open");
         assert!(!reply.is_empty());
-        // No event broadcasts expected from these two lines.
-        assert!(rx.try_recv().is_err());
+        // Phase 23.B: control_request and result lines now also emit
+        // `OrchestratorEvent::ActivityChanged` (`AwaitingApproval`,
+        // then `Idle`). The test still asserts no *substantive*
+        // broadcast — the prompt routes through the side-channel
+        // PermissionPrompt, the cost routes through `signal_tx`.
+        let mut activity_events = 0;
+        while let Ok(ev) = rx.try_recv() {
+            assert!(
+                matches!(ev, OrchestratorEvent::ActivityChanged { .. }),
+                "unexpected non-activity event: {ev:?}"
+            );
+            activity_events += 1;
+        }
+        assert!(
+            (1..=2).contains(&activity_events),
+            "expected 1–2 ActivityChanged broadcasts (AwaitingApproval + Idle), got {activity_events}"
+        );
         task.await.unwrap();
     }
 }

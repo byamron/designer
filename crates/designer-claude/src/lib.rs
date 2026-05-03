@@ -15,7 +15,7 @@
 mod claude_code;
 mod inbox_permission;
 mod mock;
-mod orchestrator;
+pub mod orchestrator;
 mod permission;
 mod stream;
 mod watcher;
@@ -27,8 +27,8 @@ pub use inbox_permission::{
 };
 pub use mock::MockOrchestrator;
 pub use orchestrator::{
-    Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult, TaskAssignment,
-    TeamSpec,
+    ActivityState, Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult,
+    TaskAssignment, TeamSpec,
 };
 pub use permission::{
     AutoAcceptSafeTools, PermissionDecision, PermissionHandler, PermissionRequest,

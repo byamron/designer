@@ -6,9 +6,15 @@ import {
   selectTab,
   useAppState,
 } from "../store/app";
-import { refreshWorkspaces, useDataState } from "../store/data";
+import { activityKey, refreshWorkspaces, useDataState } from "../store/data";
 import { ipcClient } from "../ipc/client";
-import type { Project, Tab, TabId, Workspace } from "../ipc/types";
+import type {
+  ActivityState,
+  Project,
+  Tab,
+  TabId,
+  Workspace,
+} from "../ipc/types";
 import { HomeTabA } from "../home/HomeTabA";
 import { WorkspaceThread } from "../tabs/WorkspaceThread";
 import { emptyArray } from "../util/empty";
@@ -257,6 +263,11 @@ function WorkspaceMain({
             onClose={() => void closeTab(tab.id)}
           />
         ))}
+        {/* Phase 23.B note: the tab-strip activity badge is rendered
+            *inside* TabButton (via `useDataState`) so the dot tracks
+            its tab even as tabs reorder. The component only paints
+            the badge when the tab is non-active and the slice's state
+            is non-idle — see TabButton below. */}
         <div className="new-tab">
           <IconButton
             label="New tab"
@@ -344,6 +355,14 @@ function TabButton({
   active: boolean;
   onClose?: () => void;
 }) {
+  // Phase 23.B — tab-strip badge: paint a small dot when the tab the
+  // user *isn't* viewing has activity in flight. Active tabs already
+  // surface activity via the dock row, so doubling up there would
+  // just be noise. `awaiting_approval` paints in --warning, `working`
+  // in --accent — the colors carry the same semantic separation as
+  // the dock row's pulse vs. chevron.
+  const slice = useDataState((s) => s.activity[activityKey(workspaceId, id)]);
+  const showBadge: ActivityState | null = !active && slice ? slice.state : null;
   return (
     <div className="tab-button-wrap" data-active={active}>
       <Tooltip label={label} shortcut={active && onClose ? "⌘W" : undefined}>
@@ -385,6 +404,17 @@ function TabButton({
             }
           }}
         >
+          {showBadge && (
+            <span
+              className="tab-button__activity-badge"
+              data-state={showBadge}
+              aria-label={
+                showBadge === "awaiting_approval"
+                  ? "Awaiting approval"
+                  : "Working"
+              }
+            />
+          )}
           <span className="tab-button__label">{label}</span>
         </button>
       </Tooltip>

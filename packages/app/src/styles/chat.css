@@ -28,3 +28,90 @@
 @media (prefers-reduced-motion: reduce) {
   .streaming-cursor { animation: none; opacity: 1; }
 }
+
+/* --- Phase 23.B: per-tab activity row + tab-strip badge ----------------
+ * The dock pins a small status row above the textarea while a turn is
+ * in flight (Working) or parked on approval (AwaitingApproval). The
+ * tab-strip badge on non-active tabs uses the same color split:
+ * --accent-9 for working, --warning-9 for awaiting_approval. Reduced
+ * motion: axioms.css already collapses keyframes to ~0ms via
+ * `animation-duration: 0.01ms !important`, but this row uses an
+ * *explicit* `animation: none` rule under the same media query so
+ * the T-23B-3 acceptance test reads naturally with `getComputedStyle`
+ * (which surfaces "none" rather than the collapsed-duration form).
+ * Documented as the "explicit" choice in pattern-log.md.
+ */
+.compose-dock-activity-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-regular);
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  border-bottom: var(--border-thin) solid var(--color-border-soft);
+}
+
+.compose-dock-activity-row__pulse {
+  display: inline-block;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--accent-9);
+  animation: compose-dock-activity-pulse var(--motion-pulse) ease-in-out infinite;
+}
+
+.compose-dock-activity-row[data-state="awaiting_approval"] .compose-dock-activity-row__pulse {
+  background: var(--warning-9);
+}
+
+.compose-dock-activity-row__elapsed {
+  margin-left: var(--space-1);
+}
+
+.compose-dock-activity-row__chevron {
+  margin-left: auto;
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes compose-dock-activity-pulse {
+  0%   { opacity: 0.45; transform: scale(0.85); }
+  50%  { opacity: 1;    transform: scale(1.05); }
+  100% { opacity: 0.45; transform: scale(0.85); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compose-dock-activity-row__pulse { animation: none; }
+}
+
+/* Tab-strip badge: solid dot inside the tab button label, only painted
+ * on non-active tabs (active tabs surface activity via the dock row).
+ * Same prefers-reduced-motion override as the dock pulse — solid dot,
+ * no animation, so the badge stays readable for users who turn motion
+ * off. */
+.tab-button__activity-badge {
+  display: inline-block;
+  width: var(--space-2);
+  height: var(--space-2);
+  margin-right: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--accent-9);
+  flex-shrink: 0;
+}
+
+.tab-button__activity-badge[data-state="awaiting_approval"] {
+  background: var(--warning-9);
+}
+
+.tab-button__activity-badge[data-state="working"] {
+  animation: compose-dock-activity-pulse var(--motion-pulse) ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-button__activity-badge { animation: none; }
+}

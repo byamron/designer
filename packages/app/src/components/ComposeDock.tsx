@@ -2,6 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { IconButton } from "./IconButton";
 import { Tooltip } from "./Tooltip";
 import { IconX } from "./icons";
+import { ComposeDockActivityRow } from "./ComposeDockActivityRow";
+import type { TabId, WorkspaceId } from "../ipc/types";
 
 /**
  * ComposeDock — the full compose/input surface shared by PlanTab and the
@@ -67,9 +69,23 @@ export const ComposeDock = forwardRef<
      *  keyed by tab id so leaving + returning preserves the in-progress
      *  text. */
     onDraftChange?: (text: string) => void;
+    /** Phase 23.B — when both are present the dock pins a status row
+     *  above the textarea showing the per-tab activity state.
+     *  Optional so off-thread callers (smoke tests, isolated render
+     *  fixtures) can mount without scaffolding the data store. */
+    workspaceId?: WorkspaceId;
+    tabId?: TabId | null;
   }
 >(function ComposeDock(
-  { onSend, placeholder, busy = false, initialDraft = "", onDraftChange },
+  {
+    onSend,
+    placeholder,
+    busy = false,
+    initialDraft = "",
+    onDraftChange,
+    workspaceId,
+    tabId,
+  },
   ref,
 ) {
   const [draft, setDraftState] = useState(initialDraft);
@@ -150,6 +166,10 @@ export const ComposeDock = forwardRef<
         handleFiles(e.dataTransfer.files);
       }}
     >
+      {workspaceId && (
+        <ComposeDockActivityRow workspaceId={workspaceId} tabId={tabId} />
+      )}
+
       {attachments.length > 0 && (
         <ul className="compose__attach-list" aria-label="Attachments">
           {attachments.map((a) => (

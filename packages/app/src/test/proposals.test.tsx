@@ -20,6 +20,7 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     closeTab: () => Promise.resolve(),
     spine: () => Promise.resolve([]),
     stream: () => () => {},
+    activityStream: () => () => {},
     requestApproval: () => Promise.resolve(""),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve([]),

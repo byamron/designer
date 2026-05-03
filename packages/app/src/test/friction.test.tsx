@@ -33,6 +33,7 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     closeTab: () => Promise.resolve(),
     spine: () => Promise.resolve([]),
     stream: () => () => {},
+    activityStream: () => () => {},
     requestApproval: () => Promise.resolve(""),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve([]),
@@ -194,6 +195,7 @@ describe("FrictionWidget — Track 13.M composer-default flow", () => {
             streamHandler = null;
           };
         },
+        activityStream: () => () => {},
       }),
     );
 
