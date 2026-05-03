@@ -277,5 +277,6 @@ fn event_kind(ev: &OrchestratorEvent) -> String {
         }
         OrchestratorEvent::ArtifactProduced { title, .. } => format!("ArtifactProduced({title})"),
         OrchestratorEvent::ArtifactUpdated { .. } => "ArtifactUpdated".into(),
+        OrchestratorEvent::ActivityChanged { state, .. } => format!("ActivityChanged({state:?})"),
     }
 }
