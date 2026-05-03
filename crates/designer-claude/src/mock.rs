@@ -10,7 +10,7 @@ use crate::orchestrator::{
 };
 use async_trait::async_trait;
 use designer_core::{
-    Actor, AgentId, ArtifactId, ArtifactKind, EventPayload, EventStore, StreamId, TaskId,
+    Actor, AgentId, ArtifactId, ArtifactKind, EventPayload, EventStore, StreamId, TabId, TaskId,
     WorkspaceId,
 };
 use parking_lot::Mutex;
@@ -32,8 +32,12 @@ pub struct MockOrchestrator<S: EventStore> {
     /// these via the stream-translator's cost arm; the mock stays silent
     /// unless a test calls `signals().send(...)`.
     signal_tx: broadcast::Sender<ClaudeSignal>,
-    teams: Mutex<HashMap<WorkspaceId, TeamSpec>>,
-    agents: Mutex<HashMap<WorkspaceId, Vec<AgentId>>>,
+    /// Phase 23.E: keyed by `(workspace_id, tab_id)` to mirror the real
+    /// orchestrator's per-tab dispatch contract. Tests can inspect entry
+    /// count to assert "two distinct teams" without touching real
+    /// subprocesses.
+    teams: Mutex<HashMap<(WorkspaceId, TabId), TeamSpec>>,
+    agents: Mutex<HashMap<(WorkspaceId, TabId), Vec<AgentId>>>,
     /// Artificial delay used in integration tests. Zero by default.
     pub tick: Duration,
 }
@@ -72,16 +76,13 @@ impl<S: EventStore> MockOrchestrator<S> {
 #[async_trait]
 impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
     async fn spawn_team(&self, spec: TeamSpec) -> OrchestratorResult<()> {
-        info!(workspace = %spec.workspace_id, team = %spec.team_name, "mock spawn_team");
-        self.teams.lock().insert(spec.workspace_id, spec.clone());
+        info!(workspace = %spec.workspace_id, tab = %spec.tab_id, team = %spec.team_name, "mock spawn_team");
+        let key = (spec.workspace_id, spec.tab_id);
+        self.teams.lock().insert(key, spec.clone());
 
         // Lead
         let lead_id = AgentId::new();
-        self.agents
-            .lock()
-            .entry(spec.workspace_id)
-            .or_default()
-            .push(lead_id);
+        self.agents.lock().entry(key).or_default().push(lead_id);
         self.store
             .append(
                 StreamId::Workspace(spec.workspace_id),
@@ -110,11 +111,7 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
         for role in &spec.teammates {
             self.pace().await;
             let id = AgentId::new();
-            self.agents
-                .lock()
-                .entry(spec.workspace_id)
-                .or_default()
-                .push(id);
+            self.agents.lock().entry(key).or_default().push(id);
             self.store
                 .append(
                     StreamId::Workspace(spec.workspace_id),
@@ -141,15 +138,16 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
     async fn assign_task(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: TabId,
         assignment: TaskAssignment,
     ) -> OrchestratorResult<()> {
-        debug!(?workspace_id, ?assignment, "mock assign_task");
+        debug!(?workspace_id, ?tab_id, ?assignment, "mock assign_task");
         let team = self
             .teams
             .lock()
-            .get(&workspace_id)
+            .get(&(workspace_id, tab_id))
             .cloned()
-            .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?;
+            .ok_or_else(|| OrchestratorError::TeamNotFound(format!("{workspace_id}/{tab_id}")))?;
 
         self.store
             .append(
@@ -190,7 +188,7 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
         if let Some(first) = self
             .agents
             .lock()
-            .get(&workspace_id)
+            .get(&(workspace_id, tab_id))
             .and_then(|v| v.first().copied())
         {
             self.emit(OrchestratorEvent::TeammateIdle {
@@ -205,15 +203,16 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
     async fn post_message(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: TabId,
         author_role: String,
         body: String,
     ) -> OrchestratorResult<()> {
         let team = self
             .teams
             .lock()
-            .get(&workspace_id)
+            .get(&(workspace_id, tab_id))
             .cloned()
-            .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?;
+            .ok_or_else(|| OrchestratorError::TeamNotFound(format!("{workspace_id}/{tab_id}")))?;
         // Mirror the real orchestrator: don't persist; just broadcast.
         // AppCore is the single persister for `MessagePosted` (user side)
         // and `ArtifactCreated` (coalesced agent side). Persisting here
@@ -306,10 +305,27 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
         self.signal_tx.subscribe()
     }
 
-    async fn shutdown(&self, workspace_id: WorkspaceId) -> OrchestratorResult<()> {
-        self.teams.lock().remove(&workspace_id);
-        self.agents.lock().remove(&workspace_id);
+    async fn shutdown(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
+        self.teams.lock().remove(&(workspace_id, tab_id));
+        self.agents.lock().remove(&(workspace_id, tab_id));
         Ok(())
+    }
+}
+
+impl<S: EventStore> MockOrchestrator<S> {
+    /// Test helper: number of live `(workspace, tab)` teams. Used by the
+    /// 23.E acceptance tests to assert per-tab isolation without touching
+    /// real subprocesses.
+    #[doc(hidden)]
+    pub fn team_count(&self) -> usize {
+        self.teams.lock().len()
+    }
+
+    /// Test helper: every `(workspace, tab)` key currently registered.
+    /// Used by 23.E tests to assert which tabs got teams.
+    #[doc(hidden)]
+    pub fn team_keys(&self) -> Vec<(WorkspaceId, TabId)> {
+        self.teams.lock().keys().copied().collect()
     }
 }
 

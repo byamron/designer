@@ -16,7 +16,7 @@ use designer_claude::{
     ClaudeCodeOptions, ClaudeCodeOrchestrator, Orchestrator, OrchestratorEvent, PermissionDecision,
     PermissionHandler, PermissionRequest, TeamSpec,
 };
-use designer_core::{SqliteEventStore, WorkspaceId};
+use designer_core::{SqliteEventStore, TabId, WorkspaceId};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast::error::RecvError;
@@ -68,8 +68,10 @@ async fn spawn_team_and_observe_lifecycle() {
     let mut events = orch.subscribe();
 
     let ws = WorkspaceId::new();
+    let tab = TabId::new();
     let spec = TeamSpec {
         workspace_id: ws,
+        tab_id: tab,
         team_name: "designer-live-probe".into(),
         lead_role: "team-lead".into(),
         teammates: vec![],
@@ -91,7 +93,7 @@ async fn spawn_team_and_observe_lifecycle() {
 
     // Shutdown within a reasonable window. The graceful path ends in
     // `start_kill()` fallback if the lead dawdles — still within 90s.
-    let shutdown = timeout(Duration::from_secs(90), orch.shutdown(ws)).await;
+    let shutdown = timeout(Duration::from_secs(90), orch.shutdown(ws, tab)).await;
     assert!(
         shutdown.is_ok(),
         "shutdown did not complete within 90s; orchestrator may be stuck"
@@ -179,8 +181,10 @@ async fn permission_prompt_round_trip() {
 
     let mut events = orch.subscribe();
     let ws = WorkspaceId::new();
+    let tab = TabId::new();
     let spec = TeamSpec {
         workspace_id: ws,
+        tab_id: tab,
         team_name: "designer-permission-probe".into(),
         lead_role: "team-lead".into(),
         teammates: vec![],
@@ -209,6 +213,7 @@ async fn permission_prompt_round_trip() {
     // analysis for why Bash / Read / Edit aren't reliable substitutes.
     orch.post_message(
         ws,
+        tab,
         "user".into(),
         "Invoke the Write tool exactly once with these arguments: \
          file_path = \"hello.txt\", content = \"hi\". \
@@ -248,7 +253,7 @@ async fn permission_prompt_round_trip() {
     drop(calls);
 
     drain.abort();
-    let shutdown = timeout(Duration::from_secs(90), orch.shutdown(ws)).await;
+    let shutdown = timeout(Duration::from_secs(90), orch.shutdown(ws, tab)).await;
     assert!(shutdown.is_ok(), "shutdown timed out");
     shutdown.unwrap().expect("shutdown should not error");
 }

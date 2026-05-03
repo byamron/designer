@@ -16,6 +16,18 @@ Each entry is a dated heading plus 3–6 sentences. Focus on the *why*. Referenc
 
 ## Entries
 
+## 2026-05-02 — Per-tab Claude subprocess (Phase 23.E); pre-23.E sessions retired
+
+Pre-23.E, the orchestrator keyed its teams map by `WorkspaceId` and derived `--session-id` as `UUIDv5(SESSION_NAMESPACE, workspace_id)`. All tabs in a workspace shared one `claude` subprocess and one conversation — posts in tab A and tab B interleaved into a single stream, claude had no concept of tabs, and "tab isolation" was a frontend projection filter, not a real dispatch boundary. From the user's perspective tabs *should* be parallel agents, so Phase 23.E re-keyed the teams map and the session-id derivation by `(WorkspaceId, TabId)`. Each tab now owns its own subprocess, session memory, and context window; tab A and tab B can stream replies in parallel without context confusion.
+
+`SESSION_NAMESPACE` was rotated to a new UUIDv4 constant in the same change. The rotation is the clean break that invalidates every pre-23.E session — those sessions had cross-tab framing baked into their saved memory, so resuming them under per-tab dispatch would inherit the clutter. After this rotation, **never rotate again**: that would break resume for users who already have per-tab conversation memory. Existing chats start fresh on the first post after the upgrade; that's the documented migration cost.
+
+`TeamSpec.tab_id: TabId` is required. The trait methods (`spawn_team` via the spec; `post_message`, `assign_task`, `shutdown`) all take a `tab_id` argument. Workspace-wide operations that previously called `orchestrator.shutdown(workspace_id)` (`archive_workspace`, `delete_workspace`) now enumerate the workspace's tabs and call shutdown for each. `core::close_tab` calls `orchestrator.shutdown((workspace_id, tab_id))` before appending `TabClosed` so a closed tab doesn't leak its subprocess. Per-tab `cwd` overrides are out of scope for 23.E (Phase 19 territory); tabs inherit the workspace's project root.
+
+A nil-UUID `TabId` sentinel (`default_tab_id_for_workspace`) is reserved for legacy callers that post without a tab (boot/replay edge cases, `cmd_post_message` from a frontend that pre-dates `tab_id` in `PostMessageRequest`). The sentinel keeps a single deterministic key for the workspace-wide path until every caller threads a real `tab_id`. Production frontends always send one.
+
+Memory cost: each tab is a full claude subprocess (~50–200 MB). A workspace with ten tabs runs about 1 GB of claude headroom. Documented here so future "why is Designer using 6 GB?" support tickets land at the right answer; revisit if the cost bites in dogfood.
+
 ## 2026-05-02 — Per-tab UI state lives on the app store, keyed by `TabId`
 
 Three friction reports (close-tab + ⌘W broken; tab switch flashed empty state; composer drafts vanished on switch) all converged on the same shape: WorkspaceThread is keyed `${workspace.id}:${activeTab}` in MainView, so a tab switch unmounts the old instance and mounts a fresh one. Local `useState` in WorkspaceThread therefore cannot survive a switch. Two slices were added to `appStore` (`packages/app/src/store/app.ts`): `composerDraftByTab: Record<TabId, string>` and `tabStartedById: Record<TabId, boolean>`. WorkspaceThread reads them via `useState(() => appStore.get().tabStartedById[stateKey])` (a lazy initializer that runs *synchronously* on first render). This is the load-bearing detail: the synchronous read guarantees the destination tab paints with `hasStarted = true` (and the saved draft seeded into ComposeDock) on frame 0 — no intermediate "Describe something new" suggestion strip ever lands on screen. Any future change that defers the read to `useEffect` will reintroduce the flash.
