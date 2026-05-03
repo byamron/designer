@@ -823,8 +823,10 @@ describe("Phase 23.D — WorkspaceThread persists across tab switches", () => {
 
   // T-23D-3 — scroll position preserved per tab. With WorkspaceThread
   // staying mounted, the `.thread` log element keeps its scrollTop across
-  // a tab switch (no remount = no fresh element clamped to scrollTop=0).
-  // jsdom doesn't lay anything out, so we install a small scrollHeight /
+  // a tab switch when both tabs are in thread mode (a never-started
+  // sibling correctly renders the suggestion strip and unmounts `.thread`,
+  // so the assertion only holds when both tabs have been started). jsdom
+  // doesn't lay anything out, so we install a small scrollHeight /
   // clientHeight shim — same pattern `chat-scroll.test.tsx` uses.
   it("T-23D-3: scrollTop on the thread log is preserved across a tab switch", async () => {
     await boot();
@@ -838,26 +840,68 @@ describe("Phase 23.D — WorkspaceThread persists across tab switches", () => {
       ).toBeGreaterThan(0),
     );
 
-    // Send a message so `hasStarted` flips and the `.thread` log mounts.
+    // Send a message so the active tab flips into thread mode and the
+    // `.thread` log mounts.
     const composer = document.querySelector<HTMLTextAreaElement>(
       "textarea.compose__input",
     );
     expect(composer).not.toBeNull();
     fireEvent.change(composer!, { target: { value: "hello" } });
     fireEvent.keyDown(composer!, { key: "Enter", metaKey: true });
-    const thread = await waitFor(() => {
-      const t = document.querySelector<HTMLElement>(".thread");
-      expect(t).not.toBeNull();
-      return t!;
+    await waitFor(() => {
+      expect(document.querySelector(".thread")).not.toBeNull();
     });
 
-    // Open a second tab to switch off to.
+    // Open a second tab and start it too — otherwise switching to it
+    // surfaces the suggestion strip (correct UX, but unmounts `.thread`
+    // and invalidates the scroll-preservation premise of this test).
     const plusBtn = document.querySelector<HTMLButtonElement>(
       ".new-tab button[aria-label='New tab']",
     );
     fireEvent.click(plusBtn!);
     await waitFor(() => {
       expect(plusBtn!.getAttribute("aria-busy")).not.toBe("true");
+    });
+    // The newly opened tab is now active. Send a message in it so it,
+    // too, is in thread mode.
+    await waitFor(() => {
+      const c = document.querySelector<HTMLTextAreaElement>(
+        "textarea.compose__input",
+      );
+      expect(c).not.toBeNull();
+      // Composer should be empty for a fresh tab.
+      expect(c!.value).toBe("");
+    });
+    const composerB = document.querySelector<HTMLTextAreaElement>(
+      "textarea.compose__input",
+    )!;
+    fireEvent.change(composerB, { target: { value: "hi B" } });
+    fireEvent.keyDown(composerB, { key: "Enter", metaKey: true });
+    await waitFor(() => {
+      // Both tabs are now started; thread is mounted on whichever is
+      // active.
+      expect(document.querySelector(".thread")).not.toBeNull();
+    });
+
+    // Switch back to the original tab so we can scroll-shim its
+    // `.thread` instance and measure preservation across an A→B→A trip.
+    const tabs = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.tabs-bar [role="tab"]'),
+    );
+    const activeIdx = tabs.findIndex(
+      (t) => t.getAttribute("data-active") === "true",
+    );
+    const otherIdx = activeIdx === 0 ? 1 : 0;
+    // tabs[activeIdx] is currently the second tab (B). Switch to the
+    // first (A).
+    fireEvent.click(tabs[otherIdx]);
+    await waitFor(() => {
+      expect(tabs[otherIdx].getAttribute("data-active")).toBe("true");
+    });
+    const thread = await waitFor(() => {
+      const t = document.querySelector<HTMLElement>(".thread");
+      expect(t).not.toBeNull();
+      return t!;
     });
 
     // Pretend the thread has more content than fits, then scroll up so
@@ -874,22 +918,14 @@ describe("Phase 23.D — WorkspaceThread persists across tab switches", () => {
     thread.scrollTop = 120;
     fireEvent.scroll(thread);
 
-    const tabs = Array.from(
-      document.querySelectorAll<HTMLButtonElement>('.tabs-bar [role="tab"]'),
-    );
-    const activeIdx = tabs.findIndex(
-      (t) => t.getAttribute("data-active") === "true",
-    );
-    const otherIdx = activeIdx === 0 ? 1 : 0;
-
-    // Switch to B, then back to A.
-    fireEvent.click(tabs[otherIdx]);
-    await waitFor(() => {
-      expect(tabs[otherIdx].getAttribute("data-active")).toBe("true");
-    });
+    // Switch away to B and back to A.
     fireEvent.click(tabs[activeIdx]);
     await waitFor(() => {
       expect(tabs[activeIdx].getAttribute("data-active")).toBe("true");
+    });
+    fireEvent.click(tabs[otherIdx]);
+    await waitFor(() => {
+      expect(tabs[otherIdx].getAttribute("data-active")).toBe("true");
     });
 
     // Same node, scrollTop preserved.
@@ -949,5 +985,239 @@ describe("Phase 23.D — WorkspaceThread persists across tab switches", () => {
     );
     expect(t).not.toBeNull();
     expect(t!.value).toBe("hello");
+  });
+});
+
+// Phase 23.D follow-up — the original key-change PR introduced two
+// shipped regressions because per-tab state inside WorkspaceThread /
+// ComposeDock was seeded once on mount and never resynced when `tabId`
+// changed:
+//
+//   1. `hasStarted` (lazy `useState` of the per-tab "thread mode" flag)
+//      — opening a fresh sibling tab while a started tab was active
+//      inherited the started flag and skipped the suggestion strip.
+//   2. `ComposeDock.draft` (lazy `useState(initialDraft)`) — the
+//      textarea kept the previous tab's text on screen until the user
+//      typed.
+//   3. `initialPaint` animation gate — only suppressed `.thread > *`
+//      arrival animations on first mount, so every tab switch ran the
+//      slide-in keyframe on artifacts the user had already seen.
+//
+// These tests pin the resync behaviour so a future regression of the
+// underlying useEffects flips red here.
+describe("Phase 23.D follow-up — per-tab state resyncs on tab switch", () => {
+  // Opening a brand-new tab while a sibling is already started must
+  // NOT inherit the sibling's started flag — the new tab is empty and
+  // should display the suggestion strip empty-state affordance.
+  it("a fresh tab opened next to a started tab still shows the suggestion strip", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>("button.workspace-row")!,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBeGreaterThan(0),
+    );
+
+    // Start the currently-active tab by sending a message — flips the
+    // store's `tabStartedById[A]` to true.
+    const composer = document.querySelector<HTMLTextAreaElement>(
+      "textarea.compose__input",
+    );
+    expect(composer).not.toBeNull();
+    fireEvent.change(composer!, { target: { value: "kicking off A" } });
+    fireEvent.keyDown(composer!, { key: "Enter", metaKey: true });
+    await waitFor(() => {
+      // Suggestion strip is gone, thread log (`.thread-wrap` is the
+      // marker — the suggestion view also carries `.thread` so we can't
+      // use that selector alone) is mounted.
+      expect(document.querySelector(".thread--suggestions")).toBeNull();
+      expect(document.querySelector(".thread-wrap")).not.toBeNull();
+    });
+
+    // Open a fresh second tab. It activates automatically.
+    const plusBtn = document.querySelector<HTMLButtonElement>(
+      ".new-tab button[aria-label='New tab']",
+    );
+    fireEvent.click(plusBtn!);
+    await waitFor(() => {
+      expect(plusBtn!.getAttribute("aria-busy")).not.toBe("true");
+    });
+
+    // The new tab is the active one — it must show the suggestion
+    // strip, not the (stale) thread log of the previously active tab.
+    await waitFor(() => {
+      expect(document.querySelector(".thread--suggestions")).not.toBeNull();
+    });
+    expect(document.querySelector(".thread-wrap")).toBeNull();
+  });
+
+  // After typing in tab A and switching to a fresh tab B, the textarea
+  // must visibly display tab B's saved (empty) draft, not tab A's text.
+  // Round-trip back to A still restores A's draft.
+  it("the composer textarea resyncs to the active tab's saved draft on switch", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>("button.workspace-row")!,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBeGreaterThan(0),
+    );
+
+    const plusBtn = document.querySelector<HTMLButtonElement>(
+      ".new-tab button[aria-label='New tab']",
+    );
+    fireEvent.click(plusBtn!);
+    await waitFor(() => {
+      expect(plusBtn!.getAttribute("aria-busy")).not.toBe("true");
+    });
+
+    const tabs = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.tabs-bar [role="tab"]'),
+    );
+    expect(tabs.length).toBeGreaterThanOrEqual(2);
+    const activeIdx = tabs.findIndex(
+      (t) => t.getAttribute("data-active") === "true",
+    );
+    const otherIdx = activeIdx === 0 ? 1 : 0;
+    // Switch to the original tab so we can type in A first.
+    fireEvent.click(tabs[otherIdx]);
+    await waitFor(() => {
+      expect(tabs[otherIdx].getAttribute("data-active")).toBe("true");
+    });
+
+    const composerA = document.querySelector<HTMLTextAreaElement>(
+      "textarea.compose__input",
+    );
+    expect(composerA).not.toBeNull();
+    fireEvent.change(composerA!, { target: { value: "draft for A" } });
+    expect(composerA!.value).toBe("draft for A");
+
+    // Switch to B — the textarea must visibly reflect B's empty draft.
+    fireEvent.click(tabs[activeIdx]);
+    await waitFor(() => {
+      expect(tabs[activeIdx].getAttribute("data-active")).toBe("true");
+    });
+    await waitFor(() => {
+      const t = document.querySelector<HTMLTextAreaElement>(
+        "textarea.compose__input",
+      );
+      expect(t).not.toBeNull();
+      expect(t!.value).toBe("");
+    });
+
+    // Round-trip back to A — the saved draft must be restored.
+    fireEvent.click(tabs[otherIdx]);
+    await waitFor(() => {
+      expect(tabs[otherIdx].getAttribute("data-active")).toBe("true");
+    });
+    await waitFor(() => {
+      const t = document.querySelector<HTMLTextAreaElement>(
+        "textarea.compose__input",
+      );
+      expect(t).not.toBeNull();
+      expect(t!.value).toBe("draft for A");
+    });
+  });
+
+  // Animation gate: on a tab switch into a tab in thread mode, the
+  // `.thread--initial` class must be present for one paint so existing
+  // artifacts don't replay the slide-in animation. The class clears on
+  // the second RAF so subsequent live arrivals animate normally.
+  it("the .thread--initial animation gate re-arms on tab switch", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>("button.workspace-row")!,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBeGreaterThan(0),
+    );
+
+    // Start tab A.
+    const composerA = document.querySelector<HTMLTextAreaElement>(
+      "textarea.compose__input",
+    );
+    fireEvent.change(composerA!, { target: { value: "go" } });
+    fireEvent.keyDown(composerA!, { key: "Enter", metaKey: true });
+    await waitFor(() => {
+      expect(document.querySelector(".thread")).not.toBeNull();
+    });
+
+    // Open and start a second tab.
+    const plusBtn = document.querySelector<HTMLButtonElement>(
+      ".new-tab button[aria-label='New tab']",
+    );
+    fireEvent.click(plusBtn!);
+    await waitFor(() => {
+      expect(plusBtn!.getAttribute("aria-busy")).not.toBe("true");
+    });
+    await waitFor(() => {
+      const c = document.querySelector<HTMLTextAreaElement>(
+        "textarea.compose__input",
+      );
+      expect(c?.value).toBe("");
+    });
+    const composerB = document.querySelector<HTMLTextAreaElement>(
+      "textarea.compose__input",
+    )!;
+    fireEvent.change(composerB, { target: { value: "go B" } });
+    fireEvent.keyDown(composerB, { key: "Enter", metaKey: true });
+    await waitFor(() => {
+      expect(document.querySelector(".thread")).not.toBeNull();
+    });
+
+    const tabs = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.tabs-bar [role="tab"]'),
+    );
+    const activeIdx = tabs.findIndex(
+      (t) => t.getAttribute("data-active") === "true",
+    );
+    const otherIdx = activeIdx === 0 ? 1 : 0;
+
+    // Wait for the gate from the most recent start to clear (two RAFs).
+    await act(async () => {
+      await new Promise<void>((r) =>
+        window.requestAnimationFrame(() =>
+          window.requestAnimationFrame(() => r()),
+        ),
+      );
+    });
+    expect(
+      document
+        .querySelector(".thread")!
+        .className.includes("thread--initial"),
+    ).toBe(false);
+
+    // Switch tabs — the gate must re-arm synchronously.
+    await act(async () => {
+      fireEvent.click(tabs[otherIdx]);
+    });
+    expect(
+      document
+        .querySelector(".thread")!
+        .className.includes("thread--initial"),
+    ).toBe(true);
+
+    // After two RAFs, the gate clears again.
+    await act(async () => {
+      await new Promise<void>((r) =>
+        window.requestAnimationFrame(() =>
+          window.requestAnimationFrame(() => r()),
+        ),
+      );
+    });
+    expect(
+      document
+        .querySelector(".thread")!
+        .className.includes("thread--initial"),
+    ).toBe(false);
   });
 });
