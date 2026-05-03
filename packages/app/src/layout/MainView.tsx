@@ -196,6 +196,12 @@ function WorkspaceMain({
   // a shared closer the X button worked while ⌘W only fired when focus
   // was on the tab button itself — the close-tab friction report.
   const closeTab = async (tabId: TabId) => {
+    // Workspace must always have at least one open tab — closing the only
+    // tab is a UX dead-end that strands the user in an empty pane. The
+    // backend enforces the same invariant (frc_019dea6b); guarding here
+    // keeps the local-state cleanup (clearTabState, refresh, focus move)
+    // from running on a no-op close.
+    if (visibleTabs.length <= 1) return;
     const wasActive = activeTab === tabId;
     const remaining = visibleTabs.filter((t) => t.id !== tabId);
     await ipcClient().closeTab(workspace.id, tabId);
@@ -260,6 +266,7 @@ function WorkspaceMain({
             id={tab.id}
             label={displayLabel(tab, idx)}
             active={activeTab === tab.id}
+            isOnly={visibleTabs.length <= 1}
             onClose={() => void closeTab(tab.id)}
           />
         ))}
@@ -347,12 +354,14 @@ function TabButton({
   workspaceId,
   label,
   active,
+  isOnly = false,
   onClose,
 }: {
   id: Tab["id"];
   workspaceId: string;
   label: string;
   active: boolean;
+  isOnly?: boolean;
   onClose?: () => void;
 }) {
   // Phase 23.B — tab-strip badge: paint a small dot when the tab the
@@ -422,10 +431,21 @@ function TabButton({
         <button
           type="button"
           className="tab-button__close"
-          aria-label={`Close ${label}`}
+          aria-label={
+            isOnly
+              ? `Close ${label} (last tab — open another to close this one)`
+              : `Close ${label}`
+          }
+          aria-disabled={isOnly || undefined}
           tabIndex={-1}
+          // frc_019dea6b — every workspace must have at least one open
+          // tab. We hide the X via opacity (not display) so the tab
+          // button's layout doesn't reflow when a sibling closes,
+          // and pointer-events:none so a click-through can't fire it.
+          style={isOnly ? { opacity: 0, pointerEvents: "none" } : undefined}
           onClick={(e) => {
             e.stopPropagation();
+            if (isOnly) return;
             onClose();
           }}
         >

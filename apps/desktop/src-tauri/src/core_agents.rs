@@ -1737,7 +1737,9 @@ mod tests {
 
     /// T-23E-3 — close tab kills its subprocess. Spawn the team via a
     /// post; close the tab; assert the orchestrator's teams map no
-    /// longer carries `(workspace_id, tab_id)`.
+    /// longer carries `(workspace_id, tab_id)`. Two tabs are opened so
+    /// the last-tab guard in `core::close_tab` does not turn the close
+    /// into a no-op (frc_019dea6b).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn t_23e_3_close_tab_shuts_down_team() {
         let (core, mock) = boot_core_with_mock().await;
@@ -1751,6 +1753,10 @@ mod tests {
             .unwrap();
         let tab = core
             .open_tab(ws.id, "T".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        let _keep = core
+            .open_tab(ws.id, "Keep".into(), designer_core::TabTemplate::Thread)
             .await
             .unwrap();
         core.post_message(ws.id, Some(tab.id), None, "hi".into())
@@ -1987,6 +1993,12 @@ mod tests {
             .unwrap();
         let tab = core
             .open_tab(ws.id, "T".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        // Open a second tab so the last-tab guard in `close_tab` doesn't
+        // short-circuit before the shutdown path is exercised.
+        let _keep = core
+            .open_tab(ws.id, "Keep".into(), designer_core::TabTemplate::Thread)
             .await
             .unwrap();
 

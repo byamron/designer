@@ -1221,3 +1221,149 @@ describe("Phase 23.D follow-up — per-tab state resyncs on tab switch", () => {
     ).toBe(false);
   });
 });
+
+// frc_019dea6b — a workspace must always have at least one open tab.
+// The close affordance hides on the only tab; opening a workspace with
+// zero open tabs lazy-creates "Tab 1".
+describe("Tab guards (frc_019dea6b)", () => {
+  it("shows the close affordance with full opacity when ≥2 tabs are open", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>("button.workspace-row")!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBeGreaterThanOrEqual(2),
+    );
+
+    const closeButtons = document.querySelectorAll<HTMLButtonElement>(
+      "button.tab-button__close",
+    );
+    expect(closeButtons.length).toBeGreaterThanOrEqual(2);
+    for (const btn of Array.from(closeButtons)) {
+      // No inline opacity / pointer-events override when siblings exist.
+      expect(btn.style.opacity).toBe("");
+      expect(btn.style.pointerEvents).toBe("");
+      expect(btn.getAttribute("aria-disabled")).toBeNull();
+      expect(btn.getAttribute("aria-label")).not.toMatch(/last tab/i);
+    }
+  });
+
+  it("hides the close affordance and updates aria-label when the workspace is down to one tab", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>("button.workspace-row")!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.tabs-bar [role="tab"]').length,
+      ).toBeGreaterThanOrEqual(2),
+    );
+
+    // The IPC mock is a module-level singleton; earlier tests may have
+    // accumulated extra tabs in this workspace. Close them down to a
+    // single open tab so the only-tab guard becomes the assertion under
+    // test. The frontend guard short-circuits the close handler when
+    // there's one tab left, so this loop terminates cleanly.
+    let safety = 50;
+    while (
+      document.querySelectorAll('.tabs-bar [role="tab"]').length > 1 &&
+      safety-- > 0
+    ) {
+      const expected =
+        document.querySelectorAll('.tabs-bar [role="tab"]').length - 1;
+      const close = document.querySelector<HTMLButtonElement>(
+        "button.tab-button__close",
+      );
+      fireEvent.click(close!);
+      await waitFor(() => {
+        expect(
+          document.querySelectorAll('.tabs-bar [role="tab"]').length,
+        ).toBe(expected);
+      });
+    }
+    expect(
+      document.querySelectorAll('.tabs-bar [role="tab"]').length,
+    ).toBe(1);
+
+    const onlyClose = document.querySelector<HTMLButtonElement>(
+      "button.tab-button__close",
+    );
+    expect(onlyClose).not.toBeNull();
+    expect(onlyClose!.style.opacity).toBe("0");
+    expect(onlyClose!.style.pointerEvents).toBe("none");
+    expect(onlyClose!.getAttribute("aria-disabled")).toBe("true");
+    expect(onlyClose!.getAttribute("aria-label")).toMatch(/last tab/i);
+  });
+
+  it("clicking a workspace row with zero open tabs lazy-creates Tab 1", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+
+    // The mock seeds two workspaces in the Designer project: "onboarding"
+    // (2 tabs) and "activity-spine" (0 tabs). Find the empty one by
+    // title — its row is the dogfood case for this guard.
+    const rows = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button.workspace-row"),
+    );
+    const empty = rows.find((r) =>
+      (r.getAttribute("title") ?? "").startsWith("activity-spine"),
+    );
+    expect(empty, "expected the activity-spine workspace row to be present").toBeTruthy();
+
+    // Spy on openTab so we can assert exactly one auto-create call.
+    const live = ipcClient();
+    const realOpenTab = live.openTab.bind(live);
+    const openTabSpy = vi.fn(realOpenTab);
+    (live as { openTab: IpcClient["openTab"] }).openTab = openTabSpy;
+
+    try {
+      fireEvent.click(empty!);
+
+      await waitFor(() => {
+        expect(openTabSpy).toHaveBeenCalledTimes(1);
+      });
+      const req = openTabSpy.mock.calls[0][0];
+      expect(req.title).toBe("Tab 1");
+      expect(req.template).toBe("thread");
+    } finally {
+      (live as { openTab: IpcClient["openTab"] }).openTab = realOpenTab;
+    }
+  });
+
+  it("clicking a workspace row that already has an open tab does not call openTab", async () => {
+    await boot();
+    await waitFor(() => document.querySelector("button.workspace-row"));
+
+    const rows = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button.workspace-row"),
+    );
+    // "onboarding" is the row with two seeded tabs.
+    const populated = rows.find((r) =>
+      (r.getAttribute("title") ?? "").startsWith("onboarding"),
+    );
+    expect(populated, "expected the onboarding workspace row to be present").toBeTruthy();
+
+    const live = ipcClient();
+    const realOpenTab = live.openTab.bind(live);
+    const openTabSpy = vi.fn(realOpenTab);
+    (live as { openTab: IpcClient["openTab"] }).openTab = openTabSpy;
+
+    try {
+      fireEvent.click(populated!);
+      // Settle any microtasks from the click before asserting.
+      await act(async () => {
+        await Promise.resolve();
+      });
+      // The active tab is the workspace's first open tab — no auto-create.
+      expect(openTabSpy).not.toHaveBeenCalled();
+    } finally {
+      (live as { openTab: IpcClient["openTab"] }).openTab = realOpenTab;
+    }
+  });
+});
