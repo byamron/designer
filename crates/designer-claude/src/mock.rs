@@ -327,6 +327,30 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
         self.signal_tx.subscribe()
     }
 
+    async fn interrupt(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
+        // Mirror the real orchestrator's TeamNotFound semantics so callers
+        // see the same error surface across orchestrators. The session
+        // stays alive on the (workspace, tab) — interrupt does NOT remove
+        // the team entry; a follow-up post_message must still find it.
+        let exists = self.teams.lock().contains_key(&(workspace_id, tab_id));
+        if !exists {
+            return Err(OrchestratorError::TeamNotFound(format!(
+                "{workspace_id}/{tab_id}"
+            )));
+        }
+        // Phase 23.F — synthesize the same `Idle` edge the real translator
+        // emits when claude's `result` line lands after an interrupt. This
+        // unblocks the activity surface and flushes any partial coalesced
+        // text the way a real turn-end would.
+        self.emit(OrchestratorEvent::ActivityChanged {
+            workspace_id,
+            tab_id,
+            state: ActivityState::Idle,
+            since: SystemTime::now(),
+        });
+        Ok(())
+    }
+
     async fn shutdown(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
         self.teams.lock().remove(&(workspace_id, tab_id));
         self.agents.lock().remove(&(workspace_id, tab_id));

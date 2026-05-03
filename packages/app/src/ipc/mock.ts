@@ -77,6 +77,8 @@ export interface MockCore {
   postMessage(req: PostMessageRequest): PostMessageResponse;
   /** Test surface: every postMessage call captured for assertion. */
   postedMessages(): PostMessageRequest[];
+  // Phase 23.F — Stop turn
+  interruptTurn(workspaceId: WorkspaceId, tabId: TabId): void;
   // Phase 13.E
   linkRepo(req: LinkRepoRequest): void;
   unlinkRepo(req: UnlinkRepoRequest): void;
@@ -622,6 +624,20 @@ export function createMockCore(): MockCore {
     },
     postedMessages() {
       return [...postedMessages];
+    },
+    interruptTurn(workspaceId, tabId) {
+      // Phase 23.F — synthesize the same `Idle` edge the real translator
+      // emits when claude's `result` line lands after an interrupt. Mock
+      // doesn't model an in-flight turn (postMessage emits Working then
+      // Idle synchronously), so this is mostly a no-op for the activity
+      // surface — but the emission ensures the dock clears even if a
+      // caller stubs the mock to keep `Working` open indefinitely.
+      emitActivity({
+        workspace_id: workspaceId,
+        tab_id: tabId,
+        state: "idle",
+        since_ms: Date.now(),
+      });
     },
     linkRepo(req) {
       const w = workspaces.find((w) => w.id === req.workspace_id);

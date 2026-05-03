@@ -3,7 +3,7 @@
 //! wrappers live in `commands_agents.rs`.
 
 use crate::core::AppCore;
-use designer_ipc::{IpcError, PostMessageRequest, PostMessageResponse};
+use designer_ipc::{InterruptTurnRequest, IpcError, PostMessageRequest, PostMessageResponse};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -54,6 +54,32 @@ pub async fn cmd_post_message(
     }
     let artifact_id = result?;
     Ok(PostMessageResponse { artifact_id })
+}
+
+/// Phase 23.F — IPC handler for the Stop button. Forwards into
+/// `AppCore::interrupt_turn`, which translates "no live team" / "stale
+/// handle" into `Ok(())` so a click that races a turn-end is silent. The
+/// `ActivityChanged{Idle}` that follows clears the activity row; this
+/// response carries no payload.
+pub async fn cmd_interrupt_turn(
+    core: &Arc<AppCore>,
+    req: InterruptTurnRequest,
+) -> Result<(), IpcError> {
+    info!(
+        workspace = %req.workspace_id, tab = %req.tab_id,
+        "cmd_interrupt_turn: dispatching to AppCore"
+    );
+    let result = core
+        .interrupt_turn(req.workspace_id, Some(req.tab_id))
+        .await
+        .map_err(IpcError::from);
+    match &result {
+        Ok(()) => info!(workspace = %req.workspace_id, tab = %req.tab_id, "cmd_interrupt_turn: ok"),
+        Err(err) => {
+            warn!(workspace = %req.workspace_id, tab = %req.tab_id, error = %err, "cmd_interrupt_turn: error")
+        }
+    }
+    result
 }
 
 /// Reject prompts above this byte length at the IPC boundary. Generous
@@ -282,5 +308,114 @@ mod tests {
             .filter(|a| a.author_role.as_deref() == Some("user"))
             .count();
         assert_eq!(user_count, 1, "exactly one user artifact per send");
+    }
+
+    /// Phase 23.F — `cmd_interrupt_turn` against a live mock team:
+    ///   1. interrupt synthesizes an `Idle` activity edge so the dock clears.
+    ///   2. a subsequent `cmd_post_message` succeeds without `ChannelClosed`
+    ///      (interrupt does not tear the team down — session stays alive).
+    /// Together these lock the user contract: Stop kills the turn, not the
+    /// conversation.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn interrupt_clears_activity_and_keeps_session_alive() {
+        use designer_claude::{ActivityState, OrchestratorEvent};
+
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab = designer_core::TabId::from_uuid(uuid::Uuid::nil());
+        core.orchestrator
+            .spawn_team(designer_claude::TeamSpec {
+                workspace_id: ws.id,
+                tab_id: tab,
+                team_name: "t".into(),
+                lead_role: "assistant".into(),
+                teammates: vec![],
+                env: Default::default(),
+                cwd: None,
+                model: None,
+            })
+            .await
+            .unwrap();
+
+        let mut events = core.orchestrator.subscribe();
+
+        cmd_interrupt_turn(
+            &core,
+            InterruptTurnRequest {
+                workspace_id: ws.id,
+                tab_id: tab,
+            },
+        )
+        .await
+        .unwrap();
+
+        // The mock emits exactly one `ActivityChanged{Idle}` for the
+        // interrupted tab. Drain until we see it (or time out) — other
+        // event types in the channel are not relevant here.
+        let saw_idle = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                match events.recv().await.unwrap() {
+                    OrchestratorEvent::ActivityChanged {
+                        workspace_id,
+                        tab_id,
+                        state: ActivityState::Idle,
+                        ..
+                    } if workspace_id == ws.id && tab_id == tab => break true,
+                    _ => continue,
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+        assert!(saw_idle, "interrupt should emit ActivityChanged{{Idle}}");
+
+        // The team is still registered — post_message succeeds and lands
+        // a fresh user artifact.
+        let resp = cmd_post_message(
+            &core,
+            PostMessageRequest {
+                workspace_id: ws.id,
+                text: "hello after interrupt".into(),
+                attachments: vec![],
+                tab_id: None,
+                model: None,
+            },
+        )
+        .await
+        .expect("post_message after interrupt should succeed (no ChannelClosed)");
+        let arts = ipc_shared::cmd_list_artifacts(&core, ws.id).await.unwrap();
+        assert!(arts.iter().any(|a| a.id == resp.artifact_id));
+    }
+
+    /// Interrupting a workspace with no live team is a no-op (the user
+    /// clicked Stop just as the turn ended). Surfaced as `Ok(())` so the
+    /// frontend doesn't have to special-case the race.
+    #[tokio::test]
+    async fn interrupt_with_no_team_is_ok() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        cmd_interrupt_turn(
+            &core,
+            InterruptTurnRequest {
+                workspace_id: ws.id,
+                tab_id: designer_core::TabId::new(),
+            },
+        )
+        .await
+        .expect("interrupt against an idle workspace should be a no-op");
     }
 }
