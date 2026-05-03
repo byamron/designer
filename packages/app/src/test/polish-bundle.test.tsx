@@ -286,10 +286,12 @@ describe("FrictionWidget — submit smoothness (polish-bundle frc_…2ee1)", () 
 
     // After the filed-slab read window, the widget gets data-closing
     // and starts its opacity transition. The unmount is driven by
-    // transitionend on the root, not a setTimeout.
+    // transitionend on the root, not a setTimeout. Advance well past
+    // FRICTION_FILED_HOLD_MS (currently 600ms) so the close-start
+    // timer has fired regardless of small future tunings.
     const dialog = screen.getByRole("dialog", { name: /capture friction/i });
     act(() => {
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(700);
     });
     expect(dialog.getAttribute("data-closing")).toBe("true");
 

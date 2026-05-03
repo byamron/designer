@@ -172,9 +172,12 @@
   opacity: 1;
   /* Closing fade — only opacity is transitioned so the transitionend
    * handler in the component listens for a single property and won't
-   * tear down on incidental child changes. Easing matches the
-   * inbound slab fade so submit + close read as one motion. */
-  transition: opacity var(--motion-emphasized) var(--ease-out-enter);
+   * tear down on incidental child changes. Uses the exit-curve
+   * (`--ease-in-exit`) rather than the slab's enter-curve so the two
+   * motions read as a *composed* gesture: the slab settles in
+   * (decel), then the widget pulls away (accel). Same emphasized
+   * duration so the cadence holds across the cross-fade. */
+  transition: opacity var(--motion-emphasized) var(--ease-in-exit);
 }
 
 .friction-widget[data-closing="true"] {
@@ -502,7 +505,12 @@
 }
 
 .friction-widget__filed-icon {
-  color: var(--accent-9);
+  /* Semantic-color policy (design-language axiom #3): a positive-
+   * outcome affordance reaches for the success scale, not the
+   * accent layer (which is rebound to the monochrome --gray-* in
+   * Designer). Green carries the "filed" signal at WCAG AA across
+   * both modes without further tuning. */
+  color: var(--success-9);
 }
 
 @keyframes friction-filed-fade-in {

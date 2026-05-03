@@ -13,11 +13,12 @@ import { EVENT_KIND, type StreamEvent } from "../../ipc/types";
 import { prefersReducedMotion } from "../../theme";
 
 /** Filed-slab read window before the widget begins fading out. Long enough
- *  for the eye to register the confirmation, short enough to not feel like
- *  a hang (frc_019de6f8). Tuned with the slab's --motion-emphasized
- *  fade-in (400ms) so the slab finishes settling just as the widget
- *  starts to leave. */
-const FRICTION_FILED_HOLD_MS = 400;
+ *  that a screen reader can announce the polite-aria toast ("Filed as
+ *  #abc123") before the widget unmounts (NVDA / VoiceOver typically
+ *  delay 250–500 ms before they speak), short enough to not feel like a
+ *  hang (frc_019de6f8). The slab's --motion-emphasized fade-in (400 ms)
+ *  finishes well before this window does. */
+const FRICTION_FILED_HOLD_MS = 600;
 
 type ToastKind = "local" | "confirmed" | "failed";
 
@@ -369,14 +370,20 @@ export function FrictionWidget() {
       style={style}
       role="dialog"
       aria-label="Capture friction"
+      // Pair with `pointer-events: none` in CSS — once the widget is
+      // closing, AT users should also see it as gone. The dialog
+      // re-mounts on the next ⌘⇧F so this never gates a return path.
+      aria-hidden={closing ? "true" : undefined}
       aria-keyshortcuts="Meta+Enter Meta+Shift+S Meta+Period Escape"
       onDragOver={onWidgetDragOver}
       onDrop={onWidgetDrop}
       onTransitionEnd={(e) => {
         // The widget root is the only element with an opacity
-        // transition — the filed-slab uses an animation, which fires
-        // animationend, not transitionend. Filtering on propertyName
-        // is enough; no need for a target===currentTarget guard.
+        // transition today, but a future child could grow one and
+        // bubble a stray transitionend up to this handler. Restrict
+        // to the root's own event so child motion can't tear the
+        // widget down before the root fade finishes.
+        if (e.target !== e.currentTarget) return;
         if (e.propertyName !== "opacity") return;
         if (!closing) return;
         clearFriction();
