@@ -373,6 +373,17 @@ impl<S: EventStore> MockOrchestrator<S> {
     pub fn team_keys(&self) -> Vec<(WorkspaceId, TabId)> {
         self.teams.lock().keys().copied().collect()
     }
+
+    /// Test helper: the broadcast sender backing
+    /// [`Orchestrator::subscribe`]. Mirrors [`signals`](Self::signals)
+    /// for the side-channel sender — exposes the producer so tests can
+    /// inject synthetic [`OrchestratorEvent`]s (e.g.
+    /// `ActivityChanged`) without going through `post_message` and
+    /// dragging in the rest of the simulator.
+    #[doc(hidden)]
+    pub fn event_sender(&self) -> broadcast::Sender<OrchestratorEvent> {
+        self.tx.clone()
+    }
 }
 
 // Unused-import suppression for `TaskId` (keeps re-export for clarity).
