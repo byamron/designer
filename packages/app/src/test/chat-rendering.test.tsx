@@ -445,7 +445,7 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
   // Round-3 review fix: getArtifact rejection used to leave the user
   // staring at an empty expanded row indistinguishable from an
   // in-flight fetch. Surface explicit copy.
-  it("renders 'No output captured' when getArtifact rejects", async () => {
+  it("renders 'Nothing to show.' when getArtifact rejects", async () => {
     const a = makeReport();
     const getArtifact = vi.fn().mockRejectedValue(new Error("404"));
     __setIpcClient(mockIpcClient({ getArtifact }));
@@ -461,7 +461,7 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
       ).toBe("error");
     });
     expect(container.querySelector(".tool-line__status")?.textContent).toBe(
-      "No output captured.",
+      "Nothing to show.",
     );
     expect(container.querySelector(".tool-line__pre")).toBeNull();
     // A second expand should not refetch — the failed result is also

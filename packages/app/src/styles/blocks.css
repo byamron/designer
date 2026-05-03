@@ -247,9 +247,13 @@
   /* min-height matches a single line of monospace at caption-size +
    * vertical padding, so the loading affordance, the empty error
    * state, and a one-line payload all settle at the same box height
-   * and there's no flash on phase transition. */
+   * and there's no flash on phase transition. --type-caption-leading
+   * is a unitless multiplier — it has to be multiplied by the size
+   * token, not added to lengths directly, or calc() rejects the
+   * whole rule. */
   min-height: calc(
-    var(--type-caption-leading) + 2 * var(--space-2) + 2 * var(--border-thin)
+    var(--type-caption-size) * var(--type-caption-leading) +
+      2 * var(--space-2) + 2 * var(--border-thin)
   );
   display: flex;
   flex-direction: column;

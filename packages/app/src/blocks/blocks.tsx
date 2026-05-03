@@ -262,7 +262,9 @@ export function ToolUseLine({ artifact }: BlockProps) {
           delegates `role="region"` + `aria-label` to the wrapper, which
           is a more predictable surface for screen readers than a long
           aria-live `<pre>` (some SRs read the whole pre content on
-          insertion). */}
+          insertion). The wrapper is intentionally not focusable —
+          `role="region"` should not steal Tab order; the head button
+          and the optional "Show full" button are the only stops. */}
       {expanded && (
         <div
           className="tool-line__region"
@@ -276,7 +278,7 @@ export function ToolUseLine({ artifact }: BlockProps) {
             <p className="tool-line__status">Loading output…</p>
           )}
           {phase === "error" && (
-            <p className="tool-line__status">No output captured.</p>
+            <p className="tool-line__status">Nothing to show.</p>
           )}
           {phase === "loaded" && body && (
             <pre className="tool-line__pre">{visibleBody}</pre>
