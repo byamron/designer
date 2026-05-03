@@ -233,4 +233,19 @@ pub trait Orchestrator: Send + Sync {
     /// shut down every tab in a workspace, callers enumerate the workspace's
     /// open tabs and call this for each.
     async fn shutdown(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()>;
+
+    /// Phase 23.F — abort Claude's current turn for one tab without tearing
+    /// down the team. Sends an `interrupt` control_request over stdin so the
+    /// model bails on whatever it's producing right now; the session stays
+    /// alive for a follow-up turn (no lost conversation memory). The
+    /// translator emits `ActivityChanged{Idle}` on the resulting `result`
+    /// (or reader-EOF) line, so callers don't need to manage the activity
+    /// surface themselves.
+    ///
+    /// Returns `TeamNotFound` when the tab has no live subprocess
+    /// (idle session, or already shut down). Returns `ChannelClosed` when
+    /// the stdin writer task has exited — same recovery semantics as
+    /// `post_message`. Both are observable as "interrupt did nothing"
+    /// from the user's seat.
+    async fn interrupt(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()>;
 }

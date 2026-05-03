@@ -5,9 +5,17 @@
 
 use crate::core::AppCore;
 use crate::ipc_agents;
-use designer_ipc::{IpcError, PostMessageRequest, PostMessageResponse};
+use designer_ipc::{InterruptTurnRequest, IpcError, PostMessageRequest, PostMessageResponse};
 use std::sync::Arc;
 use tauri::State;
+
+#[tauri::command]
+pub async fn interrupt_turn(
+    core: State<'_, Arc<AppCore>>,
+    req: InterruptTurnRequest,
+) -> Result<(), IpcError> {
+    ipc_agents::cmd_interrupt_turn(&core, req).await
+}
 
 #[tauri::command]
 pub async fn post_message(

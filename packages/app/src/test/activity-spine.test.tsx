@@ -55,6 +55,7 @@ function stubClient(artifacts: ArtifactSummary[]): IpcClient {
     getArtifact: noop,
     togglePinArtifact: () => Promise.resolve(true),
     postMessage: noop,
+    interruptTurn: noop,
     linkRepo: () => Promise.resolve(),
     unlinkRepo: () => Promise.resolve(),
     startTrack: noop,

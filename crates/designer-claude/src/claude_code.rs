@@ -504,6 +504,32 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         self.signal_tx.subscribe()
     }
 
+    async fn interrupt(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
+        let (tx, child_pid) = {
+            let teams = self.teams.lock();
+            let handle = teams.get(&(workspace_id, tab_id)).ok_or_else(|| {
+                OrchestratorError::TeamNotFound(format!("{workspace_id}/{tab_id}"))
+            })?;
+            (handle.stdin_tx.clone(), handle.child_pid)
+        };
+        let line = interrupt_request_line()?;
+        debug!(
+            workspace = %workspace_id, tab = %tab_id, pid = ?child_pid,
+            "interrupt: sending control_request to claude stdin"
+        );
+        tx.send(line).await.map_err(|_| {
+            warn!(
+                workspace = %workspace_id, tab = %tab_id, pid = ?child_pid,
+                "interrupt: stdin channel closed (writer task exited)"
+            );
+            OrchestratorError::ChannelClosed {
+                workspace_id,
+                tab_id,
+            }
+        })?;
+        Ok(())
+    }
+
     async fn shutdown(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
         // Lift the handle out; further calls on this (workspace, tab) fail
         // with TeamNotFound, which is the correct semantics after shutdown.
@@ -806,6 +832,24 @@ fn user_message_line(prompt: &str) -> OrchestratorResult<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Phase 23.F — `control_request` envelope for the `interrupt` subtype on
+/// the stream-json wire. Tells claude to abort the current turn cleanly,
+/// leaving the session alive. The matching `result` (or reader-EOF) line
+/// flows through the translator's existing arms and lands as
+/// `ActivityChanged{Idle}` — no extra plumbing required here. `request_id`
+/// is generated fresh per interrupt; we don't correlate a response, so any
+/// uniqueness scheme works.
+fn interrupt_request_line() -> OrchestratorResult<Vec<u8>> {
+    let obj = json!({
+        "type": "control_request",
+        "request_id": Uuid::new_v4().to_string(),
+        "request": { "subtype": "interrupt" },
+    });
+    let mut bytes = serde_json::to_vec(&obj)?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -881,6 +925,18 @@ mod tests {
         assert_eq!(parsed["type"], "user");
         assert_eq!(parsed["message"]["role"], "user");
         assert_eq!(parsed["message"]["content"], "hi");
+    }
+
+    #[test]
+    fn interrupt_request_line_is_newline_terminated_control_request() {
+        let line = interrupt_request_line().unwrap();
+        let s = std::str::from_utf8(&line).unwrap();
+        assert!(s.ends_with('\n'));
+        let parsed: serde_json::Value = serde_json::from_str(s.trim()).unwrap();
+        assert_eq!(parsed["type"], "control_request");
+        assert_eq!(parsed["request"]["subtype"], "interrupt");
+        let id = parsed["request_id"].as_str().expect("request_id present");
+        assert!(!id.is_empty());
     }
 
     #[test]

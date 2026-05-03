@@ -55,6 +55,10 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
       togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
       postMessage: (req) => Promise.resolve(mock.postMessage(req)),
+      interruptTurn: (workspaceId, tabId) => {
+        mock.interruptTurn(workspaceId, tabId);
+        return Promise.resolve();
+      },
       linkRepo: (req) =>
         new Promise((resolve, reject) => {
           try {

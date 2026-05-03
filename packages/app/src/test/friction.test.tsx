@@ -43,6 +43,7 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     getArtifact: () => Promise.reject(new Error("nope")),
     togglePinArtifact: () => Promise.resolve(true),
     postMessage: () => Promise.reject(new Error("nope")),
+    interruptTurn: () => Promise.resolve(),
     linkRepo: () => Promise.resolve(),
     unlinkRepo: () => Promise.resolve(),
     startTrack: () => Promise.reject(new Error("nope")),

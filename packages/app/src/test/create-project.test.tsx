@@ -36,6 +36,10 @@ function makeClient() {
     getArtifact: (id) => Promise.resolve(core.getArtifact(id)),
     togglePinArtifact: (id) => Promise.resolve(core.togglePinArtifact(id)),
     postMessage: (req) => Promise.resolve(core.postMessage(req)),
+    interruptTurn: (workspaceId, tabId) => {
+      core.interruptTurn(workspaceId, tabId);
+      return Promise.resolve();
+    },
     linkRepo: (req) => Promise.resolve(core.linkRepo(req)),
     unlinkRepo: (req) => Promise.resolve(core.unlinkRepo(req)),
     startTrack: (req) => Promise.resolve(core.startTrack(req)),
