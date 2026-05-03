@@ -29,6 +29,7 @@ import "../../styles/app.css";
 import { afterEach, beforeAll } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { FIXED_NOW_ISO, FIXED_NOW_MS } from "./fixtures";
+import { dataStore } from "../../store/data";
 
 // Note on `animation-duration: 0s` + `animation-iteration-count: 1`:
 // animations still run, but in one zero-length tick — they jump to their
@@ -119,6 +120,13 @@ afterEach(() => {
   root.classList.remove("dark-theme", "light-theme", "dark", "light");
   root.removeAttribute("data-theme");
   root.removeAttribute("data-accent");
+  // `createVisualIpcClient` (fixtures.ts) writes a `Working` slice into
+  // `dataStore.activity` so the dock row renders in workspace-thread
+  // baselines. Without an explicit reset that slice survives into the
+  // next test (the store is module-scoped). Clear it here so any
+  // future "idle" baseline sees an empty activity map and tests that
+  // don't seed don't pick up a phantom Working row.
+  dataStore.set((s) => ({ ...s, activity: {} }));
 });
 
 export { FIXED_NOW_ISO };
