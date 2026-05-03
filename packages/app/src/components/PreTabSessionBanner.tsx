@@ -4,27 +4,33 @@ import type { ProjectId, WorkspaceSummary } from "../ipc/types";
 import { booleanDecoder, persisted } from "../util/persisted";
 
 /**
- * Phase 23.E migration notice. The session-id derivation rotated when
- * Phase 23.E shipped (`SESSION_NAMESPACE` change in
- * `crates/designer-claude/src/claude_code.rs`); existing claude
- * conversations were retired by design because they had cross-tab
- * framing baked into saved memory. The next post in any tab starts a
- * clean per-tab session — but the user has no way to know that without
- * a notice, so this banner explains the migration once, then dismisses
- * for good.
+ * One-time tutorial banner for the per-tab agent model that shipped
+ * with Phase 23.E. Originally framed as a migration notice ("your
+ * existing chats start fresh") for users upgrading from a pre-23.E
+ * build whose claude sessions were reset by the `SESSION_NAMESPACE`
+ * rotation. The 23.E.f1 follow-up reframed it as a universal tutorial:
  *
- * **Detection.** Fresh installs land on the empty Home — there's
- * nothing to migrate, and the Onboarding modal already covers the
- * first-run copy, so the banner stays silent there. The signal we use
- * is "does the user already have at least one workspace?" — that's the
- * cheap, reliable proxy for "had Designer before the upgrade." A
- * timestamp-based check would be brittle (clock skew across machines,
- * machines that boot Designer for the first time long after the 23.E
- * release).
+ * 1. The detection signal ("any project carries a workspace") was a
+ *    proxy for "had Designer before the upgrade." It produced a small
+ *    but real false-positive: a fresh-install user who creates their
+ *    first workspace post-23.E briefly saw "your existing chats start
+ *    fresh" — but they had no existing chats. The copy lied.
+ * 2. Tightening detection to "had pre-23.E chats" requires reading
+ *    event timestamps from the projector, which is real backend work
+ *    for a banner that fires once per install.
+ * 3. Reframing the copy as a tutorial about the per-tab feature is
+ *    true for both upgraders and fresh-installers. The migration-
+ *    specific detail (session memory was reset) lives in release
+ *    notes / Help — most upgraders never observe it in practice
+ *    because claude sessions are rarely long-lived across days.
  *
- * **Persistence.** localStorage, mirroring `Onboarding`'s pattern. A
- * settings-flag round-trip would buy nothing — this is one-time UI
- * state, not business state, and never needs to leave the device.
+ * **Detection.** "Any project carries at least one workspace." Fresh
+ * installs land on the empty Home where the Onboarding modal carries
+ * the first-run copy; this banner stays silent there. Once the user
+ * has a workspace open, the tutorial lands once, dismisses for good.
+ *
+ * **Persistence.** localStorage, mirroring `Onboarding`. One-time UI
+ * state, never needs to leave the device.
  */
 const STORAGE_KEY = "designer:phase-23e-banner-dismissed";
 
@@ -33,12 +39,12 @@ const dismissedFlag = persisted<boolean>(STORAGE_KEY, false, booleanDecoder);
 export function PreTabSessionBanner() {
   const [dismissed, setDismissed] = useState<boolean>(() => dismissedFlag.read());
 
-  // "Has prior chats" proxy: any project carries at least one workspace.
-  // Workspaces predate Phase 23.E, so any pre-existing one indicates the
-  // user is upgrading rather than installing fresh. We read the entire
-  // workspaces map (Record<ProjectId, WorkspaceSummary[]>) rather than
-  // a slice because the active project may not be the one the user
-  // had pre-23.E history in.
+  // "Has at least one workspace" gate. Holds the banner back from
+  // firing on the empty Home (Onboarding owns that surface) and lets
+  // the parallel-tabs tutorial land once the user is in workspace
+  // context. We read the entire workspaces map
+  // (Record<ProjectId, WorkspaceSummary[]>) so the active project
+  // doesn't gate the signal — any project with a workspace counts.
   const hasPriorWorkspaces = useDataState<boolean>((s) => {
     const map = s.workspaces as Record<ProjectId, WorkspaceSummary[]>;
     for (const list of Object.values(map)) {
@@ -77,9 +83,9 @@ export function PreTabSessionBanner() {
       aria-live="polite"
     >
       <div className="pretab-banner__body">
-        <span className="pretab-banner__title">Tabs are now parallel agents</span>
+        <span className="pretab-banner__title">Each tab is its own conversation</span>
         <span className="pretab-banner__meta">
-          Each tab gets its own conversation. Your existing chats start fresh on the next message.
+          Tabs run independent claude agents — open more from + to work on parallel things side by side.
         </span>
       </div>
       <button

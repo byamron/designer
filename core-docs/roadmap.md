@@ -2466,6 +2466,18 @@ The expand-to-payload pattern landed (PR #92), the layout-stability + error-stat
 
 Acceptance gate (remaining batch shipped): parent thread can collapse all rows programmatically; Read/Edit runs of length ≥3 coalesce under one disclosure.
 
+### Phase 23.E follow-ups — Deferred items *(parked from PR #95's staff-perspective review and PR #98's second-round review — captured here so they don't rot in closed PR bodies)*
+
+Phase 23.E (per-tab Claude subprocess; PR #95) and its follow-up PR #98 (migration banner + ChannelClosed copy humanize) closed the per-tab dispatch contract and the immediate user-facing rough edges. One follow-up shipped here; two remain deferred — neither rises to a blocker; each waits on a signal that doesn't exist yet:
+
+- ~~**23.E.f1 — Detection-signal brittleness on `PreTabSessionBanner`.**~~ ✅ Shipped in PR (#TBD) by reframing the banner copy. The migration-era framing ("your existing chats start fresh") was inaccurate for fresh-install users who created a workspace post-23.E. Tightening the detection signal would have required a new IPC for "any pre-23.E MessagePosted exists," disproportionate to the false-positive's blast radius. The reframe — title "Each tab is its own conversation," body about parallel claude agents — is true for both upgraders and fresh-install users; the migration-specific detail (session memory was reset) lives in release notes.
+
+- **23.E.f2 — Banner archetype consolidation.** `UpdatePrompt` (bottom-left auto-updater pill) and `PreTabSessionBanner` (top-center tutorial notice) are the codebase's two floating notice surfaces today. Both are bespoke `<div>` chrome with parallel CSS structures (overlay surface, pill radius, dismiss button, raised z-index). Two instances is below the abstraction threshold; consolidating now would be premature. Trigger for the consolidation: the first PR that ships a third banner-like surface. The right shape at that point is a shared `<Banner>` component or a `Notice` archetype registered in `core-docs/component-manifest.json`, with the existing two refactored to use it. ~½ day frontend at trigger time.
+
+- **23.E.f3 — Per-workspace memory chip / topbar readout.** Phase 23.E's per-tab subprocess model means every tab is a full claude (~50–200 MB resident); a workspace with ten tabs runs about 1 GB of headroom. Pattern-log captures the cost. A topbar chip ("8 tabs · ~800 MB") would let the user see when their workspace approaches the OS pressure threshold and prompt them to close unused tabs. Pending dogfood signal — if no one reports memory pressure, the chip would be cognitive load without value. Revisit after the first dogfood week with multi-tab workflows. Owner: future Phase 23 polish PR or Phase 24 if the signal lands later. ~1 day full-stack (Rust subprocess RSS read + topbar component).
+
+Acceptance gate (remaining batch shipped): the third floating-notice surface ships against a shared `<Banner>` archetype rather than a third bespoke instance; multi-tab workspaces surface their memory cost in the topbar before the OS surfaces it as pressure.
+
 ---
 
 ## Milestones (summary)
