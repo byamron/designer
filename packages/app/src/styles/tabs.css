@@ -78,6 +78,31 @@
  * border; the shadow + full-white fill differentiate it from the 90%
  * translucent siblings without needing a dark outline. */
 
+/* In dark mode the active tab and inactive tabs both consumed
+ * --color-content-surface (near-black sand-1) — the inactive at 70%
+ * over the slightly-warmer page bg, which left only a sliver of
+ * luminance separation (frc_019de6fb: "active reads as lighter than
+ * surface"). Re-base the inactive fill on --color-surface-raised so
+ * the active near-black reads as the clearly *deepest* tab in the
+ * row, mirroring light mode where active is the *brightest* white.
+ * Inactive border picks up surface-raised at the same opacity so the
+ * stroke tracks the fill. Reuses the existing role tokens — no new
+ * surface tokens introduced. */
+[data-theme="dark"] .tab-button,
+.dark .tab-button,
+.dark-theme .tab-button {
+  background: color-mix(
+    in srgb,
+    var(--color-surface-raised) var(--dev-tab-opacity),
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--color-border) var(--dev-tab-opacity),
+    transparent
+  );
+}
+
 .app-shell:not([data-tab-style]) .tab-button[data-active="true"],
 .app-shell[data-tab-style="A"] .tab-button[data-active="true"] {
   color: var(--color-foreground);
@@ -157,6 +182,17 @@
 .tab-button-wrap[data-active="true"] .tab-button__close,
 .tab-button__close:focus-visible {
   opacity: 1;
+}
+
+/* frc_019dea6b — workspaces must always have at least one open tab,
+   so the X on the only remaining tab stays invisible and inert. The
+   button is kept in the DOM (not display:none) so closing a sibling
+   doesn't reflow the tab strip. */
+.tab-button__close[data-only-tab="true"],
+.tab-button-wrap:hover .tab-button__close[data-only-tab="true"],
+.tab-button-wrap[data-active="true"] .tab-button__close[data-only-tab="true"] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .tab-button__close:hover {
@@ -310,7 +346,13 @@
   transition: border-color var(--motion-interactive), background var(--motion-interactive), box-shadow var(--motion-interactive);
 }
 
-.compose:focus-within {
+/* Keyboard-focus only. `:focus-within` lit the ring whenever the user
+ * clicked the textarea — accurate per the spec but visually noisy for
+ * pointer users (frc_019dea6e). `:has(:focus-visible)` defers to the
+ * browser's focus-visible heuristic, which on WebKit only matches
+ * keyboard focus on text inputs. Dark-mode + pointer: no ring.
+ * Tab/shift-tab still ringed. */
+.compose:has(:focus-visible) {
   border-color: var(--color-foreground);
   box-shadow: 0 0 0 var(--focus-outline-width) var(--focus-outline-color);
 }

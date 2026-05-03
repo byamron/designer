@@ -917,10 +917,24 @@ impl AppCore {
             .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
         let tab = workspace
             .tabs
-            .into_iter()
+            .iter()
             .find(|t| t.id == tab_id)
             .ok_or_else(|| designer_core::CoreError::NotFound(tab_id.to_string()))?;
         if tab.closed_at.is_some() {
+            return Ok(());
+        }
+        // Workspace must always have at least one open tab. Closing the
+        // last open tab is a silent no-op — the frontend hides the close
+        // affordance on the only tab (`MainView.tsx`), this guard is
+        // defense-in-depth so a stale IPC call or a scripted client can't
+        // strand the user in an empty pane. We deliberately do not return
+        // an error: the UX is "the X isn't there", not "you got an error".
+        let open_tab_count = workspace
+            .tabs
+            .iter()
+            .filter(|t| t.closed_at.is_none())
+            .count();
+        if open_tab_count <= 1 {
             return Ok(());
         }
         // Shut down the per-tab subprocess before recording the close —
@@ -1257,6 +1271,87 @@ mod tests {
         let refreshed = core.projector.workspace(ws.id).unwrap();
         assert_eq!(refreshed.tabs.len(), 1);
         assert_eq!(refreshed.tabs[0].id, tab.id);
+    }
+
+    /// frc_019dea6b — closing the only open tab in a workspace is a
+    /// silent no-op so the user never lands in an empty pane. The
+    /// frontend hides the close affordance on the only tab; this guard
+    /// is defense-in-depth against a stale IPC call.
+    #[tokio::test]
+    async fn close_last_tab_is_noop() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab = core
+            .open_tab(ws.id, "Tab 1".into(), TabTemplate::Thread)
+            .await
+            .unwrap();
+        // The only open tab. close_tab returns Ok but does NOT append
+        // TabClosed.
+        core.close_tab(ws.id, tab.id).await.unwrap();
+        let projected = core.projector.workspace(ws.id).unwrap();
+        let only = projected
+            .tabs
+            .iter()
+            .find(|t| t.id == tab.id)
+            .expect("tab still in projection");
+        assert!(
+            only.closed_at.is_none(),
+            "last-tab guard must keep the tab open"
+        );
+        let open_count = projected
+            .tabs
+            .iter()
+            .filter(|t| t.closed_at.is_none())
+            .count();
+        assert_eq!(open_count, 1);
+    }
+
+    /// frc_019dea6b — closing one of several open tabs still works: the
+    /// guard kicks in only when this would drop the workspace to zero
+    /// open tabs.
+    #[tokio::test]
+    async fn close_tab_with_siblings_still_closes() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let a = core
+            .open_tab(ws.id, "A".into(), TabTemplate::Thread)
+            .await
+            .unwrap();
+        let _b = core
+            .open_tab(ws.id, "B".into(), TabTemplate::Thread)
+            .await
+            .unwrap();
+        core.close_tab(ws.id, a.id).await.unwrap();
+        let projected = core.projector.workspace(ws.id).unwrap();
+        let closed = projected
+            .tabs
+            .iter()
+            .find(|t| t.id == a.id)
+            .expect("tab still in projection");
+        assert!(
+            closed.closed_at.is_some(),
+            "tab A must be marked closed when a sibling is open"
+        );
+        let open_count = projected
+            .tabs
+            .iter()
+            .filter(|t| t.closed_at.is_none())
+            .count();
+        assert_eq!(open_count, 1);
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Image as ImageIcon, MapPin, Trash2, X } from "lucide-react";
+import { Camera, Check, Image as ImageIcon, MapPin, Trash2, X } from "lucide-react";
 import {
   clearFriction,
   clearFrictionAnchor,
@@ -10,6 +10,15 @@ import {
 import { ipcClient } from "../../ipc/client";
 import { anchorDescriptor, pageAnchorForRoute, type Anchor } from "../../lib/anchor";
 import { EVENT_KIND, type StreamEvent } from "../../ipc/types";
+import { prefersReducedMotion } from "../../theme";
+
+/** Filed-slab read window before the widget begins fading out. Long enough
+ *  that a screen reader can announce the polite-aria toast ("Filed as
+ *  #abc123") before the widget unmounts (NVDA / VoiceOver typically
+ *  delay 250–500 ms before they speak), short enough to not feel like a
+ *  hang (frc_019de6f8). The slab's --motion-emphasized fade-in (400 ms)
+ *  finishes well before this window does. */
+const FRICTION_FILED_HOLD_MS = 600;
 
 type ToastKind = "local" | "confirmed" | "failed";
 
@@ -81,6 +90,7 @@ export function FrictionWidget() {
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
+  const [closing, setClosing] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [screenshot, setScreenshot] = useState<ScreenshotState | null>(null);
@@ -120,6 +130,7 @@ export function FrictionWidget() {
       setBody("");
       setSubmitting(false);
       setSubmittedId(null);
+      setClosing(false);
       setCapturing(false);
       setHiddenForCapture(false);
       setToast(null);
@@ -271,11 +282,12 @@ export function FrictionWidget() {
   // report. Effect-managed so React tears the subscription down on
   // unmount or follow-up submits without leaking listeners.
   //
-  // Closing cadence: the previous 2200 ms idle wait felt like a hang
-  // (friction frc_019de6f8). The widget now cross-fades to a "Filed."
-  // slab using --motion-emphasized (400 ms), holds briefly so the
-  // confirmation registers, then unmounts. Total ~650 ms — fast
-  // enough to feel snappy, long enough to read.
+  // Closing cadence (frc_019de6f8): the filed slab fades in over the
+  // composer interior, holds for FRICTION_FILED_HOLD_MS so the user
+  // can read it, then the widget itself begins fading out. Unmount
+  // is driven by the widget's `transitionend` (or immediately under
+  // prefers-reduced-motion, where no transition fires) so the timing
+  // collapses cleanly without a trailing setTimeout.
   useEffect(() => {
     if (!submittedId) return;
     const tail = submittedId.slice(-6);
@@ -289,12 +301,27 @@ export function FrictionWidget() {
         linkToTriage: true,
       });
     });
-    const closeTimer = window.setTimeout(clearFriction, 650);
+    const startCloseTimer = window.setTimeout(() => {
+      setClosing(true);
+    }, FRICTION_FILED_HOLD_MS);
     return () => {
       unsubscribe();
-      window.clearTimeout(closeTimer);
+      window.clearTimeout(startCloseTimer);
     };
   }, [submittedId]);
+
+  // When `closing` flips on, the widget gets `data-closing="true"` and
+  // CSS fades opacity to 0 over --motion-emphasized. The transitionend
+  // handler on the root node calls clearFriction() to unmount.
+  // Reduced-motion users skip the transition entirely; schedule the
+  // unmount on the next tick so the closing state still hits the DOM
+  // before we tear down (avoids a flash of the "Filed." slab).
+  useEffect(() => {
+    if (!closing) return;
+    if (!prefersReducedMotion()) return;
+    const id = window.setTimeout(clearFriction, 0);
+    return () => window.clearTimeout(id);
+  }, [closing]);
 
   // Composer-level keymap: ⌘↵ submit, ⌘⇧S capture, ⌘. anchor, ESC dismiss.
   // Bound at the document level so the user can hit ⌘↵ from the screenshot
@@ -339,12 +366,28 @@ export function FrictionWidget() {
       className="friction-widget"
       data-component="FrictionWidget"
       data-anchored={anchor ? "true" : "false"}
+      data-closing={closing ? "true" : undefined}
       style={style}
       role="dialog"
       aria-label="Capture friction"
+      // Pair with `pointer-events: none` in CSS — once the widget is
+      // closing, AT users should also see it as gone. The dialog
+      // re-mounts on the next ⌘⇧F so this never gates a return path.
+      aria-hidden={closing ? "true" : undefined}
       aria-keyshortcuts="Meta+Enter Meta+Shift+S Meta+Period Escape"
       onDragOver={onWidgetDragOver}
       onDrop={onWidgetDrop}
+      onTransitionEnd={(e) => {
+        // The widget root is the only element with an opacity
+        // transition today, but a future child could grow one and
+        // bubble a stray transitionend up to this handler. Restrict
+        // to the root's own event so child motion can't tear the
+        // widget down before the root fade finishes.
+        if (e.target !== e.currentTarget) return;
+        if (e.propertyName !== "opacity") return;
+        if (!closing) return;
+        clearFriction();
+      }}
     >
       <div className="friction-widget__header">
         <span className="friction-widget__title">Friction</span>
@@ -519,6 +562,12 @@ export function FrictionWidget() {
           data-component="FrictionFiledSlab"
           aria-hidden="true"
         >
+          <Check
+            className="friction-widget__filed-icon"
+            size={20}
+            strokeWidth={1.6}
+            aria-hidden="true"
+          />
           <span>Filed.</span>
         </div>
       )}

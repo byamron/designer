@@ -266,7 +266,7 @@ describe("FrictionWidget — submit smoothness (polish-bundle frc_…2ee1)", () 
     vi.useRealTimers();
   });
 
-  it("cross-fades to a 'Filed.' slab on submit, then unmounts the widget", async () => {
+  it("cross-fades to a 'Filed.' slab on submit, then unmounts on transitionend", async () => {
     render(<FrictionWidget />);
     act(() => toggleFrictionComposer());
 
@@ -285,9 +285,25 @@ describe("FrictionWidget — submit smoothness (polish-bundle frc_…2ee1)", () 
     });
     expect(screen.getByText(/^filed\.$/i)).toBeTruthy();
 
-    // After the close timer (~650ms) elapses, the widget unmounts.
+    // After the filed-slab read window, the widget gets data-closing
+    // and starts its opacity transition. The unmount is driven by
+    // transitionend on the root, not a setTimeout. Advance well past
+    // FRICTION_FILED_HOLD_MS (currently 600ms) so the close-start
+    // timer has fired regardless of small future tunings.
+    const dialog = screen.getByRole("dialog", { name: /capture friction/i });
     act(() => {
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(700);
+    });
+    expect(dialog.getAttribute("data-closing")).toBe("true");
+
+    // jsdom doesn't compute styles or fire transitionend on its own —
+    // dispatch a real TransitionEvent on the widget root so the
+    // component's onTransitionEnd handler runs as it would after the
+    // browser finished interpolating opacity to 0.
+    act(() => {
+      const evt = new Event("transitionend", { bubbles: true });
+      Object.defineProperty(evt, "propertyName", { value: "opacity" });
+      dialog.dispatchEvent(evt);
     });
     await waitFor(() => {
       expect(

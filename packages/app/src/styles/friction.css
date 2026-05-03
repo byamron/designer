@@ -169,6 +169,28 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  opacity: 1;
+  /* Closing fade — only opacity is transitioned so the transitionend
+   * handler in the component listens for a single property and won't
+   * tear down on incidental child changes. Uses the exit-curve
+   * (`--ease-in-exit`) rather than the slab's enter-curve so the two
+   * motions read as a *composed* gesture: the slab settles in
+   * (decel), then the widget pulls away (accel). Same emphasized
+   * duration so the cadence holds across the cross-fade. */
+  transition: opacity var(--motion-emphasized) var(--ease-in-exit);
+}
+
+.friction-widget[data-closing="true"] {
+  opacity: 0;
+  /* Pointer-disabled while leaving so a fast double-click on Submit
+   * can't fire a second action against the half-faded UI. */
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .friction-widget {
+    transition: none;
+  }
 }
 
 .friction-widget__header {
@@ -462,8 +484,13 @@
 .friction-widget__filed-slab {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Check + label sit as a small vertical pair so the icon visually
+   * anchors the confirmation rather than reading as decorative text. */
+  gap: var(--space-2);
   background: var(--color-surface-overlay);
   border-radius: var(--radius-card);
   color: var(--color-foreground);
@@ -475,6 +502,15 @@
   animation: friction-filed-fade-in var(--motion-emphasized) var(--ease-out-enter)
     forwards;
   z-index: var(--layer-raised);
+}
+
+.friction-widget__filed-icon {
+  /* Semantic-color policy (design-language axiom #3): a positive-
+   * outcome affordance reaches for the success scale, not the
+   * accent layer (which is rebound to the monochrome --gray-* in
+   * Designer). Green carries the "filed" signal at WCAG AA across
+   * both modes without further tuning. */
+  color: var(--success-9);
 }
 
 @keyframes friction-filed-fade-in {
