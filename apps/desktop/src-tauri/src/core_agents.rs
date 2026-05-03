@@ -23,9 +23,10 @@ use designer_core::{
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::time::interval;
 use tracing::{debug, info, warn};
+use uuid::{NoContext, Timestamp, Uuid};
 
 /// Author-role we tag user-originated messages with on the wire. Constant
 /// here so the coalescer can filter user echoes by exact match instead of
@@ -380,11 +381,41 @@ impl AppCore {
 /// reply 1 idles for the coalesce window, flush reads `last_user_tab` =
 /// B and misattributes reply 1 to B. Capturing at first-recv pins the
 /// reply to A — the tab where the conversation started.
+///
+/// `first_seen_at` is captured the same way: a wall-clock `Timestamp`
+/// taken on the first chunk of the burst. The flush path stamps the
+/// outgoing `ArtifactId`'s UUIDv7 with this value via
+/// [`first_seen_artifact_id`] so the agent reply sorts by *when it
+/// started streaming*, not when the idle window expired. Without this,
+/// a user message posted between the last agent token and the flush
+/// lands chronologically *before* the agent text (id from
+/// `Uuid::now_v7()` at flush time), and tool-use artifacts that ran
+/// during the turn end up *after* it — chat reads jumbled.
 #[derive(Debug, Default)]
 struct PendingMessage {
     body: String,
     last_update: Option<Instant>,
     tab_id: Option<TabId>,
+    first_seen_at: Option<Timestamp>,
+}
+
+/// Build an `ArtifactId` whose UUIDv7 timestamp is the captured
+/// first-chunk wall-clock time, not the flush time. Lower bits remain
+/// random per `Uuid::new_v7`'s contract, so concurrent flushes at the
+/// same millisecond stay unique.
+fn first_seen_artifact_id(first_seen: Timestamp) -> ArtifactId {
+    ArtifactId::from_uuid(Uuid::new_v7(first_seen))
+}
+
+/// Capture wall-clock now as a `uuid::Timestamp` suitable for
+/// `Uuid::new_v7`. Falls back to the Unix epoch on the (vanishingly
+/// unlikely) pre-epoch system clock — preserving "this artifact predates
+/// any real wall-clock event" rather than panicking.
+fn now_uuid_timestamp() -> Timestamp {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    Timestamp::from_unix(NoContext, now.as_secs(), now.subsec_nanos())
 }
 
 type CoalescerKey = (WorkspaceId, String);
@@ -451,6 +482,11 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                         let entry = p.entry((workspace_id, author_role.clone())).or_default();
                         if entry.body.is_empty() {
                             entry.tab_id = captured_tab;
+                            // SystemTime captured alongside Instant —
+                            // they aren't derivable from each other and
+                            // we need the wall-clock half for the
+                            // UUIDv7 stamp.
+                            entry.first_seen_at = Some(now_uuid_timestamp());
                         }
                         entry.body.push_str(&body);
                         entry.last_update = Some(Instant::now());
@@ -530,7 +566,8 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                 break;
             };
             let now = Instant::now();
-            let mut to_flush: Vec<(CoalescerKey, String, Option<TabId>)> = Vec::new();
+            let mut to_flush: Vec<(CoalescerKey, String, Option<TabId>, Option<Timestamp>)> =
+                Vec::new();
             {
                 let mut p = pending_for_tick.lock();
                 p.retain(|key, entry| {
@@ -539,20 +576,36 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                         None => false,
                     };
                     if due {
-                        to_flush.push((key.clone(), std::mem::take(&mut entry.body), entry.tab_id));
+                        to_flush.push((
+                            key.clone(),
+                            std::mem::take(&mut entry.body),
+                            entry.tab_id,
+                            entry.first_seen_at.take(),
+                        ));
                         false
                     } else {
                         true
                     }
                 });
             }
-            for ((workspace_id, author_role), body, captured_tab) in to_flush {
+            for ((workspace_id, author_role), body, captured_tab, first_seen) in to_flush {
                 if body.trim().is_empty() {
                     continue;
                 }
                 let title = first_line_truncate(&body, 60);
                 let summary = first_line_truncate(&body, 140);
-                let artifact_id = ArtifactId::new();
+                // Stamp the artifact's UUIDv7 with the moment the burst
+                // started streaming. Pre-23.A flushes used
+                // `ArtifactId::new()` (now_v7 at flush time), which let
+                // mid-burst user posts and tool-use artifacts sort
+                // before the agent text. `first_seen` will be `None`
+                // only for entries inserted before this commit's
+                // codepath ran, which is impossible in practice — fall
+                // back to `now_v7` to preserve liveness.
+                let artifact_id = match first_seen {
+                    Some(ts) => first_seen_artifact_id(ts),
+                    None => ArtifactId::new(),
+                };
                 // Per-tab thread isolation: use the tab captured when this
                 // burst started streaming, not whatever tab the user is in
                 // right now. Falling back to `last_user_tab` covers the
@@ -866,6 +919,289 @@ mod tests {
             assert!(
                 Instant::now() < deadline,
                 "agent reply never landed in tab A within deadline"
+            );
+        }
+    }
+
+    /// Extract the embedded Unix-millis timestamp from a UUIDv7. The
+    /// upper 48 bits of a v7 are the millisecond timestamp; everything
+    /// below is random / variant. Used by Phase 23.A acceptance tests.
+    fn uuid_v7_unix_millis(u: &Uuid) -> u64 {
+        let bytes = u.as_bytes();
+        let mut ms = [0u8; 8];
+        ms[2..8].copy_from_slice(&bytes[0..6]);
+        u64::from_be_bytes(ms)
+    }
+
+    fn now_unix_millis() -> u64 {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+
+    /// T-23A — Helper round-trips: a `Timestamp` built from a captured
+    /// `SystemTime` survives `Uuid::new_v7` and reads back the same
+    /// millisecond value.
+    #[test]
+    fn first_seen_artifact_id_preserves_millis() {
+        let captured_ms = now_unix_millis();
+        let secs = captured_ms / 1000;
+        let nanos = ((captured_ms % 1000) * 1_000_000) as u32;
+        let ts = Timestamp::from_unix(NoContext, secs, nanos);
+        let id = first_seen_artifact_id(ts);
+        let read = uuid_v7_unix_millis(id.as_uuid());
+        assert_eq!(read, captured_ms);
+    }
+
+    /// T-23A-2 / T-23A-1 — flush stamps the artifact id with the
+    /// first-chunk wall-clock time, not the flush time. We force a
+    /// healthy gap between the burst start and the flush by using a
+    /// 200 ms coalesce window and asserting that the artifact's UUIDv7
+    /// timestamp is much closer to the start than to the flush. This
+    /// implicitly proves that the first chunk's `first_seen_at` was
+    /// captured (T-23A-1) and used at flush (T-23A-2).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn coalescer_flushed_artifact_uses_first_chunk_timestamp() {
+        std::env::set_var("DESIGNER_MESSAGE_COALESCE_MS", "200");
+        let core = boot_test_core().await;
+        spawn_message_coalescer(core.clone(), Duration::from_millis(200));
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        core.orchestrator
+            .spawn_team(designer_claude::TeamSpec {
+                workspace_id: ws.id,
+                team_name: "t".into(),
+                lead_role: "team-lead".into(),
+                teammates: vec![],
+                env: Default::default(),
+                cwd: None,
+                model: None,
+            })
+            .await
+            .unwrap();
+
+        let burst_start_ms = now_unix_millis();
+        core.post_message(ws.id, None, None, "first chunk".into())
+            .await
+            .unwrap();
+
+        // Wait for the flush: 200ms window + 30ms tick + scheduler slack.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let agent_id = loop {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let arts = core.list_artifacts(ws.id).await;
+            if let Some(a) = arts.iter().find(|a| {
+                a.kind == ArtifactKind::Message
+                    && a.author_role.as_deref() != Some(USER_AUTHOR_ROLE)
+            }) {
+                break a.id;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "agent artifact never flushed within deadline"
+            );
+        };
+
+        let stamped_ms = uuid_v7_unix_millis(agent_id.as_uuid());
+        let flush_ms = now_unix_millis();
+
+        // The stamp should be near burst_start_ms, not near flush_ms.
+        // We allow the stamp to be at or after burst_start_ms (the recv
+        // task captures it after the broadcast hop) and well before
+        // flush_ms — at least one full coalesce window earlier.
+        assert!(
+            stamped_ms >= burst_start_ms.saturating_sub(2),
+            "stamped_ms ({stamped_ms}) precedes burst_start_ms ({burst_start_ms}) by more than 2ms tolerance"
+        );
+        // Flush happens ~window after the chunk lands. If the bug were
+        // present (id from now_v7 at flush time), stamped_ms would be
+        // within a few ms of flush_ms; assert it's at least 100 ms
+        // earlier — half the window — to leave headroom under load.
+        assert!(
+            flush_ms.saturating_sub(stamped_ms) >= 100,
+            "stamped_ms ({stamped_ms}) is too close to flush_ms ({flush_ms}); expected stamp to predate flush by >=100ms"
+        );
+    }
+
+    /// T-23A-3 — multi-burst isolation. Two bursts on the same
+    /// (workspace, author_role) key separated by a gap larger than the
+    /// coalesce window must produce two artifacts whose stamped ids
+    /// reflect each burst's start time. If `first_seen_at` weren't
+    /// reset on flush, burst 2 would inherit burst 1's timestamp.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn coalescer_first_seen_resets_between_bursts() {
+        std::env::set_var("DESIGNER_MESSAGE_COALESCE_MS", "60");
+        let core = boot_test_core().await;
+        spawn_message_coalescer(core.clone(), Duration::from_millis(60));
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        core.orchestrator
+            .spawn_team(designer_claude::TeamSpec {
+                workspace_id: ws.id,
+                team_name: "t".into(),
+                lead_role: "team-lead".into(),
+                teammates: vec![],
+                env: Default::default(),
+                cwd: None,
+                model: None,
+            })
+            .await
+            .unwrap();
+
+        let burst1_start = now_unix_millis();
+        core.post_message(ws.id, None, None, "burst one".into())
+            .await
+            .unwrap();
+        // Wait long enough for burst 1 to flush AND clear its pending
+        // entry (window + tick + scheduler slack).
+        tokio::time::sleep(Duration::from_millis(400)).await;
+
+        let burst2_start = now_unix_millis();
+        core.post_message(ws.id, None, None, "burst two".into())
+            .await
+            .unwrap();
+
+        // Wait for both flushes to complete.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let (id1, id2) = loop {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            let arts = core.list_artifacts(ws.id).await;
+            let mut agent: Vec<_> = arts
+                .into_iter()
+                .filter(|a| {
+                    a.kind == ArtifactKind::Message
+                        && a.author_role.as_deref() != Some(USER_AUTHOR_ROLE)
+                })
+                .collect();
+            if agent.len() >= 2 {
+                agent.sort_by_key(|a| a.id);
+                break (agent[0].id, agent[1].id);
+            }
+            assert!(
+                Instant::now() < deadline,
+                "two bursts did not produce two artifacts within deadline (had {})",
+                agent.len()
+            );
+        };
+
+        let stamp1 = uuid_v7_unix_millis(id1.as_uuid());
+        let stamp2 = uuid_v7_unix_millis(id2.as_uuid());
+        // Burst 1 stamp should align with burst 1's start; burst 2 with
+        // burst 2's. The gap between stamps must be at least the gap
+        // between starts, minus a small slack for SystemTime
+        // granularity.
+        assert!(
+            stamp1 >= burst1_start.saturating_sub(2) && stamp1 <= burst1_start.saturating_add(200),
+            "burst 1 stamp ({stamp1}) outside expected range around burst1_start ({burst1_start})"
+        );
+        assert!(
+            stamp2 >= burst2_start.saturating_sub(2) && stamp2 <= burst2_start.saturating_add(200),
+            "burst 2 stamp ({stamp2}) outside expected range around burst2_start ({burst2_start})"
+        );
+        assert!(
+            stamp2 > stamp1,
+            "burst 2 stamp ({stamp2}) must be strictly later than burst 1 ({stamp1}) — first_seen_at not reset on flush?"
+        );
+    }
+
+    /// New required test from the Phase 23.A roadmap. The chronological
+    /// order of artifacts must reflect the order in which their content
+    /// was *produced*, not when their flush deadline expired. Without
+    /// this, a user message posted between the last agent token and
+    /// the coalescer's flush would land before the agent text, and
+    /// tool-use artifacts that ran during the turn would land after.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn coalescer_flushed_artifact_predates_subsequent_user_post() {
+        std::env::set_var("DESIGNER_MESSAGE_COALESCE_MS", "200");
+        let core = boot_test_core().await;
+        spawn_message_coalescer(core.clone(), Duration::from_millis(200));
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        core.orchestrator
+            .spawn_team(designer_claude::TeamSpec {
+                workspace_id: ws.id,
+                team_name: "t".into(),
+                lead_role: "team-lead".into(),
+                teammates: vec![],
+                env: Default::default(),
+                cwd: None,
+                model: None,
+            })
+            .await
+            .unwrap();
+
+        // T0: agent reply burst starts (mock broadcasts an agent
+        // MessagePosted from the user's first post). The coalescer
+        // captures first_seen ≈ T0.
+        core.post_message(ws.id, None, None, "first".into())
+            .await
+            .unwrap();
+
+        // T0+50ms: user posts again, before the 200ms coalesce window
+        // elapses. The user artifact lands immediately with an id
+        // stamped at T0+50ms. The agent reply for THIS post extends the
+        // existing pending entry (same author_role) — its content
+        // accumulates but `first_seen_at` is not overwritten.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        core.post_message(ws.id, None, None, "second".into())
+            .await
+            .unwrap();
+
+        // Wait for the flush (~200ms after the second chunk).
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            let arts = core.list_artifacts(ws.id).await;
+            let agent_msgs: Vec<_> = arts
+                .iter()
+                .filter(|a| {
+                    a.kind == ArtifactKind::Message
+                        && a.author_role.as_deref() != Some(USER_AUTHOR_ROLE)
+                })
+                .collect();
+            // Both user posts coalesce into a single agent artifact
+            // (same key, no flush in between).
+            if agent_msgs.len() == 1 {
+                let agent_id = agent_msgs[0].id;
+                let user_msgs: Vec<_> = arts
+                    .iter()
+                    .filter(|a| {
+                        a.kind == ArtifactKind::Message
+                            && a.author_role.as_deref() == Some(USER_AUTHOR_ROLE)
+                    })
+                    .collect();
+                assert_eq!(user_msgs.len(), 2, "expected two user artifacts");
+                let user_second = user_msgs.iter().max_by_key(|a| a.id).unwrap();
+                assert!(
+                    agent_id < user_second.id,
+                    "agent artifact id ({agent_id}) must precede the second user artifact id ({}) — phase 23.A ordering invariant",
+                    user_second.id
+                );
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "did not see exactly 1 coalesced agent artifact within deadline (had {})",
+                agent_msgs.len()
             );
         }
     }
