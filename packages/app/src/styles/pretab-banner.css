@@ -1,0 +1,76 @@
+/* Phase 23.E migration notice — fires once per install for users
+ * upgrading from a pre-23.E build to explain that conversation memory
+ * was reset by the SESSION_NAMESPACE rotation. Top-center floating
+ * pill so it sits above the workspace content without colliding with
+ * the bottom-corner Friction button or the bottom-left dev panel /
+ * UpdatePrompt. Visually subordinate to the Onboarding modal (which
+ * uses the dialog overlay) — when both are pending, Onboarding
+ * presents first because it's a real modal and this banner is
+ * non-blocking. */
+
+.pretab-banner {
+  position: fixed;
+  top: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--layer-raised);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--surface-shadow);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground);
+  max-width: 32rem;
+}
+
+.pretab-banner__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.pretab-banner__title {
+  color: var(--color-foreground);
+  font-weight: var(--weight-medium);
+}
+
+.pretab-banner__meta {
+  color: var(--color-muted);
+}
+
+.pretab-banner__btn {
+  appearance: none;
+  background: transparent;
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--motion-interactive),
+    color var(--motion-interactive);
+}
+
+.pretab-banner__btn:hover {
+  background: var(--color-surface-raised);
+}
+
+.pretab-banner__btn:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pretab-banner__btn {
+    transition: none;
+  }
+}

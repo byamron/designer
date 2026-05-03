@@ -46,6 +46,24 @@ fn resolve_tab(tab_id: Option<TabId>) -> TabId {
     tab_id.unwrap_or_else(default_tab_id)
 }
 
+/// Produce the manager-readable suffix for a user-facing
+/// "couldn't deliver your message to Claude — …" copy. Most variants
+/// surface as their `Display` impl (already roughly readable);
+/// `ChannelClosed` is the one that previously embedded raw UUIDs
+/// ("stdin channel closed for workspace 0192f… / tab 0192f…"), which
+/// is engineering jargon for the manager user. Logs still carry the
+/// full structured error via `warn!(error = %e, …)` at the call site,
+/// so we lose no diagnostics on the operator side.
+fn humanize_dispatch_error(err: &OrchestratorError) -> String {
+    match err {
+        OrchestratorError::ChannelClosed { .. } => {
+            "Claude's connection dropped and reconnecting didn't help. Try again in a moment."
+                .into()
+        }
+        other => other.to_string(),
+    }
+}
+
 /// Author-role we tag user-originated messages with on the wire. Constant
 /// here so the coalescer can filter user echoes by exact match instead of
 /// stringly-typed comparisons scattered across the file.
@@ -209,14 +227,16 @@ impl AppCore {
                 {
                     warn!(error = %e, %workspace_id, tab = %dispatch_tab, "post_message after lazy spawn failed");
                     return Err(CoreError::Invariant(format!(
-                        "couldn't deliver your message to Claude — {e}"
+                        "couldn't deliver your message to Claude — {}",
+                        humanize_dispatch_error(&e)
                     )));
                 }
             }
             Err(e) => {
                 warn!(error = %e, %workspace_id, tab = %dispatch_tab, "orchestrator post_message failed");
                 return Err(CoreError::Invariant(format!(
-                    "couldn't deliver your message to Claude — {e}"
+                    "couldn't deliver your message to Claude — {}",
+                    humanize_dispatch_error(&e)
                 )));
             }
         }
@@ -1498,6 +1518,24 @@ mod tests {
         assert!(
             !msg.starts_with("orchestrator post_message failed:"),
             "the legacy jargon prefix must not surface to the user (got: {msg})"
+        );
+        // Phase 23.E follow-up: the recovered-then-failed path used to
+        // suffix the user-facing copy with `OrchestratorError::ChannelClosed`'s
+        // Display string, which after 23.E embeds raw `workspace` + `tab`
+        // UUIDs. Manager users don't read UUIDs. The humanizer must rewrite
+        // this suffix to a clean retry hint.
+        assert!(
+            !msg.contains("stdin channel closed"),
+            "ChannelClosed Display string leaked to user-facing copy (got: {msg})"
+        );
+        // The pre-fix Display reads "stdin channel closed for workspace
+        // {uuid} / tab {uuid}" — *both* "workspace " and "tab " markers
+        // appear together. AND-combine so a partial leak (just one of
+        // the two) still fails; the previous `||` would pass when only
+        // one marker was present, defeating the defense-in-depth.
+        assert!(
+            !msg.contains("workspace ") && !msg.contains("tab "),
+            "raw UUIDs leaked into user-facing copy (got: {msg})"
         );
 
         // No user artifact may have landed (the dispatch-first ordering

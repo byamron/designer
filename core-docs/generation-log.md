@@ -752,3 +752,16 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - deviations: none. The region wrapper's `min-height` is computed from `calc(--type-caption-leading + 2*--space-2 + 2*--border-thin)` — token arithmetic only, no raw values.
 - feedback: addresses three deferred review items — (1) layout shift on payload arrival eliminated by sharing the box footprint across phases; (2) `aria-live` moved up from the inner `<pre>` to the region wrapper so screen readers don't read long pre content verbatim on insertion; (3) `getArtifact` rejection now surfaces "No output captured." instead of an empty box (failed-fetch result is also cached so re-expanding doesn't refetch a known 404). Component-manifest entry refreshed to list the new tokens + behaviors.
 
+## 2026-05-03T00:05:00Z — manual (Phase 23.E follow-up: migration banner + ChannelClosed copy)
+
+- prompt: "Address PR #95 follow-ups: one-time migration banner explaining pre-23.E session reset; humanize the ChannelClosed Display that was leaking UUIDs to user-facing alerts."
+- trigger: manual (post-merge follow-up to PR #95; closes two of the three deferred FOLLOW-UPs from the staff-perspective-review notes — the third, a memory chip, stays deferred until dogfood signal)
+- archetype-reused: none (mirrors `UpdatePrompt`'s floating-pill pattern — bespoke `<div>` chrome, not a shared archetype yet; consolidate if a third banner-like surface lands)
+- components-reused: Onboarding (localStorage persistence + Escape-to-dismiss pattern)
+- components-new: PreTabSessionBanner (top-center floating pill, fires once for upgraders; aria-live polite, dismissible by button or Escape; detection signal is "any project carries a workspace" — fresh installs land silent)
+- primitives: none
+- tokens: --space-1, --space-3, --space-4, --color-foreground, --color-muted, --color-surface-overlay, --color-surface-raised, --color-border, --border-thin, --radius-pill, --radius-button, --type-family-sans, --type-caption-size, --weight-medium, --motion-interactive, --focus-outline-width, --focus-outline-color, --focus-outline-offset, --surface-shadow, --layer-raised (all pre-existing)
+- invariants: 6/6 pass
+- deviations: none on the CSS side. Detection signal carries a known false-positive: a fresh-install user who creates their first workspace post-23.E will see the banner whose copy ("your existing chats start fresh") technically doesn't apply to them. Documented as FOLLOW-UP in the PR body; revisit if dogfood reports friction. The Rust side has no design surface — `humanize_dispatch_error` is a pattern-matched copy helper invoked from `core_agents::post_message` recovery paths.
+- feedback: addresses staff-perspective-review BLOCKERs caught on the second-round review — (1) Escape-key parity with Onboarding (added `keydown` listener gated on render); (2) test assertion `||` → `&&` so a partial UUID leak (e.g. only "workspace 0192…" without "tab …") still fails; (3) dead `useEffect` removed from PreTabSessionBanner. Component-manifest entry added; this entry closes the Mini procedure §6–7 obligations.
+
