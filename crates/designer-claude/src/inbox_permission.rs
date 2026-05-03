@@ -53,29 +53,55 @@ const TITLE_BASH_MAX: usize = 80;
 /// leak filesystem layout into the inbox UI. Already-relative inputs are
 /// returned verbatim.
 pub(crate) fn strip_worktree_prefix(raw: &str) -> String {
+    // Marker present: the input is a real Designer worktree path. Either
+    // we extract a relative path inside the worktree, or we treat the
+    // input as malformed and return empty (callers fall back to the
+    // generic title) — never leak "worktrees" or "<uuid>-<slug>" into
+    // the user-facing title via the basename helper.
     if let Some(idx) = raw.find(WORKTREE_MARKER) {
         let after = &raw[idx + WORKTREE_MARKER.len()..];
-        if let Some(slash) = after.find('/') {
-            return after[slash + 1..].to_string();
+        let Some(slash) = after.find('/') else {
+            return String::new();
+        };
+        let rest = &after[slash + 1..];
+        if rest.is_empty() {
+            return String::new();
         }
+        return rest.to_string();
     }
+    // No marker: input is either already relative, or absolute but
+    // outside Designer's worktree layout.
     if !raw.starts_with('/') {
         return raw.to_string();
     }
-    std::path::Path::new(raw)
+    let basename = std::path::Path::new(raw)
         .file_name()
         .and_then(|s| s.to_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| raw.to_string())
+        .unwrap_or("");
+    // Defensive: `.designer` itself isn't a useful path to surface and
+    // would leak Designer's internal layout into the title. Treat as
+    // unstrippable (caller falls back to the generic copy).
+    if basename == ".designer" {
+        return String::new();
+    }
+    basename.to_string()
 }
 
 /// Middle-truncate a string with a single ellipsis if it exceeds `max`
 /// chars. Bash commands are arbitrary length; the title should preview
 /// both ends so the user can recognize the verb and the target.
+///
+/// Guarded against `max < 2`: producing a meaningful middle-elided form
+/// requires at least one head char + the ellipsis + one tail char.
+/// Below that the function falls back to plain head-truncation rather
+/// than panicking on usize underflow.
 fn truncate_middle(s: &str, max: usize) -> String {
     let count = s.chars().count();
     if count <= max {
         return s.to_string();
+    }
+    if max < 2 {
+        return s.chars().take(max).collect();
     }
     let head_len = (max - 1) / 2;
     let tail_len = max - 1 - head_len;
@@ -130,7 +156,11 @@ fn compute_title(tool: &str, input: &Value) -> String {
                 )
             }
         }
-        other => format!("Claude wants to use {other}"),
+        // Unknown tool: keep the Claude tool name in mono so the user
+        // can still tell what's being requested without us pretending
+        // we know what each one does. Plain prose around it keeps the
+        // register manager-grade.
+        other => format!("Claude wants to use the `{other}` tool"),
     }
 }
 
@@ -945,7 +975,68 @@ mod tests {
     #[test]
     fn compute_title_falls_back_for_unknown_tools() {
         let input = json!({});
-        assert_eq!(compute_title("Glob", &input), "Claude wants to use Glob");
+        assert_eq!(
+            compute_title("Glob", &input),
+            "Claude wants to use the `Glob` tool"
+        );
+    }
+
+    #[test]
+    fn compute_title_handles_whitespace_only_bash_command() {
+        let input = json!({ "command": "   \t  " });
+        assert_eq!(
+            compute_title("Bash", &input),
+            "Claude wants to run a shell command"
+        );
+    }
+
+    #[test]
+    fn strip_worktree_prefix_returns_empty_for_trailing_worktree_slash() {
+        // `/repo/.designer/worktrees/uuid-slug/` — slash after the worktree
+        // dir but no actual file path. Result must be empty (caller falls
+        // back to a generic title) — we never want to surface "" or a
+        // half-stripped path to the user.
+        let p = "/Users/me/proj/.designer/worktrees/uuid-feat/";
+        assert_eq!(strip_worktree_prefix(p), "");
+    }
+
+    #[test]
+    fn strip_worktree_prefix_does_not_leak_internal_directory_names() {
+        // Truncated absolute path stops at `.designer/worktrees/` itself —
+        // the basename helper would otherwise return "worktrees", leaking
+        // Designer's internal layout into the title. Must be empty.
+        assert_eq!(strip_worktree_prefix("/repo/.designer/worktrees/"), "");
+        assert_eq!(strip_worktree_prefix("/repo/.designer/"), "");
+    }
+
+    #[test]
+    fn compute_title_falls_back_when_strip_yields_empty_path() {
+        // Pathological input: the tool reports a worktree-root path with
+        // no file inside it. The friendly title must NOT render
+        // `Claude wants to write to ``` (empty backticks); fall through
+        // to the generic copy instead.
+        let input = json!({
+            "file_path": "/Users/me/proj/.designer/worktrees/uuid-feat/",
+            "content": "",
+        });
+        assert_eq!(
+            compute_title("Write", &input),
+            "Claude wants to write a file"
+        );
+    }
+
+    #[test]
+    fn truncate_middle_does_not_panic_on_small_max() {
+        // Defensive guard against a future refactor that might call
+        // `truncate_middle` with `max < 2`. Production only ever calls
+        // with `TITLE_BASH_MAX = 80`, but the function is `pub(crate)`
+        // and a usize underflow would crash the inbox handler.
+        assert_eq!(truncate_middle("hello", 0), "");
+        assert_eq!(truncate_middle("hello", 1), "h");
+        // max == 2 is the smallest size that produces an ellipsis.
+        let two = truncate_middle("hello", 2);
+        assert!(two.contains('…'));
+        assert_eq!(two.chars().count(), 2);
     }
 
     /// Approval artifact title and payload pick up the manager-grade
