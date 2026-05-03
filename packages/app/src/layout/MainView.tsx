@@ -281,7 +281,7 @@ function WorkspaceMain({
             tabIndex={0}
           >
             <WorkspaceThread
-              key={`${workspace.id}:${activeTab}`}
+              key={workspace.id}
               workspace={workspace}
               tabId={activeTab}
             />
