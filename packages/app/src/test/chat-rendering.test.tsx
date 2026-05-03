@@ -544,6 +544,76 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
     expect(pre.getAttribute("role")).toBeNull();
     expect(pre.getAttribute("aria-live")).toBeNull();
   });
+
+  // 23.C.f1 — Discoverability chevron on the head. Replaces the prior
+  // `·` dot. The chevron carries the same monochrome weight at rest
+  // but signals "click to expand" — and rotates 90° when the row
+  // expands so the disclosure state is visible without hovering.
+  it("23.C.f1 — head renders a chevron and rotates it on expand", () => {
+    const a = reportArtifact("Read plan.md");
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    const chevron = container.querySelector(".tool-line__chevron");
+    expect(chevron).not.toBeNull();
+    expect(chevron?.tagName.toLowerCase()).toBe("svg");
+    // The dot register that preceded the chevron should be gone.
+    expect(container.querySelector(".tool-line__dot")).toBeNull();
+    // Rotation is driven by `[aria-expanded="true"]` on the parent
+    // button — assert the parent state, since transforms aren't
+    // computed in jsdom.
+    const head = container.querySelector(".tool-line__head") as HTMLButtonElement;
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(head);
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  // 23.C.f4 — Try again on transient errors. Roadmap-parked the
+  // Rust-side error classification, but the frontend can sidestep it
+  // by letting the user choose to refetch — transient failures
+  // recover with one click without us having to type-classify the
+  // rejection reason.
+  it("23.C.f4 — error state shows Try again that refetches", async () => {
+    const a = makeReport();
+    let attempt = 0;
+    const getArtifact = vi.fn().mockImplementation(() => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(new Error("transient"));
+      return Promise.resolve({
+        summary: a,
+        payload: { kind: "inline", body: shortBody() },
+      });
+    });
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    await act(async () => {
+      fireEvent.click(container.querySelector(".tool-line__head")!);
+    });
+    await waitFor(() => {
+      expect(
+        container.querySelector(".tool-line__region")?.getAttribute("data-phase"),
+      ).toBe("error");
+    });
+
+    const retry = container.querySelector(
+      ".tool-line__retry",
+    ) as HTMLButtonElement;
+    expect(retry).not.toBeNull();
+    expect(retry.textContent).toBe("Try again");
+
+    await act(async () => {
+      fireEvent.click(retry);
+    });
+    await waitFor(() => {
+      expect(
+        container.querySelector(".tool-line__region")?.getAttribute("data-phase"),
+      ).toBe("loaded");
+    });
+    expect(getArtifact).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".tool-line__pre")?.textContent).toContain(
+      "line 1",
+    );
+    expect(container.querySelector(".tool-line__retry")).toBeNull();
+  });
 });
 
 // DP-B — ReportBlock dispatches: tool-use reports → ToolUseLine,

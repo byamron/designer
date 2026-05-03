@@ -37,6 +37,52 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 23.C — Tool-use rows expand to full payload (three-PR trail)
+**Date:** 2026-05-03 (trail spans 2026-05-02 → 2026-05-03)
+**Branch:** chat-tool-expand → tool-line-polish → tool-line-discoverability
+**PRs:** #92 (initial), #94 (region wrapper polish), #97 (chevron + retry)
+
+**What was done:**
+
+`ToolUseLine` (`packages/app/src/blocks/blocks.tsx`) used to show a compact one-line tool-use row that expanded to one extra summary line. It now expands to the full artifact payload as monospace `<pre>` under the head, addressing friction `019dea67` ("tool-use rows feel decorative — no way to drill into evidence"). The trail across three PRs:
+
+- **PR #92** — Core feature. On expand, fetches the artifact via `ipcClient().getArtifact(id)`; per-mount cache + in-flight `useRef` flag dedupes a fast double-click into a single IPC call. Output >40 lines truncates with a "Show full (N more lines)" disclosure that drops the cap. Initial review caught three blockers fixed in a follow-up commit on the same branch: `mountedRef` guard so `setState` doesn't fire after unmount, "Loading output…" affordance during the in-flight window, and `aria-live="polite"` on the new region.
+- **PR #94** — Region-wrapper refactor. `.tool-line__region` was introduced as a flex-column wrapper that owns the box chrome (`--color-surface-sunken` fill, soft border, paddings) + `min-height` + `role="region"` + `aria-label` + `aria-live="polite"` + `aria-busy`. Loading / loaded / error states share one footprint so payload arrival is layout-stable. The inner `<pre>` dropped its chrome and aria-live (some screen readers re-read the whole pre content verbatim on insertion, which the wrapper sidesteps). `getArtifact` rejection surfaces "Nothing to show." instead of an empty box (the round-3 review fixed an earlier draft "No output captured." that read as engineer-y / accusatory). Round-3 review also caught an invalid `min-height` calc that mixed unitless `--type-caption-leading` with lengths — fixed by multiplying `--type-caption-size × --type-caption-leading`.
+- **PR #97** — Discoverability + retry. The `· ` dot on the head was replaced by a lucide-react `ChevronRight` (size 12, strokeWidth 1.5 per axiom #13) that rotates 90° via CSS transform on `aria-expanded="true"`. Same monochrome weight as the dot at rest but signals click-to-expand without ambiguity. Reduced-motion collapses the rotation to instant. Error state now renders a "Try again" text-link beside "Nothing to show."; click clears the dedupe flags and refires `fetchPayload()` — transient failures recover with one click without us having to type-classify the rejection reason on the Rust side.
+
+**Why:**
+
+Pass-through chat (PR #63 / DP-B) had compact tool-use rows but no way to inspect what `Read core-docs/spec.md` actually returned, so a manager couldn't audit what the agent saw. The friction was filed within hours of dogfooding the post-DP-B chat surface. Phase 23.C as scoped in `roadmap.md` was a small frontend half-day; the trail grew because three rounds of staff-perspective review surfaced issues progressively (each round fixed earlier-round blockers, then found new ones at the next layer of polish).
+
+**Design decisions:**
+
+- Truncate at 40 lines, not pagination. Mirrors a typical terminal viewport at common laptop sizes; revisit if dogfood shows it's wrong. "Show full" reveals everything in one click rather than a paged disclosure — matches the cabin's terse register and avoids a state machine for page index.
+- `<pre>` content uses `white-space: pre-wrap` so long lines wrap inside the parent's max-width (`min(48rem, 100%)`); `overflow-x: auto` handles single-word lines without breakpoints. The row never stretches the whole thread.
+- Error copy: "Nothing to show." over "No output captured." Round-3 UX review flagged "captured" as implying a recording the system *should have* made — too engineer-y for the manager-not-engineer audience.
+- Chevron over dot. The original Phase 23.C spec quoted "compact one-line `· Read foo.rs`", but the dot was a placeholder visual marker, not a documented design-language axiom. The chevron carries the same monochrome weight at rest while signaling click-to-expand without ambiguity. Rotation direction (90° clockwise to point down on expand) matches Radix / macOS / standard disclosure conventions.
+- Frontend-only retry over Rust-side error classification. The originally-spec'd shape was 404 = permanent (no retry button); 5xx / IPC error = transient (retry button). Letting the user choose to retry sidesteps the classification entirely — cost is one extra IPC on a permanent-404 retry click. Parked the proper classification as roadmap item 23.C.f4 if dogfood shows the extra IPC matters.
+
+**Technical decisions:**
+
+- `aria-live="polite"` lives on the `.tool-line__region` wrapper, not the inner `<pre>`. Some screen readers (JAWS in particular) read the entire content of a `<pre>` verbatim when it's inserted into a live region; moving the live-update semantics up to the wrapper (which holds `role="region"` + `aria-label`) means SRs announce a single region update instead of streaming 40 lines of code aloud.
+- `min-height` on the wrapper computed as `calc(--type-caption-size * --type-caption-leading + 2*--space-2 + 2*--border-thin)`. The unitless `--type-caption-leading` (1.4) has to be multiplied by the size token, not added directly to lengths, or CSS calc() rejects the whole rule and the layout-stability promise breaks silently. PR #94 round 3 caught this as a real blocker.
+- `mountedRef` guard collapses the IPC `.then()` / `.finally()` callbacks into no-ops when the row unmounts mid-fetch (tab close, archive). React 18+ silenced the legacy "state update on unmounted component" warning, so the unmount-safety test asserts both `getArtifact` was called (proving the promise resolved) AND no console error landed (proving setState didn't fire) — neither half alone proves the guard works.
+- The new `phase` state machine (`idle | loading | loaded | error`) replaced an earlier boolean `loading` flag. Phase carries the result, not the in-flight state — `inflightRef` carries the in-flight state. Separating them means `aria-busy` flips with the loading phase alone, and re-expand reads the cached `loaded` or `error` phase without retriggering the fetch.
+
+**Tradeoffs discussed:**
+
+- BlockProps `expanded` / `onToggleExpanded` adoption (parked as 23.C.f2). The `BlockProps` contract has the parent thread own block expand state, but ToolUseLine tracks it locally. Originally a v1 simplification ("disclosed state persists per-mount only") per the roadmap deliverable. Adopting the parent contract would let `WorkspaceThread` collapse all rows on tab switch / focus-mode but also requires extending the parent's payload state to track loading/error/loaded phases (today the parent only stores resolved `PayloadRef`s). Speculative without a parent-collapse consumer; left in roadmap with a refreshed estimate (~1 day not ½ day).
+- Coalescing consecutive same-tool rows ("Read 4 files" with one disclosure expanding to four citations) — explicit Phase 23 v2 polish per the "Out of scope (v1)" list. Needs a coalescing primitive in `WorkspaceThread`, not a block-side change. Parked as 23.C.f3.
+- Discoverability chevron register. The reviewer's first-round take flagged that adding a chevron changes the "compact one-line" register the original spec asked for. The third-round take revisited and concluded the dot was a placeholder visual marker, not a documented axiom — the chevron carries the same weight at rest while signaling interactivity. Decision: ship the chevron, document the change in `generation-log.md`.
+
+**Lessons learned:**
+
+- Three rounds of staff-perspective review on a "small half-day frontend phase" caught real issues at each layer — basic correctness (round 1: unmount safety, loading state, aria-live), shape refinement (round 2: layout stability, error state, italic axiom-violation), polish (round 3: invalid calc, error copy, discoverability, retry). Skipping any round would have shipped a real bug. The pattern argues for running review aggressively on phases that touch user-facing chrome, even when the LOC is small.
+- Visual-regression baselines diverge whenever a head element changes (dot → chevron). The `regenerate-visual-baselines.yml` workflow handles this on a Linux runner so the developer doesn't try to commit Mac-rendered baselines. Triggered via `gh workflow run regenerate-visual-baselines.yml -f branch=<branch>` after pushing the change.
+- Frontend-only fixes for "needs Rust-side classification" can sidestep the architectural decision by giving the user the choice. The retry button costs one extra IPC on permanent failures vs. zero IPC with classification, but the cost is paid on a click the user opted into — not silent overhead. If/when dogfood shows the extra IPC matters, the original Rust-side classification is still the right path.
+
+---
+
 ### Phase 23.C polish — layout-stable region wrapper + error state
 **Date:** 2026-05-03
 **Branch:** tool-line-polish

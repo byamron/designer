@@ -209,10 +209,30 @@
   border-radius: var(--radius-button);
 }
 
-.tool-line__dot {
+/* Discoverability chevron — replaces the prior `·` dot. Same monochrome
+ * weight as the dot at rest, but rotates 90° on expand so the row
+ * silently signals "click me" without a hover-only cue. The rotation
+ * follows the `aria-expanded` state on the parent button so it stays
+ * in sync with the actual disclosure semantics. Reduced-motion
+ * collapses the rotation to instant. */
+.tool-line__chevron {
   color: var(--color-muted);
-  font-family: var(--type-family-mono);
   flex-shrink: 0;
+  transition: transform var(--motion-interactive),
+    color var(--motion-interactive);
+}
+
+.tool-line__head[aria-expanded="true"] .tool-line__chevron {
+  transform: rotate(90deg);
+  color: var(--color-foreground);
+}
+
+.tool-line__head:hover .tool-line__chevron {
+  color: var(--color-foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-line__chevron { transition: none; }
 }
 
 .tool-line__title {
@@ -287,6 +307,20 @@
   line-height: var(--type-caption-leading);
 }
 
+/* Error-state layout: status text + "Try again" button on one row.
+ * Same baseline so the affordance reads as part of the message, not
+ * a separate banner. */
+.tool-line__error {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* Retry affordance — same text-link register as `.tool-line__show-full`.
+ * Sidesteps roadmap item 23.C.f4 (Rust-side error classification) by
+ * letting the user choose to refetch on transient failure. */
+.tool-line__retry,
 .tool-line__show-full {
   align-self: flex-start;
   appearance: none;
@@ -304,8 +338,15 @@
   transition: color var(--motion-interactive);
 }
 
-.tool-line__show-full:hover {
+.tool-line__show-full:hover,
+.tool-line__retry:hover {
   color: var(--color-foreground);
+}
+
+.tool-line__retry:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-button);
 }
 
 .tool-line__show-full:focus-visible {
