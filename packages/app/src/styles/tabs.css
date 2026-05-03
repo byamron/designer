@@ -159,6 +159,17 @@
   opacity: 1;
 }
 
+/* frc_019dea6b — workspaces must always have at least one open tab,
+   so the X on the only remaining tab stays invisible and inert. The
+   button is kept in the DOM (not display:none) so closing a sibling
+   doesn't reflow the tab strip. */
+.tab-button__close[data-only-tab="true"],
+.tab-button-wrap:hover .tab-button__close[data-only-tab="true"],
+.tab-button-wrap[data-active="true"] .tab-button__close[data-only-tab="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .tab-button__close:hover {
   background: var(--color-surface-overlay);
   color: var(--color-foreground);

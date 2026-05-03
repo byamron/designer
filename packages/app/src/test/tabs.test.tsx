@@ -1244,9 +1244,9 @@ describe("Tab guards (frc_019dea6b)", () => {
     );
     expect(closeButtons.length).toBeGreaterThanOrEqual(2);
     for (const btn of Array.from(closeButtons)) {
-      // No inline opacity / pointer-events override when siblings exist.
-      expect(btn.style.opacity).toBe("");
-      expect(btn.style.pointerEvents).toBe("");
+      // No data-only-tab hook when siblings exist — the close-X is fully
+      // interactive on every visible tab.
+      expect(btn.getAttribute("data-only-tab")).toBeNull();
       expect(btn.getAttribute("aria-disabled")).toBeNull();
       expect(btn.getAttribute("aria-label")).not.toMatch(/last tab/i);
     }
@@ -1295,8 +1295,10 @@ describe("Tab guards (frc_019dea6b)", () => {
       "button.tab-button__close",
     );
     expect(onlyClose).not.toBeNull();
-    expect(onlyClose!.style.opacity).toBe("0");
-    expect(onlyClose!.style.pointerEvents).toBe("none");
+    // The data-only-tab hook drives opacity:0 + pointer-events:none in
+    // tabs.css; jsdom doesn't compute external stylesheets, so we
+    // assert on the markup-level signal that paints the rule.
+    expect(onlyClose!.getAttribute("data-only-tab")).toBe("true");
     expect(onlyClose!.getAttribute("aria-disabled")).toBe("true");
     expect(onlyClose!.getAttribute("aria-label")).toMatch(/last tab/i);
   });

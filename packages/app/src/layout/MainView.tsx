@@ -431,6 +431,13 @@ function TabButton({
         <button
           type="button"
           className="tab-button__close"
+          // frc_019dea6b — every workspace must have at least one open
+          // tab. The data-only-tab hook keeps the visibility-revealing
+          // hover/active rules in tabs.css from un-hiding this X and
+          // disables pointer events so a click-through can't fire it.
+          // Inlined-style would also work but a class-driven hook keeps
+          // the token-driven motion in CSS, not React.
+          data-only-tab={isOnly || undefined}
           aria-label={
             isOnly
               ? `Close ${label} (last tab — open another to close this one)`
@@ -438,11 +445,6 @@ function TabButton({
           }
           aria-disabled={isOnly || undefined}
           tabIndex={-1}
-          // frc_019dea6b — every workspace must have at least one open
-          // tab. We hide the X via opacity (not display) so the tab
-          // button's layout doesn't reflow when a sibling closes,
-          // and pointer-events:none so a click-through can't fire it.
-          style={isOnly ? { opacity: 0, pointerEvents: "none" } : undefined}
           onClick={(e) => {
             e.stopPropagation();
             if (isOnly) return;
