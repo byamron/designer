@@ -8,6 +8,7 @@
 
 import type { IpcClient, PendingApproval } from "../../ipc/client";
 import type {
+  ActivityChanged,
   ArtifactDetail,
   ArtifactId,
   ArtifactSummary,
@@ -20,6 +21,7 @@ import type {
   Workspace,
   WorkspaceSummary,
 } from "../../ipc/types";
+import { activityKey, dataStore } from "../../store/data";
 
 export const FIXED_NOW_ISO = "2026-05-01T12:00:00.000Z";
 export const FIXED_NOW_MS = Date.parse(FIXED_NOW_ISO);
@@ -33,6 +35,7 @@ const daysAgo = (n: number) =>
 
 const FIXTURE_PROJECT_ID = "proj_visual_designer";
 const FIXTURE_WORKSPACE_ID = "ws_visual_thread";
+const FIXTURE_TAB_ID = "tab_visual_thread";
 
 export const fixtureProject: Project = {
   id: FIXTURE_PROJECT_ID,
@@ -54,13 +57,26 @@ export const fixtureWorkspace: Workspace = {
   created_at: hoursAgo(6),
   tabs: [
     {
-      id: "tab_visual_thread",
+      id: FIXTURE_TAB_ID,
       title: "Thread",
       template: "thread",
       created_at: hoursAgo(6),
       closed_at: null,
     },
   ],
+};
+
+// Phase 23.B — seed a `Working` activity slice for the fixture's
+// (workspace, tab). The dock's `ComposeDockActivityRow` reads
+// `dataStore.activity[activityKey(...)]`; without an entry it renders
+// nothing and the snapshot would silently lose the dock-row chrome we
+// want to baseline. `since_ms === FIXED_NOW_MS` pins the elapsed
+// counter at "0:00" so the baseline is deterministic.
+export const fixtureActivityEvent: ActivityChanged = {
+  workspace_id: FIXTURE_WORKSPACE_ID,
+  tab_id: FIXTURE_TAB_ID,
+  state: "working",
+  since_ms: FIXED_NOW_MS,
 };
 
 export const fixtureProjectSummaries: ProjectSummary[] = [
@@ -332,6 +348,26 @@ export function createVisualIpcClient(
   const pendingApprovals =
     overrides.pendingApprovals ?? fixturePendingApprovals;
 
+  // Visual tests render components in isolation — they don't call
+  // `bootData()`, so the activity slice is never populated through the
+  // normal `client.activityStream(...)` subscription path. Seed it
+  // directly here so the dock row + (any tab-strip badge) renders in
+  // the snapshot. Idempotent — re-running before each test re-applies
+  // the same `Working` slice.
+  dataStore.set((s) => ({
+    ...s,
+    activity: {
+      ...s.activity,
+      [activityKey(
+        fixtureActivityEvent.workspace_id,
+        fixtureActivityEvent.tab_id,
+      )]: {
+        state: fixtureActivityEvent.state,
+        since_ms: fixtureActivityEvent.since_ms,
+      },
+    },
+  }));
+
   return {
     listProjects: () => Promise.resolve(fixtureProjectSummaries),
     createProject: () => Promise.reject(new Error("not in fixture")),
@@ -346,7 +382,15 @@ export function createVisualIpcClient(
     // No event emission — fixtures are static. Returning a noop unsubscribe
     // keeps subscribers happy without leaking timers or promises.
     stream: () => () => {},
-    activityStream: () => () => {},
+    // Synchronously deliver the seeded `Working` event so any consumer
+    // that DOES go through `bootData()` (or wires its own subscription)
+    // also lands the slice. Visual tests don't bootstrap, so the
+    // direct `dataStore.set` above is what the screenshot relies on —
+    // this just keeps the wire contract honest.
+    activityStream: (handler) => {
+      handler(fixtureActivityEvent);
+      return () => {};
+    },
     requestApproval: () => Promise.resolve("appr_stub"),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve(artifacts),

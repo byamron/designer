@@ -24,7 +24,7 @@ use designer_core::EventStore;
 use designer_ipc::{ActivityChanged, ActivityState, StreamEvent};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 use tokio::sync::broadcast::error::RecvError;
 
 pub const EVENT_STREAM_CHANNEL: &str = "designer://event-stream";
@@ -37,7 +37,11 @@ pub const ACTIVITY_CHANNEL: &str = "designer://activity-changed";
 
 /// Spawn the forwarder. Call once in `.setup()`; the task outlives it via the
 /// cloned `AppHandle`.
-pub fn spawn_event_bridge(app: AppHandle, core: Arc<AppCore>) {
+///
+/// Generic over `Runtime` so integration tests can drive it with
+/// `tauri::test::mock_app()` (which yields `AppHandle<MockRuntime>`)
+/// without bringing up Wry.
+pub fn spawn_event_bridge<R: Runtime>(app: AppHandle<R>, core: Arc<AppCore>) {
     tauri::async_runtime::spawn(async move {
         let mut rx = core.store.subscribe();
         loop {
@@ -67,7 +71,7 @@ pub fn spawn_event_bridge(app: AppHandle, core: Arc<AppCore>) {
 /// Subscribes to the orchestrator's broadcast (not the event store)
 /// and emits a typed [`ActivityChanged`] DTO on
 /// [`ACTIVITY_CHANNEL`] for every state edge.
-pub fn spawn_activity_bridge(app: AppHandle, core: Arc<AppCore>) {
+pub fn spawn_activity_bridge<R: Runtime>(app: AppHandle<R>, core: Arc<AppCore>) {
     tauri::async_runtime::spawn(async move {
         let mut rx = core.orchestrator.subscribe();
         loop {
