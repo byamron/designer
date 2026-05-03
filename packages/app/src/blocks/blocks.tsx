@@ -169,10 +169,12 @@ function isToolUseReport(artifact: BlockProps["artifact"]): boolean {
 // if dogfood says it's wrong.
 const TOOL_USE_TRUNCATE_LINES = 40;
 
+type ToolUsePhase = "idle" | "loading" | "loaded" | "error";
+
 export function ToolUseLine({ artifact }: BlockProps) {
   const [expanded, setExpanded] = useState(false);
   const [payload, setPayload] = useState<PayloadRef | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<ToolUsePhase>("idle");
   const [showFull, setShowFull] = useState(false);
   // Dedupe rapid double-clicks: a request that's already settled won't
   // refire, and a request in flight won't spawn a second one.
@@ -195,20 +197,24 @@ export function ToolUseLine({ artifact }: BlockProps) {
   const fetchPayload = useCallback(() => {
     if (fetchedRef.current || inflightRef.current) return;
     inflightRef.current = true;
-    setLoading(true);
+    setPhase("loading");
     void ipcClient()
       .getArtifact(artifact.id)
       .then((detail) => {
         fetchedRef.current = true;
-        if (mountedRef.current) setPayload(detail.payload);
+        if (!mountedRef.current) return;
+        setPayload(detail.payload);
+        setPhase("loaded");
       })
       .catch(() => {
-        // Speculative kinds whose emitters aren't wired may 404 — leave
-        // the head visible without a body rather than crashing the row.
+        // 404s on speculative kinds whose emitters aren't wired are
+        // expected; surface "No output captured" rather than leaving
+        // the user staring at an empty box.
+        fetchedRef.current = true;
+        if (mountedRef.current) setPhase("error");
       })
       .finally(() => {
         inflightRef.current = false;
-        if (mountedRef.current) setLoading(false);
       });
   }, [artifact.id]);
 
@@ -249,29 +255,43 @@ export function ToolUseLine({ artifact }: BlockProps) {
           <span className="tool-line__detail">{previewSummary}</span>
         )}
       </button>
-      {expanded && loading && !body && (
-        <p className="tool-line__loading" aria-live="polite">
-          Loading output…
-        </p>
-      )}
-      {expanded && body && (
-        <pre
-          className="tool-line__pre"
+      {/* Expanded surface — the region wrapper carries the live-update
+          announcement and the box chrome so loading / loaded / error
+          all share one footprint and the payload arrival doesn't shift
+          the layout. The inner `<pre>` keeps its monospace register but
+          delegates `role="region"` + `aria-label` to the wrapper, which
+          is a more predictable surface for screen readers than a long
+          aria-live `<pre>` (some SRs read the whole pre content on
+          insertion). */}
+      {expanded && (
+        <div
+          className="tool-line__region"
+          data-phase={phase}
           role="region"
           aria-label={`${artifact.title} output`}
           aria-live="polite"
+          aria-busy={phase === "loading" || undefined}
         >
-          {visibleBody}
-        </pre>
-      )}
-      {expanded && overflow && !showFull && (
-        <button
-          type="button"
-          className="tool-line__show-full"
-          onClick={() => setShowFull(true)}
-        >
-          Show full ({hiddenLineCount} more {hiddenLineCount === 1 ? "line" : "lines"})
-        </button>
+          {phase === "loading" && (
+            <p className="tool-line__status">Loading output…</p>
+          )}
+          {phase === "error" && (
+            <p className="tool-line__status">No output captured.</p>
+          )}
+          {phase === "loaded" && body && (
+            <pre className="tool-line__pre">{visibleBody}</pre>
+          )}
+          {phase === "loaded" && overflow && !showFull && (
+            <button
+              type="button"
+              className="tool-line__show-full"
+              onClick={() => setShowFull(true)}
+            >
+              Show full ({hiddenLineCount} more{" "}
+              {hiddenLineCount === 1 ? "line" : "lines"})
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
