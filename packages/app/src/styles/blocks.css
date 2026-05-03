@@ -230,18 +230,43 @@
   white-space: nowrap;
 }
 
-/* Expanded payload — full tool output rendered as monospace under the
- * head. `white-space: pre-wrap` so long lines wrap inside the parent's
- * max-width (`.tool-line` already caps at min(48rem, 100%)); horizontal
- * scroll is acceptable on lines without breakpoints rather than the row
- * stretching the whole thread. */
-.tool-line__pre {
+/* Expanded payload region — wraps loading / loaded / error states so
+ * payload arrival doesn't shift the layout. Carries the box chrome
+ * (sunken fill, soft border, paddings) so all three states share the
+ * same footprint; the inner `<pre>` and status `<p>` are plain content
+ * inside it. The wrapper also owns `role="region"` + `aria-live` so
+ * screen readers announce a single region change rather than reading
+ * a long aria-live `<pre>` verbatim on insertion. */
+.tool-line__region {
   margin: 0;
   padding: var(--space-2) var(--space-3);
   padding-left: var(--space-4);
   background: var(--color-surface-sunken);
   border: var(--border-thin) solid var(--color-border-soft);
   border-radius: var(--radius-button);
+  /* min-height matches a single line of monospace at caption-size +
+   * vertical padding, so the loading affordance, the empty error
+   * state, and a one-line payload all settle at the same box height
+   * and there's no flash on phase transition. --type-caption-leading
+   * is a unitless multiplier — it has to be multiplied by the size
+   * token, not added to lengths directly, or calc() rejects the
+   * whole rule. */
+  min-height: calc(
+    var(--type-caption-size) * var(--type-caption-leading) +
+      2 * var(--space-2) + 2 * var(--border-thin)
+  );
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Long tool output rendered as monospace inside the region wrapper.
+ * `white-space: pre-wrap` so long lines wrap inside the parent's
+ * max-width (`.tool-line` already caps at min(48rem, 100%)); horizontal
+ * scroll is acceptable on lines without breakpoints rather than the row
+ * stretching the whole thread. */
+.tool-line__pre {
+  margin: 0;
   color: var(--color-muted);
   font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
@@ -251,9 +276,11 @@
   word-break: break-word;
 }
 
-.tool-line__loading {
+/* Phase-status text inside the region (loading / no-output / error
+ * variants). Same caption register as the payload `<pre>` so the
+ * transition reads as content swap, not chrome change. */
+.tool-line__status {
   margin: 0;
-  margin-left: var(--space-4);
   color: var(--color-muted);
   font-family: var(--type-family-sans);
   font-size: var(--type-caption-size);
@@ -262,7 +289,6 @@
 
 .tool-line__show-full {
   align-self: flex-start;
-  margin-left: var(--space-4);
   appearance: none;
   background: transparent;
   border: none;

@@ -401,10 +401,12 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
     expect(getArtifact).toHaveBeenCalledTimes(1);
   });
 
-  // Review-blocker fix: while the IPC fetch is in flight the user
+  // Round-2 review fix: while the IPC fetch is in flight the user
   // would otherwise see an empty expanded row. A "Loading output…"
-  // affordance keeps the click feeling acknowledged.
-  it("shows a loading affordance while the payload fetch is in flight", async () => {
+  // affordance keeps the click feeling acknowledged. The wrapper
+  // region also flips `aria-busy` so SR users hear the in-flight
+  // state, not just the eventual region update.
+  it("shows a loading affordance + aria-busy while the payload fetch is in flight", async () => {
     const a = makeReport();
     let resolve: ((v: unknown) => void) | null = null;
     const pending = new Promise((r) => (resolve = r));
@@ -413,7 +415,12 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
 
     const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
     fireEvent.click(container.querySelector(".tool-line__head")!);
-    expect(container.querySelector(".tool-line__loading")).not.toBeNull();
+    const region = container.querySelector(".tool-line__region")!;
+    expect(region.getAttribute("data-phase")).toBe("loading");
+    expect(region.getAttribute("aria-busy")).toBe("true");
+    expect(container.querySelector(".tool-line__status")?.textContent).toBe(
+      "Loading output…",
+    );
 
     await act(async () => {
       resolve!({
@@ -426,7 +433,44 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
     await waitFor(() => {
       expect(container.querySelector(".tool-line__pre")).not.toBeNull();
     });
-    expect(container.querySelector(".tool-line__loading")).toBeNull();
+    expect(container.querySelector(".tool-line__status")).toBeNull();
+    expect(
+      container.querySelector(".tool-line__region")?.getAttribute("aria-busy"),
+    ).toBeNull();
+    expect(
+      container.querySelector(".tool-line__region")?.getAttribute("data-phase"),
+    ).toBe("loaded");
+  });
+
+  // Round-3 review fix: getArtifact rejection used to leave the user
+  // staring at an empty expanded row indistinguishable from an
+  // in-flight fetch. Surface explicit copy.
+  it("renders 'Nothing to show.' when getArtifact rejects", async () => {
+    const a = makeReport();
+    const getArtifact = vi.fn().mockRejectedValue(new Error("404"));
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    await act(async () => {
+      fireEvent.click(container.querySelector(".tool-line__head")!);
+    });
+
+    await waitFor(() => {
+      expect(
+        container.querySelector(".tool-line__region")?.getAttribute("data-phase"),
+      ).toBe("error");
+    });
+    expect(container.querySelector(".tool-line__status")?.textContent).toBe(
+      "Nothing to show.",
+    );
+    expect(container.querySelector(".tool-line__pre")).toBeNull();
+    // A second expand should not refetch — the failed result is also
+    // cached so the user isn't punished for re-trying a 404.
+    fireEvent.click(container.querySelector(".tool-line__head")!); // collapse
+    await act(async () => {
+      fireEvent.click(container.querySelector(".tool-line__head")!); // re-expand
+    });
+    expect(getArtifact).toHaveBeenCalledTimes(1);
   });
 
   // Review-blocker fix: the IPC promise can outlive the row when the
@@ -469,8 +513,12 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
     }
   });
 
-  // T-23C-4 — accessibility: <pre> has role=region + aria-label.
-  it("T-23C-4 — expanded <pre> has role=region and an aria-label naming the tool", async () => {
+  // T-23C-4 — accessibility: the expanded surface is a region named
+  // after the tool. Round-3 review moved role+aria-label from the
+  // inner <pre> up to the wrapper so screen readers don't read a long
+  // pre's content verbatim on insertion (some SRs do this when
+  // aria-live lives directly on the pre).
+  it("T-23C-4 — expanded region has role=region, aria-label naming the tool, and aria-live", async () => {
     const a = makeReport();
     const getArtifact = vi.fn().mockResolvedValue({
       summary: a,
@@ -486,10 +534,15 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
       expect(container.querySelector(".tool-line__pre")).not.toBeNull();
     });
 
+    const region = container.querySelector(".tool-line__region")!;
+    expect(region.getAttribute("role")).toBe("region");
+    expect(region.getAttribute("aria-label") ?? "").toContain(a.title);
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    // The inner <pre> is now plain content; the region wrapper owns
+    // the announcement so SRs don't re-read the whole pre on update.
     const pre = container.querySelector(".tool-line__pre")!;
-    expect(pre.getAttribute("role")).toBe("region");
-    const label = pre.getAttribute("aria-label") ?? "";
-    expect(label).toContain(a.title);
+    expect(pre.getAttribute("role")).toBeNull();
+    expect(pre.getAttribute("aria-live")).toBeNull();
   });
 });
 

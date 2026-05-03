@@ -2452,6 +2452,20 @@ Lane structure mirrors the Lane 1 / Lane 1.5 / Lane 2 pattern from Dogfood Push:
 - Inline status sublines within the agent's current turn (Conductor's "● Thinking ● by AutoAcceptSafeTools…" stack). 23.B v2.
 - Cost chip on the compose dock. Already shipped in DP-A; v2 for inline cost mid-turn.
 
+### Phase 23.C follow-ups — Deferred review items *(parked from PR #92's two-round staff review and PR #94's round-3 review — captured here so they don't rot in closed PR bodies)*
+
+The expand-to-payload pattern landed (PR #92) and the layout-stability + error-state polish landed (PR #94). Across three review rounds the staff-perspective passes surfaced four items that need design judgment, an architectural decision, or a separate workstream:
+
+- **23.C.f1 — Discoverability affordance on `.tool-line__head`.** Today the only signal a tool-line is interactive is `cursor: pointer` + a hover color shift from muted to foreground. UX reviewer flagged that managers won't discover the click. A chevron / caret / hover-fill would solve it but changes the visual register the original Phase 23.C spec asked for ("compact one-line `· Read foo.rs`"). Decide as part of a broader chat-line treatment pass; design input wanted before picking a glyph. Owner: future Phase 23 polish PR. ~½ day frontend.
+
+- **23.C.f2 — Honor `BlockProps.expanded` / `onToggleExpanded`.** ToolUseLine ignores the BlockProps contract and tracks expand state locally. Engineer reviewer noted this means the parent `WorkspaceThread` can't collapse all expanded rows on tab switch (or any other parent-driven sweep). The original deliverable explicitly said "disclosed state persists per-mount only," so the local state is correct for v1, but if/when a parent needs to drive collapse (e.g., focus-mode, "collapse all"), wiring through is the migration path. Touches `WorkspaceThread.tsx` (state map + props) + `BlockProps` callers. Owner: whichever workstream first needs parent-driven collapse. ~½ day frontend.
+
+- **23.C.f3 — Coalesce consecutive same-tool rows.** Already listed under "Out of scope (v1)" above; restated here so the Phase 23.C follow-up trail is one place. v2 polish (e.g., "Read 4 files" disclosure expanding to four citations), needs a coalescing primitive that respects per-call expand state.
+
+- **23.C.f4 — Distinguish transient from permanent fetch failures.** PR #94 caches `getArtifact` rejections via `fetchedRef.current = true` so a known 404 (speculative kind without a wired emitter) doesn't refetch on every re-expand. The trade-off the engineer reviewer flagged: a transient failure (network glitch, IPC hiccup) is now permanently sticky for the row's lifetime — the user sees "Nothing to show." forever even after the backend recovers. Fix shape: error classification (404 = permanent, 5xx / IPC-error = transient) plus a "Try again" affordance in the region for transient errors, or a TTL on the cached error. Needs Rust-side error-typing on `getArtifact` to distinguish, so it's not a pure-frontend change. ~1 day full-stack.
+
+Acceptance gate (whole follow-up batch shipped): user manager can drill into a tool-use row without hovering to discover it; parent thread can collapse all rows programmatically; Read/Edit runs of length ≥3 coalesce under one disclosure; transient errors offer a retry while permanent 404s stay quietly cached.
+
 ---
 
 ## Milestones (summary)

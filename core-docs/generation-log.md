@@ -739,3 +739,16 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - deviations: none — initial draft used `font-style: italic` for the loading affordance, dropped during the round-2 review because italic isn't sanctioned in design-language.md §axioms #6 (sans + mono register, no italic in chrome). Muted color alone carries the transient signal.
 - feedback: addresses staff-perspective-review blockers — `mountedRef` guard so `setState` doesn't fire after the row unmounts mid-fetch; `Loading output…` affordance fills the otherwise-empty expanded state; `aria-live="polite"` on both the loading `<p>` and the payload `<pre>` so screen readers hear the new region without us hijacking focus from the head button
 
+## 2026-05-02T23:15:00Z — manual (Phase 23.C polish: region wrapper, error state, manifest refresh)
+
+- prompt: "Follow-up PR after #92: fix the deferred review items that are cheap (layout shift, aria-live placement, error state, manifest refresh) and park the rest in the roadmap so they don't rot in the closed PR body."
+- trigger: manual (post-merge follow-up to PR #92; addresses round-2 / round-3 review FOLLOW-UPs)
+- archetype-reused: none
+- components-reused: ToolUseLine
+- components-new: `.tool-line__region` wrapper (carries box chrome + `role="region"` + `aria-live="polite"` + `aria-busy` + `min-height` so loading / loaded / error phases share one footprint); `.tool-line__status` (replaces `.tool-line__loading`; same caption register, used for both "Loading output…" and "No output captured." copy). `.tool-line__pre` and `.tool-line__loading` styles repurposed: `.tool-line__pre` drops box chrome (now plain monospace content inside the region wrapper), `.tool-line__loading` deleted.
+- primitives: none
+- tokens: --space-1, --space-2, --space-3, --space-4, --color-surface-sunken, --color-border-soft, --radius-button, --color-muted, --type-family-mono, --type-family-sans, --type-caption-size, --type-caption-leading, --border-thin (all pre-existing)
+- invariants: 6/6 pass
+- deviations: none. The region wrapper's `min-height` is computed from `calc(--type-caption-leading + 2*--space-2 + 2*--border-thin)` — token arithmetic only, no raw values.
+- feedback: addresses three deferred review items — (1) layout shift on payload arrival eliminated by sharing the box footprint across phases; (2) `aria-live` moved up from the inner `<pre>` to the region wrapper so screen readers don't read long pre content verbatim on insertion; (3) `getArtifact` rejection now surfaces "No output captured." instead of an empty box (failed-fetch result is also cached so re-expanding doesn't refetch a known 404). Component-manifest entry refreshed to list the new tokens + behaviors.
+
