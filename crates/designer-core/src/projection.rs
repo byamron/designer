@@ -3,11 +3,12 @@
 //! snapshot so startup doesn't need to scan the full log.
 
 use crate::domain::{
-    Artifact, ArtifactKind, Autonomy, PayloadRef, Project, Tab, TabTemplate, Track, TrackState,
-    Workspace, WorkspaceState,
+    Artifact, ArtifactKind, Autonomy, PayloadRef, Project, ReportClassification, Tab, TabTemplate,
+    Track, TrackState, Workspace, WorkspaceState,
 };
 use crate::event::{EventEnvelope, EventPayload};
 use crate::ids::{ArtifactId, ProjectId, StreamId, TabId, TrackId, WorkspaceId};
+use crate::time::Timestamp;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -95,6 +96,14 @@ struct ProjectorState {
     /// `core::tests::open_tab_appends_and_projects` (`tabs.len()`
     /// observed 2 instead of 1).
     last_applied: HashMap<StreamId, u64>,
+    /// Phase 22.B — last report-creation timestamp the user has
+    /// "seen" per project. Used by the Recent Reports surface to
+    /// compute unread counts. Single integer per project (not per
+    /// user; v1 is single-machine — see roadmap §22.B). Persisted
+    /// in `Settings.report_read_at_by_project` (sidecar, NOT in the
+    /// event log) so the projection rehydrates after restart;
+    /// in-memory mirror lives here so reads stay O(1).
+    read_at_by_project: HashMap<ProjectId, Timestamp>,
 }
 
 impl Projector {
@@ -208,6 +217,116 @@ impl Projector {
 
     pub fn track(&self, id: TrackId) -> Option<Track> {
         self.inner.read().tracks.get(&id).cloned()
+    }
+
+    /// Phase 22.B — Recent Reports for a project, newest first.
+    /// Includes only `Report` artifacts whose author_role is in the
+    /// `SPINE_AUTHOR_ROLES` allowlist (recap / auditor) so tool-use
+    /// "Used Read" cards never surface here. Archived reports are
+    /// skipped. The caller filters / paginates.
+    pub fn recent_reports(&self, project_id: ProjectId) -> Vec<Artifact> {
+        let state = self.inner.read();
+        let workspace_ids: std::collections::HashSet<WorkspaceId> = state
+            .workspaces
+            .values()
+            .filter(|w| w.project_id == project_id)
+            .map(|w| w.id)
+            .collect();
+        let mut out: Vec<Artifact> = state
+            .artifacts
+            .values()
+            .filter(|a| matches!(a.kind, ArtifactKind::Report))
+            .filter(|a| a.archived_at.is_none())
+            .filter(|a| workspace_ids.contains(&a.workspace_id))
+            .filter(|a| {
+                a.author_role
+                    .as_deref()
+                    .map(|r| SPINE_AUTHOR_ROLES.contains(&r))
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        out.sort_by_key(|a| std::cmp::Reverse(a.created_at));
+        out
+    }
+
+    /// Phase 22.B — Count of reports newer than the project's last
+    /// "seen" mark. `mark_reports_read` advances the mark; reads
+    /// before the first mark return the full count.
+    pub fn unread_report_count(&self, project_id: ProjectId) -> usize {
+        let state = self.inner.read();
+        let workspace_ids: std::collections::HashSet<WorkspaceId> = state
+            .workspaces
+            .values()
+            .filter(|w| w.project_id == project_id)
+            .map(|w| w.id)
+            .collect();
+        let cutoff = state.read_at_by_project.get(&project_id).copied();
+        state
+            .artifacts
+            .values()
+            .filter(|a| matches!(a.kind, ArtifactKind::Report))
+            .filter(|a| a.archived_at.is_none())
+            .filter(|a| workspace_ids.contains(&a.workspace_id))
+            .filter(|a| {
+                a.author_role
+                    .as_deref()
+                    .map(|r| SPINE_AUTHOR_ROLES.contains(&r))
+                    .unwrap_or(false)
+            })
+            .filter(|a| match cutoff {
+                Some(ts) => a.created_at > ts,
+                None => true,
+            })
+            .count()
+    }
+
+    /// Phase 22.B — Advance the "seen" mark for a project to `at`.
+    /// Idempotent + monotonic: a mark older than the current one is
+    /// ignored so a stale call from a slow IPC retry never *un*-marks
+    /// reports the user has already seen.
+    pub fn mark_reports_read(&self, project_id: ProjectId, at: Timestamp) {
+        let mut state = self.inner.write();
+        match state.read_at_by_project.get(&project_id).copied() {
+            Some(prev) if prev >= at => {}
+            _ => {
+                state.read_at_by_project.insert(project_id, at);
+            }
+        }
+    }
+
+    /// Phase 22.B — Current read mark for a project, if any.
+    pub fn report_read_at(&self, project_id: ProjectId) -> Option<Timestamp> {
+        self.inner
+            .read()
+            .read_at_by_project
+            .get(&project_id)
+            .copied()
+    }
+
+    /// Phase 22.B — Hydrate the in-memory read marks from a persisted
+    /// settings sidecar at boot. Replaces — never merges — so a
+    /// caller that forgot a project doesn't get phantom marks.
+    pub fn hydrate_report_read_marks(&self, marks: HashMap<ProjectId, Timestamp>) {
+        let mut state = self.inner.write();
+        state.read_at_by_project = marks;
+    }
+}
+
+/// Phase 22.B — coarse classifier when the local-model hook didn't
+/// produce a classification (pre-22.B reports + helper failures).
+/// Heuristic on the artifact title; the local model can supersede
+/// via a late-return `ArtifactUpdated` carrying a `classification`.
+pub fn classify_from_title(title: &str) -> ReportClassification {
+    let lower = title.to_ascii_lowercase();
+    if lower.starts_with("revert") || lower.contains("reverted") {
+        ReportClassification::Reverted
+    } else if lower.starts_with("feat") || lower.starts_with("add ") || lower.contains("feature") {
+        ReportClassification::Feature
+    } else if lower.starts_with("fix") || lower.contains("bug") {
+        ReportClassification::Fix
+    } else {
+        ReportClassification::Improvement
     }
 }
 
@@ -352,6 +471,8 @@ impl Projection for Projector {
                 payload,
                 author_role,
                 tab_id,
+                summary_high,
+                classification,
             } => {
                 // Per-tab thread isolation: a `Message` artifact must
                 // resolve to a tab. Explicit `tab_id` wins; otherwise we
@@ -390,6 +511,8 @@ impl Projection for Projector {
                         pinned_at: None,
                         archived_at: None,
                         tab_id: resolved_tab,
+                        summary_high: summary_high.clone(),
+                        classification: *classification,
                     },
                 );
             }
@@ -398,12 +521,20 @@ impl Projection for Projector {
                 summary,
                 payload,
                 parent_version,
+                summary_high,
+                classification,
             } => {
                 if let Some(a) = state.artifacts.get_mut(artifact_id) {
                     a.summary = summary.clone();
                     a.payload = payload.clone();
                     a.version = parent_version + 1;
                     a.updated_at = event.timestamp;
+                    if summary_high.is_some() {
+                        a.summary_high = summary_high.clone();
+                    }
+                    if classification.is_some() {
+                        a.classification = *classification;
+                    }
                 }
             }
             EventPayload::ArtifactPinned { artifact_id } => {
@@ -494,5 +625,185 @@ impl Projection for Projector {
 
     fn name(&self) -> &'static str {
         "core"
+    }
+}
+
+#[cfg(test)]
+mod recent_reports_tests {
+    use super::*;
+    use crate::domain::Actor;
+    use crate::event::EventEnvelope;
+    use crate::ids::{ArtifactId, EventId, ProjectId, StreamId, WorkspaceId};
+
+    fn ts(secs: i64) -> Timestamp {
+        time::OffsetDateTime::from_unix_timestamp(secs).unwrap()
+    }
+
+    fn project_created(project_id: ProjectId, sequence: u64, t: Timestamp) -> EventEnvelope {
+        EventEnvelope {
+            id: EventId::new(),
+            stream: StreamId::Project(project_id),
+            sequence,
+            timestamp: t,
+            actor: Actor::user(),
+            version: 1,
+            causation_id: None,
+            correlation_id: None,
+            payload: EventPayload::ProjectCreated {
+                project_id,
+                name: "P".into(),
+                root_path: std::path::PathBuf::from("/tmp/p"),
+            },
+        }
+    }
+
+    fn workspace_created(
+        project_id: ProjectId,
+        workspace_id: WorkspaceId,
+        sequence: u64,
+        t: Timestamp,
+    ) -> EventEnvelope {
+        EventEnvelope {
+            id: EventId::new(),
+            stream: StreamId::Workspace(workspace_id),
+            sequence,
+            timestamp: t,
+            actor: Actor::user(),
+            version: 1,
+            causation_id: None,
+            correlation_id: None,
+            payload: EventPayload::WorkspaceCreated {
+                workspace_id,
+                project_id,
+                name: "ws".into(),
+                base_branch: "main".into(),
+            },
+        }
+    }
+
+    fn report_artifact(
+        workspace_id: WorkspaceId,
+        sequence: u64,
+        t: Timestamp,
+        title: &str,
+        summary_high: Option<String>,
+        classification: Option<ReportClassification>,
+    ) -> EventEnvelope {
+        EventEnvelope {
+            id: EventId::new(),
+            stream: StreamId::Workspace(workspace_id),
+            sequence,
+            timestamp: t,
+            actor: Actor::system(),
+            version: 1,
+            causation_id: None,
+            correlation_id: None,
+            payload: EventPayload::ArtifactCreated {
+                artifact_id: ArtifactId::new(),
+                workspace_id,
+                artifact_kind: ArtifactKind::Report,
+                title: title.into(),
+                summary: title.into(),
+                payload: PayloadRef::Inline {
+                    body: format!("# {title}"),
+                },
+                author_role: Some("recap".into()),
+                tab_id: None,
+                summary_high,
+                classification,
+            },
+        }
+    }
+
+    #[test]
+    fn recent_reports_returns_only_project_reports_newest_first() {
+        let projector = Projector::new();
+        let project = ProjectId::new();
+        let workspace = WorkspaceId::new();
+        projector.apply(&project_created(project, 1, ts(100)));
+        projector.apply(&workspace_created(project, workspace, 2, ts(110)));
+        projector.apply(&report_artifact(
+            workspace,
+            3,
+            ts(200),
+            "old recap",
+            Some("Manager voice old".into()),
+            Some(ReportClassification::Improvement),
+        ));
+        projector.apply(&report_artifact(
+            workspace,
+            4,
+            ts(300),
+            "new recap",
+            Some("Manager voice new".into()),
+            Some(ReportClassification::Feature),
+        ));
+
+        let reports = projector.recent_reports(project);
+        assert_eq!(reports.len(), 2, "both reports surface");
+        assert_eq!(reports[0].title, "new recap", "newest first ordering");
+        assert_eq!(
+            reports[0].summary_high.as_deref(),
+            Some("Manager voice new")
+        );
+        assert_eq!(
+            reports[0].classification,
+            Some(ReportClassification::Feature)
+        );
+    }
+
+    #[test]
+    fn unread_count_advances_on_mark_reports_read() {
+        let projector = Projector::new();
+        let project = ProjectId::new();
+        let workspace = WorkspaceId::new();
+        projector.apply(&project_created(project, 1, ts(100)));
+        projector.apply(&workspace_created(project, workspace, 2, ts(110)));
+        projector.apply(&report_artifact(workspace, 3, ts(200), "first", None, None));
+        projector.apply(&report_artifact(
+            workspace,
+            4,
+            ts(300),
+            "second",
+            None,
+            None,
+        ));
+        assert_eq!(projector.unread_report_count(project), 2);
+        projector.mark_reports_read(project, ts(300));
+        assert_eq!(projector.unread_report_count(project), 0);
+
+        // A new report after the mark surfaces as unread again.
+        projector.apply(&report_artifact(workspace, 5, ts(400), "third", None, None));
+        assert_eq!(projector.unread_report_count(project), 1);
+    }
+
+    #[test]
+    fn mark_reports_read_is_monotonic() {
+        let projector = Projector::new();
+        let project = ProjectId::new();
+        // A stale call with an older timestamp must not unmark.
+        projector.mark_reports_read(project, ts(500));
+        projector.mark_reports_read(project, ts(100));
+        assert_eq!(projector.report_read_at(project), Some(ts(500)));
+    }
+
+    #[test]
+    fn classify_from_title_falls_back_to_improvement() {
+        assert_eq!(
+            classify_from_title("Add multi-tab support"),
+            ReportClassification::Feature
+        );
+        assert_eq!(
+            classify_from_title("Fix race in approval gate"),
+            ReportClassification::Fix
+        );
+        assert_eq!(
+            classify_from_title("Revert PR #42"),
+            ReportClassification::Reverted
+        );
+        assert_eq!(
+            classify_from_title("Wednesday recap"),
+            ReportClassification::Improvement
+        );
     }
 }

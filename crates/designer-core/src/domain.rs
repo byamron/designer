@@ -177,6 +177,30 @@ pub struct Artifact {
     /// attributed to the workspace's first tab on replay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<TabId>,
+    /// Phase 22.B — manager-voice summary for the Recent Reports surface.
+    /// Additive: `summary` continues to drive rail / collapsed-block
+    /// views (Decision 39); `summary_high` is read only by the Recent
+    /// Reports surface. Reports without it fall back to `summary`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_high: Option<String>,
+    /// Phase 22.B — Source classification (Feature / Fix / Improvement /
+    /// Reverted). Only populated on `Report` artifacts; pre-22.B reports
+    /// without classification fall back to "Improvement" at render time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<ReportClassification>,
+}
+
+/// Phase 22.B — coarse source classification for shipped-work reports.
+/// Set at write time by the local-model summary hook (or a heuristic
+/// fallback). Pre-22.B reports without a classification fall back to
+/// `Improvement` for surfacing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReportClassification {
+    Feature,
+    Fix,
+    Improvement,
+    Reverted,
 }
 
 /// The kinds of block the renderer registry knows how to display. Adding a

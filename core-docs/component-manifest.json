@@ -508,6 +508,17 @@
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "color-foreground", "color-muted", "color-border", "color-accent", "color-surface", "warning-9", "accent-9", "accent-contrast", "type-body-size", "type-caption-size", "type-body-leading", "type-family-sans", "type-family-mono", "weight-medium", "border-thin", "border-strong", "radius-1", "radius-2", "radius-pill", "focus-ring", "focus-outline-offset"],
       "css_prefix": "designer-noticed__",
       "last_updated": "2026-04-29"
+    },
+    {
+      "name": "RecentReportsSection",
+      "path": "packages/app/src/components/RecentReports/RecentReportsSection.tsx",
+      "purpose": "Phase 22.B Home-tab surface — curated highlights of shipped work in manager voice. Two-step disclosure: inline 1–2 line `summary_high` + classification chip + workspace label + PR link is always visible; click expands the report inline with the full body and an `Open in tab` button. Three reports default; `Show more` reveals 4–5; `Show all (N)` expands the full list inline (no project-level Reports tab — Decision 56). Section header reads `N unread` or `All caught up`; reads advance implicitly on inline expand and tab open, plus an explicit `Mark all read` footer. Renders behind the `show_recent_reports_v2` feature flag; reports without `summary_high` fall back to the legacy `summary` field per roadmap §22.B migration.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-2", "space-3", "space-4", "color-foreground", "color-muted", "color-border", "color-surface-flat", "border-thin", "type-body-size", "type-caption-size", "type-caption-leading", "type-family-mono", "weight-medium", "radius-badge", "radius-card", "radius-pill", "focus-outline-color", "focus-outline-width", "focus-outline-offset", "success-7", "success-11", "warning-7", "warning-11", "danger-7", "danger-11"],
+      "css_prefix": "recent-reports__",
+      "last_updated": "2026-05-03"
     }
   ]
 }

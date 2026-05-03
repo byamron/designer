@@ -80,12 +80,15 @@ function makeClient() {
       Promise.resolve({
         show_models_section: false,
         show_all_artifacts_in_spine: false,
+        show_recent_reports_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve({
         show_models_section: name === "show_models_section" ? enabled : false,
         show_all_artifacts_in_spine:
           name === "show_all_artifacts_in_spine" ? enabled : false,
+        show_recent_reports_v2:
+          name === "show_recent_reports_v2" ? enabled : false,
       }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
@@ -101,6 +104,9 @@ function makeClient() {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
+    listRecentReports: () => Promise.resolve([]),
+    getReportsUnreadCount: () => Promise.resolve(0),
+    markReportsRead: () => Promise.resolve(0),
   });
   const project = core.listProjects()[0];
   const workspace = core.listWorkspaces(project.project.id)[0];

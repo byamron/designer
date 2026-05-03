@@ -287,6 +287,8 @@ async fn artifact_lifecycle_projects_through_pin_unpin_archive() {
                 payload: PayloadRef::inline("# Onboarding\n\nGoal: link + spawn under 60s."),
                 author_role: Some("team-lead".into()),
                 tab_id: None,
+                summary_high: None,
+                classification: None,
             },
         )
         .await
@@ -370,6 +372,8 @@ async fn spine_projection_filters_tool_use_reports_but_keeps_specs() {
                 payload: PayloadRef::inline("{}"),
                 author_role: Some("tool".into()),
                 tab_id: None,
+                summary_high: None,
+                classification: None,
             },
         )
         .await
@@ -392,6 +396,8 @@ async fn spine_projection_filters_tool_use_reports_but_keeps_specs() {
                 payload: PayloadRef::inline("# Onboarding"),
                 author_role: Some("planner".into()),
                 tab_id: None,
+                summary_high: None,
+                classification: None,
             },
         )
         .await
@@ -414,6 +420,8 @@ async fn spine_projection_filters_tool_use_reports_but_keeps_specs() {
                 payload: PayloadRef::inline("…"),
                 author_role: Some("recap".into()),
                 tab_id: None,
+                summary_high: None,
+                classification: None,
             },
         )
         .await
@@ -642,6 +650,8 @@ async fn artifacts_filter_by_tab_for_message_kind_only() {
                 payload: PayloadRef::inline("from A"),
                 author_role: Some("user".into()),
                 tab_id: Some(tab_a),
+                summary_high: None,
+                classification: None,
             },
         )
         .await
@@ -661,6 +671,8 @@ async fn artifacts_filter_by_tab_for_message_kind_only() {
                 payload: PayloadRef::inline("from B"),
                 author_role: Some("user".into()),
                 tab_id: Some(tab_b),
+                summary_high: None,
+                classification: None,
             },
         )
         .await
@@ -683,6 +695,8 @@ async fn artifacts_filter_by_tab_for_message_kind_only() {
                 payload: PayloadRef::inline("# shared"),
                 author_role: Some("team-lead".into()),
                 tab_id: None,
+                summary_high: None,
+                classification: None,
             },
         )
         .await
@@ -808,6 +822,8 @@ async fn legacy_message_without_tab_id_projects_to_first_tab() {
                 payload: PayloadRef::inline("old"),
                 author_role: Some("user".into()),
                 tab_id: None,
+                summary_high: None,
+                classification: None,
             },
         )
         .await

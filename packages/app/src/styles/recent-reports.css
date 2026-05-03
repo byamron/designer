@@ -1,0 +1,140 @@
+/* Phase 22.B — Recent Reports surface on the Home tab.
+ *
+ * Curated highlights of shipped work. Inline summary always visible
+ * with a classification chip + workspace label + PR link; click to
+ * expand the body inline. Uses the same home-a__section register so
+ * it sits alongside Active workspaces / Repository / Designer noticed
+ * without inventing a parallel surface.
+ */
+
+.recent-reports__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-reports__list > li + li {
+  border-top: var(--border-thin) solid var(--color-border);
+}
+
+.recent-reports__row {
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-reports__toggle {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.recent-reports__toggle:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-badge);
+}
+
+.recent-reports__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-2);
+  height: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-flat);
+  border: var(--border-thin) solid var(--color-border);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Decision 22.A.semantics: shipped/done = green; fixes lean amber for
+ * "addressed-but-was-broken"; reverted leans danger; improvement is
+ * neutral. The Recent Reports chips reuse the same semantic palette as
+ * the existing surfaces (state-dot, friction-state) so the user reads
+ * the same color encoding everywhere. */
+.recent-reports__chip[data-classification="feature"] {
+  color: var(--success-11);
+  border-color: var(--success-7);
+}
+
+.recent-reports__chip[data-classification="fix"] {
+  color: var(--warning-11);
+  border-color: var(--warning-7);
+}
+
+.recent-reports__chip[data-classification="improvement"] {
+  color: var(--color-muted);
+}
+
+.recent-reports__chip[data-classification="reverted"] {
+  color: var(--danger-11);
+  border-color: var(--danger-7);
+}
+
+.recent-reports__summary {
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.recent-reports__meta {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  font-family: var(--type-family-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.recent-reports__pr {
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.recent-reports__pr:hover,
+.recent-reports__pr:focus-visible {
+  color: var(--color-foreground);
+  text-decoration: underline;
+}
+
+.recent-reports__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2) 0 var(--space-4) 0;
+}
+
+.recent-reports__body {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  color: var(--color-foreground);
+  background: var(--color-surface-flat);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.recent-reports__actions {
+  display: flex;
+  gap: var(--space-2);
+}

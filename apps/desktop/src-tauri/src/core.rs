@@ -379,6 +379,19 @@ impl AppCore {
         let history = store.read_all(StreamOptions::default()).await?;
         projector.replay(&history);
 
+        // Phase 22.B — hydrate the Recent Reports read marks from the
+        // Settings sidecar so the Home tab's "N unread" badge survives
+        // restart. The marks are persisted outside the event log per
+        // roadmap §22.B (projection, not events).
+        {
+            let s = crate::settings::Settings::load(&config.data_dir);
+            if !s.report_read_at_by_project.is_empty() {
+                let map: std::collections::HashMap<_, _> =
+                    s.report_read_at_by_project.into_iter().collect();
+                projector.hydrate_report_read_marks(map);
+            }
+        }
+
         let audit: Arc<dyn AuditLog> = Arc::new(SqliteAuditLog::new(store.clone()));
         let gate = Arc::new(InMemoryApprovalGate::new(store.clone()));
         let cost = CostTracker::new(store.clone(), config.default_cost_cap);
