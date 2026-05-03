@@ -263,11 +263,19 @@ describe("Composer drafts persist across tab switches (frc_019de703)", () => {
     fireEvent.change(composer!, { target: { value: "draft for tab A" } });
     expect(composer!.value).toBe("draft for tab A");
 
-    // Switch to tab B. The composer textarea is part of the
-    // WorkspaceThread surface that now stays mounted across tab
-    // switches (Phase 23.D), so the textarea node persists; the
-    // assertion of interest is the round-trip through B and back to
-    // A — that's where the friction happened.
+    // Switch to tab B. Pre Phase 23.D this test asserted that B's
+    // textarea was empty mid-switch — that was an incidental property
+    // of the old behaviour where MainView keyed `<WorkspaceThread>` by
+    // `${workspace.id}:${activeTab}` and so remounted ComposeDock with
+    // an empty `initialDraft` on every switch. Phase 23.D drops the
+    // tab id from the key; the textarea now persists as the same DOM
+    // node and `ComposeDock`'s local `draft` state survives across the
+    // switch (initialDraft is read once on mount and not re-synced from
+    // prop changes). The store is still keyed per-tab via
+    // `setTabDraft(stateKey, ...)` so leaving + returning preserves the
+    // *original tab's* draft, which is what the friction (frc_019de703)
+    // was actually about. Cross-tab visual draft bleed is captured as a
+    // FOLLOW-UP for a later pass that touches ComposeDock.
     fireEvent.click(tabs[otherIdx]);
     await waitFor(() => {
       expect(
@@ -642,6 +650,31 @@ describe("Project home renders no tab roles (B3)", () => {
 // switches; refresh on tab change is already wired via the
 // `[workspace.id, tabId]` dep on the refresh callback.
 describe("Phase 23.D — WorkspaceThread persists across tab switches", () => {
+  // T-23D-2 monkey-patches `stream` and `listArtifactsInTab` on the live
+  // singleton client. Without an explicit restore the patch leaks into
+  // any subsequent test that pulls the same singleton (the IPC client is
+  // a module-level singleton — see `MainView.tsx` and `client.ts`).
+  // Mirror the cleanup pattern from the "Tab open re-entry guard (B1)"
+  // describe above: keep the originals in module-scope refs, restore in
+  // afterEach. A no-op when the patch wasn't applied (i.e. T-23D-1, T-3,
+  // T-4 leave the refs null and the restore is skipped).
+  let realStream: IpcClient["stream"] | null = null;
+  let realListArtifactsInTab: IpcClient["listArtifactsInTab"] | null = null;
+  afterEach(() => {
+    const live = ipcClient() as {
+      stream: IpcClient["stream"];
+      listArtifactsInTab: IpcClient["listArtifactsInTab"];
+    };
+    if (realStream) {
+      live.stream = realStream;
+      realStream = null;
+    }
+    if (realListArtifactsInTab) {
+      live.listArtifactsInTab = realListArtifactsInTab;
+      realListArtifactsInTab = null;
+    }
+  });
+
   // T-23D-1 — component identity. Render with tab A active, switch to B,
   // switch back to A; assert the same DOM node carrying
   // `data-component="WorkspaceThread"` survived. With the old key
@@ -711,13 +744,14 @@ describe("Phase 23.D — WorkspaceThread persists across tab switches", () => {
   it("T-23D-2: the artifact-stream listener still fires after a tab switch", async () => {
     await boot();
     const live = ipcClient();
-    // Capture the latest registered stream handler.
-    const origStream = live.stream.bind(live);
+    // Capture the latest registered stream handler. `realStream` holds
+    // the bound original so the afterEach can restore it.
+    realStream = live.stream.bind(live);
     let capturedHandler: ((e: StreamEvent) => void) | null = null;
     type StreamArg = Parameters<IpcClient["stream"]>[0];
     (live as { stream: IpcClient["stream"] }).stream = (h: StreamArg) => {
       capturedHandler = h;
-      return origStream(h);
+      return realStream!(h);
     };
 
     await waitFor(() => document.querySelector("button.workspace-row"));
@@ -731,9 +765,10 @@ describe("Phase 23.D — WorkspaceThread persists across tab switches", () => {
     );
 
     // Spy on the per-tab artifact list fetch — that's what a refresh
-    // round-trip ultimately calls.
-    const origList = live.listArtifactsInTab.bind(live);
-    const listSpy = vi.fn(origList);
+    // round-trip ultimately calls. `realListArtifactsInTab` holds the
+    // bound original so the afterEach can restore it.
+    realListArtifactsInTab = live.listArtifactsInTab.bind(live);
+    const listSpy = vi.fn(realListArtifactsInTab);
     (live as { listArtifactsInTab: IpcClient["listArtifactsInTab"] })
       .listArtifactsInTab = listSpy;
 
