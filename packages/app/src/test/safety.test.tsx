@@ -90,12 +90,13 @@ describe("ApprovalBlock", () => {
     __setIpcClient(originalClient);
   });
 
-  it("calls cmd_resolve_approval(true) once on Grant and flips state optimistically", async () => {
+  it("calls cmd_resolve_approval(true) once on Allow and flips state optimistically", async () => {
     const resolveApproval = vi.fn(async () => undefined);
     __setIpcClient(
       makeStubClient({
         resolveApproval,
         stream: () => () => {},
+        activityStream: () => () => {},
       }),
     );
 
@@ -110,27 +111,29 @@ describe("ApprovalBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /grant/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^allow$/i }));
 
-    // Optimistic state: the resolution status renders immediately.
+    // Optimistic state: the resolution status reads "Allowed by you · …"
+    // (the manager-grade copy from the Phase 15.J drill-down pass).
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toMatch(/approved/i);
+      expect(screen.getByRole("status").textContent).toMatch(/^Allowed by you/);
     });
 
-    // Call shape: (id, true) — no extra reason on Grant.
+    // Call shape: (id, true) — no extra reason on Allow.
     expect(resolveApproval).toHaveBeenCalledTimes(1);
     expect(resolveApproval).toHaveBeenCalledWith("apv-1", true);
 
     // Buttons gone after resolve — no risk of double-call.
-    expect(screen.queryByRole("button", { name: /grant/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^allow$/i })).toBeNull();
   });
 
-  it("disables Grant/Deny when the artifact payload has no approval_id", async () => {
+  it("disables Allow/Deny when the artifact payload has no approval_id", async () => {
     const resolveApproval = vi.fn(async () => undefined);
     __setIpcClient(
       makeStubClient({
         resolveApproval,
         stream: () => () => {},
+        activityStream: () => () => {},
       }),
     );
 
@@ -148,12 +151,12 @@ describe("ApprovalBlock", () => {
       />,
     );
 
-    const grant = screen.getByRole("button", { name: /grant/i });
-    const deny = screen.getByRole("button", { name: /deny/i });
-    expect((grant as HTMLButtonElement).disabled).toBe(true);
+    const allow = screen.getByRole("button", { name: /^allow$/i });
+    const deny = screen.getByRole("button", { name: /^deny$/i });
+    expect((allow as HTMLButtonElement).disabled).toBe(true);
     expect((deny as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(grant);
+    fireEvent.click(allow);
     fireEvent.click(deny);
     expect(resolveApproval).not.toHaveBeenCalled();
   });
@@ -171,6 +174,7 @@ describe("ApprovalBlock", () => {
             pushEvent = null;
           };
         },
+        activityStream: () => () => {},
       }),
     );
 
@@ -197,7 +201,7 @@ describe("ApprovalBlock", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toMatch(/approved/i);
+      expect(screen.getByRole("status").textContent).toMatch(/^Allowed by you/);
     });
   });
 });
