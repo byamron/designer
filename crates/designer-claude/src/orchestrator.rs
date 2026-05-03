@@ -4,7 +4,7 @@
 
 use crate::claude_code::ClaudeSignal;
 use async_trait::async_trait;
-use designer_core::{AgentId, ArtifactId, ArtifactKind, TaskId, WorkspaceId};
+use designer_core::{AgentId, ArtifactId, ArtifactKind, TabId, TaskId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -17,11 +17,14 @@ pub enum OrchestratorError {
     /// The team's stdin channel is closed because the writer task exited
     /// (claude died, or its stdin pipe was severed). The handle in the
     /// orchestrator's team map is stale; callers should treat this like
-    /// `TeamNotFound` and re-spawn after `shutdown(workspace_id)`. Surfaced
-    /// distinctly so the recovery path doesn't have to string-match on
-    /// `Spawn(...)`.
-    #[error("stdin channel closed for workspace {workspace_id}")]
-    ChannelClosed { workspace_id: WorkspaceId },
+    /// `TeamNotFound` and re-spawn after `shutdown((workspace_id, tab_id))`.
+    /// Surfaced distinctly so the recovery path doesn't have to string-match
+    /// on `Spawn(...)`.
+    #[error("stdin channel closed for workspace {workspace_id} / tab {tab_id}")]
+    ChannelClosed {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+    },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("core error: {0}")]
@@ -35,6 +38,10 @@ pub type OrchestratorResult<T> = std::result::Result<T, OrchestratorError>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamSpec {
     pub workspace_id: WorkspaceId,
+    /// Phase 23.E — per-tab Claude subprocess. Each tab gets its own
+    /// session (distinct `--session-id`, distinct stdin/stdout, distinct
+    /// context window). Required: every spawn picks one tab.
+    pub tab_id: TabId,
     pub team_name: String,
     pub lead_role: String,
     pub teammates: Vec<String>,
@@ -145,20 +152,26 @@ pub enum OrchestratorEvent {
 
 #[async_trait]
 pub trait Orchestrator: Send + Sync {
-    /// Create a new team and return its spawn confirmation.
+    /// Create a new team for one tab in a workspace and return its spawn
+    /// confirmation. Phase 23.E: every team is per-(workspace, tab); the
+    /// `tab_id` lives on `spec`.
     async fn spawn_team(&self, spec: TeamSpec) -> OrchestratorResult<()>;
 
     /// Assign a task to an existing team.
     async fn assign_task(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: TabId,
         assignment: TaskAssignment,
     ) -> OrchestratorResult<()>;
 
-    /// Post a message into the team's mailbox.
+    /// Post a message into the team's mailbox. Routes to the per-tab claude
+    /// subprocess for `(workspace_id, tab_id)`; tabs in the same workspace
+    /// hold independent conversation memory and context windows.
     async fn post_message(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: TabId,
         author_role: String,
         body: String,
     ) -> OrchestratorResult<()>;
@@ -178,6 +191,8 @@ pub trait Orchestrator: Send + Sync {
         rx
     }
 
-    /// Tear the team down (cleanup subprocess, file watchers).
-    async fn shutdown(&self, workspace_id: WorkspaceId) -> OrchestratorResult<()>;
+    /// Tear one tab's team down (cleanup subprocess, file watchers). To
+    /// shut down every tab in a workspace, callers enumerate the workspace's
+    /// open tabs and call this for each.
+    async fn shutdown(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()>;
 }

@@ -765,3 +765,16 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - deviations: none. The `·` dot is gone — that was a placeholder visual marker, not a documented design-language axiom; the chevron carries the same monochrome weight at rest while signaling click-to-expand without ambiguity.
 - feedback: ships 23.C.f1 (chevron discoverability) and 23.C.f4 (retry on error) from the parked roadmap section. f2 + f3 stay parked — f2 is speculative without a parent-collapse consumer, f3 is explicit Phase-23 v2 polish needing a coalescing primitive in `WorkspaceThread`. NB: visual-regression baselines (`workspace-thread--{light,dark}.png`) need regeneration via `gh workflow run regenerate-visual-baselines.yml -f branch=tool-line-discoverability` since the head now renders a chevron icon where the dot used to be.
 
+## 2026-05-03T00:05:00Z — manual (Phase 23.E follow-up: migration banner + ChannelClosed copy)
+
+- prompt: "Address PR #95 follow-ups: one-time migration banner explaining pre-23.E session reset; humanize the ChannelClosed Display that was leaking UUIDs to user-facing alerts."
+- trigger: manual (post-merge follow-up to PR #95; closes two of the three deferred FOLLOW-UPs from the staff-perspective-review notes — the third, a memory chip, stays deferred until dogfood signal)
+- archetype-reused: none (mirrors `UpdatePrompt`'s floating-pill pattern — bespoke `<div>` chrome, not a shared archetype yet; consolidate if a third banner-like surface lands)
+- components-reused: Onboarding (localStorage persistence + Escape-to-dismiss pattern)
+- components-new: PreTabSessionBanner (top-center floating pill, fires once for upgraders; aria-live polite, dismissible by button or Escape; detection signal is "any project carries a workspace" — fresh installs land silent)
+- primitives: none
+- tokens: --space-1, --space-3, --space-4, --color-foreground, --color-muted, --color-surface-overlay, --color-surface-raised, --color-border, --border-thin, --radius-pill, --radius-button, --type-family-sans, --type-caption-size, --weight-medium, --motion-interactive, --focus-outline-width, --focus-outline-color, --focus-outline-offset, --surface-shadow, --layer-raised (all pre-existing)
+- invariants: 6/6 pass
+- deviations: none on the CSS side. Detection signal carries a known false-positive: a fresh-install user who creates their first workspace post-23.E will see the banner whose copy ("your existing chats start fresh") technically doesn't apply to them. Documented as FOLLOW-UP in the PR body; revisit if dogfood reports friction. The Rust side has no design surface — `humanize_dispatch_error` is a pattern-matched copy helper invoked from `core_agents::post_message` recovery paths.
+- feedback: addresses staff-perspective-review BLOCKERs caught on the second-round review — (1) Escape-key parity with Onboarding (added `keydown` listener gated on render); (2) test assertion `||` → `&&` so a partial UUID leak (e.g. only "workspace 0192…" without "tab …") still fails; (3) dead `useEffect` removed from PreTabSessionBanner. Component-manifest entry added; this entry closes the Mini procedure §6–7 obligations.
+

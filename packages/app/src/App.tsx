@@ -12,6 +12,7 @@ import { FrictionButton } from "./components/Friction/FrictionButton";
 import { SelectionOverlay } from "./components/Friction/SelectionOverlay";
 import { FrictionWidget } from "./components/Friction/FrictionWidget";
 import { UpdatePrompt } from "./components/UpdatePrompt";
+import { PreTabSessionBanner } from "./components/PreTabSessionBanner";
 import { bootData, dataStore, useDataState } from "./store/data";
 import {
   appStore,
@@ -93,6 +94,7 @@ export function App() {
           <AppDialog />
           <CreateProjectModal />
           <Onboarding />
+          <PreTabSessionBanner />
           {/* Track 13.K — Friction. Bottom-right is reserved for the
               FrictionButton; the dev panel was relocated to bottom-left
               as part of this work. */}

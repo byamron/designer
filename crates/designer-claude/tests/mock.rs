@@ -1,7 +1,9 @@
 use designer_claude::{
     MockOrchestrator, Orchestrator, OrchestratorEvent, TaskAssignment, TeamSpec,
 };
-use designer_core::{EventStore, SqliteEventStore, StreamId, StreamOptions, TaskId, WorkspaceId};
+use designer_core::{
+    EventStore, SqliteEventStore, StreamId, StreamOptions, TabId, TaskId, WorkspaceId,
+};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -11,8 +13,10 @@ async fn mock_spawns_team_emits_expected_events() {
     let mut stream = orch.subscribe();
 
     let ws = WorkspaceId::new();
+    let tab = TabId::new();
     orch.spawn_team(TeamSpec {
         workspace_id: ws,
+        tab_id: tab,
         team_name: "onboarding".into(),
         lead_role: "team-lead".into(),
         teammates: vec!["design-reviewer".into(), "test-runner".into()],
@@ -46,8 +50,10 @@ async fn mock_assign_task_produces_create_and_complete() {
     let store = Arc::new(SqliteEventStore::open_in_memory().unwrap());
     let orch = MockOrchestrator::new(store.clone());
     let ws = WorkspaceId::new();
+    let tab = TabId::new();
     orch.spawn_team(TeamSpec {
         workspace_id: ws,
+        tab_id: tab,
         team_name: "build".into(),
         lead_role: "team-lead".into(),
         teammates: vec![],
@@ -60,6 +66,7 @@ async fn mock_assign_task_produces_create_and_complete() {
 
     orch.assign_task(
         ws,
+        tab,
         TaskAssignment {
             task_id: TaskId::new(),
             title: "wire auth".into(),
