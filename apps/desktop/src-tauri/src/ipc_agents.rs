@@ -110,10 +110,14 @@ mod tests {
             .await
             .unwrap();
         // Pre-spawn the team so the round-trip doesn't have to traverse
-        // the lazy-spawn path (covered separately).
+        // the lazy-spawn path (covered separately). Phase 23.E spawns
+        // per-tab; this test posts with `tab_id: None`, which AppCore
+        // resolves to the legacy nil sentinel — so the spec uses the
+        // same sentinel.
         core.orchestrator
             .spawn_team(designer_claude::TeamSpec {
                 workspace_id: ws.id,
+                tab_id: designer_core::TabId::from_uuid(uuid::Uuid::nil()),
                 team_name: "t".into(),
                 lead_role: "assistant".into(),
                 teammates: vec![],

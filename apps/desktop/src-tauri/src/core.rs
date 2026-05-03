@@ -28,6 +28,27 @@ use tracing::{info, warn};
 
 use crate::core_local::SummaryDebounce;
 
+/// Phase 23.E sentinel: the `TabId` used for legacy callers that post
+/// without naming a tab (boot/replay paths, demo mode, pre-tab-aware
+/// frontends). The single canonical source — `core_agents` re-exports
+/// this so dispatch and lifecycle code share one definition and a
+/// future change to the sentinel shape (e.g. a workspace-derived
+/// UUIDv5) only edits one file.
+pub(crate) fn default_tab_id_for_workspace() -> TabId {
+    TabId::from_uuid(uuid::Uuid::nil())
+}
+
+/// Upper bound on user-initiated shutdown wall time (close tab,
+/// archive workspace, delete workspace). Phase 23.E: the orchestrator's
+/// internal `SHUTDOWN_TIMEOUT` is 60s for graceful exit, which is the
+/// right ceiling for a *background* teardown but unacceptable for a
+/// click-and-wait IPC. 5s lets a healthy lead exit gracefully on the
+/// happy path while keeping the worst case under "did the app freeze?"
+/// territory; on timeout, the future is dropped and the orchestrator's
+/// `kill_on_drop(true)` on the `Child` handle reaps the subprocess
+/// synchronously, so no zombie processes leak.
+const USER_INITIATED_SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub data_dir: PathBuf,
@@ -311,16 +332,18 @@ pub struct AppCore {
     /// back to first-tab attribution.
     pub(crate) last_user_tab_by_workspace:
         Arc<parking_lot::RwLock<std::collections::HashMap<WorkspaceId, TabId>>>,
-    /// Per-workspace record of the Claude CLI model the current team
-    /// was spawned with (e.g. `claude-haiku-4-5`). `core_agents::post_message`
-    /// reads this to decide whether the user's requested model differs
-    /// from the running team — if so, the team is respawned. `None` for
-    /// a workspace means no model has been pinned (lazy-spawn will use
-    /// the orchestrator default). Cleared lazily; a stale entry is
-    /// harmless because the respawn comparator falls back to "spawn"
-    /// on `TeamNotFound` anyway.
-    pub(crate) team_model_by_workspace:
-        Arc<parking_lot::RwLock<std::collections::HashMap<WorkspaceId, String>>>,
+    /// Per-(workspace, tab) record of the Claude CLI model the current
+    /// team was spawned with (e.g. `claude-haiku-4-5`). Phase 23.E:
+    /// each tab owns its own subprocess, so model selection is per-tab —
+    /// switching model on tab A must not respawn tab B.
+    /// `core_agents::post_message` reads this to decide whether the
+    /// user's requested model differs from the running tab team. `None`
+    /// for a `(workspace, tab)` pair means no model has been pinned
+    /// (lazy-spawn will use the orchestrator default). Cleared lazily;
+    /// a stale entry is harmless because the respawn comparator falls
+    /// back to "spawn" on `TeamNotFound` anyway.
+    pub(crate) team_model_by_tab:
+        Arc<parking_lot::RwLock<std::collections::HashMap<(WorkspaceId, TabId), String>>>,
 }
 
 #[async_trait]
@@ -423,9 +446,7 @@ impl AppCore {
             last_user_tab_by_workspace: Arc::new(parking_lot::RwLock::new(
                 std::collections::HashMap::new(),
             )),
-            team_model_by_workspace: Arc::new(parking_lot::RwLock::new(
-                std::collections::HashMap::new(),
-            )),
+            team_model_by_tab: Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new())),
         });
         spawn_cost_subscriber(Arc::downgrade(&core), signal_rx);
         core.spawn_projector_task();
@@ -750,9 +771,10 @@ impl AppCore {
 
     /// Soft-archive a workspace. Idempotent: calling on an already-archived
     /// workspace is a no-op so a double-clicked menu item doesn't double-
-    /// write the state-change event. The chat session is shut down so the
-    /// claude subprocess doesn't keep ticking in the background; restoring
-    /// the workspace lazy-spawns it on the next message.
+    /// write the state-change event. Every per-tab claude subprocess in
+    /// the workspace is shut down so nothing keeps ticking in the
+    /// background; restoring the workspace lazy-spawns each tab on the
+    /// next message.
     pub async fn archive_workspace(&self, workspace_id: WorkspaceId) -> designer_core::Result<()> {
         let ws = self
             .projector
@@ -774,10 +796,13 @@ impl AppCore {
             )
             .await?;
         self.projector.apply(&env);
-        // Best-effort orchestrator teardown — if the orchestrator hasn't
-        // spawned a session for this workspace yet, `shutdown` is a no-op
-        // (TeamNotFound is folded into Ok by the impls).
-        let _ = self.orchestrator.shutdown(workspace_id).await;
+        // Phase 23.E: fan shutdown out across every tab in the workspace.
+        // Best-effort — if a tab never spawned a team, `shutdown` is a
+        // no-op (TeamNotFound is folded into Ok by the impls). Always
+        // include the legacy `default_tab_id` sentinel so a workspace
+        // that received pre-tab-aware messages also gets cleaned up.
+        self.shutdown_all_workspace_tabs(workspace_id, &ws.tabs)
+            .await;
         Ok(())
     }
 
@@ -816,7 +841,8 @@ impl AppCore {
     pub async fn delete_workspace(&self, workspace_id: WorkspaceId) -> designer_core::Result<()> {
         // Verify it exists before writing the delete event so a missing id
         // is a NotFound, not a silently-ignored append.
-        self.projector
+        let ws = self
+            .projector
             .workspace(workspace_id)
             .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
         let env = self
@@ -829,7 +855,12 @@ impl AppCore {
             )
             .await?;
         self.projector.apply(&env);
-        let _ = self.orchestrator.shutdown(workspace_id).await;
+        // Phase 23.E: same fan-out shape as archive. The projector has
+        // already dropped the workspace entry by the time we read the
+        // tab list above (we read it pre-append), so this enumerates the
+        // tabs the workspace had at delete time.
+        self.shutdown_all_workspace_tabs(workspace_id, &ws.tabs)
+            .await;
         Ok(())
     }
 
@@ -868,6 +899,13 @@ impl AppCore {
 
     /// Close a tab. Idempotent — re-closing an already-closed tab is a no-op
     /// so a double-clicked X button doesn't double-write `TabClosed`.
+    /// Phase 23.E: the tab's claude subprocess is shut down before the
+    /// `TabClosed` event lands so the orchestrator's team map doesn't
+    /// leak a handle. Bounded by [`USER_INITIATED_SHUTDOWN_BUDGET`] so
+    /// the user-facing IPC never blocks for the orchestrator's full 60s
+    /// graceful-exit window — when the budget elapses, the future is
+    /// dropped and `kill_on_drop(true)` on the contained `Child` reaps
+    /// the subprocess synchronously.
     pub async fn close_tab(
         &self,
         workspace_id: WorkspaceId,
@@ -885,6 +923,24 @@ impl AppCore {
         if tab.closed_at.is_some() {
             return Ok(());
         }
+        // Shut down the per-tab subprocess before recording the close —
+        // ordering doesn't actually matter for correctness (shutdown is
+        // best-effort and TabClosed is durable), but doing it first makes
+        // the trace easier to read: "subprocess died, then tab closed".
+        // The legacy `default_tab_id` sentinel is also cleared in case
+        // pre-tab-aware code in the same workspace is keeping a session
+        // open under it (post_message with `tab_id: None`). Both calls
+        // run concurrently so worst-case wall time is one budget, not
+        // two.
+        let primary = self.orchestrator.shutdown(workspace_id, tab_id);
+        let legacy = self
+            .orchestrator
+            .shutdown(workspace_id, default_tab_id_for_workspace());
+        let _ = tokio::time::timeout(
+            USER_INITIATED_SHUTDOWN_BUDGET,
+            futures::future::join(primary, legacy),
+        )
+        .await;
         let env = self
             .store
             .append(
@@ -896,6 +952,37 @@ impl AppCore {
             .await?;
         self.projector.apply(&env);
         Ok(())
+    }
+
+    /// Phase 23.E helper: shut down every per-tab claude subprocess for
+    /// this workspace. Includes the legacy `default_tab_id` sentinel so
+    /// a workspace that received pre-tab-aware messages also gets
+    /// cleaned up. Best-effort: per-tab shutdown errors are swallowed
+    /// because archive/delete must always converge to a "no live
+    /// subprocesses" state.
+    ///
+    /// Shutdowns run **concurrently** via `join_all`, not sequentially —
+    /// a sequential loop would multiply each tab's 60s graceful window
+    /// (5 tabs × 60s = 5 min of user-visible hang on archive). The
+    /// total wall time is further bounded by
+    /// [`USER_INITIATED_SHUTDOWN_BUDGET`] so a misbehaving tab can't
+    /// block archive/delete past that ceiling; `kill_on_drop` on the
+    /// orchestrator's `Child` handles still reap the subprocess
+    /// synchronously when the future is dropped.
+    async fn shutdown_all_workspace_tabs(&self, workspace_id: WorkspaceId, tabs: &[Tab]) {
+        let mut futs: Vec<_> = tabs
+            .iter()
+            .map(|t| self.orchestrator.shutdown(workspace_id, t.id))
+            .collect();
+        futs.push(
+            self.orchestrator
+                .shutdown(workspace_id, default_tab_id_for_workspace()),
+        );
+        let _ = tokio::time::timeout(
+            USER_INITIATED_SHUTDOWN_BUDGET,
+            futures::future::join_all(futs),
+        )
+        .await;
     }
 
     /// Derive an activity-spine view from the projector. Summaries are `None`
@@ -1015,29 +1102,30 @@ impl AppCore {
             .insert(workspace_id, tab_id);
     }
 
-    /// Read the Claude CLI model the workspace's current team was
-    /// spawned with (e.g. `claude-haiku-4-5`). Returns `None` if no
-    /// team is pinned to a model — the next spawn will use the
-    /// orchestrator's default.
-    pub fn team_model(&self, workspace_id: WorkspaceId) -> Option<String> {
-        self.team_model_by_workspace
+    /// Read the Claude CLI model the `(workspace, tab)` team is currently
+    /// pinned to (e.g. `claude-haiku-4-5`). Returns `None` if no team is
+    /// pinned to a model — the next spawn will use the orchestrator's
+    /// default. Phase 23.E: keyed per-tab so model changes don't bleed
+    /// across tabs.
+    pub fn team_model(&self, workspace_id: WorkspaceId, tab_id: TabId) -> Option<String> {
+        self.team_model_by_tab
             .read()
-            .get(&workspace_id)
+            .get(&(workspace_id, tab_id))
             .cloned()
     }
 
-    /// Pin the current team's Claude CLI model. Called from
+    /// Pin the `(workspace, tab)` team's Claude CLI model. Called from
     /// `core_agents::post_message` after a successful spawn so the
     /// next message can detect a model change without re-querying the
     /// orchestrator.
-    pub fn set_team_model(&self, workspace_id: WorkspaceId, model: Option<String>) {
-        let mut w = self.team_model_by_workspace.write();
+    pub fn set_team_model(&self, workspace_id: WorkspaceId, tab_id: TabId, model: Option<String>) {
+        let mut w = self.team_model_by_tab.write();
         match model {
             Some(m) => {
-                w.insert(workspace_id, m);
+                w.insert((workspace_id, tab_id), m);
             }
             None => {
-                w.remove(&workspace_id);
+                w.remove(&(workspace_id, tab_id));
             }
         }
     }

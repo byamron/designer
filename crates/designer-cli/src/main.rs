@@ -12,7 +12,7 @@
 use designer_claude::{MockOrchestrator, Orchestrator, TaskAssignment, TeamSpec};
 use designer_core::{
     Actor, EventPayload, EventStore, FrictionId, ProjectId, Projection, Projector,
-    SqliteEventStore, StreamId, StreamOptions, TaskId, WorkspaceId,
+    SqliteEventStore, StreamId, StreamOptions, TabId, TaskId, WorkspaceId,
 };
 use designer_ipc::{project_friction, FrictionEntry, FrictionState};
 use std::path::PathBuf;
@@ -171,6 +171,8 @@ async fn run_demo() -> anyhow::Result<()> {
 
     let project_id = ProjectId::new();
     let workspace_id = WorkspaceId::new();
+    // Phase 23.E demo: one tab, one team, one claude subprocess.
+    let tab_id = TabId::new();
 
     store
         .append(
@@ -202,6 +204,7 @@ async fn run_demo() -> anyhow::Result<()> {
     orchestrator
         .spawn_team(TeamSpec {
             workspace_id,
+            tab_id,
             team_name: "onboarding".into(),
             lead_role: "team-lead".into(),
             teammates: vec!["design-reviewer".into(), "test-runner".into()],
@@ -214,6 +217,7 @@ async fn run_demo() -> anyhow::Result<()> {
     orchestrator
         .assign_task(
             workspace_id,
+            tab_id,
             TaskAssignment {
                 task_id: TaskId::new(),
                 title: "Draft initial onboarding flow".into(),

@@ -933,6 +933,7 @@ dependencies = [
  "designer-local-models",
  "designer-safety",
  "designer-sync",
+ "futures",
  "hex",
  "notify-debouncer-mini",
  "once_cell",

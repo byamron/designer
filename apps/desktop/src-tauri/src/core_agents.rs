@@ -28,6 +28,24 @@ use tokio::time::interval;
 use tracing::{debug, info, warn};
 use uuid::{NoContext, Timestamp, Uuid};
 
+/// Sentinel `TabId` used when a caller posts to a workspace without
+/// naming a tab. The orchestrator's team map is keyed by `(workspace,
+/// tab)`, so we need *some* `TabId` for the legacy-no-tab path. A nil
+/// UUID can't collide with a real tab id (those are UUIDv7) and stays
+/// stable across restarts so resume works for the workspace-wide
+/// session. Thin wrapper around [`crate::core::default_tab_id_for_workspace`]
+/// so dispatch (this module) and lifecycle (close/archive/delete) share
+/// one canonical source.
+fn default_tab_id() -> TabId {
+    crate::core::default_tab_id_for_workspace()
+}
+
+/// Resolve an `Option<TabId>` to a concrete `TabId` for the orchestrator
+/// dispatch key. `None` → [`default_tab_id`].
+fn resolve_tab(tab_id: Option<TabId>) -> TabId {
+    tab_id.unwrap_or_else(default_tab_id)
+}
+
 /// Author-role we tag user-originated messages with on the wire. Constant
 /// here so the coalescer can filter user echoes by exact match instead of
 /// stringly-typed comparisons scattered across the file.
@@ -100,6 +118,12 @@ impl AppCore {
             self.set_last_user_tab(workspace_id, t);
         }
 
+        // Phase 23.E: every dispatch picks one (workspace, tab) team. A
+        // legacy `None` tab_id resolves to a per-workspace nil sentinel
+        // so back-compat callers (boot/replay edge cases without an
+        // active tab) still get a real key.
+        let dispatch_tab = resolve_tab(tab_id);
+
         // Map the frontend identifier (e.g. `haiku-4.5`) to the Claude
         // CLI's `--model` argument. Unknown identifiers fall through as
         // `None` — orchestrator default applies.
@@ -112,17 +136,22 @@ impl AppCore {
         // restart the subprocess. Session id is workspace-derived
         // (UUIDv5) so Claude resumes the same session — conversation
         // history is preserved across the swap.
-        let current_cli_model = self.team_model(workspace_id);
+        //
+        // Phase 23.E: model is per-tab, so the comparator is keyed by
+        // `(workspace, tab)` — switching model on tab A does not
+        // respawn tab B.
+        let current_cli_model = self.team_model(workspace_id, dispatch_tab);
         if requested_cli_model.is_some()
             && requested_cli_model.as_deref() != current_cli_model.as_deref()
         {
             info!(
                 %workspace_id,
+                tab = %dispatch_tab,
                 from = ?current_cli_model,
                 to = ?requested_cli_model,
-                "model change requested; respawning team"
+                "model change requested; respawning tab team"
             );
-            self.spawn_workspace_team(workspace_id, requested_cli_model.clone())
+            self.spawn_tab_team(workspace_id, dispatch_tab, requested_cli_model.clone())
                 .await
                 .map_err(|e| CoreError::Invariant(format!("couldn't reach Claude — {e}")))?;
         }
@@ -147,7 +176,12 @@ impl AppCore {
         //    instead of staring at "submitting…" for a minute.
         match self
             .orchestrator
-            .post_message(workspace_id, USER_AUTHOR_ROLE.into(), body.clone())
+            .post_message(
+                workspace_id,
+                dispatch_tab,
+                USER_AUTHOR_ROLE.into(),
+                body.clone(),
+            )
             .await
         {
             Ok(()) => {}
@@ -156,25 +190,31 @@ impl AppCore {
                 if matches!(e, OrchestratorError::ChannelClosed { .. }) {
                     info!(
                         %workspace_id,
+                        tab = %dispatch_tab,
                         "post_message hit a stale team handle; respawning (insert+drop will kill the old child via kill_on_drop)"
                     );
                 }
-                self.spawn_workspace_team(workspace_id, requested_cli_model.clone())
+                self.spawn_tab_team(workspace_id, dispatch_tab, requested_cli_model.clone())
                     .await
                     .map_err(|e| CoreError::Invariant(format!("couldn't reach Claude — {e}")))?;
                 if let Err(e) = self
                     .orchestrator
-                    .post_message(workspace_id, USER_AUTHOR_ROLE.into(), body.clone())
+                    .post_message(
+                        workspace_id,
+                        dispatch_tab,
+                        USER_AUTHOR_ROLE.into(),
+                        body.clone(),
+                    )
                     .await
                 {
-                    warn!(error = %e, %workspace_id, "post_message after lazy spawn failed");
+                    warn!(error = %e, %workspace_id, tab = %dispatch_tab, "post_message after lazy spawn failed");
                     return Err(CoreError::Invariant(format!(
                         "couldn't deliver your message to Claude — {e}"
                     )));
                 }
             }
             Err(e) => {
-                warn!(error = %e, %workspace_id, "orchestrator post_message failed");
+                warn!(error = %e, %workspace_id, tab = %dispatch_tab, "orchestrator post_message failed");
                 return Err(CoreError::Invariant(format!(
                     "couldn't deliver your message to Claude — {e}"
                 )));
@@ -224,15 +264,22 @@ impl AppCore {
         Ok(artifact_id)
     }
 
-    /// Lazy-spawn (or respawn) the workspace's chat team with the given
-    /// Claude CLI model override. Records the model in
-    /// `team_model_by_workspace` so a later `post_message` can detect a
+    /// Lazy-spawn (or respawn) one tab's chat team with the given Claude
+    /// CLI model override. Records the model in `team_model_by_tab` so a
+    /// later `post_message` for the same `(workspace, tab)` can detect a
     /// model change without re-querying the orchestrator. Reuses the
     /// project's repo root as the cwd so the lead's tools resolve
     /// against the user's code.
-    pub(crate) async fn spawn_workspace_team(
+    ///
+    /// Phase 23.E renamed this from `spawn_workspace_team` to surface the
+    /// per-tab dispatch contract — every team is owned by one
+    /// `(workspace, tab)` pair, never the workspace as a whole. A future
+    /// multi-agent-dispatch path can introduce a separate spawn helper
+    /// without re-litigating the per-tab default.
+    pub(crate) async fn spawn_tab_team(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: TabId,
         model: Option<String>,
     ) -> Result<(), OrchestratorError> {
         let cwd = self
@@ -249,7 +296,8 @@ impl AppCore {
         // behind a future opt-in `TeamSpec` variant.
         let spec = TeamSpec {
             workspace_id,
-            team_name: format!("workspace-{workspace_id}"),
+            tab_id,
+            team_name: format!("workspace-{workspace_id}-tab-{tab_id}"),
             lead_role: "assistant".into(),
             teammates: vec![],
             env: Default::default(),
@@ -258,11 +306,11 @@ impl AppCore {
         };
         match self.orchestrator.spawn_team(spec).await {
             Ok(()) => {
-                self.set_team_model(workspace_id, model);
+                self.set_team_model(workspace_id, tab_id, model);
                 Ok(())
             }
             Err(e) => {
-                warn!(error = %e, %workspace_id, "spawn_team failed");
+                warn!(error = %e, %workspace_id, %tab_id, "spawn_team failed");
                 Err(e)
             }
         }
@@ -720,6 +768,7 @@ mod tests {
         core.orchestrator
             .spawn_team(designer_claude::TeamSpec {
                 workspace_id: ws.id,
+                tab_id: default_tab_id(),
                 team_name: "t".into(),
                 lead_role: "team-lead".into(),
                 teammates: vec![],
@@ -869,6 +918,7 @@ mod tests {
         core.orchestrator
             .spawn_team(designer_claude::TeamSpec {
                 workspace_id: ws.id,
+                tab_id: default_tab_id(),
                 team_name: "t".into(),
                 lead_role: "team-lead".into(),
                 teammates: vec![],
@@ -977,6 +1027,7 @@ mod tests {
         core.orchestrator
             .spawn_team(designer_claude::TeamSpec {
                 workspace_id: ws.id,
+                tab_id: default_tab_id(),
                 team_name: "t".into(),
                 lead_role: "team-lead".into(),
                 teammates: vec![],
@@ -1054,6 +1105,7 @@ mod tests {
         core.orchestrator
             .spawn_team(designer_claude::TeamSpec {
                 workspace_id: ws.id,
+                tab_id: default_tab_id(),
                 team_name: "t".into(),
                 lead_role: "team-lead".into(),
                 teammates: vec![],
@@ -1142,6 +1194,7 @@ mod tests {
         core.orchestrator
             .spawn_team(designer_claude::TeamSpec {
                 workspace_id: ws.id,
+                tab_id: default_tab_id(),
                 team_name: "t".into(),
                 lead_role: "team-lead".into(),
                 teammates: vec![],
@@ -1270,6 +1323,7 @@ mod tests {
         async fn assign_task(
             &self,
             _ws: WorkspaceId,
+            _tab_id: TabId,
             _a: designer_claude::TaskAssignment,
         ) -> designer_claude::OrchestratorResult<()> {
             Ok(())
@@ -1277,12 +1331,16 @@ mod tests {
         async fn post_message(
             &self,
             workspace_id: WorkspaceId,
+            tab_id: TabId,
             _author_role: String,
             _body: String,
         ) -> designer_claude::OrchestratorResult<()> {
             let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if n == 0 {
-                Err(designer_claude::OrchestratorError::ChannelClosed { workspace_id })
+                Err(designer_claude::OrchestratorError::ChannelClosed {
+                    workspace_id,
+                    tab_id,
+                })
             } else {
                 match self.second_post_result.lock().take() {
                     Some(err) => Err(err),
@@ -1300,7 +1358,11 @@ mod tests {
             drop(tx);
             rx
         }
-        async fn shutdown(&self, _ws: WorkspaceId) -> designer_claude::OrchestratorResult<()> {
+        async fn shutdown(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+        ) -> designer_claude::OrchestratorResult<()> {
             self.shutdown_calls
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(())
@@ -1411,6 +1473,7 @@ mod tests {
         *flaky.second_post_result.lock() =
             Some(designer_claude::OrchestratorError::ChannelClosed {
                 workspace_id: WorkspaceId::new(),
+                tab_id: default_tab_id(),
             });
 
         let project = core
@@ -1497,7 +1560,7 @@ mod tests {
             .unwrap();
 
         // No model pinned at start.
-        assert_eq!(core.team_model(ws.id), None);
+        assert_eq!(core.team_model(ws.id, default_tab_id()), None);
 
         // First post with `haiku-4.5` lazy-spawns a team and pins the
         // Claude CLI name.
@@ -1505,7 +1568,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            core.team_model(ws.id).as_deref(),
+            core.team_model(ws.id, default_tab_id()).as_deref(),
             Some("claude-haiku-4-5"),
             "first post should pin the Claude CLI model name"
         );
@@ -1515,14 +1578,17 @@ mod tests {
         core.post_message(ws.id, None, Some("haiku-4.5".into()), "second".into())
             .await
             .unwrap();
-        assert_eq!(core.team_model(ws.id).as_deref(), Some("claude-haiku-4-5"));
+        assert_eq!(
+            core.team_model(ws.id, default_tab_id()).as_deref(),
+            Some("claude-haiku-4-5")
+        );
 
         // Switching to sonnet respawns; the recorded model flips.
         core.post_message(ws.id, None, Some("sonnet-4.6".into()), "third".into())
             .await
             .unwrap();
         assert_eq!(
-            core.team_model(ws.id).as_deref(),
+            core.team_model(ws.id, default_tab_id()).as_deref(),
             Some("claude-sonnet-4-6"),
             "model switch should respawn and update the recorded model"
         );
@@ -1548,9 +1614,382 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            core.team_model(ws.id),
+            core.team_model(ws.id, default_tab_id()),
             None,
             "no model pinned when the request omits one"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Phase 23.E acceptance tests (T-23E-2 .. T-23E-6).
+    //
+    // T-23E-1 (distinct session ids) is in-crate alongside
+    // `derive_session_id` — see
+    // `designer-claude::claude_code::tests::session_id_is_deterministic_per_workspace_and_tab`.
+    // ----------------------------------------------------------------
+
+    /// Build an `AppCore` whose orchestrator is a fresh `MockOrchestrator`
+    /// the test owns a handle to. The standard `boot_test_core()` builds
+    /// AppCore with an internally-constructed `MockOrchestrator` that the
+    /// test can't introspect; the per-tab acceptance tests need to assert
+    /// "two distinct teams in the map", which requires a typed handle.
+    async fn boot_core_with_mock() -> (
+        Arc<AppCore>,
+        Arc<designer_claude::MockOrchestrator<designer_core::SqliteEventStore>>,
+    ) {
+        std::env::set_var("DESIGNER_MESSAGE_COALESCE_MS", "5");
+        let dir = tempdir().unwrap();
+        let store =
+            Arc::new(designer_core::SqliteEventStore::open(dir.path().join("events.db")).unwrap());
+        let mock = Arc::new(designer_claude::MockOrchestrator::new(store.clone()));
+        let config = AppConfig {
+            data_dir: dir.path().to_path_buf(),
+            use_mock_orchestrator: true,
+            claude_options: Default::default(),
+            default_cost_cap: CostCap {
+                max_dollars_cents: None,
+                max_tokens: None,
+            },
+            helper_binary_path: None,
+        };
+        std::mem::forget(dir);
+        let mock_dyn: Arc<dyn designer_claude::Orchestrator> = mock.clone();
+        let core = AppCore::boot_with_orchestrator(config, Some(mock_dyn))
+            .await
+            .unwrap();
+        (core, mock)
+    }
+
+    /// T-23E-2 — parallel post round-trips. Two tabs in one workspace
+    /// each lazy-spawn their own team; the orchestrator's teams map ends
+    /// up with two distinct `(workspace, tab)` entries. Posts on tab A
+    /// and tab B do not collide on a single session.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_23e_2_parallel_tabs_get_distinct_teams() {
+        let (core, mock) = boot_core_with_mock().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab_a = core
+            .open_tab(ws.id, "A".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        let tab_b = core
+            .open_tab(ws.id, "B".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+
+        core.post_message(ws.id, Some(tab_a.id), None, "from A".into())
+            .await
+            .unwrap();
+        core.post_message(ws.id, Some(tab_b.id), None, "from B".into())
+            .await
+            .unwrap();
+
+        let keys = mock.team_keys();
+        assert_eq!(keys.len(), 2, "expected one team per tab; got {keys:?}");
+        assert!(keys.contains(&(ws.id, tab_a.id)));
+        assert!(keys.contains(&(ws.id, tab_b.id)));
+    }
+
+    /// T-23E-3 — close tab kills its subprocess. Spawn the team via a
+    /// post; close the tab; assert the orchestrator's teams map no
+    /// longer carries `(workspace_id, tab_id)`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_23e_3_close_tab_shuts_down_team() {
+        let (core, mock) = boot_core_with_mock().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab = core
+            .open_tab(ws.id, "T".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        core.post_message(ws.id, Some(tab.id), None, "hi".into())
+            .await
+            .unwrap();
+        assert!(mock.team_keys().contains(&(ws.id, tab.id)));
+
+        core.close_tab(ws.id, tab.id).await.unwrap();
+        assert!(
+            !mock.team_keys().contains(&(ws.id, tab.id)),
+            "closed tab's team must be removed from the orchestrator map"
+        );
+    }
+
+    /// T-23E-4 — archive workspace shuts down all tabs. A workspace with
+    /// three open tabs, all with live teams, archives to zero teams.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_23e_4_archive_shuts_down_all_tabs() {
+        let (core, mock) = boot_core_with_mock().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let mut tab_ids = vec![];
+        for name in ["A", "B", "C"] {
+            let t = core
+                .open_tab(ws.id, name.into(), designer_core::TabTemplate::Thread)
+                .await
+                .unwrap();
+            core.post_message(ws.id, Some(t.id), None, format!("hi {name}"))
+                .await
+                .unwrap();
+            tab_ids.push(t.id);
+        }
+        assert_eq!(
+            mock.team_keys().iter().filter(|(w, _)| *w == ws.id).count(),
+            3
+        );
+        core.archive_workspace(ws.id).await.unwrap();
+        let remaining = mock
+            .team_keys()
+            .into_iter()
+            .filter(|(w, _)| *w == ws.id)
+            .count();
+        assert_eq!(
+            remaining, 0,
+            "archive must shut down every per-tab team in the workspace"
+        );
+    }
+
+    /// T-23E-5 — model change respawns only the affected tab. Post on
+    /// tab A with haiku and tab B with opus. Switch tab A to sonnet.
+    /// Tab B's recorded model must be untouched.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_23e_5_model_change_respawns_only_affected_tab() {
+        let (core, _mock) = boot_core_with_mock().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab_a = core
+            .open_tab(ws.id, "A".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        let tab_b = core
+            .open_tab(ws.id, "B".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+
+        core.post_message(ws.id, Some(tab_a.id), Some("haiku-4.5".into()), "a".into())
+            .await
+            .unwrap();
+        core.post_message(ws.id, Some(tab_b.id), Some("opus-4.7".into()), "b".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            core.team_model(ws.id, tab_a.id).as_deref(),
+            Some("claude-haiku-4-5")
+        );
+        assert_eq!(
+            core.team_model(ws.id, tab_b.id).as_deref(),
+            Some("claude-opus-4-7")
+        );
+
+        // Switch tab A to sonnet — tab B must stay on opus.
+        core.post_message(
+            ws.id,
+            Some(tab_a.id),
+            Some("sonnet-4.6".into()),
+            "a2".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            core.team_model(ws.id, tab_a.id).as_deref(),
+            Some("claude-sonnet-4-6")
+        );
+        assert_eq!(
+            core.team_model(ws.id, tab_b.id).as_deref(),
+            Some("claude-opus-4-7"),
+            "tab B's model must not be touched by tab A's switch"
+        );
+    }
+
+    /// T-23E-6 — back-compat with no tabs. A workspace whose projection
+    /// shows zero tabs (legacy / replay edge case) must not crash on
+    /// post_message; the lazy-spawn path uses the nil-sentinel tab id
+    /// and produces exactly one team.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_23e_6_no_tabs_does_not_crash() {
+        let (core, mock) = boot_core_with_mock().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        // No tabs opened — call post_message with `tab_id: None`.
+        core.post_message(ws.id, None, None, "first".into())
+            .await
+            .unwrap();
+        let keys: Vec<_> = mock
+            .team_keys()
+            .into_iter()
+            .filter(|(w, _)| *w == ws.id)
+            .collect();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(
+            keys[0].1,
+            default_tab_id(),
+            "legacy path uses the nil sentinel"
+        );
+    }
+
+    /// Stalling orchestrator: every `shutdown` call parks for 30s before
+    /// returning. The bounded-budget regression below uses this to prove
+    /// `core.close_tab` and `core.archive_workspace` return within the
+    /// 5s `USER_INITIATED_SHUTDOWN_BUDGET`, not the orchestrator's
+    /// internal 60s SHUTDOWN_TIMEOUT × N-tabs.
+    #[cfg(test)]
+    struct StallingOrchestrator {
+        tx: tokio::sync::broadcast::Sender<OrchestratorEvent>,
+    }
+
+    #[cfg(test)]
+    #[async_trait::async_trait]
+    impl designer_claude::Orchestrator for StallingOrchestrator {
+        async fn spawn_team(&self, _spec: TeamSpec) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
+        async fn assign_task(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+            _a: designer_claude::TaskAssignment,
+        ) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
+        async fn post_message(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+            _author_role: String,
+            _body: String,
+        ) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
+        fn subscribe(&self) -> tokio::sync::broadcast::Receiver<OrchestratorEvent> {
+            self.tx.subscribe()
+        }
+        fn subscribe_signals(
+            &self,
+        ) -> tokio::sync::broadcast::Receiver<designer_claude::ClaudeSignal> {
+            let (tx, rx) = tokio::sync::broadcast::channel(1);
+            drop(tx);
+            rx
+        }
+        async fn shutdown(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+        ) -> designer_claude::OrchestratorResult<()> {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok(())
+        }
+    }
+
+    async fn boot_core_with_stalling() -> Arc<AppCore> {
+        let (tx, _rx) = tokio::sync::broadcast::channel(16);
+        let stalling: Arc<dyn designer_claude::Orchestrator> =
+            Arc::new(StallingOrchestrator { tx });
+        let dir = tempdir().unwrap();
+        let config = AppConfig {
+            data_dir: dir.path().to_path_buf(),
+            use_mock_orchestrator: false,
+            claude_options: Default::default(),
+            default_cost_cap: CostCap {
+                max_dollars_cents: None,
+                max_tokens: None,
+            },
+            helper_binary_path: None,
+        };
+        std::mem::forget(dir);
+        AppCore::boot_with_orchestrator(config, Some(stalling))
+            .await
+            .unwrap()
+    }
+
+    /// Regression for the Phase 23.E review BLOCKER: a stalling
+    /// `Orchestrator::shutdown` (30s sleep) must not block `close_tab`
+    /// past the user-initiated budget (5s). Pre-fix, close_tab awaited
+    /// shutdown synchronously and the user paid the full 60s graceful
+    /// window on a dead lead.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn close_tab_returns_within_budget_when_shutdown_stalls() {
+        let core = boot_core_with_stalling().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab = core
+            .open_tab(ws.id, "T".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+
+        let started = Instant::now();
+        core.close_tab(ws.id, tab.id).await.unwrap();
+        let elapsed = started.elapsed();
+        // Budget is 5s. Allow 2s of test/scheduler slack on top.
+        assert!(
+            elapsed < Duration::from_secs(7),
+            "close_tab took {elapsed:?}; must return within the user-initiated shutdown budget"
+        );
+    }
+
+    /// Same regression on the archive path: a workspace with three open
+    /// tabs whose orchestrator stalls 30s per shutdown must finish
+    /// archiving within the 5s budget. Pre-fix, the sequential loop
+    /// would have run 3×30s = 90s before returning; the join_all + bounded
+    /// timeout caps total wall time.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn archive_workspace_returns_within_budget_when_shutdowns_stall() {
+        let core = boot_core_with_stalling().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        for name in ["A", "B", "C"] {
+            core.open_tab(ws.id, name.into(), designer_core::TabTemplate::Thread)
+                .await
+                .unwrap();
+        }
+
+        let started = Instant::now();
+        core.archive_workspace(ws.id).await.unwrap();
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(7),
+            "archive_workspace took {elapsed:?}; bounded shutdown must cap user-visible latency"
         );
     }
 }

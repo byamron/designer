@@ -48,7 +48,7 @@ use crate::orchestrator::{
 use crate::permission::{AutoAcceptSafeTools, PermissionHandler, PermissionRequest};
 use crate::stream::{ClaudeStreamTranslator, TranslatorOutput};
 use async_trait::async_trait;
-use designer_core::{Actor, EventPayload, EventStore, StreamId, WorkspaceId};
+use designer_core::{Actor, EventPayload, EventStore, StreamId, TabId, WorkspaceId};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -64,10 +64,19 @@ use tokio::time::{timeout, Duration};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// Deterministic namespace so lead session ids derived from workspace ids stay
-/// stable across Designer restarts. Value is a fixed v4 UUID generated once
-/// for this project; never rotate — that would break resume.
-const SESSION_NAMESPACE: Uuid = Uuid::from_u128(0x5d3e_7c4a_1f20_4c8e_a9d3_6b7e_2f15_8e01);
+/// Deterministic namespace so per-tab session ids derived from
+/// `(workspace_id, tab_id)` stay stable across Designer restarts.
+///
+/// **Rotated for Phase 23.E.** The pre-23.E namespace was workspace-scoped
+/// and produced sessions whose conversation memory was framed as a shared
+/// "team-mode" thread (interleaved tabs all writing into one stream).
+/// Resuming those sessions under the per-tab dispatch model would inherit
+/// the cross-tab clutter, so 23.E rotates the namespace constant — every
+/// pre-23.E session id is invalidated and the next post lazy-spawns a
+/// clean per-tab session. Documented in `core-docs/pattern-log.md`. Once
+/// rotated, never rotate again — that would break resume for users who
+/// already have per-tab conversation memory.
+const SESSION_NAMESPACE: Uuid = Uuid::from_u128(0x9c4e_2f81_a73d_47b6_b2f1_5d9c_6e84_3a17);
 
 /// How long to wait for the lead to gracefully shut down before we `start_kill`
 /// the child. Per spec Decision 31 follow-up / integration-notes.md: 60s
@@ -138,7 +147,10 @@ pub struct ClaudeCodeOrchestrator<S: EventStore> {
     /// from the main event broadcast so UI-only consumers (the usage chip,
     /// CostTracker) can subscribe independently.
     signal_tx: broadcast::Sender<ClaudeSignal>,
-    teams: Mutex<HashMap<WorkspaceId, TeamHandle>>,
+    /// Phase 23.E: keyed by `(workspace_id, tab_id)`. Each tab in a
+    /// workspace owns one claude subprocess; tabs become true parallel
+    /// agents, not projection-filtered views of a shared conversation.
+    teams: Mutex<HashMap<(WorkspaceId, TabId), TeamHandle>>,
     /// Policy deciding whether a permission-prompted tool use should be
     /// accepted or denied. Default is [`AutoAcceptSafeTools`] (read-only
     /// tools + safe `Bash` prefixes); production swaps in an inbox-routing
@@ -192,19 +204,28 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
             .unwrap_or_else(|| PathBuf::from("claude"))
     }
 
-    fn derive_session_id(&self, workspace_id: WorkspaceId) -> Uuid {
-        // UUIDv5: namespace + workspace id bytes → stable session id.
-        Uuid::new_v5(&SESSION_NAMESPACE, workspace_id.as_uuid().as_bytes())
+    fn derive_session_id(&self, workspace_id: WorkspaceId, tab_id: TabId) -> Uuid {
+        // UUIDv5: namespace + (workspace_id ++ tab_id) bytes → stable
+        // session id. Concatenating both id payloads guarantees that
+        // `(W, A)` and `(W, B)` produce different session ids even if
+        // the namespace stayed the same; the rotation comment above
+        // covers the pre-23.E migration.
+        let mut buf = [0u8; 32];
+        buf[..16].copy_from_slice(workspace_id.as_uuid().as_bytes());
+        buf[16..].copy_from_slice(tab_id.as_uuid().as_bytes());
+        Uuid::new_v5(&SESSION_NAMESPACE, &buf)
     }
 
     fn build_command(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: TabId,
         session_id: Uuid,
         model_override: Option<&str>,
     ) -> Command {
         let mut cmd = Command::new(self.binary());
         cmd.env("DESIGNER_WORKSPACE_ID", workspace_id.to_string());
+        cmd.env("DESIGNER_TAB_ID", tab_id.to_string());
         if let Some(home) = &self.options.claude_home {
             cmd.env("CLAUDE_HOME", home);
         }
@@ -258,9 +279,14 @@ impl<S: EventStore> ClaudeCodeOrchestrator<S> {
 #[async_trait]
 impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
     async fn spawn_team(&self, spec: TeamSpec) -> OrchestratorResult<()> {
-        let session_id = self.derive_session_id(spec.workspace_id);
+        let session_id = self.derive_session_id(spec.workspace_id, spec.tab_id);
         let bin = self.binary();
-        let mut cmd = self.build_command(spec.workspace_id, session_id, spec.model.as_deref());
+        let mut cmd = self.build_command(
+            spec.workspace_id,
+            spec.tab_id,
+            session_id,
+            spec.model.as_deref(),
+        );
         for (k, v) in &spec.env {
             cmd.env(k, v);
         }
@@ -274,6 +300,7 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
 
         info!(
             binary = %bin.display(), workspace = %spec.workspace_id,
+            tab = %spec.tab_id,
             session = %session_id, team = %spec.team_name,
             cwd = ?spec.cwd.as_ref().or(self.options.cwd.as_ref()),
             "spawning claude"
@@ -391,7 +418,7 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         });
 
         self.teams.lock().insert(
-            spec.workspace_id,
+            (spec.workspace_id, spec.tab_id),
             TeamHandle {
                 stdin_tx,
                 reader_task,
@@ -409,23 +436,27 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
     async fn assign_task(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: TabId,
         assignment: TaskAssignment,
     ) -> OrchestratorResult<()> {
         let (tx, child_pid) = {
             let teams = self.teams.lock();
-            let handle = teams
-                .get(&workspace_id)
-                .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?;
+            let handle = teams.get(&(workspace_id, tab_id)).ok_or_else(|| {
+                OrchestratorError::TeamNotFound(format!("{workspace_id}/{tab_id}"))
+            })?;
             (handle.stdin_tx.clone(), handle.child_pid)
         };
         let prompt = build_task_prompt(&assignment);
         let line = user_message_line(&prompt)?;
         tx.send(line).await.map_err(|_| {
             warn!(
-                workspace = %workspace_id, pid = ?child_pid,
+                workspace = %workspace_id, tab = %tab_id, pid = ?child_pid,
                 "assign_task: stdin channel closed (writer task exited)"
             );
-            OrchestratorError::ChannelClosed { workspace_id }
+            OrchestratorError::ChannelClosed {
+                workspace_id,
+                tab_id,
+            }
         })?;
         Ok(())
     }
@@ -433,28 +464,32 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
     async fn post_message(
         &self,
         workspace_id: WorkspaceId,
+        tab_id: TabId,
         author_role: String,
         body: String,
     ) -> OrchestratorResult<()> {
         let (tx, child_pid) = {
             let teams = self.teams.lock();
-            let handle = teams
-                .get(&workspace_id)
-                .ok_or_else(|| OrchestratorError::TeamNotFound(workspace_id.to_string()))?;
+            let handle = teams.get(&(workspace_id, tab_id)).ok_or_else(|| {
+                OrchestratorError::TeamNotFound(format!("{workspace_id}/{tab_id}"))
+            })?;
             (handle.stdin_tx.clone(), handle.child_pid)
         };
         let prompt = build_message_prompt(&author_role, &body);
         let line = user_message_line(&prompt)?;
         debug!(
-            workspace = %workspace_id, pid = ?child_pid, body_len = body.len(),
+            workspace = %workspace_id, tab = %tab_id, pid = ?child_pid, body_len = body.len(),
             "post_message: forwarding to claude stdin"
         );
         tx.send(line).await.map_err(|_| {
             warn!(
-                workspace = %workspace_id, pid = ?child_pid,
+                workspace = %workspace_id, tab = %tab_id, pid = ?child_pid,
                 "post_message: stdin channel closed (writer task exited)"
             );
-            OrchestratorError::ChannelClosed { workspace_id }
+            OrchestratorError::ChannelClosed {
+                workspace_id,
+                tab_id,
+            }
         })?;
         Ok(())
     }
@@ -467,10 +502,10 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         self.signal_tx.subscribe()
     }
 
-    async fn shutdown(&self, workspace_id: WorkspaceId) -> OrchestratorResult<()> {
-        // Lift the handle out; further calls on this workspace fail with
-        // TeamNotFound, which is the correct semantics after shutdown.
-        let handle = self.teams.lock().remove(&workspace_id);
+    async fn shutdown(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
+        // Lift the handle out; further calls on this (workspace, tab) fail
+        // with TeamNotFound, which is the correct semantics after shutdown.
+        let handle = self.teams.lock().remove(&(workspace_id, tab_id));
         let Some(mut handle) = handle else {
             return Ok(());
         };
@@ -485,13 +520,13 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         // Wait for graceful exit up to SHUTDOWN_TIMEOUT, then escalate.
         match timeout(SHUTDOWN_TIMEOUT, handle.child.wait()).await {
             Ok(Ok(status)) => {
-                info!(workspace = %workspace_id, ?status, "claude exited gracefully");
+                info!(workspace = %workspace_id, tab = %tab_id, ?status, "claude exited gracefully");
             }
             Ok(Err(e)) => {
-                warn!(workspace = %workspace_id, error = %e, "claude wait() failed");
+                warn!(workspace = %workspace_id, tab = %tab_id, error = %e, "claude wait() failed");
             }
             Err(_) => {
-                warn!(workspace = %workspace_id, "claude graceful shutdown timed out; killing");
+                warn!(workspace = %workspace_id, tab = %tab_id, "claude graceful shutdown timed out; killing");
                 let _ = handle.child.start_kill();
                 let _ = handle.child.wait().await;
             }
@@ -750,19 +785,29 @@ fn user_message_line(prompt: &str) -> OrchestratorResult<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designer_core::{TaskId, WorkspaceId};
+    use designer_core::{TabId, TaskId, WorkspaceId};
 
+    /// T-23E-1 — distinct session ids per tab. Same `(workspace, tab)`
+    /// pair must produce the same session id forever (resume invariant);
+    /// two tabs in the same workspace must produce different ids.
     #[test]
-    fn session_id_is_deterministic_per_workspace() {
+    fn session_id_is_deterministic_per_workspace_and_tab() {
         let store = Arc::new(designer_core::SqliteEventStore::open_in_memory().unwrap());
         let orch = ClaudeCodeOrchestrator::new(store, ClaudeCodeOptions::default());
         let ws = WorkspaceId::new();
-        let a = orch.derive_session_id(ws);
-        let b = orch.derive_session_id(ws);
-        assert_eq!(a, b);
+        let tab_a = TabId::new();
+        let tab_b = TabId::new();
+        let a = orch.derive_session_id(ws, tab_a);
+        let b = orch.derive_session_id(ws, tab_a);
+        assert_eq!(a, b, "same (ws, tab) must derive the same session id");
+        let c = orch.derive_session_id(ws, tab_b);
+        assert_ne!(
+            a, c,
+            "different tabs in the same workspace must have different session ids"
+        );
         let ws2 = WorkspaceId::new();
-        let c = orch.derive_session_id(ws2);
-        assert_ne!(a, c);
+        let d = orch.derive_session_id(ws2, tab_a);
+        assert_ne!(a, d, "different workspaces must have different session ids");
     }
 
     #[test]
