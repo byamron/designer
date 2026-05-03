@@ -96,6 +96,16 @@ export function WorkspaceThread({
   const [hasStarted, setHasStartedLocal] = useState(
     () => !!appStore.get().tabStartedById[stateKey],
   );
+  // Phase 23.D fixed tab switches to keep WorkspaceThread mounted across
+  // `tabId` changes (no more remount). Without this resync, the local
+  // `hasStarted` snapshot taken on first mount sticks forever — opening
+  // a fresh tab while a sibling was started would inherit the sibling's
+  // `true` and skip the suggestion strip on the empty tab. Re-read from
+  // the store every time `stateKey` changes so the empty-state cue
+  // appears for tabs the user hasn't started yet.
+  useEffect(() => {
+    setHasStartedLocal(!!appStore.get().tabStartedById[stateKey]);
+  }, [stateKey]);
   const setHasStarted = (next: boolean) => {
     setHasStartedLocal(next);
     if (next) markTabStarted(stateKey);
@@ -381,14 +391,17 @@ export function WorkspaceThread({
   const stickRef = useRef(true);
   const [behind, setBehind] = useState(false);
   // CC2 — suppress the per-child arrival animation for the very first
-  // paint of this thread instance. Tab switches remount the whole
-  // component, so without this gate every existing artifact re-runs
-  // the slide-in animation and the surface looks like it's panicking.
+  // paint of this thread instance, and again whenever the active tab
+  // changes (Phase 23.D keeps the component mounted across tab switches,
+  // so a `tabId` change swaps the artifact list in place; without
+  // re-arming the gate every artifact in the new tab's view animates
+  // in like it just landed and the surface looks like it's panicking).
   // Two RAFs: the first lets the initial paint commit with the
   // `--initial` class applied; the second clears it so subsequent
   // additions animate normally.
   const [initialPaint, setInitialPaint] = useState(true);
   useEffect(() => {
+    setInitialPaint(true);
     const inner = { id: 0 };
     const r1 = window.requestAnimationFrame(() => {
       inner.id = window.requestAnimationFrame(() => setInitialPaint(false));
@@ -397,7 +410,7 @@ export function WorkspaceThread({
       window.cancelAnimationFrame(r1);
       if (inner.id) window.cancelAnimationFrame(inner.id);
     };
-  }, []);
+  }, [tabId]);
 
   const onThreadScroll = useCallback(() => {
     const el = threadRef.current;
@@ -505,7 +518,17 @@ export function WorkspaceThread({
             {sendError}
           </div>
         )}
+        {/* Per-tab compose state. Phase 23.D kept WorkspaceThread mounted
+            across `tabId` changes; ComposeDock owns its own `draft`,
+            attachments, model and effort selections, all of which should
+            belong to the active tab — not the previous one. Keying by
+            `stateKey` remounts the dock per tab so the textarea reads
+            the tab's saved draft from `initialDraft` on each switch and
+            attachments + model don't bleed across tabs. The draft is
+            written back via `onDraftChange` keyed by the same stateKey,
+            so the round-trip A→B→A still restores A's text. */}
         <ComposeDock
+          key={stateKey}
           ref={composeRef}
           onSend={onSend}
           placeholder={sending ? "Sending…" : undefined}
