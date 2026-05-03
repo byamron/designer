@@ -172,11 +172,21 @@ const TOOL_USE_TRUNCATE_LINES = 40;
 export function ToolUseLine({ artifact }: BlockProps) {
   const [expanded, setExpanded] = useState(false);
   const [payload, setPayload] = useState<PayloadRef | null>(null);
+  const [loading, setLoading] = useState(false);
   const [showFull, setShowFull] = useState(false);
   // Dedupe rapid double-clicks: a request that's already settled won't
   // refire, and a request in flight won't spawn a second one.
   const fetchedRef = useRef(false);
   const inflightRef = useRef(false);
+  // Don't write state after unmount; the IPC promise outlives the row
+  // when the tab closes mid-fetch.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const previewSummary =
     !expanded && artifact.summary && artifact.summary !== artifact.title
       ? artifact.summary
@@ -185,11 +195,12 @@ export function ToolUseLine({ artifact }: BlockProps) {
   const fetchPayload = useCallback(() => {
     if (fetchedRef.current || inflightRef.current) return;
     inflightRef.current = true;
+    setLoading(true);
     void ipcClient()
       .getArtifact(artifact.id)
       .then((detail) => {
         fetchedRef.current = true;
-        setPayload(detail.payload);
+        if (mountedRef.current) setPayload(detail.payload);
       })
       .catch(() => {
         // Speculative kinds whose emitters aren't wired may 404 — leave
@@ -197,6 +208,7 @@ export function ToolUseLine({ artifact }: BlockProps) {
       })
       .finally(() => {
         inflightRef.current = false;
+        if (mountedRef.current) setLoading(false);
       });
   }, [artifact.id]);
 
@@ -237,11 +249,17 @@ export function ToolUseLine({ artifact }: BlockProps) {
           <span className="tool-line__detail">{previewSummary}</span>
         )}
       </button>
+      {expanded && loading && !body && (
+        <p className="tool-line__loading" aria-live="polite">
+          Loading output…
+        </p>
+      )}
       {expanded && body && (
         <pre
           className="tool-line__pre"
           role="region"
           aria-label={`${artifact.title} output`}
+          aria-live="polite"
         >
           {visibleBody}
         </pre>

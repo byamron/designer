@@ -251,6 +251,16 @@
   word-break: break-word;
 }
 
+.tool-line__loading {
+  margin: 0;
+  margin-left: var(--space-4);
+  color: var(--color-muted);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  font-style: italic;
+}
+
 .tool-line__show-full {
   align-self: flex-start;
   margin-left: var(--space-4);

@@ -401,6 +401,67 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
     expect(getArtifact).toHaveBeenCalledTimes(1);
   });
 
+  // Review-blocker fix: while the IPC fetch is in flight the user
+  // would otherwise see an empty expanded row. A "Loading output…"
+  // affordance keeps the click feeling acknowledged.
+  it("shows a loading affordance while the payload fetch is in flight", async () => {
+    const a = makeReport();
+    let resolve: ((v: unknown) => void) | null = null;
+    const pending = new Promise((r) => (resolve = r));
+    const getArtifact = vi.fn().mockReturnValue(pending);
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    fireEvent.click(container.querySelector(".tool-line__head")!);
+    expect(container.querySelector(".tool-line__loading")).not.toBeNull();
+
+    await act(async () => {
+      resolve!({
+        summary: a,
+        payload: { kind: "inline", body: shortBody() },
+      });
+      await pending;
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector(".tool-line__pre")).not.toBeNull();
+    });
+    expect(container.querySelector(".tool-line__loading")).toBeNull();
+  });
+
+  // Review-blocker fix: the IPC promise can outlive the row when the
+  // tab closes mid-fetch. Without a mounted-ref guard React warns
+  // about a state update on an unmounted component.
+  it("does not warn when getArtifact resolves after unmount", async () => {
+    const a = makeReport();
+    let resolve: ((v: unknown) => void) | null = null;
+    const pending = new Promise((r) => (resolve = r));
+    const getArtifact = vi.fn().mockReturnValue(pending);
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const utils = render(<ToolUseLine artifact={a} {...noProps} />);
+      fireEvent.click(utils.container.querySelector(".tool-line__head")!);
+      utils.unmount();
+
+      await act(async () => {
+        resolve!({
+          summary: a,
+          payload: { kind: "inline", body: shortBody() },
+        });
+        await pending;
+      });
+
+      const stateUpdateWarnings = consoleError.mock.calls.filter((args) =>
+        String(args[0] ?? "").includes("unmounted component"),
+      );
+      expect(stateUpdateWarnings).toHaveLength(0);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   // T-23C-4 — accessibility: <pre> has role=region + aria-label.
   it("T-23C-4 — expanded <pre> has role=region and an aria-label naming the tool", async () => {
     const a = makeReport();
