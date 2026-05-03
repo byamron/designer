@@ -33,9 +33,11 @@ use uuid::{NoContext, Timestamp, Uuid};
 /// tab)`, so we need *some* `TabId` for the legacy-no-tab path. A nil
 /// UUID can't collide with a real tab id (those are UUIDv7) and stays
 /// stable across restarts so resume works for the workspace-wide
-/// session.
+/// session. Thin wrapper around [`crate::core::default_tab_id_for_workspace`]
+/// so dispatch (this module) and lifecycle (close/archive/delete) share
+/// one canonical source.
 fn default_tab_id() -> TabId {
-    TabId::from_uuid(Uuid::nil())
+    crate::core::default_tab_id_for_workspace()
 }
 
 /// Resolve an `Option<TabId>` to a concrete `TabId` for the orchestrator
@@ -1852,6 +1854,142 @@ mod tests {
             keys[0].1,
             default_tab_id(),
             "legacy path uses the nil sentinel"
+        );
+    }
+
+    /// Stalling orchestrator: every `shutdown` call parks for 30s before
+    /// returning. The bounded-budget regression below uses this to prove
+    /// `core.close_tab` and `core.archive_workspace` return within the
+    /// 5s `USER_INITIATED_SHUTDOWN_BUDGET`, not the orchestrator's
+    /// internal 60s SHUTDOWN_TIMEOUT × N-tabs.
+    #[cfg(test)]
+    struct StallingOrchestrator {
+        tx: tokio::sync::broadcast::Sender<OrchestratorEvent>,
+    }
+
+    #[cfg(test)]
+    #[async_trait::async_trait]
+    impl designer_claude::Orchestrator for StallingOrchestrator {
+        async fn spawn_team(&self, _spec: TeamSpec) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
+        async fn assign_task(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+            _a: designer_claude::TaskAssignment,
+        ) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
+        async fn post_message(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+            _author_role: String,
+            _body: String,
+        ) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
+        fn subscribe(&self) -> tokio::sync::broadcast::Receiver<OrchestratorEvent> {
+            self.tx.subscribe()
+        }
+        fn subscribe_signals(
+            &self,
+        ) -> tokio::sync::broadcast::Receiver<designer_claude::ClaudeSignal> {
+            let (tx, rx) = tokio::sync::broadcast::channel(1);
+            drop(tx);
+            rx
+        }
+        async fn shutdown(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+        ) -> designer_claude::OrchestratorResult<()> {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok(())
+        }
+    }
+
+    async fn boot_core_with_stalling() -> Arc<AppCore> {
+        let (tx, _rx) = tokio::sync::broadcast::channel(16);
+        let stalling: Arc<dyn designer_claude::Orchestrator> =
+            Arc::new(StallingOrchestrator { tx });
+        let dir = tempdir().unwrap();
+        let config = AppConfig {
+            data_dir: dir.path().to_path_buf(),
+            use_mock_orchestrator: false,
+            claude_options: Default::default(),
+            default_cost_cap: CostCap {
+                max_dollars_cents: None,
+                max_tokens: None,
+            },
+            helper_binary_path: None,
+        };
+        std::mem::forget(dir);
+        AppCore::boot_with_orchestrator(config, Some(stalling))
+            .await
+            .unwrap()
+    }
+
+    /// Regression for the Phase 23.E review BLOCKER: a stalling
+    /// `Orchestrator::shutdown` (30s sleep) must not block `close_tab`
+    /// past the user-initiated budget (5s). Pre-fix, close_tab awaited
+    /// shutdown synchronously and the user paid the full 60s graceful
+    /// window on a dead lead.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn close_tab_returns_within_budget_when_shutdown_stalls() {
+        let core = boot_core_with_stalling().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab = core
+            .open_tab(ws.id, "T".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+
+        let started = Instant::now();
+        core.close_tab(ws.id, tab.id).await.unwrap();
+        let elapsed = started.elapsed();
+        // Budget is 5s. Allow 2s of test/scheduler slack on top.
+        assert!(
+            elapsed < Duration::from_secs(7),
+            "close_tab took {elapsed:?}; must return within the user-initiated shutdown budget"
+        );
+    }
+
+    /// Same regression on the archive path: a workspace with three open
+    /// tabs whose orchestrator stalls 30s per shutdown must finish
+    /// archiving within the 5s budget. Pre-fix, the sequential loop
+    /// would have run 3×30s = 90s before returning; the join_all + bounded
+    /// timeout caps total wall time.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn archive_workspace_returns_within_budget_when_shutdowns_stall() {
+        let core = boot_core_with_stalling().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        for name in ["A", "B", "C"] {
+            core.open_tab(ws.id, name.into(), designer_core::TabTemplate::Thread)
+                .await
+                .unwrap();
+        }
+
+        let started = Instant::now();
+        core.archive_workspace(ws.id).await.unwrap();
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(7),
+            "archive_workspace took {elapsed:?}; bounded shutdown must cap user-visible latency"
         );
     }
 }

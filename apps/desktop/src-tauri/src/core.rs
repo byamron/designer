@@ -29,14 +29,25 @@ use tracing::{info, warn};
 use crate::core_local::SummaryDebounce;
 
 /// Phase 23.E sentinel: the `TabId` used for legacy callers that post
-/// without naming a tab (boot/replay paths, demo mode). Mirrors
-/// `core_agents::default_tab_id` — kept as a free function so
-/// `core.rs` doesn't have to import from `core_agents` and create a
-/// module cycle. Both compute the same nil-UUID-backed TabId, by
-/// construction.
+/// without naming a tab (boot/replay paths, demo mode, pre-tab-aware
+/// frontends). The single canonical source — `core_agents` re-exports
+/// this so dispatch and lifecycle code share one definition and a
+/// future change to the sentinel shape (e.g. a workspace-derived
+/// UUIDv5) only edits one file.
 pub(crate) fn default_tab_id_for_workspace() -> TabId {
     TabId::from_uuid(uuid::Uuid::nil())
 }
+
+/// Upper bound on user-initiated shutdown wall time (close tab,
+/// archive workspace, delete workspace). Phase 23.E: the orchestrator's
+/// internal `SHUTDOWN_TIMEOUT` is 60s for graceful exit, which is the
+/// right ceiling for a *background* teardown but unacceptable for a
+/// click-and-wait IPC. 5s lets a healthy lead exit gracefully on the
+/// happy path while keeping the worst case under "did the app freeze?"
+/// territory; on timeout, the future is dropped and the orchestrator's
+/// `kill_on_drop(true)` on the `Child` handle reaps the subprocess
+/// synchronously, so no zombie processes leak.
+const USER_INITIATED_SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -888,9 +899,13 @@ impl AppCore {
 
     /// Close a tab. Idempotent — re-closing an already-closed tab is a no-op
     /// so a double-clicked X button doesn't double-write `TabClosed`.
-    /// Phase 23.E: a closed tab's claude subprocess is shut down before
-    /// the `TabClosed` event lands so the OS reaps it eagerly and the
-    /// orchestrator's team map doesn't leak a handle.
+    /// Phase 23.E: the tab's claude subprocess is shut down before the
+    /// `TabClosed` event lands so the orchestrator's team map doesn't
+    /// leak a handle. Bounded by [`USER_INITIATED_SHUTDOWN_BUDGET`] so
+    /// the user-facing IPC never blocks for the orchestrator's full 60s
+    /// graceful-exit window — when the budget elapses, the future is
+    /// dropped and `kill_on_drop(true)` on the contained `Child` reaps
+    /// the subprocess synchronously.
     pub async fn close_tab(
         &self,
         workspace_id: WorkspaceId,
@@ -912,15 +927,20 @@ impl AppCore {
         // ordering doesn't actually matter for correctness (shutdown is
         // best-effort and TabClosed is durable), but doing it first makes
         // the trace easier to read: "subprocess died, then tab closed".
-        let _ = self.orchestrator.shutdown(workspace_id, tab_id).await;
         // The legacy `default_tab_id` sentinel is also cleared in case
         // pre-tab-aware code in the same workspace is keeping a session
-        // open under it (post_message with `tab_id: None`). Cheap no-op
-        // when there's nothing to shut down.
-        let _ = self
+        // open under it (post_message with `tab_id: None`). Both calls
+        // run concurrently so worst-case wall time is one budget, not
+        // two.
+        let primary = self.orchestrator.shutdown(workspace_id, tab_id);
+        let legacy = self
             .orchestrator
-            .shutdown(workspace_id, default_tab_id_for_workspace())
-            .await;
+            .shutdown(workspace_id, default_tab_id_for_workspace());
+        let _ = tokio::time::timeout(
+            USER_INITIATED_SHUTDOWN_BUDGET,
+            futures::future::join(primary, legacy),
+        )
+        .await;
         let env = self
             .store
             .append(
@@ -940,14 +960,29 @@ impl AppCore {
     /// cleaned up. Best-effort: per-tab shutdown errors are swallowed
     /// because archive/delete must always converge to a "no live
     /// subprocesses" state.
+    ///
+    /// Shutdowns run **concurrently** via `join_all`, not sequentially —
+    /// a sequential loop would multiply each tab's 60s graceful window
+    /// (5 tabs × 60s = 5 min of user-visible hang on archive). The
+    /// total wall time is further bounded by
+    /// [`USER_INITIATED_SHUTDOWN_BUDGET`] so a misbehaving tab can't
+    /// block archive/delete past that ceiling; `kill_on_drop` on the
+    /// orchestrator's `Child` handles still reap the subprocess
+    /// synchronously when the future is dropped.
     async fn shutdown_all_workspace_tabs(&self, workspace_id: WorkspaceId, tabs: &[Tab]) {
-        for t in tabs {
-            let _ = self.orchestrator.shutdown(workspace_id, t.id).await;
-        }
-        let _ = self
-            .orchestrator
-            .shutdown(workspace_id, default_tab_id_for_workspace())
-            .await;
+        let mut futs: Vec<_> = tabs
+            .iter()
+            .map(|t| self.orchestrator.shutdown(workspace_id, t.id))
+            .collect();
+        futs.push(
+            self.orchestrator
+                .shutdown(workspace_id, default_tab_id_for_workspace()),
+        );
+        let _ = tokio::time::timeout(
+            USER_INITIATED_SHUTDOWN_BUDGET,
+            futures::future::join_all(futs),
+        )
+        .await;
     }
 
     /// Derive an activity-spine view from the projector. Summaries are `None`
