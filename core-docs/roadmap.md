@@ -2294,6 +2294,166 @@ These tests are the gate. PR review for each sub-phase asserts every test in its
 
 ---
 
+## Phase 23 — Chat UX hardening *(dogfood-blocking; pulled forward 2026-05-02)*
+
+**Goal:** make chat in a workspace tab bulletproof basic — every send round-trips, every turn is visibly progressing, every tool call is in the context where it ran, every tab is its own real agent. Tabs become genuine parallel work surfaces; "manager of many agents" stops being an illusion at the workspace level and becomes the actual model at the tab level.
+
+**Why:** PR #87 stripped Designer's experimental agent-teams framing from the chat path so default workspaces behave as plain pass-through `claude`. That fixed the "team lead replies once and goes silent" failure but exposed the next layer of regressions during dogfood (2026-05-02): (a) when the user switches tabs the agent feels paused because there's no live activity surface, (b) tool-use rows render *after* the agent text that produced them and *after* the next user message because of coalescer-flush timestamp drift, (c) a single Claude subprocess per workspace means tabs share a session — "work in multiple tabs at once" is a frontend illusion that confuses both Claude (interleaved messages from two conversations) and the user (no real parallelism). Designer's whole product principle is *manager of many agents*; the v1 implementation caps that at one agent per workspace and the workspace list explodes long before the user has the parallelism they came for. Phase 23 closes the gap.
+
+**Long-term alignment:** Phase 19 (multi-track) and Phase 20 (parallel-work coordination) assume per-tab independent agents with their own branches and worktrees. Phase 23 lays the per-tab claude-session foundation those phases compose against. Per-workspace single-session was a v1 compromise; per-tab is the architecture the rest of the roadmap was always going to need.
+
+**Hard gates:** PR #87 merged (✅ 2026-05-02). No other phase blocks 23; 13.D's coalescer (target of 23.A) and 13.D's per-workspace orchestrator (target of 23.E) are both shipped.
+
+**Soft gates:** Phase 13.G's `InboxPermissionHandler` 5-minute timeout is unchanged; 23.B's activity indicator surfaces *that the agent is parked on approval*, but the timeout policy itself is unchanged.
+
+### Phase 23.A — Coalescer first-token timestamp *(small backend; ~½ day)*
+
+**Files:** `apps/desktop/src-tauri/src/core_agents.rs` (PendingMessage + recv path + flush task), `apps/desktop/src-tauri/src/core_agents.rs::tests` only.
+
+**Problem:** `spawn_message_coalescer` accumulates streamed agent tokens in `PendingMessage.body` and flushes one `ArtifactCreated` per (workspace, author_role) once a 120ms idle window passes. The artifact id is `ArtifactId::new()` — UUIDv7 with the *flush-time* timestamp. Tool-use artifacts emitted during the agent's turn carry their *execution-time* UUIDv7. If the user replies between the last agent token and the flush, the user's artifact lands chronologically before the agent text artifact; tool-use artifacts that ran during the response get earlier timestamps than the flushed agent text. Result: the chat reads bottom-up-and-jumbled.
+
+**Fix:** capture the first chunk's timestamp in `PendingMessage` on the same `entry.body.is_empty()` guard that captures `tab_id` today. At flush, build the `ArtifactId` via `Uuid::new_v7(captured_timestamp)` (the actual `uuid` 1.x API — *not* `new_v7_with_timestamp`, which doesn't exist). Pre-existing artifacts retain their (incorrect) timestamps; only new flushes are correct.
+
+**Deliverables:**
+- New field `PendingMessage.first_seen_at: Option<uuid::Timestamp>` populated on first chunk in the same `entry.body.is_empty()` branch that captures `tab_id`, cleared on flush.
+- Helper `fn first_seen_artifact_id(first_seen: uuid::Timestamp) -> ArtifactId` — wraps `Uuid::new_v7(first_seen)`. Build the `Timestamp` from a `SystemTime::now()` captured alongside `Instant::now()` on first chunk (they're not derivable from each other).
+- Flush path uses the helper; all existing coalescer tests stay green.
+- New test: `coalescer_flushed_artifact_predates_subsequent_user_post` — burst starts at T0, user posts at T+50ms, flush fires at T+120+ms (after idle window), assert flushed artifact's id < user's artifact's id.
+
+**Acceptance tests:**
+- T-23A-1 — first-seen capture. PendingMessage entry created on first chunk has `first_seen_at = Some(...)`; subsequent chunks don't overwrite it.
+- T-23A-2 — flush uses captured timestamp. Flushed artifact's UUIDv7 timestamp matches first-chunk `Instant`, ±2ms tolerance for UUIDv7 sub-millisecond precision.
+- T-23A-3 — multi-burst isolation. Two consecutive bursts on the same (workspace, author_role) key — flush 1 fires, then chunk 1 of burst 2 arrives — `first_seen_at` is reset on flush, captured fresh on burst 2.
+- T-23A-4 — does not regress existing tab-attribution test (`coalescer_attributes_reply_to_tab_at_first_recv_not_at_flush`).
+
+### Phase 23.B — Activity indicator + elapsed time *(medium full-stack; ~1 day)*
+
+**Files:** `crates/designer-claude/src/orchestrator.rs` (new `OrchestratorEvent::ActivityChanged` variant), `crates/designer-claude/src/stream.rs` (translator emits the variant on stream-event boundaries), `crates/designer-claude/src/claude_code.rs` (reader_loop fans the variant through), `apps/desktop/src-tauri/src/core_agents.rs` (subscriber → `StreamEvent` push to UI), `crates/designer-ipc/src/lib.rs` (DTO), frontend `packages/app/src/tabs/WorkspaceThread.tsx` + `packages/app/src/components/ComposeDock.tsx` (consumer), `packages/app/src/styles/compose.css`.
+
+**Problem:** today the only chat-activity signal is the artifact-stream itself. When the user switches tabs or the agent goes quiet mid-turn, there is no way to tell whether the agent is computing, parked on a permission prompt, or has died. The user sees a frozen tab and assumes "stopped responding" — which is friction `019dea69`.
+
+**Fix:** orchestrator emits a coarse activity state per tab. Three backend states: `Idle`, `Working`, `AwaitingApproval` (Rust enum names; user-facing labels are different — see Copy deliverable below). Frontend renders a status row pinned to the top of the compose dock with a pulsing dot, an elapsed-time counter, and an optional current-action label. *Plus* a small badge on the tab strip so the user can see at a glance that work is happening in a tab they're not currently viewing — without that, switching away makes the activity invisible and re-creates the original "stops responding" friction.
+
+**Deliverables:**
+- `OrchestratorEvent::ActivityChanged { workspace_id, tab_id, state, since: SystemTime }` — *additive* variant on `OrchestratorEvent` (broadcast-only enum in `crates/designer-claude/src/orchestrator.rs`; not subject to ADR 0002's `EventPayload` freeze because there is no projector arm to break and no replay invariant to preserve. Document the precedent in `pattern-log.md` so future broadcast-only additions don't re-litigate).
+- Translator emits `Working` on first stream event of a turn, `AwaitingApproval` when a `control_request` permission-prompt fires (the same site that already routes to `PermissionHandler::decide`), `Idle` on `result/success` or `result/error`. **Subprocess death** (reader task exits on EOF) also emits `Idle` — covers the crash-mid-turn case so the UI doesn't show a phantom "Working" forever.
+- Frontend activity slice in `useDataState` keyed by `(workspace_id, tab_id)`; `ComposeDockActivityRow` renders pulse + elapsed time from `since`.
+- **User-facing copy** (translate from backend states): `Working` → `"Working… {elapsed}"`; `AwaitingApproval` → `"Approve to continue"` (with a chevron pointing at the inbox / approval block); `Idle` → render nothing (the row hides). Never expose the Rust enum name to the user.
+- **Elapsed-time format**: `MM:SS` for the first hour, `H:MM:SS` after. Typography: `--type-family-mono` (changing numbers feel calmer in mono), `--type-caption-size`, `--weight-regular`, `--color-muted`. Tabular figures.
+- **Tab-strip badge**: when `state != Idle` for a tab the user isn't currently viewing, the tab button in the tab strip shows a small `●` badge (uses `--color-accent` for `Working`, `--color-warning` for `AwaitingApproval`). Same `prefers-reduced-motion` handling as the dock pulse — solid dot, no animation.
+- **Reduced-motion**: project-wide `axioms.css` already sets `animation-duration: 0.01ms !important` under `@media (prefers-reduced-motion: reduce)`, which collapses the `--motion-pulse` keyframe effectively to a static dot. Acceptance test T-23B-3 must accept this *or* explicitly add `.compose-dock-activity-row__pulse { animation: none; }` under the same media query to satisfy the strict `animation: none` assertion. Pick one and document the choice; do not ship both.
+- No "Stop" button in v1 — Designer can't actually interrupt claude mid-turn yet without a wider protocol change. v2 adds it; v1 ships honest read-only. **Known tradeoff**: a "Working… 0:47" indicator with no Stop affordance can read as "frozen but I can't act on it" for users who habitually interrupt; revisit if dogfood surfaces this as its own friction.
+- **Mini procedure**: append a `core-docs/generation-log.md` entry covering the activity row + tab-badge pattern; append a `core-docs/pattern-log.md` entry for the `OrchestratorEvent` additive-variant precedent. Update the `ComposeDock` entry in `core-docs/component-manifest.json` to include the activity row in its purpose; if `ComposeDockActivityRow` is a separately-extractable component, give it its own manifest entry with the tokens it references.
+
+**Acceptance tests:**
+- T-23B-1 — state transitions. Translator fixtures: assert each (input event → emitted ActivityChanged) pair.
+- T-23B-2 — elapsed counter increments. Mount with `state: Working, since: T0`; advance fake timer 30s; assert `0:30` rendered.
+- T-23B-3 — reduced motion. With `prefers-reduced-motion: reduce`: assert pulse computed-style is `animation: none` and the dot is solid.
+- T-23B-4 — switching tabs preserves the indicator. Tab A is `Working`; user switches to B; comes back to A; the indicator is still `Working` with elapsed time still counting (per Phase 23.D, the listener must not have been torn down).
+
+### Phase 23.C — Tool-use rows expand to full payload *(small frontend; ~½ day)*
+
+**Files:** `packages/app/src/blocks/blocks.tsx` (`ToolUseLine` expanded view), `packages/app/src/styles/blocks.css` (.tool-line__detail--expanded extension), `packages/app/src/test/chat-rendering.test.tsx`.
+
+**Problem:** today `ToolUseLine`'s expanded view shows one extra summary line. Conductor's reference design (matching `frc_019dea67` intent) renders the full tool output — file/line citations in monospace, command output, grep results — under the expanded row. Without expand-to-full-payload, tool calls feel like decoration rather than evidence the user can drill into.
+
+**Fix:** when expanded, fetch the full artifact payload (`getArtifact(id)`) and render in a monospace `<pre>` block under the tool-line head. File:line refs stay plain text in v1; clickable in v2.
+
+**Deliverables:**
+- `ToolUseLine` expand-on-click triggers `getArtifact(artifact.id)` (cached after first fetch in `payloads` state, same as `MessageBlock`).
+- Expanded body renders `payload.body` as `<pre>` with `--type-family-mono`, `--space-4` left padding, `--color-muted` foreground. **Wrapping**: `white-space: pre-wrap` so long lines wrap inside the parent's max-width (`.tool-line` already caps at `min(48rem, 100%)`); horizontal scroll is acceptable on overflow rather than the row stretching the whole thread.
+- Long output (>40 lines) truncates to 40 with a "Show full" disclosure that drops the cap. (40 lines mirrors a typical terminal viewport at common laptop sizes; revisit if dogfood says it's wrong.)
+- Visual snapshot test against existing fixture; new test for "expand fetches and renders payload."
+- **Mini procedure**: append a `core-docs/generation-log.md` entry for the tool-use expand-to-payload pattern; no new pattern-log entry needed (the disclosure pattern is already established).
+
+**Acceptance tests:**
+- T-23C-1 — expand triggers payload fetch (mock IPC asserts `getArtifact` called once per artifact).
+- T-23C-2 — long-output truncate + disclosure. 100-line fixture; collapsed shows 40 lines + "Show full"; click renders all 100.
+- T-23C-3 — collapse + re-expand reuses cached payload (no second IPC call).
+- T-23C-4 — accessibility: expanded `<pre>` has `role="region"` and an `aria-label` referencing the tool name.
+
+### Phase 23.D — Tab switch keeps WorkspaceThread mounted *(tiny frontend; ~½ day)*
+
+**Files:** `packages/app/src/layout/MainView.tsx` (key change + per-tab state scoping verification), `packages/app/src/test/tabs.test.tsx`.
+
+**Problem:** `MainView` keys `<WorkspaceThread key={\`${workspace.id}:${activeTab}\`}>` — React unmounts and remounts the whole component on tab switch, tearing down the artifact-stream listener, scroll position, expanded-block state, and any in-flight payload fetches. Friction surfaced 2026-05-02: "I send a message and leave the tab, the agent stops" — actually the agent keeps working, but the listener is gone so the user sees nothing live; on remount they see a stale fetch. The architectural fix is per-tab agents (Phase 23.E), but the frontend half is independent: keep the component mounted across tab switches and react to `tabId` prop changes via the existing `[workspace.id, tabId]` effect dependencies.
+
+**Fix:** drop `activeTab` from the React key. `WorkspaceThread` already takes `tabId` as a prop and the `refresh` callback already depends on `[workspace.id, tabId]` — re-fetch on tab change is already wired. Per-tab state (`stateKey`, draft, hasStarted, scroll) is already scoped by tab id internally. The remount was redundant.
+
+**Deliverables:**
+- One-line change to `MainView.tsx`: `key={workspace.id}` (or remove the explicit key entirely — React keys siblings by index, which is fine for one element).
+- Test that asserts the component identity persists across tab switches (snapshot of `data-component` instance ref, or use `useRef` + a counter to verify it didn't remount).
+- Verify scroll position survives tab switch (existing `chat-scroll.test.tsx` extended).
+
+**Acceptance tests:**
+- T-23D-1 — component identity. Render with `tabId=A`, switch to B, switch back to A; assert the same component instance survived (counter or testing-library `unmount` spy not called).
+- T-23D-2 — listener survives. While on tab B, an artifact-stream event for workspace W lands; switch back to A; assert refresh was triggered (no manual reload).
+- T-23D-3 — scroll position preserved per tab. Scroll halfway in tab A; switch to B; switch back; assert scroll position restored to the same offset.
+- T-23D-4 — composer draft preserved per tab. Type "hello" in A; switch to B; switch back; assert draft is still "hello" (already exercised by `draft-preserved` test, just confirm it doesn't regress).
+
+### Phase 23.E — Per-tab Claude subprocess *(medium backend; ~1.5 days)*
+
+**Files:** `crates/designer-claude/src/claude_code.rs` (teams map keyed by `(WorkspaceId, TabId)`, session_id derivation), `crates/designer-claude/src/orchestrator.rs` (`TeamSpec.tab_id` field; new method signatures take `tab_id`), `crates/designer-claude/src/mock.rs` (matching), `apps/desktop/src-tauri/src/core_agents.rs` (`post_message` dispatches by tab; `spawn_workspace_team` → `spawn_tab_team`), `apps/desktop/src-tauri/src/ipc_agents.rs`, `apps/desktop/src-tauri/src/core.rs` (archive/restore/delete fan out across all tabs in a workspace).
+
+**Problem:** Designer's `--session-id` is `UUIDv5(SESSION_NAMESPACE, workspace_id)` — workspace-scoped. All tabs in a workspace share one claude subprocess and one conversation. Posting in tab A and tab B interleaves into one stream. Claude has no concept of tabs; the "shared session" is the bug, not the feature. From the user's perspective tabs *should* be parallel agents — that's why they exist.
+
+**Fix:** key the orchestrator's teams map and the session-id derivation by `(workspace_id, tab_id)`. Each tab gets its own claude subprocess, its own session memory, its own context window. Tabs become true parallel agents; Phase 19 / 20 / Phase 22.A / Phase 22.N all compose against this shape.
+
+**Deliverables:**
+- `SESSION_NAMESPACE` rotated (one-line change) to invalidate every pre-23.E session — pre-23.E sessions had team-mode framing baked into their conversation memory; rotation is the clean break. Document in `pattern-log.md` (entry: "Per-tab session migration; pre-23.E sessions retired").
+- `derive_session_id(workspace_id, tab_id) -> Uuid` — UUIDv5 of `(NAMESPACE, workspace_id, tab_id)`.
+- `TeamSpec` gains `tab_id: TabId` (required field; tests + mock updated). The default chat path is per-tab; multi-agent dispatch (which would have keyed differently) stays out of scope, deferred behind a future opt-in.
+- `ClaudeCodeOrchestrator::teams: HashMap<(WorkspaceId, TabId), TeamHandle>` (key change).
+- `post_message(workspace_id, tab_id, ...)` looks up the right handle.
+- `spawn_tab_team(workspace_id, tab_id, model)` replaces `spawn_workspace_team`.
+- Closing a tab (`cmd_close_tab`) calls `orchestrator.shutdown(workspace_id, tab_id)` — no leaked subprocesses.
+- Archiving a workspace fans out shutdown across every open tab in that workspace.
+- Each tab's claude inherits the workspace's `cwd` (one repo, N independent agents working in it). Per-tab `cwd` overrides are out of scope; would require Phase 19's track / worktree primitives.
+- Memory budget: each tab is a full claude subprocess (~50–200 MB). Workspaces with 10 tabs × 100 MB = 1 GB headroom. Document the cost; revisit if it bites in dogfood.
+
+**Acceptance tests:**
+- T-23E-1 — distinct session ids per tab. `derive_session_id(W, A) != derive_session_id(W, B)`; both stable across calls.
+- T-23E-2 — parallel post round-trips. Two tabs in one workspace; post in A; post in B before A finishes; assert the mock orchestrator routes the messages to two distinct subprocesses; replies attribute to their respective tabs.
+- T-23E-3 — close tab kills its subprocess. Spawn tab; close tab; assert `Orchestrator::shutdown((workspace_id, tab_id))` called and the team-handle is gone from the map.
+- T-23E-4 — archive workspace shuts down all tabs. Workspace with 3 open tabs; archive; assert 3 shutdown calls.
+- T-23E-5 — model change respawns only the affected tab. Set tab A to Haiku, tab B to Opus; switch A to Sonnet; assert B's subprocess is untouched.
+- T-23E-6 — back-compat with no tabs. Workspaces with zero open tabs (legacy projection / replay edge case) don't crash; lazy-spawn happens on first post into the first tab opened.
+
+### Sequencing & parallelism
+
+Lane structure mirrors the Lane 1 / Lane 1.5 / Lane 2 pattern from Dogfood Push:
+
+**Wave 1 — parallel** *(file-disjoint; three agents simultaneously)*:
+- **Phase 23.C** — frontend, `blocks.tsx` + `blocks.css` + chat-rendering test.
+- **Phase 23.D** — frontend, `MainView.tsx` (single-line key change) + `tabs.test.tsx`.
+- **Phase 23.A** — backend, `core_agents.rs` coalescer only (PendingMessage struct + flush helper).
+
+**Wave 2 — single track** *(blocked on Wave 1 merging — touches `core_agents.rs::post_message` which 23.A also touches)*:
+- **Phase 23.E** — backend architecture change. Largest of the five. Lands solo because every other workstream that touches `core_agents.rs` or `claude_code.rs` would conflict.
+
+**Wave 3 — single track** *(after 23.E lands; depends on per-tab activity surfaces)*:
+- **Phase 23.B** — full-stack. Defers because the activity event needs `tab_id` (added by 23.E) on the wire. Could land before 23.E with `tab_id: None` as a temporary signature, but the cleanup churn isn't worth the parallelism.
+
+**Why not run 23.A and 23.E in parallel:** both touch `core_agents.rs::post_message`. 23.A modifies the `PendingMessage` struct; 23.E modifies the function signature. The merge conflict is mechanical but expensive enough to serialize.
+
+### Done when *(Phase 23 as a whole)*
+
+- A user sends a message in any tab and gets a reply with no manual intervention or remount workaround.
+- Tool-use rows render in chronological position (above the agent message that uses them) and expand to full payload on click.
+- Switching tabs does not interrupt the agent; the activity indicator shows live progress and elapsed time on the originating tab.
+- Two tabs in one workspace process two messages truly in parallel — different claude subprocesses, no interleaved-context confusion, both replying simultaneously.
+- Friction `019dea67`, `019dea69`, `019dea66`, and the un-filed "tab switch loses progress" friction all `friction resolve`.
+- The per-tab subprocess shape is documented in `pattern-log.md` so Phase 19 + 20 + 22.A inherit the contract, not re-litigate it.
+
+**Out of scope (v1):**
+- A real "Stop turn" interrupt that mid-flight cancels claude. Requires a wider protocol change; tracked as 23.F follow-up.
+- Per-tab `cwd` / worktree assignment. Phase 19 territory.
+- Coalescing consecutive same-tool tool-use rows under one disclosure ("Read 4 files"). 23.C ships one-row-per-call; coalescing is a v2 polish.
+- Inline status sublines within the agent's current turn (Conductor's "● Thinking ● by AutoAcceptSafeTools…" stack). 23.B v2.
+- Cost chip on the compose dock. Already shipped in DP-A; v2 for inline cost mid-turn.
+
+---
+
 ## Milestones (summary)
 
 | Milestone | Phases | Parallel? | State |
@@ -2320,6 +2480,7 @@ These tests are the gate. PR review for each sub-phase asserts every test in its
 | Learning layer (local-model workflow proposals) | 21 | After 13.D + 13.F; independent of 14/16/18/19/20 | Pending |
 | Project Home redesign (Recent Reports / Roadmap / Designer Noticed) | 22.G + 22.B + 22.A + 22.I + 22.D + 22.E + 22.H + 22.C | Sub-phases independently shippable; 22.G + 22.B + 22.A + 22.I as recommended first slice; 22.F satisfied by 21; Linear (was 22.J/K) and five-category re-skin cut from v1; 22.L delivered with Phase 20 | Pending — 22.G pullable into Phase 15 polish |
 | Merge queue (cross-PR conflict resolution train) | 22.N + 22.N.1 | Independently shippable; 22.N hard-gates on 13.E + 13.G + 20 + 22.A; 22.N.1 gates on 22.N + 22.E. Spec source: `.context/specs/phase-22n-merge-queue.md` (v3, two staff-review passes complete) | Pending — promoted to roadmap 2026-05-02 |
+| **Chat UX hardening** | **23.A + 23.C + 23.D (Wave 1 parallel) → 23.E (Wave 2) → 23.B (Wave 3)** | Wave 1 truly parallel (file-disjoint); 23.E and 23.B serialize on `core_agents.rs` + `claude_code.rs` | **Active 2026-05-02 — dogfood-blocking** |
 
 ---
 
