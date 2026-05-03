@@ -2478,6 +2478,14 @@ Phase 23.E (per-tab Claude subprocess; PR #95) and its follow-up PR #98 (migrati
 
 Acceptance gate (remaining batch shipped): the third floating-notice surface ships against a shared `<Banner>` archetype rather than a third bespoke instance; multi-tab workspaces surface their memory cost in the topbar before the OS surfaces it as pressure.
 
+### Polish-bundle follow-ups — Deferred review items *(parked from PR #104 staff-perspective review — captured here so they don't rot in the closed PR body)*
+
+PR #104 bundled three cosmetic friction fixes (focus-visible compose, dark-mode tab token, friction-widget submit confirmation) and resolved seven verified-already-shipped items. The three-perspective review caught four review items in-flight (exit-curve token, success-token icon, transitionend guard, aria-hidden on closing) — all folded into the same PR. Two follow-ups deferred:
+
+- ~~**104.f1 — Regenerate `workspace-thread--dark.png` visual baseline.**~~ ✅ Covered by PR #103 (Approval drill-down + resolved-state copy fix, merged after PR #104), which regenerated all dark-mode visual baselines against a base that already included PR #104's dark-mode `.tab-button` token swap. No separate action needed.
+
+- **104.f2 — Friction-widget exit gesture: add `transform: translateY(var(--space-3))`.** PR #104 ships an opacity-only fade on `.friction-widget[data-closing="true"]`, which reads as "fading in place" rather than "leaving the screen." Pairing the opacity with a small downward translate would communicate "this surface is done with its job and exiting." One-line CSS change (extend the `transition` shorthand on `.friction-widget` to include `transform`, add `transform: translateY(var(--space-3))` to the closing state). Pure craft polish; not blocking dogfood. Bundle into the next friction-widget polish pass or pick up opportunistically. Owner: any frontend agent on a Friction-touching PR. ~10 min.
+
 ---
 
 ## Milestones (summary)
