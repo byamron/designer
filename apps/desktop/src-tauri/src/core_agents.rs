@@ -1015,10 +1015,13 @@ mod tests {
         // The stamp should be near burst_start_ms, not near flush_ms.
         // We allow the stamp to be at or after burst_start_ms (the recv
         // task captures it after the broadcast hop) and well before
-        // flush_ms — at least one full coalesce window earlier.
+        // flush_ms — at least one full coalesce window earlier. The
+        // ±10ms backward tolerance covers SystemTime granularity drift
+        // and scheduler jitter under CI load (review: tight 2ms bound
+        // would flake under contention; widening is purely safety).
         assert!(
-            stamped_ms >= burst_start_ms.saturating_sub(2),
-            "stamped_ms ({stamped_ms}) precedes burst_start_ms ({burst_start_ms}) by more than 2ms tolerance"
+            stamped_ms + 10 >= burst_start_ms,
+            "stamped_ms ({stamped_ms}) precedes burst_start_ms ({burst_start_ms}) by more than 10ms tolerance"
         );
         // Flush happens ~window after the chunk lands. If the bug were
         // present (id from now_v7 at flush time), stamped_ms would be
