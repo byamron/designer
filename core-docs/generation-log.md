@@ -713,3 +713,29 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - deviations: hover-only reveal of row actions is bespoke chrome rather than a Mini primitive — consistent with the rest of WorkspaceSidebar's idiom but a candidate for an explicit Mini archetype later
 - feedback: addresses frc_019dea6a-0f1d (no way to close/archive workspaces); also covers frc_019dea66/67/69 indirectly because PR #87 ships the chat-strip + archive together (per user instruction "archiving should also be in this PR because that's core functionality")
 
+## 2026-05-02T22:45:00Z — manual (Phase 23.C tool-use expand-to-payload)
+
+- prompt: "Implement Phase 23.C: ToolUseLine expand renders the full artifact payload as monospace under the head, with 40-line truncation + Show full disclosure."
+- trigger: manual (Mini procedure followed; no skill fired — single-component edit on an existing surface)
+- archetype-reused: none (extends the existing tool-line disclosure idiom)
+- components-reused: ToolUseLine
+- components-new: none (added `.tool-line__pre` + `.tool-line__show-full` styles only)
+- primitives: none
+- tokens: --space-2, --space-3, --space-4, --color-surface-sunken, --color-border-soft, --radius-button, --color-muted, --color-foreground, --type-family-mono, --type-family-sans, --type-caption-size, --type-caption-leading, --border-thin, --motion-interactive, --focus-outline-* (all pre-existing in tokens.css)
+- invariants: 6/6 pass
+- deviations: none
+- feedback: addresses frc_019dea67 (tool-use rows feel decorative without a way to drill into evidence); per-mount cache + in-flight `useRef` flag dedupes a fast double-click into a single `getArtifact` IPC call
+
+## 2026-05-02T22:54:00Z — manual (Phase 23.C review fixes: loading affordance + a11y)
+
+- prompt: "Apply staff-perspective-review blockers on PR #92: state-update-after-unmount guard, in-flight loading affordance, screen-reader announcement on the new region."
+- trigger: manual (staff-perspective-review follow-up; first-round review caught three blockers, fixed in commit 46a034f5)
+- archetype-reused: none (extends the existing tool-line disclosure idiom from the prior entry)
+- components-reused: ToolUseLine
+- components-new: none (added `.tool-line__loading` style only)
+- primitives: none
+- tokens: --space-4, --color-muted, --type-family-sans, --type-caption-size, --type-caption-leading (all pre-existing)
+- invariants: 6/6 pass
+- deviations: none — initial draft used `font-style: italic` for the loading affordance, dropped during the round-2 review because italic isn't sanctioned in design-language.md §axioms #6 (sans + mono register, no italic in chrome). Muted color alone carries the transient signal.
+- feedback: addresses staff-perspective-review blockers — `mountedRef` guard so `setState` doesn't fire after the row unmounts mid-fetch; `Loading output…` affordance fills the otherwise-empty expanded state; `aria-live="polite"` on both the loading `<p>` and the payload `<pre>` so screen readers hear the new region without us hijacking focus from the head button
+
