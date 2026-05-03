@@ -169,6 +169,25 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  opacity: 1;
+  /* Closing fade — only opacity is transitioned so the transitionend
+   * handler in the component listens for a single property and won't
+   * tear down on incidental child changes. Easing matches the
+   * inbound slab fade so submit + close read as one motion. */
+  transition: opacity var(--motion-emphasized) var(--ease-out-enter);
+}
+
+.friction-widget[data-closing="true"] {
+  opacity: 0;
+  /* Pointer-disabled while leaving so a fast double-click on Submit
+   * can't fire a second action against the half-faded UI. */
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .friction-widget {
+    transition: none;
+  }
 }
 
 .friction-widget__header {
@@ -462,8 +481,13 @@
 .friction-widget__filed-slab {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Check + label sit as a small vertical pair so the icon visually
+   * anchors the confirmation rather than reading as decorative text. */
+  gap: var(--space-2);
   background: var(--color-surface-overlay);
   border-radius: var(--radius-card);
   color: var(--color-foreground);
@@ -475,6 +499,10 @@
   animation: friction-filed-fade-in var(--motion-emphasized) var(--ease-out-enter)
     forwards;
   z-index: var(--layer-raised);
+}
+
+.friction-widget__filed-icon {
+  color: var(--accent-9);
 }
 
 @keyframes friction-filed-fade-in {
