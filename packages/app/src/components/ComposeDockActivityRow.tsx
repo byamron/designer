@@ -59,7 +59,7 @@ export function ComposeDockActivityRow({
           Approve to continue
         </span>
         <span className="compose-dock-activity-row__chevron" aria-hidden="true">
-          ›
+          <ChevronRight />
         </span>
       </div>
     );
@@ -80,6 +80,30 @@ export function ComposeDockActivityRow({
         Working… <span className="compose-dock-activity-row__elapsed">{formatElapsed(elapsedMs)}</span>
       </span>
     </div>
+  );
+}
+
+/**
+ * Inline chevron icon matching Designer's icon family (12px, 1.5
+ * stroke, currentColor). Replaces a Unicode `›` glyph so the chevron
+ * weight + size track the surrounding caption typography instead of
+ * floating against the system font's default angle quotation mark.
+ */
+function ChevronRight() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4.5 3l3 3-3 3" />
+    </svg>
   );
 }
 

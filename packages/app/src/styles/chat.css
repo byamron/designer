@@ -74,6 +74,9 @@
 .compose-dock-activity-row__chevron {
   margin-left: auto;
   color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 @keyframes compose-dock-activity-pulse {

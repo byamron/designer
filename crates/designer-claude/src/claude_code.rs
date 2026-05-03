@@ -784,8 +784,10 @@ where
     // emit is idempotent (the translator suppresses no-op
     // transitions) — turns that ended cleanly with `result/success`
     // are already `Idle`, so this only fires on the unclean-exit
-    // path. Persistence is intentionally skipped: `ActivityChanged`
-    // is broadcast-only.
+    // path. Runs on **both** loop-exit branches (clean `Ok(0)` EOF
+    // and the `Err(e)` read failure) because it sits *after* the
+    // loop, unconditionally. Persistence is intentionally skipped:
+    // `ActivityChanged` is broadcast-only.
     if let Some(idle) = translator.flush_idle() {
         let _ = tx.send(idle);
     }
