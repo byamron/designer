@@ -73,11 +73,18 @@ describe("ComposeDockActivityRow", () => {
         [`${WS}:${TAB_A}`]: { state: "working", since_ms: t0 },
       },
     }));
-    render(<ComposeDockActivityRow workspaceId={WS} tabId={TAB_A} />);
-    // Initial render at t0 → "0:00".
-    const row = screen.getByText(/Working…/);
-    expect(row).toBeTruthy();
-    expect(row.textContent).toContain("0:00");
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A} />,
+    );
+    // Initial render at t0 → "0:00". The elapsed span is `aria-hidden`
+    // (the live region only announces "Working…"), so we read the
+    // visible label container directly.
+    const label = container.querySelector(
+      ".compose-dock-activity-row__label",
+    );
+    expect(label).not.toBeNull();
+    expect(label?.textContent).toContain("Working…");
+    expect(label?.textContent).toContain("0:00");
 
     // Advance the wall clock by exactly 30s. `advanceTimersByTime`
     // also advances `Date.now()` under fake timers, so this both
@@ -87,7 +94,9 @@ describe("ComposeDockActivityRow", () => {
     await act(async () => {
       vi.advanceTimersByTime(30_000);
     });
-    expect(screen.getByText(/Working…/).textContent).toContain("0:30");
+    expect(
+      container.querySelector(".compose-dock-activity-row__label")?.textContent,
+    ).toContain("0:30");
   });
 
   it("AwaitingApproval renders 'Approve to continue' with a chevron and no counter", () => {

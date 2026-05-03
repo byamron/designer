@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { activityKey, useDataState } from "../store/data";
 import type { TabId, WorkspaceId } from "../ipc/types";
 
@@ -19,6 +20,15 @@ import type { TabId, WorkspaceId } from "../ipc/types";
  * it from 0; a no-op same-state event from the orchestrator does NOT
  * change `since_ms` (Rust translator suppresses no-op transitions),
  * so the counter keeps incrementing through bursty stream events.
+ *
+ * **A11y**: the live region wraps only the *label* ("Working…" /
+ * "Approve to continue") — never the elapsed counter. A naive
+ * `aria-live="polite"` on the outer container would re-announce the
+ * full string every time the elapsed span ticks (every second), which
+ * is the screen-reader equivalent of a robotic stopwatch and violates
+ * Designer's calm-by-default axiom. The counter is `aria-hidden` so
+ * AT users hear "Working…" once on the state edge and the visible
+ * elapsed display is a sighted-user affordance only.
  */
 export function ComposeDockActivityRow({
   workspaceId,
@@ -51,15 +61,17 @@ export function ComposeDockActivityRow({
         className="compose-dock-activity-row"
         data-component="ComposeDockActivityRow"
         data-state="awaiting_approval"
-        role="status"
-        aria-live="polite"
       >
         <span className="compose-dock-activity-row__pulse" aria-hidden="true" />
-        <span className="compose-dock-activity-row__label">
+        <span
+          className="compose-dock-activity-row__label"
+          role="status"
+          aria-live="polite"
+        >
           Approve to continue
         </span>
         <span className="compose-dock-activity-row__chevron" aria-hidden="true">
-          <ChevronRight />
+          <ChevronRight size={12} strokeWidth={1.5} />
         </span>
       </div>
     );
@@ -72,38 +84,20 @@ export function ComposeDockActivityRow({
       className="compose-dock-activity-row"
       data-component="ComposeDockActivityRow"
       data-state="working"
-      role="status"
-      aria-live="polite"
     >
       <span className="compose-dock-activity-row__pulse" aria-hidden="true" />
       <span className="compose-dock-activity-row__label">
-        Working… <span className="compose-dock-activity-row__elapsed">{formatElapsed(elapsedMs)}</span>
+        <span role="status" aria-live="polite">
+          Working…
+        </span>{" "}
+        <span
+          className="compose-dock-activity-row__elapsed"
+          aria-hidden="true"
+        >
+          {formatElapsed(elapsedMs)}
+        </span>
       </span>
     </div>
-  );
-}
-
-/**
- * Inline chevron icon matching Designer's icon family (12px, 1.5
- * stroke, currentColor). Replaces a Unicode `›` glyph so the chevron
- * weight + size track the surrounding caption typography instead of
- * floating against the system font's default angle quotation mark.
- */
-function ChevronRight() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M4.5 3l3 3-3 3" />
-    </svg>
   );
 }
 
