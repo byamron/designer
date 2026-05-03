@@ -11,11 +11,12 @@
 //! Event shapes are captured in `core-docs/integration-notes.md`; fixtures in
 //! `tests/fixtures/stream_json/` cover every variant this module translates.
 
-use crate::orchestrator::OrchestratorEvent;
-use designer_core::{author_roles, AgentId, ArtifactId, ArtifactKind, TaskId, WorkspaceId};
+use crate::orchestrator::{ActivityState, OrchestratorEvent};
+use designer_core::{author_roles, AgentId, ArtifactId, ArtifactKind, TabId, TaskId, WorkspaceId};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
+use std::time::SystemTime;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -57,7 +58,16 @@ pub enum TranslatorOutput {
 
 pub struct ClaudeStreamTranslator {
     workspace_id: WorkspaceId,
+    /// Phase 23.B — every `OrchestratorEvent::ActivityChanged` the
+    /// translator emits is keyed by `(workspace_id, tab_id)`. Each
+    /// per-tab claude subprocess (Phase 23.E) owns its own translator
+    /// instance, so the tab id is fixed for the translator's lifetime.
+    tab_id: TabId,
     team_name: String,
+    /// Phase 23.B — last activity state we emitted, used to suppress
+    /// no-op transitions (we only broadcast on edges so the frontend
+    /// counter doesn't reset on every stream-json line).
+    activity: ActivityState,
     tasks: BoundedMap<String, TaskId>,
     agents: BoundedMap<String, AgentId>,
     /// Maps an assistant `tool_use` block's `id` to the deterministic
@@ -73,13 +83,54 @@ impl ClaudeStreamTranslator {
     /// `team_name` is what the lead was asked to name the team during
     /// `spawn_team`. Required at construction so agent-id derivation is
     /// unambiguous even for events that arrive before any `config.json` read.
-    pub fn new(workspace_id: WorkspaceId, team_name: impl Into<String>) -> Self {
+    /// `tab_id` (Phase 23.B / 23.E) keys the per-tab `ActivityChanged`
+    /// broadcasts the translator emits.
+    pub fn new(workspace_id: WorkspaceId, tab_id: TabId, team_name: impl Into<String>) -> Self {
         Self {
             workspace_id,
+            tab_id,
             team_name: team_name.into(),
+            activity: ActivityState::Idle,
             tasks: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
             agents: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
             tool_uses: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
+        }
+    }
+
+    /// Phase 23.B — emit an [`OrchestratorEvent::ActivityChanged`] only
+    /// on a real transition. Same-state writes (a long burst of
+    /// `Working` stream events) collapse so the frontend counter
+    /// keeps ticking from the first transition's `since` instead of
+    /// resetting on every line. Returns `None` when the state didn't
+    /// change.
+    fn transition(&mut self, next: ActivityState) -> Option<TranslatorOutput> {
+        if self.activity == next {
+            return None;
+        }
+        self.activity = next;
+        Some(TranslatorOutput::Event(
+            OrchestratorEvent::ActivityChanged {
+                workspace_id: self.workspace_id,
+                tab_id: self.tab_id,
+                state: next,
+                since: SystemTime::now(),
+            },
+        ))
+    }
+
+    /// Phase 23.B — synthesize an `Idle` activity event when the
+    /// reader detects EOF / subprocess death. Idempotent: if the
+    /// translator was already `Idle`, no event is produced (the UI
+    /// already shows the dock hidden). Called by
+    /// `claude_code::run_reader_loop` after the read loop exits so a
+    /// crashed subprocess doesn't leave a phantom "Working… 47:00"
+    /// indicator.
+    pub fn flush_idle(&mut self) -> Option<OrchestratorEvent> {
+        match self.transition(ActivityState::Idle)? {
+            TranslatorOutput::Event(ev) => Some(ev),
+            // `transition` only returns `Event` variants — guarded to
+            // future-proof against the helper changing shape.
+            _ => None,
         }
     }
 
@@ -96,7 +147,53 @@ impl ClaudeStreamTranslator {
 
     fn translate_value(&mut self, v: &Value) -> Vec<TranslatorOutput> {
         let ty = v.get("type").and_then(Value::as_str).unwrap_or("");
-        match ty {
+
+        // Phase 23.B — activity transitions, computed before the per-type
+        // translation so the `Working` edge lands at the head of the
+        // returned vector (frontend reducers see the state change before
+        // the artifact / message it triggered). Only events that imply
+        // Claude is *actively producing* trigger `Working` — boot-time
+        // `system/init` and `system/status` lines are excluded so the
+        // dock doesn't flash "Working… 0:01" before the user has typed
+        // anything (init arrives once at subprocess spawn, before any
+        // turn).
+        let mut activity_edge: Option<TranslatorOutput> = match ty {
+            // `assistant` carries text + tool_use blocks; `user` carries
+            // tool_result echoes mid-turn; `stream_event` is the partial
+            // delta stream. Any of the three is unambiguous evidence that
+            // a turn is in flight, and re-arms `Working` after an
+            // `AwaitingApproval` round-trip.
+            "assistant" | "user" | "stream_event" => self.transition(ActivityState::Working),
+            // `system/task_started` / `task_updated` / `task_notification`
+            // signal in-process teammate lifecycle and also imply the
+            // agent is working; init / status are excluded above.
+            "system" => match v.get("subtype").and_then(Value::as_str) {
+                Some("task_started" | "task_updated" | "task_notification") => {
+                    self.transition(ActivityState::Working)
+                }
+                _ => None,
+            },
+            // Per-turn `result/success` or `result/error` ends the turn.
+            // The translator only inspects `subtype == "success"` for cost,
+            // but any `result` line means Claude is done — `Idle` regardless.
+            "result" => self.transition(ActivityState::Idle),
+            // Permission-prompt `control_request` parks the agent on the
+            // user (or inbox). `translate_control_request` filters for
+            // `subtype == "can_use_tool"`; mirror that filter here so a
+            // future `interrupt` request doesn't false-positive into
+            // AwaitingApproval.
+            "control_request"
+                if v.get("request")
+                    .and_then(|r| r.get("subtype"))
+                    .and_then(Value::as_str)
+                    == Some("can_use_tool") =>
+            {
+                self.transition(ActivityState::AwaitingApproval)
+            }
+            _ => None,
+        };
+
+        let mut outputs = match ty {
             "system" => self.translate_system(v),
             "assistant" => self.translate_assistant(v),
             "user" => self.translate_user(v),
@@ -109,7 +206,11 @@ impl ClaudeStreamTranslator {
             // stream_event / unknown: drop (partials broadcast is a separate
             // concern; see 120ms coalesce in ADR 0001).
             _ => Vec::new(),
+        };
+        if let Some(edge) = activity_edge.take() {
+            outputs.insert(0, edge);
         }
+        outputs
     }
 
     fn translate_system(&mut self, v: &Value) -> Vec<TranslatorOutput> {
@@ -590,25 +691,47 @@ fn translate_control_request(v: &Value) -> Vec<TranslatorOutput> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designer_core::WorkspaceId;
+    use designer_core::{TabId, WorkspaceId};
 
     fn ws() -> WorkspaceId {
         // Deterministic workspace id so v5 mapping is stable across runs.
         WorkspaceId::from_uuid(Uuid::parse_str("00000000-0000-7000-8000-000000000001").unwrap())
     }
 
+    fn tab() -> TabId {
+        // Deterministic tab id so the per-tab `ActivityChanged` events
+        // the translator now emits are stable across runs.
+        TabId::from_uuid(Uuid::parse_str("00000000-0000-7000-8000-000000000aaa").unwrap())
+    }
+
+    /// Phase 23.B — strip the activity-state edges so existing
+    /// assertions about translator output shape (TaskCreated count,
+    /// MessagePosted body, …) keep matching the *substantive* events
+    /// they were authored for. Activity transitions get their own
+    /// targeted tests.
+    fn non_activity(out: Vec<TranslatorOutput>) -> Vec<TranslatorOutput> {
+        out.into_iter()
+            .filter(|o| {
+                !matches!(
+                    o,
+                    TranslatorOutput::Event(OrchestratorEvent::ActivityChanged { .. })
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn unparseable_line_produces_no_output() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         assert!(t.translate("not json").is_empty());
         assert!(t.translate("").is_empty());
     }
 
     #[test]
     fn task_started_non_teammate_emits_task_created() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"system","subtype":"task_started","task_id":"t9zu6heo5","description":"Run the tests","task_type":"regular"}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         match &out[0] {
             TranslatorOutput::Event(OrchestratorEvent::TaskCreated { title, .. }) => {
@@ -620,9 +743,9 @@ mod tests {
 
     #[test]
     fn task_started_in_process_teammate_emits_agent_spawned() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"system","subtype":"task_started","task_id":"t9zu6heo5","description":"researcher: You are the researcher teammate.","task_type":"in_process_teammate"}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         match &out[0] {
             TranslatorOutput::Event(OrchestratorEvent::AgentSpawned { role, team, .. }) => {
@@ -635,9 +758,9 @@ mod tests {
 
     #[test]
     fn task_updated_completed_emits_task_completed() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"system","subtype":"task_updated","task_id":"bacnr21el","patch":{"status":"completed","end_time":1776871130382}}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         assert!(matches!(
             out[0],
@@ -647,16 +770,19 @@ mod tests {
 
     #[test]
     fn task_updated_non_completed_emits_nothing() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"system","subtype":"task_updated","task_id":"x","patch":{"status":"in_progress"}}"#;
-        assert!(t.translate(line).is_empty());
+        // Phase 23.B: `task_updated` flips activity to `Working`; that
+        // edge is intentional — the test guards the substantive
+        // output (no `TaskCompleted` for an in-progress patch).
+        assert!(non_activity(t.translate(line)).is_empty());
     }
 
     #[test]
     fn task_notification_completed_with_at_summary_emits_idle() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"system","subtype":"task_notification","task_id":"t9zu6heo5","status":"completed","summary":"researcher@dir-recon"}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         assert!(matches!(
             out[0],
@@ -666,9 +792,9 @@ mod tests {
 
     #[test]
     fn rate_limit_event_surfaces_raw_info() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1776884400,"rateLimitType":"five_hour"}}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         match &out[0] {
             TranslatorOutput::RateLimit(info) => {
@@ -683,10 +809,10 @@ mod tests {
 
     #[test]
     fn result_success_emits_cost() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line =
             r#"{"type":"result","subtype":"success","total_cost_usd":0.36,"duration_ms":17222}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         match &out[0] {
             TranslatorOutput::Cost(c) => assert!((c - 0.36).abs() < 1e-6),
@@ -696,9 +822,9 @@ mod tests {
 
     #[test]
     fn assistant_text_emits_message_posted() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello from the lead."}]}}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         match &out[0] {
             TranslatorOutput::Event(OrchestratorEvent::MessagePosted {
@@ -713,11 +839,11 @@ mod tests {
 
     #[test]
     fn tool_use_block_emits_artifact_produced() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         // Mixed text + tool_use blocks. Expect: 1 ArtifactProduced
         // ("Read CLAUDE.md") + 1 MessagePosted with concatenated text.
         let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Reading CLAUDE.md."},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/repo/CLAUDE.md"}}]}}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 2);
         let mut saw_artifact = false;
         let mut saw_message = false;
@@ -749,9 +875,9 @@ mod tests {
 
     #[test]
     fn tool_use_only_assistant_emits_artifact_only() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"git status"}}]}}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         match &out[0] {
             TranslatorOutput::Event(OrchestratorEvent::ArtifactProduced {
@@ -803,9 +929,9 @@ mod tests {
 
     #[test]
     fn control_request_can_use_tool_emits_permission_prompt() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"/tmp/x.txt","content":"hi"},"tool_use_id":"toolu_x"}}"#;
-        let out = t.translate(line);
+        let out = non_activity(t.translate(line));
         assert_eq!(out.len(), 1);
         match &out[0] {
             TranslatorOutput::PermissionPrompt {
@@ -830,9 +956,12 @@ mod tests {
 
     #[test]
     fn control_request_without_can_use_tool_subtype_drops() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line =
             r#"{"type":"control_request","request_id":"req-2","request":{"subtype":"interrupt"}}"#;
+        // Phase 23.B: only `subtype: can_use_tool` triggers the
+        // AwaitingApproval transition, so this line emits *nothing*.
+        // No filter needed.
         assert!(t.translate(line).is_empty());
     }
 
@@ -868,8 +997,8 @@ mod tests {
 
     #[test]
     fn agent_id_is_deterministic_across_invocations() {
-        let mut a = ClaudeStreamTranslator::new(ws(), "dir-recon");
-        let mut b = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut a = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
+        let mut b = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let id_a = a.agent_id_for("researcher@dir-recon");
         let id_b = b.agent_id_for("researcher@dir-recon");
         assert_eq!(id_a, id_b);
@@ -877,7 +1006,15 @@ mod tests {
 
     #[test]
     fn ignores_init_status_empty_user_and_stream_events() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
+        // Phase 23.B note: `user` and `stream_event` lines now flip
+        // activity to `Working` (the user-tool_result and partial-delta
+        // are evidence the agent is computing). The substantive
+        // translation still drops these as a no-op, so the test
+        // filters out the activity edge before asserting "no real
+        // event emitted." `system/init` / `status` / `hook_started`
+        // are excluded from the activity trigger by design (init
+        // arrives at boot before any user message).
         let lines = [
             r#"{"type":"system","subtype":"init","cwd":"/x"}"#,
             r#"{"type":"system","subtype":"status"}"#,
@@ -886,7 +1023,10 @@ mod tests {
             r#"{"type":"system","subtype":"hook_started","hook_id":"h1"}"#,
         ];
         for line in lines {
-            assert!(t.translate(line).is_empty(), "expected empty for {line}");
+            assert!(
+                non_activity(t.translate(line)).is_empty(),
+                "expected empty for {line}"
+            );
         }
     }
 
@@ -896,10 +1036,10 @@ mod tests {
     /// rail's "Read CLAUDE.md" card gains a result summary in place.
     #[test]
     fn tool_use_followed_by_tool_result_emits_correlated_update() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
 
         let assistant = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_corr","name":"Read","input":{"file_path":"/repo/CLAUDE.md"}}]}}"#;
-        let produced = t.translate(assistant);
+        let produced = non_activity(t.translate(assistant));
         assert_eq!(produced.len(), 1);
         let original_id = match &produced[0] {
             TranslatorOutput::Event(OrchestratorEvent::ArtifactProduced {
@@ -914,7 +1054,7 @@ mod tests {
         };
 
         let user = r##"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_corr","content":"# Designer\n\nLocal-first cockpit..."}]}}"##;
-        let updated = t.translate(user);
+        let updated = non_activity(t.translate(user));
         assert_eq!(updated.len(), 1);
         match &updated[0] {
             TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated {
@@ -934,7 +1074,7 @@ mod tests {
     /// drop. Same artifact-id correlation as the string case.
     #[test]
     fn tool_result_with_content_block_array_concatenates_text() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let _ = t.translate(
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_arr","name":"Bash","input":{"command":"ls"}}]}}"#,
         );
@@ -954,9 +1094,12 @@ mod tests {
     /// the translator never invents a phantom artifact id.
     #[test]
     fn unmatched_tool_result_drops() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ghost","content":"orphaned"}]}}"#;
-        assert!(t.translate(line).is_empty());
+        // Activity edge (`user` line ⇒ Working) is allowed; the test
+        // is about not minting a phantom artifact for an orphan
+        // tool_result.
+        assert!(non_activity(t.translate(line)).is_empty());
     }
 
     /// Inserting more than `TRANSLATOR_STATE_MAX_ENTRIES` distinct task
@@ -964,7 +1107,7 @@ mod tests {
     /// Locks Step 2's bounded-state guarantee.
     #[test]
     fn translator_state_is_bounded_at_cap() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let first_assistant = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_first","name":"Read","input":{"file_path":"/0.txt"}}]}}"#;
         t.translate(first_assistant);
 
@@ -1010,7 +1153,7 @@ mod tests {
     /// event-shape change.
     #[test]
     fn tool_result_is_error_prefixes_failed() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let _ = t.translate(
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_err","name":"Read","input":{"file_path":"/missing.txt"}}]}}"#,
         );
@@ -1035,7 +1178,7 @@ mod tests {
     /// that would whitespace-overwrite the produced card's summary.
     #[test]
     fn tool_result_with_only_image_drops_update() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let _ = t.translate(
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_img","name":"Read","input":{"file_path":"/a.png"}}]}}"#,
         );
@@ -1048,7 +1191,7 @@ mod tests {
     /// rendering bug. Mirrors `core_agents::first_line_truncate`.
     #[test]
     fn tool_result_long_content_appends_ellipsis() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let _ = t.translate(
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_long","name":"Read","input":{"file_path":"/big.txt"}}]}}"#,
         );
@@ -1075,7 +1218,7 @@ mod tests {
     /// regression that would silently spawn sibling artifacts.
     #[test]
     fn evicted_tool_use_then_tool_result_drops_silently() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         // Insert the producing tool_use, then push >cap distinct ids so
         // the original is evicted under LRU pressure.
         let producer = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_evicted","name":"Read","input":{"file_path":"/0.txt"}}]}}"#;
@@ -1090,31 +1233,33 @@ mod tests {
             t.tool_uses.get("toolu_evicted").is_none(),
             "test setup invariant: producer must have been evicted"
         );
-        // Late-arriving tool_result for the evicted id: must drop.
+        // Late-arriving tool_result for the evicted id: must drop the
+        // substantive output. Activity edge already settled to
+        // `Working` from the producer line, so no new edge here.
         let user = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_evicted","content":"late result"}]}}"#;
-        assert!(t.translate(user).is_empty());
+        assert!(non_activity(t.translate(user)).is_empty());
     }
 
     /// Updating the same `tool_use_id` twice (rare but possible if Claude
     /// repeats the result) targets the same artifact id both times.
     #[test]
     fn artifact_id_is_stable_per_tool_use_id() {
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let assistant = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_stable","name":"Read","input":{"file_path":"/a.txt"}}]}}"#;
         let user = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_stable","content":"ok"}]}}"#;
-        let p = match &t.translate(assistant)[0] {
+        let p = match &non_activity(t.translate(assistant))[0] {
             TranslatorOutput::Event(OrchestratorEvent::ArtifactProduced {
                 artifact_id, ..
             }) => *artifact_id,
             _ => panic!("expected ArtifactProduced"),
         };
-        let u1 = match &t.translate(user)[0] {
+        let u1 = match &non_activity(t.translate(user))[0] {
             TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated { artifact_id, .. }) => {
                 *artifact_id
             }
             _ => panic!("expected ArtifactUpdated"),
         };
-        let u2 = match &t.translate(user)[0] {
+        let u2 = match &non_activity(t.translate(user))[0] {
             TranslatorOutput::Event(OrchestratorEvent::ArtifactUpdated { artifact_id, .. }) => {
                 *artifact_id
             }
@@ -1124,6 +1269,141 @@ mod tests {
         assert_eq!(u1, u2);
     }
 
+    /// T-23B-1 — translator activity transitions. Each (input event →
+    /// emitted ActivityChanged) pair, plus the no-op suppression that
+    /// keeps the frontend counter from resetting on every stream-json
+    /// line in a long burst.
+    #[test]
+    fn t_23b_1_activity_transitions() {
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
+
+        // Boot lines (system/init, system/status) must NOT trigger
+        // Working — otherwise the dock flashes "Working… 0:01" before
+        // the user has typed anything.
+        for boot in [
+            r#"{"type":"system","subtype":"init","cwd":"/x"}"#,
+            r#"{"type":"system","subtype":"status"}"#,
+        ] {
+            let activity: Vec<_> = t
+                .translate(boot)
+                .into_iter()
+                .filter(|o| {
+                    matches!(
+                        o,
+                        TranslatorOutput::Event(OrchestratorEvent::ActivityChanged { .. })
+                    )
+                })
+                .collect();
+            assert!(
+                activity.is_empty(),
+                "boot line {boot} unexpectedly transitioned activity"
+            );
+        }
+
+        // First assistant text → Idle → Working.
+        let assistant_text = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#;
+        let edge = first_activity(t.translate(assistant_text))
+            .expect("first assistant event must transition Idle → Working");
+        assert!(matches!(edge, ActivityState::Working));
+
+        // Subsequent assistant lines stay Working — no duplicate edges
+        // (would reset the elapsed counter on the frontend).
+        let again = first_activity(t.translate(assistant_text));
+        assert!(
+            again.is_none(),
+            "no-op transition should suppress the broadcast"
+        );
+
+        // control_request can_use_tool → Working → AwaitingApproval.
+        let prompt = r#"{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"/x"}}}"#;
+        let edge = first_activity(t.translate(prompt))
+            .expect("control_request must transition to AwaitingApproval");
+        assert!(matches!(edge, ActivityState::AwaitingApproval));
+
+        // After approval resolves, the next assistant line resumes
+        // Working — the AwaitingApproval state is one-way until the
+        // next stream event lands.
+        let edge = first_activity(t.translate(assistant_text))
+            .expect("post-approval assistant line must re-arm Working");
+        assert!(matches!(edge, ActivityState::Working));
+
+        // result/success → Working → Idle (turn end).
+        let result =
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.36,"duration_ms":17222}"#;
+        let edge = first_activity(t.translate(result)).expect("result must transition to Idle");
+        assert!(matches!(edge, ActivityState::Idle));
+
+        // result/error also transitions to Idle.
+        let mut t2 = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
+        let _ = t2.translate(assistant_text); // arm Working
+        let err = r#"{"type":"result","subtype":"error","error":"x"}"#;
+        let edge = first_activity(t2.translate(err)).expect("result/error must transition to Idle");
+        assert!(matches!(edge, ActivityState::Idle));
+
+        // control_request that is NOT can_use_tool (e.g. interrupt)
+        // does NOT trigger AwaitingApproval — only the permission
+        // prompt subtype parks the agent.
+        let mut t3 = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
+        let _ = t3.translate(assistant_text); // Working
+        let interrupt =
+            r#"{"type":"control_request","request_id":"req-2","request":{"subtype":"interrupt"}}"#;
+        let outs = t3.translate(interrupt);
+        assert!(
+            !outs.iter().any(|o| matches!(
+                o,
+                TranslatorOutput::Event(OrchestratorEvent::ActivityChanged {
+                    state: ActivityState::AwaitingApproval,
+                    ..
+                })
+            )),
+            "interrupt control_request should not park the agent on approval"
+        );
+    }
+
+    /// T-23B subprocess-death case: `flush_idle()` emits a final
+    /// `ActivityChanged { Idle }` when the reader detects EOF mid-turn,
+    /// and is a no-op when the turn already ended cleanly with
+    /// `result/success`.
+    #[test]
+    fn t_23b_flush_idle_only_emits_when_not_already_idle() {
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
+        // Mid-turn EOF: assistant text armed Working, then EOF lands.
+        let _ = t.translate(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#,
+        );
+        let idle = t
+            .flush_idle()
+            .expect("EOF mid-turn must synthesize a final Idle");
+        match idle {
+            OrchestratorEvent::ActivityChanged {
+                state: ActivityState::Idle,
+                ..
+            } => {}
+            other => panic!("unexpected idle event: {other:?}"),
+        }
+
+        // Clean exit: result already transitioned to Idle, so a second
+        // flush_idle on the same translator is a no-op.
+        let mut t2 = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
+        let _ = t2.translate(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#,
+        );
+        let _ = t2.translate(r#"{"type":"result","subtype":"success","total_cost_usd":0.0}"#);
+        assert!(t2.flush_idle().is_none());
+    }
+
+    /// Helper for the activity-transition test: pull the first
+    /// `ActivityChanged` event's state from a translator output, or
+    /// `None` if no transition fired.
+    fn first_activity(out: Vec<TranslatorOutput>) -> Option<ActivityState> {
+        out.into_iter().find_map(|o| match o {
+            TranslatorOutput::Event(OrchestratorEvent::ActivityChanged { state, .. }) => {
+                Some(state)
+            }
+            _ => None,
+        })
+    }
+
     #[test]
     fn representative_fixture_parses_without_panics() {
         let path = concat!(
@@ -1131,7 +1411,7 @@ mod tests {
             "/tests/fixtures/stream_json/representative-events.jsonl"
         );
         let contents = std::fs::read_to_string(path).expect("fixture file should exist");
-        let mut t = ClaudeStreamTranslator::new(ws(), "dir-recon");
+        let mut t = ClaudeStreamTranslator::new(ws(), tab(), "dir-recon");
         let mut events = 0;
         let mut rate_limits = 0;
         let mut costs = 0;

@@ -19,7 +19,7 @@ use designer_desktop::commands_safety;
 use designer_desktop::core::AppCoreBoot;
 use designer_desktop::core_agents::{coalesce_window_from_env, spawn_message_coalescer};
 use designer_desktop::core_proposals::spawn_track_completed_subscriber;
-use designer_desktop::events::spawn_event_bridge;
+use designer_desktop::events::{spawn_activity_bridge, spawn_event_bridge};
 use designer_desktop::menu::{build_menu, MENU_ID_FEEDBACK, MENU_ID_NEW_PROJECT};
 use designer_desktop::settings::{ResolvedTheme, Settings};
 use designer_desktop::store_watcher::spawn_store_watcher;
@@ -209,6 +209,12 @@ fn main() {
             // task should be torn down and re-spawned.
             let core: tauri::State<'_, Arc<AppCore>> = app.state();
             spawn_event_bridge(handle.clone(), core.inner().clone());
+
+            // Phase 23.B: parallel bridge for the orchestrator's
+            // broadcast-only `ActivityChanged` variant. Rides its own
+            // Tauri channel so the persisted event-stream wire stays
+            // focused on domain events.
+            spawn_activity_bridge(handle.clone(), core.inner().clone());
 
             // Phase 13.D: spawn the message coalescer. Subscribes to the
             // orchestrator's broadcast channel and turns bursts of agent

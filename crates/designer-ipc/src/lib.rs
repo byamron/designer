@@ -580,6 +580,33 @@ mod tests {
     }
 }
 
+// ---- Per-tab activity (Phase 23.B) --------------------------------------
+
+/// Wire mirror of `designer_claude::ActivityState`. Coarse three-state
+/// surface for a single `(workspace_id, tab_id)`. Frontend renders
+/// user-facing copy from this — never expose the variant name itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityState {
+    Idle,
+    Working,
+    AwaitingApproval,
+}
+
+/// Wire DTO for `OrchestratorEvent::ActivityChanged`. Pumped to the
+/// frontend on a dedicated Tauri channel (`designer://activity-changed`)
+/// — kept off the persisted event-stream wire because activity is
+/// broadcast-only (no projector arm, no replay invariant). `since_ms`
+/// is the unix-epoch wall-clock at the state transition; the dock's
+/// elapsed counter renders `now - since_ms`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityChanged {
+    pub workspace_id: WorkspaceId,
+    pub tab_id: TabId,
+    pub state: ActivityState,
+    pub since_ms: u64,
+}
+
 // ---- Local-model helper status ------------------------------------------
 
 /// Flat DTO for the helper-status IPC. Combines boot-time selection (kind,

@@ -3,6 +3,7 @@
 // exercisable without the WebView. Callers never know which runtime they're on.
 
 import type {
+  ActivityChanged,
   AddressFrictionRequest,
   ArtifactDetail,
   ArtifactId,
@@ -58,6 +59,10 @@ export interface IpcClient {
   closeTab(workspaceId: WorkspaceId, tabId: TabId): Promise<void>;
   spine(id: WorkspaceId | null): Promise<SpineRow[]>;
   stream(handler: (event: StreamEvent) => void): () => void;
+  /** Phase 23.B — subscribe to per-tab `ActivityChanged` events
+   *  emitted by the orchestrator (broadcast-only, off the persisted
+   *  event stream). Returns an unsubscribe fn. */
+  activityStream(handler: (event: ActivityChanged) => void): () => void;
   requestApproval(
     workspaceId: WorkspaceId,
     gate: string,
@@ -172,6 +177,7 @@ export interface FeatureFlags {
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
 export const STORE_CHANGED_CHANNEL = "designer://store-changed";
+export const ACTIVITY_CHANNEL = "designer://activity-changed";
 
 class TauriIpcClient implements IpcClient {
   listProjects() {
@@ -206,6 +212,9 @@ class TauriIpcClient implements IpcClient {
   }
   stream(handler: (event: StreamEvent) => void) {
     return listen<StreamEvent>(EVENT_STREAM_CHANNEL, handler);
+  }
+  activityStream(handler: (event: ActivityChanged) => void) {
+    return listen<ActivityChanged>(ACTIVITY_CHANNEL, handler);
   }
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
     return invoke<string>("request_approval", { workspaceId, gate, summary });
@@ -368,6 +377,9 @@ class MockIpcClient implements IpcClient {
   }
   stream(handler: (event: StreamEvent) => void) {
     return this.core.subscribe(handler);
+  }
+  activityStream(handler: (event: ActivityChanged) => void) {
+    return this.core.subscribeActivity(handler);
   }
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
     return Promise.resolve(this.core.requestApproval(workspaceId, gate, summary));

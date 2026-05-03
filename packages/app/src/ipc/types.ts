@@ -224,6 +224,24 @@ export interface StreamEvent {
   payload?: unknown;
 }
 
+// ---- Per-tab activity (Phase 23.B) ----
+/** Wire mirror of `designer_ipc::ActivityState`. Coarse three-state
+ *  surface for a single `(workspace_id, tab_id)`. The frontend
+ *  translates these to user-facing copy — never expose the variant
+ *  string itself. */
+export type ActivityState = "idle" | "working" | "awaiting_approval";
+
+/** Wire DTO for `OrchestratorEvent::ActivityChanged`. Pumped on the
+ *  `designer://activity-changed` Tauri channel; `since_ms` is the
+ *  unix-epoch wall-clock at the state transition (the dock renders
+ *  `now - since_ms` as the elapsed counter). */
+export interface ActivityChanged {
+  workspace_id: WorkspaceId;
+  tab_id: TabId;
+  state: ActivityState;
+  since_ms: number;
+}
+
 /**
  * Event-kind string constants. The Rust side serializes
  * `EventKind` as snake_case via serde; these names mirror that

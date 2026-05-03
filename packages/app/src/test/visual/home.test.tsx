@@ -41,6 +41,7 @@ beforeEach(() => {
     events: fixtureAttentionEvents,
     loaded: true,
     recentActivityTs: {},
+    activity: {},
   });
   appStore.set((s) => ({
     ...s,
@@ -66,6 +67,7 @@ afterEach(() => {
     events: [],
     loaded: false,
     recentActivityTs: {},
+    activity: {},
   });
   appStore.set((s) => ({
     ...s,

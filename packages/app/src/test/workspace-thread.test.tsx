@@ -41,6 +41,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       closeTab: (ws, t) => Promise.resolve(mock.closeTab(ws, t)),
       spine: (id) => Promise.resolve(mock.spine(id)),
       stream: (handler) => mock.subscribe(handler),
+      activityStream: () => () => {},
       requestApproval: (ws, gate, summary) =>
         Promise.resolve(mock.requestApproval(ws, gate, summary)),
       resolveApproval: (id, granted, reason) =>
@@ -216,6 +217,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
       spine: (id) => Promise.resolve(mock.spine(id)),
       stream: (handler) => mock.subscribe(handler),
+      activityStream: () => () => {},
       listArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -263,6 +265,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
       spine: (id) => Promise.resolve(mock.spine(id)),
       stream: (handler) => mock.subscribe(handler),
+      activityStream: () => () => {},
       listArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -312,6 +315,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
           captured = null;
         };
       },
+      activityStream: () => () => {},
       listArtifacts: vi.fn(() => Promise.resolve([] as ArtifactSummary[])),
       listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -365,6 +369,7 @@ describe("WorkspaceThread per-tab thread isolation", () => {
         listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
         spine: (id) => Promise.resolve(mock.spine(id)),
         stream: (h) => mock.subscribe(h),
+        activityStream: () => () => {},
         listArtifacts: (ws) => Promise.resolve(mock.listArtifacts(ws)),
         listArtifactsInTab: (ws, t) =>
           Promise.resolve(mock.listArtifactsInTab(ws, t)),

@@ -3,8 +3,9 @@
 //! were captured from real `claude` 2.1.119 invocations — see
 //! `core-docs/integration-notes.md` §12.A.
 
+use designer_claude::orchestrator::OrchestratorEvent;
 use designer_claude::{ClaudeStreamTranslator, TranslatorOutput};
-use designer_core::WorkspaceId;
+use designer_core::{TabId, WorkspaceId};
 use uuid::Uuid;
 
 fn fixture(name: &str) -> String {
@@ -19,11 +20,30 @@ fn ws() -> WorkspaceId {
     WorkspaceId::from_uuid(Uuid::parse_str("00000000-0000-7000-8000-0000000000ff").unwrap())
 }
 
+fn tab() -> TabId {
+    TabId::from_uuid(Uuid::parse_str("00000000-0000-7000-8000-0000000000aa").unwrap())
+}
+
+/// Phase 23.B — control_request lines now also emit an
+/// `ActivityChanged { state: AwaitingApproval }` edge alongside the
+/// `PermissionPrompt`. These fixture tests are about the prompt
+/// translation, so strip the activity edge before asserting on shape.
+fn non_activity(out: Vec<TranslatorOutput>) -> Vec<TranslatorOutput> {
+    out.into_iter()
+        .filter(|o| {
+            !matches!(
+                o,
+                TranslatorOutput::Event(OrchestratorEvent::ActivityChanged { .. })
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn write_fixture_parses_to_permission_prompt() {
     let line = fixture("write.json");
-    let mut t = ClaudeStreamTranslator::new(ws(), "team-h");
-    let out = t.translate(line.trim());
+    let mut t = ClaudeStreamTranslator::new(ws(), tab(), "team-h");
+    let out = non_activity(t.translate(line.trim()));
     assert_eq!(out.len(), 1, "expected one output, got {out:?}");
     match &out[0] {
         TranslatorOutput::PermissionPrompt {
@@ -50,8 +70,8 @@ fn write_fixture_parses_to_permission_prompt() {
 #[test]
 fn edit_fixture_parses_to_permission_prompt() {
     let line = fixture("edit.json");
-    let mut t = ClaudeStreamTranslator::new(ws(), "team-h");
-    let out = t.translate(line.trim());
+    let mut t = ClaudeStreamTranslator::new(ws(), tab(), "team-h");
+    let out = non_activity(t.translate(line.trim()));
     assert_eq!(out.len(), 1);
     match &out[0] {
         TranslatorOutput::PermissionPrompt {
@@ -74,8 +94,8 @@ fn edit_fixture_parses_to_permission_prompt() {
 #[test]
 fn bash_fixture_parses_to_permission_prompt() {
     let line = fixture("bash.json");
-    let mut t = ClaudeStreamTranslator::new(ws(), "team-h");
-    let out = t.translate(line.trim());
+    let mut t = ClaudeStreamTranslator::new(ws(), tab(), "team-h");
+    let out = non_activity(t.translate(line.trim()));
     assert_eq!(out.len(), 1);
     match &out[0] {
         TranslatorOutput::PermissionPrompt {

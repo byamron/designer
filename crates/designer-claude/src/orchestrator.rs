@@ -6,6 +6,7 @@ use crate::claude_code::ClaudeSignal;
 use async_trait::async_trait;
 use designer_core::{AgentId, ArtifactId, ArtifactKind, TabId, TaskId, WorkspaceId};
 use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -148,6 +149,43 @@ pub enum OrchestratorEvent {
         artifact_id: ArtifactId,
         summary: String,
     },
+    /// Phase 23.B — coarse per-tab activity state. Broadcast-only,
+    /// purely additive on this enum (no projector arm, no
+    /// `EventPayload` mirror, no replay invariant). The translator
+    /// emits `Working` on the first stream event of a turn,
+    /// `AwaitingApproval` on a `control_request` permission prompt,
+    /// and `Idle` on `result/success` / `result/error` and on reader
+    /// EOF (subprocess death) so a phantom `Working` doesn't persist
+    /// forever.
+    ///
+    /// `since` is wall-clock at the state transition; the frontend
+    /// renders `now - since` as the elapsed counter. Because this is
+    /// broadcast-only, ADR 0002's `EventPayload` freeze does **not**
+    /// apply — see `core-docs/pattern-log.md` for the precedent.
+    ActivityChanged {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        state: ActivityState,
+        since: SystemTime,
+    },
+}
+
+/// Phase 23.B — three-state activity surface for a single
+/// `(workspace_id, tab_id)`. Rust enum names; user-facing copy is
+/// translated frontend-side (`Working` → `"Working… {elapsed}"`,
+/// `AwaitingApproval` → `"Approve to continue"`, `Idle` → render
+/// nothing). Never expose the variant names directly to the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityState {
+    /// No turn in flight; the tab's compose row hides itself.
+    Idle,
+    /// Claude is producing output for this tab — the agent is
+    /// computing, streaming text, or running a tool.
+    Working,
+    /// A `control_request` permission prompt is open and the agent
+    /// is parked until the user (or the inbox) decides.
+    AwaitingApproval,
 }
 
 #[async_trait]
