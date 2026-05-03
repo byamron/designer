@@ -37,6 +37,499 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 23.C — Tool-use rows expand to full payload (three-PR trail)
+**Date:** 2026-05-03 (trail spans 2026-05-02 → 2026-05-03)
+**Branch:** chat-tool-expand → tool-line-polish → tool-line-discoverability
+**PRs:** #92 (initial), #94 (region wrapper polish), #97 (chevron + retry)
+
+**What was done:**
+
+`ToolUseLine` (`packages/app/src/blocks/blocks.tsx`) used to show a compact one-line tool-use row that expanded to one extra summary line. It now expands to the full artifact payload as monospace `<pre>` under the head, addressing friction `019dea67` ("tool-use rows feel decorative — no way to drill into evidence"). The trail across three PRs:
+
+- **PR #92** — Core feature. On expand, fetches the artifact via `ipcClient().getArtifact(id)`; per-mount cache + in-flight `useRef` flag dedupes a fast double-click into a single IPC call. Output >40 lines truncates with a "Show full (N more lines)" disclosure that drops the cap. Initial review caught three blockers fixed in a follow-up commit on the same branch: `mountedRef` guard so `setState` doesn't fire after unmount, "Loading output…" affordance during the in-flight window, and `aria-live="polite"` on the new region.
+- **PR #94** — Region-wrapper refactor. `.tool-line__region` was introduced as a flex-column wrapper that owns the box chrome (`--color-surface-sunken` fill, soft border, paddings) + `min-height` + `role="region"` + `aria-label` + `aria-live="polite"` + `aria-busy`. Loading / loaded / error states share one footprint so payload arrival is layout-stable. The inner `<pre>` dropped its chrome and aria-live (some screen readers re-read the whole pre content verbatim on insertion, which the wrapper sidesteps). `getArtifact` rejection surfaces "Nothing to show." instead of an empty box (the round-3 review fixed an earlier draft "No output captured." that read as engineer-y / accusatory). Round-3 review also caught an invalid `min-height` calc that mixed unitless `--type-caption-leading` with lengths — fixed by multiplying `--type-caption-size × --type-caption-leading`.
+- **PR #97** — Discoverability + retry. The `· ` dot on the head was replaced by a lucide-react `ChevronRight` (size 12, strokeWidth 1.5 per axiom #13) that rotates 90° via CSS transform on `aria-expanded="true"`. Same monochrome weight as the dot at rest but signals click-to-expand without ambiguity. Reduced-motion collapses the rotation to instant. Error state now renders a "Try again" text-link beside "Nothing to show."; click clears the dedupe flags and refires `fetchPayload()` — transient failures recover with one click without us having to type-classify the rejection reason on the Rust side.
+
+**Why:**
+
+Pass-through chat (PR #63 / DP-B) had compact tool-use rows but no way to inspect what `Read core-docs/spec.md` actually returned, so a manager couldn't audit what the agent saw. The friction was filed within hours of dogfooding the post-DP-B chat surface. Phase 23.C as scoped in `roadmap.md` was a small frontend half-day; the trail grew because three rounds of staff-perspective review surfaced issues progressively (each round fixed earlier-round blockers, then found new ones at the next layer of polish).
+
+**Design decisions:**
+
+- Truncate at 40 lines, not pagination. Mirrors a typical terminal viewport at common laptop sizes; revisit if dogfood shows it's wrong. "Show full" reveals everything in one click rather than a paged disclosure — matches the cabin's terse register and avoids a state machine for page index.
+- `<pre>` content uses `white-space: pre-wrap` so long lines wrap inside the parent's max-width (`min(48rem, 100%)`); `overflow-x: auto` handles single-word lines without breakpoints. The row never stretches the whole thread.
+- Error copy: "Nothing to show." over "No output captured." Round-3 UX review flagged "captured" as implying a recording the system *should have* made — too engineer-y for the manager-not-engineer audience.
+- Chevron over dot. The original Phase 23.C spec quoted "compact one-line `· Read foo.rs`", but the dot was a placeholder visual marker, not a documented design-language axiom. The chevron carries the same monochrome weight at rest while signaling click-to-expand without ambiguity. Rotation direction (90° clockwise to point down on expand) matches Radix / macOS / standard disclosure conventions.
+- Frontend-only retry over Rust-side error classification. The originally-spec'd shape was 404 = permanent (no retry button); 5xx / IPC error = transient (retry button). Letting the user choose to retry sidesteps the classification entirely — cost is one extra IPC on a permanent-404 retry click. Parked the proper classification as roadmap item 23.C.f4 if dogfood shows the extra IPC matters.
+
+**Technical decisions:**
+
+- `aria-live="polite"` lives on the `.tool-line__region` wrapper, not the inner `<pre>`. Some screen readers (JAWS in particular) read the entire content of a `<pre>` verbatim when it's inserted into a live region; moving the live-update semantics up to the wrapper (which holds `role="region"` + `aria-label`) means SRs announce a single region update instead of streaming 40 lines of code aloud.
+- `min-height` on the wrapper computed as `calc(--type-caption-size * --type-caption-leading + 2*--space-2 + 2*--border-thin)`. The unitless `--type-caption-leading` (1.4) has to be multiplied by the size token, not added directly to lengths, or CSS calc() rejects the whole rule and the layout-stability promise breaks silently. PR #94 round 3 caught this as a real blocker.
+- `mountedRef` guard collapses the IPC `.then()` / `.finally()` callbacks into no-ops when the row unmounts mid-fetch (tab close, archive). React 18+ silenced the legacy "state update on unmounted component" warning, so the unmount-safety test asserts both `getArtifact` was called (proving the promise resolved) AND no console error landed (proving setState didn't fire) — neither half alone proves the guard works.
+- The new `phase` state machine (`idle | loading | loaded | error`) replaced an earlier boolean `loading` flag. Phase carries the result, not the in-flight state — `inflightRef` carries the in-flight state. Separating them means `aria-busy` flips with the loading phase alone, and re-expand reads the cached `loaded` or `error` phase without retriggering the fetch.
+
+**Tradeoffs discussed:**
+
+- BlockProps `expanded` / `onToggleExpanded` adoption (parked as 23.C.f2). The `BlockProps` contract has the parent thread own block expand state, but ToolUseLine tracks it locally. Originally a v1 simplification ("disclosed state persists per-mount only") per the roadmap deliverable. Adopting the parent contract would let `WorkspaceThread` collapse all rows on tab switch / focus-mode but also requires extending the parent's payload state to track loading/error/loaded phases (today the parent only stores resolved `PayloadRef`s). Speculative without a parent-collapse consumer; left in roadmap with a refreshed estimate (~1 day not ½ day).
+- Coalescing consecutive same-tool rows ("Read 4 files" with one disclosure expanding to four citations) — explicit Phase 23 v2 polish per the "Out of scope (v1)" list. Needs a coalescing primitive in `WorkspaceThread`, not a block-side change. Parked as 23.C.f3.
+- Discoverability chevron register. The reviewer's first-round take flagged that adding a chevron changes the "compact one-line" register the original spec asked for. The third-round take revisited and concluded the dot was a placeholder visual marker, not a documented axiom — the chevron carries the same weight at rest while signaling interactivity. Decision: ship the chevron, document the change in `generation-log.md`.
+
+**Lessons learned:**
+
+- Three rounds of staff-perspective review on a "small half-day frontend phase" caught real issues at each layer — basic correctness (round 1: unmount safety, loading state, aria-live), shape refinement (round 2: layout stability, error state, italic axiom-violation), polish (round 3: invalid calc, error copy, discoverability, retry). Skipping any round would have shipped a real bug. The pattern argues for running review aggressively on phases that touch user-facing chrome, even when the LOC is small.
+- Visual-regression baselines diverge whenever a head element changes (dot → chevron). The `regenerate-visual-baselines.yml` workflow handles this on a Linux runner so the developer doesn't try to commit Mac-rendered baselines. Triggered via `gh workflow run regenerate-visual-baselines.yml -f branch=<branch>` after pushing the change.
+- Frontend-only fixes for "needs Rust-side classification" can sidestep the architectural decision by giving the user the choice. The retry button costs one extra IPC on permanent failures vs. zero IPC with classification, but the cost is paid on a click the user opted into — not silent overhead. If/when dogfood shows the extra IPC matters, the original Rust-side classification is still the right path.
+
+---
+
+### Phase 23.C polish — layout-stable region wrapper + error state
+**Date:** 2026-05-03
+**Branch:** tool-line-polish
+**Commit:** PR #94 (2c0615bc)
+
+**What was done:**
+
+Follow-up to PR #92 (Phase 23.C tool-use expand). The merged PR shipped with deferred review items in its body — closing the PR risked losing them, so the cheap fixes landed here and the rest were parked in roadmap.
+
+- `.tool-line__region` carries box chrome + `min-height` so loading / loaded / error states share one footprint. Min-height computed as `(--type-caption-size × --type-caption-leading) + 2× space-2 + 2× border-thin` — the multiplication is load-bearing because `--type-caption-leading` is a unitless multiplier and `calc()` drops the rule entirely on unit mismatch (caught by the round-3 design-engineer review; the prior calc silently failed and the layout-stability promise was defeated).
+- `role="region"` + `aria-label` + `aria-live="polite"` move from the inner `<pre>` up to the wrapper; `aria-busy` flips with the loading phase. Screen readers announce one region change instead of re-reading the long `<pre>` verbatim.
+- Failed-fetch state surfaces "Nothing to show." inside the region (cached so a re-expand doesn't refetch a known 404). Copy is manager-tone, matching project empty-state vocabulary.
+- ReportBlock manifest entry refreshed (tokens, behavior, `last_updated`).
+- Roadmap gains a "Phase 23.C follow-ups" section with f1–f4: discoverability chevron (visual-register decision), honoring `BlockProps.expanded` for parent-driven collapse, coalescing consecutive same-tool rows, and distinguishing transient vs permanent fetch failures (needs Rust-side error typing).
+
+**Why:**
+
+PR #92 closed in friction-fix mode but left layout shift on payload arrival, an aria-live region that re-read the full `<pre>` on update, and silent empty `<pre>`s on fetch failure. None block dogfood; all degrade trust if they accumulate.
+
+**Design decisions:**
+
+- **Copy beats visual differentiation for the error state.** "Nothing to show." in muted text — no warning chrome — keeps the monochrome aesthetic and lets the message itself carry the signal. Rejected the design reviewer's lighter-error-tint suggestion.
+- **Cache 404s in-memory per mount.** A user expanding the same row again shouldn't re-IPC a known-missing payload. Acceptable that transient errors are sticky for the mount lifetime; the right transient/permanent split needs Rust-side error classification (parked as 23.C.f4).
+
+**Technical decisions:**
+
+- **`min-height` calc as a single CSS expression**, not a JS measurement. Keeps the rule declarative and the bound predictable on theme switch.
+- **`tabIndex` deliberately omitted from the region** — added a JSX comment so a future reviewer doesn't assume it's a missing prop. The expand-collapse interaction is keyboard-driven from the head; the region is announce-only.
+
+**Tradeoffs discussed:**
+
+- **Pure-frontend transient-vs-permanent error distinction (rejected) vs. roadmap-park as 23.C.f4 (chosen).** The right fix needs a typed error from `getArtifact` — pure FE pattern-matching on string messages would lock us to the current Rust error format. Defer until the Rust-side classification lands.
+
+**Lessons learned:**
+
+- CSS `calc()` with a unitless variable is a silent-fail trap. The malformed `min-height: calc(0.5rem × 1.4 + ...)` rejected the whole rule and the layout-stability test passed visually only because typical viewports masked the missing min-height. Worth a tools/invariants check for unitless variables inside calc() with length operands.
+- Splitting `aria-live` from the live-region content is a portability concern, not a current-VoiceOver bug. Land the split when the cost is small (it was, here); don't wait for a complaint.
+
+---
+
+### Phase 23.D follow-up — resync per-tab thread state on tab switch
+**Date:** 2026-05-03
+**Branch:** chat-tab-state-resync
+**Commit:** PR #93 (59c5d653)
+
+**What was done:**
+
+Phase 23.D (PR #90) kept `WorkspaceThread` mounted across tab switches to preserve the artifact-stream listener. That fix was load-bearing for live updates but left three pieces of per-tab state seeded only on first mount, so switching `tabId` left them stale. The two BLOCKERs flagged on the PR #90 second review pass land here as small, surgical effects:
+
+- **`hasStarted` resyncs from `tabStartedById[stateKey]`** via a `useEffect` keyed on `stateKey`. A fresh sibling tab inherited the previous tab's `true` and skipped the suggestion-strip empty state — now resolves correctly.
+- **`ComposeDock` is now keyed by `stateKey`** so it remounts per tab. The textarea no longer carries the previous tab's draft into the next tab's mount; round-trip A→B→A still restores A's draft because the per-tab store survives the remount.
+- **`initialPaint` animation gate re-arms on every `tabId` change** via a two-RAF `useEffect`. The slide-in keyframe (`thread-message-in`, 250ms) no longer re-fires on artifacts the user has already seen.
+- Stale comment at `WorkspaceThread.tsx:394` ("Tab switches remount the whole component") updated.
+- T-23D-3 scroll-preservation test relaxed to start both tabs before scroll-shimming (the `hasStarted` resync correctly unmounts `.thread` when switching to a never-started sibling, so scroll preservation only holds when both tabs are in thread mode).
+- Three new tests pin the new behaviors: suggestion strip on fresh sibling tab, draft round-trip across switches, `.thread--initial` re-arms on switch.
+
+**Why:**
+
+PR #90's task brief explicitly placed `WorkspaceThread.tsx` and `ComposeDock.tsx` out of scope. The two BLOCKERs (UX: blank thread on fresh sibling tab; design-engineer: animation stampede on every tab switch) couldn't be fixed without touching them, so the original PR shipped with them as "decision pending." This follow-up takes the ~6-line scope expansion the PR body recommended.
+
+**Design decisions:**
+
+- **`stateKey` (workspace_id + tab_id) as the React key on ComposeDock.** Forces an intentional remount per tab — clean, no manual store reads, and matches the per-tab attribution model already in place. Model + effort reset on remount is intentional (and called out in follow-ups for later persistence).
+- **Two-RAF `initialPaint` window.** The `thread-message-in` keyframe runs 250ms; two frames at 60fps is ~33ms — enough headroom to suppress the re-fire without delaying the next genuine arrival.
+
+**Technical decisions:**
+
+- **`tabId` (not `stateKey`) keys the `initialPaint` effect.** The animation gate cares about tab transitions, not workspace transitions. Workspace switch tears down the whole MainView, so the `initialPaint` gate auto-resets there anyway.
+- **Effect-based resync, not a memoization rebuild.** `useEffect` is the right primitive when the trigger is a prop/key change and the action is "re-read external state once." Memo would re-derive on every render; the effect re-derives only on `stateKey` change.
+
+**Tradeoffs discussed:**
+
+- **Persist model + effort + attachments per tab now (scope creep) vs. ship the BLOCKER fix and follow up (chosen).** The remount-resets-controls behavior is a paper-cut, not a regression — none of those features ever shipped per-tab persistence. Land the architectural fix; persist controls when there's a clean vehicle for it.
+
+**Lessons learned:**
+
+- `useState(() => ...)` lazy initializers fire **once** on mount. Whenever the component is intentionally kept mounted across what used to be a remount boundary, lazy initializers and one-shot effects need an audit.
+- Two-RAF gates are imperceptible and well under the standard motion duration. Reach for them when a CSS keyframe needs to be suppressed for one paint.
+
+---
+
+### Phase 23.A — stamp coalesced agent artifact ids with first-token timestamp
+**Date:** 2026-05-03
+**Branch:** chat-coalescer-ts
+**Commit:** PR #91 (67d05eed)
+
+**What was done:**
+
+The message coalescer accumulates streamed agent tokens and flushes one `ArtifactCreated` per (workspace, author_role) once a 120ms idle window passes. Pre-fix, the flushed artifact id was `ArtifactId::new()` — a UUIDv7 stamped at *flush time*. Tool-use artifacts and any user reply between the last agent token and the flush carried earlier UUIDv7s, so the chat read bottom-up-and-jumbled.
+
+The coalescer now captures `uuid::Timestamp` on the first chunk of each pending burst (same `or_default()` site that captures `tab_id`), clears it on flush, and builds the artifact id via `first_seen_artifact_id` (a thin wrapper over `Uuid::new_v7`). The chat view sorts by artifact id (backed by the projector's `BTreeMap<ArtifactId, _>` iteration), so this is the single source of truth fix.
+
+Pre-existing artifacts retain their (incorrect) timestamps. **Only new flushes are correct** — old conversations open with their pre-fix ordering until replaced.
+
+Acceptance tests T-23A-1..4 land plus a helper round-trip; tolerance widened from ±2ms to ±10ms after a round-1 reviewer flag (CI scheduler contention).
+
+**Why:**
+
+PR #87 stripped the experimental agent-teams framing; same-day dogfood on the resulting plain-pass-through chat surfaced a more fundamental ordering bug: tool-use rows showed up *after* the agent message that triggered them and *after* the user's next reply. Roadmap Phase 23.A is the targeted fix.
+
+**Design decisions:**
+
+- **Capture `SystemTime::now()` alongside `Instant::now()` on first chunk.** Wall-clock and monotonic-clock samples aren't derivable from each other; reviewer caught a spec bug that would have stamped wall-clock from elapsed-time math.
+- **Pre-existing artifact ids stay broken.** A one-time projector re-stamp sweep is a separate workstream; the cost of half-correcting (some flushes new, some old) wasn't worth gating the live fix on.
+
+**Technical decisions:**
+
+- **`uuid::Timestamp` as the captured type**, not a raw `SystemTime`. The `Uuid::new_v7(uuid::Timestamp)` API is the actual `uuid` 1.x surface (a reviewer flagged the original spec called a non-existent `new_v7_with_timestamp`).
+- **Capture outside the lock** so the timestamp reflects when the broadcast event was *read* by the recv-task, not when the lock was acquired. Latency variance under contention disappears from the ordering.
+- **`first_seen_artifact_id_preserves_millis`** test pins the helper round-trip explicitly. ms-level precision is what the ordering uses; sub-ms lives in random lower bits and is irrelevant.
+
+**Tradeoffs discussed:**
+
+- **Backfill old ids (rejected) vs. only-new-flushes-correct (chosen).** A projector pass at boot to re-stamp old artifacts would un-jumble historical scrollback but adds replay cost on every launch and risks drift if the projection logic ever changes. Defer; revisit if dogfood reports it.
+- **Tight ±2ms vs ±10ms test tolerance.** ±2ms reads cleaner but flakes under CI contention. The structural assertion (≥100ms gap from flush time) carries the test's load; widening the wall-clock tolerance trades nothing meaningful.
+
+**Lessons learned:**
+
+- `Instant` and `SystemTime` are different physical clocks. When a feature needs both monotonic ordering and wall-clock stamping, capture both — don't try to derive one from the other.
+- UUIDv7's monotonicity is its load-bearing property; any code that mints them at a moment that isn't "first-seen" silently breaks downstream sorts. Worth a comment at every `Uuid::new_v7` call site naming the moment.
+
+---
+
+### Phase 23.C — tool-use rows expand to full payload
+**Date:** 2026-05-03
+**Branch:** chat-tool-expand
+**Commit:** PR #92 (94da44d4)
+
+**What was done:**
+
+`ToolUseLine` (`packages/app/src/blocks/blocks.tsx`) used to expand to a single extra summary line — barely more than the collapsed view. It now fetches the full payload via `getArtifact(id)` on first expand, caches per-mount (deduped via in-flight ref so a fast double-click is a single IPC call), and renders `payload.body` as a monospace `<pre>` under the head. >40 lines truncates with a "Show full (N more line[s])" disclosure that drops the cap.
+
+Closes friction `frc_019dea67` (tool-use rows feel decorative without a way to drill into evidence).
+
+Round-1 review caught unmount-after-fetch + cache lifetime + missing in-flight affordance; round-2 dropped the speculative `font-style: italic` (axiom-disputed) and stopped using a console warning React 18+ has silenced as the unmount-safety test signal — replaced with a `toHaveBeenCalledTimes(1)` assertion.
+
+**Why:**
+
+Phase 23.C from the roadmap. The terse `· read foo.rs` line is correct as the default, but expand-on-click was promised by the layout and broken in practice — clicking only revealed a one-line summary that didn't add evidence.
+
+**Design decisions:**
+
+- **40-line truncation cap with a single explicit "Show full" disclosure.** "Typical terminal viewport" is the heuristic, with a dogfood revisit hook captured in the spec. Pluralization fixed in the disclosure label ("1 more line" / "N more lines").
+- **Loading copy is a muted "Loading output…" affordance**, not a spinner or skeleton. The IPC round-trip is fast in the typical case; a heavier state would over-claim.
+
+**Technical decisions:**
+
+- **Per-mount cache + in-flight ref** so concurrent expands of the same row collapse to one IPC call. Cache is intentionally not persisted across remounts — the artifact id is monotonic so re-fetching on remount is fine.
+- **`mountedRef` guard**, but reordered: the ref initializes to `true` at the definition site and the cleanup useEffect now only does cleanup. Avoids a redundant `mountedRef.current = true` set that the round-2 reviewer caught.
+
+**Tradeoffs discussed:**
+
+- **Inline expand vs. open-in-overlay (chosen inline).** Overlay would handle very long payloads better but breaks the chat-flow reading model. Truncation + disclosure is the right shape for a chat surface; long payloads are rare for tool-use bodies.
+- **Visual chevron / hover-fill on the head (rejected here).** Adding a discoverability affordance changes the visual register the roadmap explicitly asked for ("compact one-line"). Park as 23.C.f1; revisit if dogfood surfaces "I didn't know I could click."
+
+**Lessons learned:**
+
+- `aria-live` on the inner `<pre>` re-reads the full content as it grows. Hoist `role="region"` + `aria-live="polite"` to the wrapper and let `aria-busy` carry the transient signal — done in the immediate follow-up (PR #94) but worth pre-empting in any future expand-on-fetch component.
+- Test signals shouldn't depend on framework warnings the framework can suppress between versions. Pin the structural assertion ("the promise resolved with the right call count") instead.
+
+---
+
+### Phase 23.D — keep WorkspaceThread mounted across tab switches
+**Date:** 2026-05-03
+**Branch:** chat-tab-remount
+**Commit:** PR #90 (3a77c725)
+
+**What was done:**
+
+`MainView.tsx`: dropped `activeTab` from the React `key` on `<WorkspaceThread>` so the component instance survives tab switches. The previous key forced React to unmount + remount the entire thread on every switch, tearing down the artifact-stream listener, in-flight payload fetches, scroll position, and per-tab expanded-block state. Live agent updates that landed while a user was on a sibling tab were lost — surfaced to the user as "I send a message and leave the tab, the agent stops" (it didn't; the listener did).
+
+The `refresh` callback already depended on `[workspace.id, tabId]`, so re-fetch on tab change was wired and didn't need to change. Per-tab state is keyed internally by `stateKey`.
+
+T-23D-1..4 acceptance tests added in `tabs.test.tsx`. Relaxed one assertion in the existing `frc_019de703` draft-preserved test that was over-specified to the old remount semantics.
+
+The PR shipped with two BLOCKERs flagged on the second review pass and explicitly deferred to a follow-up: `hasStarted` lazy-initializer staleness on fresh sibling tabs, and `initialPaint` animation gate not re-arming on switch. Both fixed in PR #93 (Phase 23.D follow-up).
+
+**Why:**
+
+The task brief explicitly scoped this PR as "one prop change in MainView plus tests." The architectural correction (kept-mounted) was the right primitive; the per-tab-state cleanups are the consequences and were appropriately a separate change.
+
+**Design decisions:**
+
+- **Ship the architectural primitive even with follow-up regressions captured.** The alternative was to delay until ~6 more lines passed three more reviews, blocking dogfood from getting the live-update fix. The user accepts subtraction passes that yield simpler code; here it's an addition pass that intentionally paused at the brief boundary.
+
+**Technical decisions:**
+
+- **Drop `activeTab` from the key only.** `workspace.id` stays in the key — switching workspaces still tears down because the underlying data identity has changed.
+- **T-23D-2 dispatches a synthetic `artifact_created` event via a patched `stream`.** A real test where the Rust core emits a live artifact mid-tab-switch would be a stronger guarantee; lands naturally with Phase 23.E (per-tab Claude subprocess).
+
+**Tradeoffs discussed:**
+
+- **Expand scope here (~6 lines for the BLOCKERs) vs. ship + follow-up (chosen).** Documented the recommendation in the PR body; user direction landed via PR #93 immediately after.
+
+**Lessons learned:**
+
+- React key changes are surgical primitives but leak per-mount state assumptions all over the component tree. After every key tightening, audit `useState(() => ...)`, `useEffect(() => ..., [])`, and any ref initializer that reads external state.
+- The `frc_019de703` test was a good signal — it had been written against the old remount semantics and started failing on the new key. Relaxing it (rather than fixing it to match) was the right call because round-trip preservation is what the test is supposed to prove, not the specific remount mechanism.
+
+---
+
+### Phase 23 plan — Chat UX hardening
+**Date:** 2026-05-03
+**Branch:** chat-ux-phase
+**Commit:** PR #89 (7263af51)
+
+**What was done:**
+
+Docs-only. Added **Phase 23 — Chat UX hardening** to `core-docs/roadmap.md` with five sub-phases (23.A–E), acceptance tests, and a Wave 1 / Wave 2 / Wave 3 sequencing model. `core-docs/plan.md` Current Focus flags Phase 23 as the active dogfood-blocking body of work. Milestones table entry added.
+
+Sub-phases:
+- **23.A** — coalescer first-token timestamp (`core_agents.rs` only).
+- **23.B** — activity indicator in compose dock + tab strip.
+- **23.C** — tool-use rows expand to full payload (`blocks.tsx` + CSS).
+- **23.D** — tab-switch keeps thread mounted (`MainView.tsx` single-line key change).
+- **23.E** — per-tab Claude subprocess (touches `core_agents.rs` + `claude_code.rs`).
+
+**Why:**
+
+PR #87 stripped the experimental agent-teams framing and closed four friction reports. Same-day dogfood on the now-plain chat surface surfaced the next regression layer: tool-use rows render after the agent text + user reply (coalescer flush-time stamping), tab switching tears down the artifact-stream listener (key change), and one Claude subprocess per workspace means tabs share a session — confusing both the model and the user.
+
+The per-tab subprocess shape is the architectural correction Phase 19 (multi-track), 20 (parallel-work coordination), and 22.A (roadmap canvas) were always going to need; treating tabs as the dispatch boundary today saves re-litigating it later.
+
+**Design decisions:**
+
+- **Wave-based sequencing.** Wave 1 (23.A + 23.C + 23.D) is file-disjoint and dispatches in parallel. Wave 2 is solo (23.E touches `core_agents.rs` and conflicts with 23.A). Wave 3 (23.B) follows 23.E because its activity event carries `tab_id`. Conservative serialization on the Wave 2 boundary — engineer reviewer pushed back claiming 23.A and 23.E are disjoint within `core_agents.rs`, but rebase churn is more expensive than two-day delay.
+- **Read-only activity indicator in v1.** Designer can't yet interrupt claude mid-turn over the stream-json protocol, so 23.B ships without a Stop button. The "honest read-only" framing is captured as an explicit known tradeoff; revisit if dogfood surfaces "I see it working but can't act."
+- **Tab-strip badge (added during review).** The per-tab compose-dock indicator alone left the user invisible to background-tab activity, re-creating the "stops responding" friction. Background activity must be surfaced at-a-glance.
+- **User-facing copy translation.** Backend states (`Idle / Working / AwaitingApproval`) leaked into UI copy in the spec; rewritten as "Working… {elapsed}", "Approve to continue", etc.
+
+**Technical decisions:**
+
+- **`OrchestratorEvent::ActivityChanged` is broadcast-only-additive** and not subject to ADR 0002's `EventPayload` freeze. Pattern-log precedent entry to land alongside 23.B.
+- **`SystemTime::now()` captured alongside `Instant::now()` on first-chunk** in 23.A — they're not derivable from each other.
+- **Subprocess death emits Idle** in the 23.B translator spec so a crash doesn't leave a phantom "Working" indicator.
+- **Tab-idle subprocess GC deferred.** Per-tab claude subprocesses run ~50–200 MB; idle tabs would burn memory indefinitely without a kill policy. Spec acknowledges; revisit when dogfood surfaces it.
+
+**Tradeoffs discussed:**
+
+- **Treat tabs as dispatch boundary now vs. later (chosen now).** Phase 19 / 20 / 22.A all depend on per-tab dispatch eventually. Migrating after dogfood-trained habits form is more painful than getting the model right while the chat surface is the only consumer.
+- **Run a staff-perspective review on a docs-only PR (chosen yes).** The skill normally skips docs-only diffs; for a planning doc that three parallel agents will dispatch off, getting an architectural sanity check first is worth the overhead. Two real spec bugs and several clarity gaps landed.
+
+**Lessons learned:**
+
+- A docs-only PR can be the highest-leverage review surface in a phase because it locks the contract for all the implementation PRs that follow. The two spec bugs caught here (uuid API call, `SystemTime`/`Instant` capture) would have cost real implementation time.
+- Background-tab activity is a UX requirement, not a "nice to have" — the per-tab indicator alone reproduces the original symptom. Worth a default-on-tab-strip-badge invariant for any future per-tab signal.
+
+---
+
+### /release skill — codified release workflow
+**Date:** 2026-05-02
+**Branch:** release-skill
+**Commit:** PR #88 (2ed58778)
+
+**What was done:**
+
+Project-local skill at `.claude/skills/release/SKILL.md` codifying the v0.1.x release workflow. Pre-flight readiness sweep (working tree, CI, version drift, last tag, commits since, open PRs, friction, crashes); GO/HOLD with explicit user confirmation before bumping anything. Bumps the three version sources (`Cargo.toml`, `apps/desktop/src-tauri/tauri.conf.json`, `packages/app/package.json`) + refreshes `Cargo.lock`, drafts the PR title + body, **previews before push**.
+
+Hands back a paste-ready terminal snippet for `git tag` + `git push` + `gh run watch`, plus links to the workflow runs page, releases page, and live release URL. **Stops short of tagging** — the user owns the moment of release.
+
+**Why:**
+
+Each Designer release touches three version files and follows a bespoke sequence (PR-first, then tag, then watch the release workflow that signs/notarizes/publishes the DMG + `latest.json`). Without a skill, every cut re-derives the same sequence from `core-docs/history.md` archaeology and re-discovers the same gotchas (race condition in `gh run watch` immediately after tag-push; need to wait for the bump-PR's own CI before merging).
+
+**Design decisions:**
+
+- **User owns the moment of release.** Skill stops at "here's the snippet; paste when ready." Tagging is an irreversible-shared-state action (PRs get cut against the tag, the auto-updater starts serving the DMG, etc.), so the human stays in the loop. Matches the project's "Suggest, do not act (by default)" principle.
+- **Pre-flight summary as a table, not a wall of text.** Ordered by gating priority; friction/crashes only shown when notable. Folds the UX-designer review's "wall-of-text risk" finding.
+- **Confirmation gate is explicit.** "Pause. Do not proceed without confirmation" between pre-flight and version bump — folded from the UX-designer review of step 1 → 2 ambiguity.
+- **PR body preview before push.** Folded from the UX-designer review — the user wants to see the title + body before the PR exists.
+
+**Technical decisions:**
+
+- **`sleep 10` before `gh run watch`** so the release workflow's run record exists by the time the watcher starts. Without it the watcher attaches to the previous release run and exits "successful" while the real run is still queueing.
+- **0.x semver heuristics for minor vs patch** are listed in step 2 (signals: new features = minor, bug fixes only = patch). Avoids re-deriving the call each release.
+- **Verification hint** uses friendlier copy: "quit and relaunch to force a fresh updater check" before the log-file fallback. Folded from UX review.
+
+**Tradeoffs discussed:**
+
+- **Auto-tag (rejected) vs. user-tags (chosen).** Auto-tagging was the alluring shortcut. The user's principle that the release is "their moment" — and that the auto-updater begins serving immediately on tag — argues for keeping the human-in-the-loop hand-off explicit.
+
+**Lessons learned:**
+
+- A "skill that stops short" is a real shape. The `/release` skill does ~80% of the work and hands back a paste-ready snippet — the user reads, pastes, and owns the irreversible step. Worth using this shape elsewhere when the action is irreversible-shared-state.
+- One staff-engineer reviewer claim about PR #85 having 7 files was incorrect — three (`vite.config.ts`, `vite-env.d.ts`, `AppDialog.tsx`) are now permanent infrastructure, not part of every release. Called out explicitly in step 3 so future runs of the skill don't expand the bumped-files list.
+
+---
+
+### Bulletproof basic chat + workspace archiving
+**Date:** 2026-05-02
+**Branch:** friction-triage-19
+**Commit:** PR #87 (13911a7a)
+
+**What was done:**
+
+Two coupled subtraction passes:
+
+1. **Stripped the experimental agent-teams framing from default chat.** `build_command` no longer sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, `--teammate-mode in-process`, `--include-partial-messages`, or `--disallowedTools AskUserQuestion`. `spawn_team` skips the team-creation bootstrap prompt entirely. `build_message_prompt` returns the body verbatim — no `Message from user:` wrapper. `build_spawn_prompt` and its tests deleted; new `message_prompt_passes_body_through_verbatim` test added. New chat sessions use `lead_role: "assistant"`; existing persisted `team-lead` artifacts still humanize correctly.
+
+2. **Workspace archiving.** Soft-archive (recoverable, reuses `WorkspaceStateChanged`), restore, and hard-delete (new `WorkspaceDeleted` event — additive). `AppCore::archive_workspace`, `restore_workspace`, `delete_workspace` (idempotent; archive shuts down the orchestrator session). `WorkspaceSidebar` gets a per-row archive button (hover-revealed) and a collapsible Archived section pinned to the bottom with Restore + Delete actions; Delete prompts for confirmation.
+
+Closes friction `frc_019dea66` (new chat doesn't continue answering), `frc_019dea67` (tool-use lines + agent goes silent), `frc_019dea69` (consistently stops responding), `frc_019dea6a-0f1d` (no way to close/archive workspaces).
+
+**Why:**
+
+Designer was opting into Claude Code's experimental agent-teams feature and re-framing every user turn as a meta-message *to a team lead*. Symptom: the lead replies once, dispatches a tool-search subagent, then goes silent — exactly what the friction reports describe. Designer's stated chat philosophy (memory FB-0001, project memory FB chat-philosophy) is pass-through CC by default; this PR makes the implementation match. Multi-agent dispatch goes back on the roadmap behind a future opt-in.
+
+Workspace archiving was core sidebar functionality the user asked for in the same pass — workspaces couldn't be removed at all before, so the sidebar grew indefinitely.
+
+**Design decisions:**
+
+- **Soft-archive + hard-delete, not single-action delete.** Archive is the safe default (recoverable; events stay on disk; only access goes away). Delete is explicit + confirmed. Confirm copy rewritten to "Its chat will no longer be accessible." per UX review (the original "Chat history will be lost" was wrong because events stay on disk).
+- **Empty-state surfaces archived list when present.** Original "No workspaces yet" hid archived items behind a misleading message; UX review flagged it.
+- **`window.confirm` on Delete (deferred refactor to a designed primitive).** A generalized `ConfirmDialog` doesn't yet exist (`AppDialog` is hard-wired to the help dialog). Tracked as a follow-up workstream rather than blocking the friction fix on a primitive extraction.
+- **Hover-only reveal of row actions.** Has a keyboard path via `:focus-within` but no persistent visual cue for AT users — flagged as a follow-up UX pass.
+
+**Technical decisions:**
+
+- **`WorkspaceDeleted` orphans tracks/artifacts tied to the workspace id.** Acceptable in v1 (UI never walks the orphans; event log retains them for audit). Would matter if a "recently deleted" recovery surface lands later.
+- **`archive_workspace` shuts down the orchestrator session** so claude doesn't keep ticking on an archived workspace.
+- **`@media (prefers-reduced-motion: reduce)` rules disable** `.workspace-row__actions` and `.sidebar-group__head--toggle` transitions — caught by the design-engineer review.
+- **Token hygiene: `1px` hairline → `var(--border-thin)`.** Caught by `tools/invariants/check.mjs`.
+
+**Tradeoffs discussed:**
+
+- **Hide-behind-flag the agent-teams strip (rejected) vs. rip it out (chosen).** The teams framing was actively breaking dogfood; flag-hiding would have left dead code paths and ambiguity about the canonical chat shape. Subtraction is simpler and more honest. Multi-agent dispatch as an explicit opt-in is the future shape, not the buried-default shape.
+
+**Lessons learned:**
+
+- The chat-philosophy memory ("pass-through CC by default; only intercept where Designer's core value prop demands it") is load-bearing — every subsequent chat-surface decision falls out of it. Worth re-reading before any chat PR.
+- A subtraction pass is the right tool when an experimental capability is masking the canonical shape. The friction reports were unanimous: the symptoms all stemmed from one experimental knob being on by default.
+- Mini-procedure deliverables (generation-log, pattern-log, component-manifest) for behavioural changes — design-engineer review caught they were missing here. Worth a default-on procedure check in any UI-touching PR template.
+
+---
+
+### CI: bump GitHub Actions to Node 24 runtime
+**Date:** 2026-05-02
+**Branch:** node24-actions-bump
+**Commit:** PR #86 (7dcd8003)
+
+**What was done:**
+
+GitHub deprecated Node 20 on Actions runners. Hard deadlines: June 2 2026 runners default to Node 24 for JS actions; September 16 2026 Node 20 removed entirely. This PR bumped every deprecated action to its first major version with `runs.using: node24`. No job-structure, runner-label, secret, concurrency, or matrix changes — version bumps only.
+
+| Action | Before | After |
+|---|---|---|
+| `actions/checkout` | `@v4` | `@v5` |
+| `actions/setup-node` | `@v4` | `@v5` |
+| `actions/cache` | `@v4` | `@v5` |
+| `actions/upload-artifact` | `@v4` | `@v6` |
+| `actions/github-script` | `@v7` | `@v8` |
+
+Untouched: `Swatinem/rust-cache@v2` and `tauri-apps/tauri-action@v0` (already Node 24 since v2.9.0 / v0.6.0; floating tags); composite/Rust-binary actions with no Node runtime.
+
+Six workflow files: `ci.yml`, `supply-chain.yml`, `release.yml`, `claude-live.yml`, `claude-probe.yml`, `regenerate-visual-baselines.yml`.
+
+**Why:**
+
+Every CI run was emitting "Node.js 20 actions are deprecated…" warnings. The June 2 hard deadline forces a default Node 24 runtime; the September 16 deadline removes Node 20 entirely. Bumping action versions is the supported fix; the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` opt-in is a test-the-waters knob with known drift between what the action expects and what it gets.
+
+**Design decisions:**
+
+- **No version drift in `release.yml`.** Critical-path workflow (Apple cert import, notarytool, Tauri minisign, `latest.json` publishing); only `actions/checkout` + `actions/setup-node` lines moved. `tauri-action@v0` floats to Node 24 already, so deliberately not touched.
+- **`actions/upload-artifact@v6` chosen over `@v7`.** v7 only adds an `archive: false` flag we don't use; v6 is the first Node-24 major and is enough.
+
+**Technical decisions:**
+
+- **`setup-node@v5` breaking-change check.** `always-auth` input removed (not used); auto-npm-caching when `package.json` has a `packageManager` field (verified via grep that no `package.json` in the tree has this field). Behavior identical.
+- **`node-version: '20'` left alone.** This is the target Node version for `npm ci` / build, not the action's runtime. Per the task brief.
+
+**Tradeoffs discussed:**
+
+- **Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` (rejected) vs. bump action versions (chosen).** The env var is a test-the-waters opt-in that doesn't fix the underlying deprecation and has known drift. Bumping the action versions is the supported fix.
+
+**Lessons learned:**
+
+- Floating major tags (`@v0`, `@v2`) on third-party actions silently track upstream — verified that `Swatinem/rust-cache@v2` and `tauri-apps/tauri-action@v0` are already Node 24 without any pin. Worth knowing for any "are we on the deprecated runtime" sweep.
+- Self-hosted runners need to be on actions runner ≥ `v2.327.1` for Node 24; verified by the `claude-live` job passing with the new action versions.
+
+---
+
+### Version bump 0.1.1 → 0.1.2
+**Date:** 2026-05-02
+**Branch:** version-bump-0.1.2
+**Commit:** PR #85 (657fabad)
+
+**What was done:**
+
+Bumped workspace + Tauri bundle version `0.1.1` → `0.1.2` for the next release. Synced `packages/app/package.json` from a stale `0.1.0` to `0.1.2`.
+
+**Why:**
+
+15 commits / ~9k LOC had landed on `main` since `v0.1.1` (per-tab thread isolation, settings split, friction loop polish, test floor, model selector, performance budgets). Nothing breaking — natural patch bump.
+
+**Technical decisions:**
+
+- **Three version files in lockstep:** `Cargo.toml`, `apps/desktop/src-tauri/tauri.conf.json`, `packages/app/package.json`. The `/release` skill (PR #88) was authored in part to codify this trio so future cuts don't drift again. `packages/app/package.json` had silently drifted to `0.1.0` while the workspace was at `0.1.1` — caught by the audit and brought current.
+
+**Lessons learned:**
+
+- Three version sources are two too many. The `/release` skill is the workaround; a longer-term fix would be a single source of truth. Captured as an implicit follow-up — not yet a roadmap item because it's a paper-cut, not friction.
+
+---
+
+### Roadmap promotion — Phase 22.N (Merge queue) + 22.N.1 (UI craft)
+**Date:** 2026-05-02
+**Branch:** merge-queue-plan
+**Commit:** PR #84 (e2209b54)
+
+**What was done:**
+
+Docs-only. Added **Phase 22.N — Merge queue** and **Phase 22.N.1 — UI craft + Tier-2 → 22.E migration** to `core-docs/roadmap.md`. Roadmap promotion of a planning spec that went through two staff-perspective review passes; spec lives gitignored at `.context/specs/phase-22n-merge-queue.md`.
+
+The merge queue is a project-scoped sequential merge train that resolves textual + semantic conflicts between parallel-completed PRs, surfaced through a project-level tab.
+
+**Why:**
+
+Phase 20 prevents most conflicts via partition-before-fan-out; the merge queue resolves the residual conflicts that occur anyway, or that occur when Phase 20 wasn't applied (the dogfood case). Complementary, not redundant. Differentiator vs. existing tooling (GitHub merge queue, Mergify, Graphite, Composio agent-orchestrator, Overstory): **cross-PR context briefing for the resolution agent + manager surface + PR-identity preservation** (resolution lands as one attributed commit on the original branch; no meta-PRs).
+
+**Design decisions:**
+
+- **Phase split: 22.N is backend + queue logic + minimal tab; 22.N.1 is full in-app drill-in + craft.** Sequential FIFO in v1 with three v2 escape hatches frozen in the v1 data model so v2 reads with zero migration: `base_ref`, `BranchTarget`, `TestRunRecord` keys. Inline Tier-2 approval `<Frame>` in v1; no in-app drill-in (manager uses "Open PR" → GitHub).
+- **Conflict-marker scope only.** Pre-write gate restricts agent edits to `<<<<<<<` / `=======` / `>>>>>>>` regions; out-of-marker edits fail the gate. Bounds the resolution agent's blast radius.
+- **No force-push.** Resolution lands via `git push`; force-push rejected by invariant check. Preserves PR identity and review trail.
+- **Single-Designer-instance v1 assumption.** Multi-instance lease coordination deferred to v1.x.
+- **Cost rolls into existing CostTracker per-workspace lanes.** Queue tab cost chip is an aggregate filter view; no multi-lane extension; no double-counting.
+- **State-pip palette reuses existing semantic + neutral scales.** Zero new scales introduced.
+
+**Technical decisions:**
+
+- **Briefing payload forward-extensibility** follows the same rule as `EventPayload` per ADR 0002 — additive-only, `Option<…>` for new fields, no removals without ADR.
+- **14 new `QueueItem*` event variants** + additive `Anchor::QueueItem` extension (per the Lane 0 ADR addendum).
+- **Hard gates: 13.E + 13.G + 20 + 22.A. Soft gate: 22.E.** 22.N.1 gates: 22.N + 22.E.
+- **ADR 0007 — Merge queue architecture** referenced as a follow-up doc to be drafted at implementation time.
+
+**Tradeoffs discussed:**
+
+- **Build a merge queue (chosen) vs. defer to GitHub's** (rejected). GitHub's queue handles sequencing, not semantic resolution; the differentiator is the cross-PR briefing payload + manager surface.
+- **One bundled phase (rejected) vs. 22.N + 22.N.1 split (chosen).** First reviewer pass landed at "agree with caveats"; v3 split closes the caveats by pulling the craft + drill-in + 22.E migration into a follow-up that gates on 22.E, leaving 22.N independently shippable.
+
+**Lessons learned:**
+
+- Two staff-perspective review passes before promoting a spec to roadmap caught real load-bearing decisions that would have been costly to reverse mid-implementation (PR-identity preservation, no force-push, conflict-marker scope). Worth running on any phase that adds new event variants or changes a hot-path UI.
+- Locking forward-extensibility hooks in v1 data model (the three escape-hatch keys) is cheap when the v2 shape is at all foreseeable. No-migration v1 → v2 reads are the payoff.
+
+---
+
 ### Per-message model selection — frontend selector wired through to Claude CLI
 **Date:** 2026-05-02
 **Branch:** release-review

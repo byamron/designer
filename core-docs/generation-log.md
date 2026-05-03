@@ -752,6 +752,31 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - deviations: none. The region wrapper's `min-height` is computed from `calc(--type-caption-leading + 2*--space-2 + 2*--border-thin)` — token arithmetic only, no raw values.
 - feedback: addresses three deferred review items — (1) layout shift on payload arrival eliminated by sharing the box footprint across phases; (2) `aria-live` moved up from the inner `<pre>` to the region wrapper so screen readers don't read long pre content verbatim on insertion; (3) `getArtifact` rejection now surfaces "No output captured." instead of an empty box (failed-fetch result is also cached so re-expanding doesn't refetch a known 404). Component-manifest entry refreshed to list the new tokens + behaviors.
 
+## 2026-05-02T23:48:00Z — manual (Phase 23.C polish: chevron discoverability + retry-on-error)
+
+- prompt: "Fix the outstanding Phase 23.C follow-ups (23.C.f1 discoverability + 23.C.f4 transient-error retry); leave 23.C.f2 + 23.C.f3 in the roadmap with refreshed context."
+- trigger: manual (cleanup pass on the parked items from the Phase 23.C review trail)
+- archetype-reused: none (extends the existing tool-line idiom)
+- components-reused: ToolUseLine; lucide-react ChevronRight (already used elsewhere via lucide-react)
+- components-new: `.tool-line__chevron` (replaces `.tool-line__dot`; rotates 90° via CSS transform on `[aria-expanded="true"]`); `.tool-line__error` (flex row holding the status text + retry button); `.tool-line__retry` (text-link affordance, shares register with `.tool-line__show-full`)
+- primitives: none
+- tokens: --space-2 (error-row gap), --motion-interactive (chevron rotation transition), --color-muted, --color-foreground, --type-family-sans, --type-caption-size, --type-caption-leading, --border-thin, --focus-outline-* (all pre-existing)
+- invariants: 6/6 pass. The chevron uses a literal `transform: rotate(90deg)` — angle, not duration / size / color, so no token applies; this is the established disclosure-rotation idiom (Radix collapsibles, etc.).
+- deviations: none. The `·` dot is gone — that was a placeholder visual marker, not a documented design-language axiom; the chevron carries the same monochrome weight at rest while signaling click-to-expand without ambiguity.
+- feedback: ships 23.C.f1 (chevron discoverability) and 23.C.f4 (retry on error) from the parked roadmap section. f2 + f3 stay parked — f2 is speculative without a parent-collapse consumer, f3 is explicit Phase-23 v2 polish needing a coalescing primitive in `WorkspaceThread`. NB: visual-regression baselines (`workspace-thread--{light,dark}.png`) need regeneration via `gh workflow run regenerate-visual-baselines.yml -f branch=tool-line-discoverability` since the head now renders a chevron icon where the dot used to be.
+
+## 2026-05-03T00:05:00Z — manual (Phase 23.E follow-up: migration banner + ChannelClosed copy)
+
+- prompt: "Address PR #95 follow-ups: one-time migration banner explaining pre-23.E session reset; humanize the ChannelClosed Display that was leaking UUIDs to user-facing alerts."
+- trigger: manual (post-merge follow-up to PR #95; closes two of the three deferred FOLLOW-UPs from the staff-perspective-review notes — the third, a memory chip, stays deferred until dogfood signal)
+- archetype-reused: none (mirrors `UpdatePrompt`'s floating-pill pattern — bespoke `<div>` chrome, not a shared archetype yet; consolidate if a third banner-like surface lands)
+- components-reused: Onboarding (localStorage persistence + Escape-to-dismiss pattern)
+- components-new: PreTabSessionBanner (top-center floating pill, fires once for upgraders; aria-live polite, dismissible by button or Escape; detection signal is "any project carries a workspace" — fresh installs land silent)
+- primitives: none
+- tokens: --space-1, --space-3, --space-4, --color-foreground, --color-muted, --color-surface-overlay, --color-surface-raised, --color-border, --border-thin, --radius-pill, --radius-button, --type-family-sans, --type-caption-size, --weight-medium, --motion-interactive, --focus-outline-width, --focus-outline-color, --focus-outline-offset, --surface-shadow, --layer-raised (all pre-existing)
+- invariants: 6/6 pass
+- deviations: none on the CSS side. Detection signal carries a known false-positive: a fresh-install user who creates their first workspace post-23.E will see the banner whose copy ("your existing chats start fresh") technically doesn't apply to them. Documented as FOLLOW-UP in the PR body; revisit if dogfood reports friction. The Rust side has no design surface — `humanize_dispatch_error` is a pattern-matched copy helper invoked from `core_agents::post_message` recovery paths.
+- feedback: addresses staff-perspective-review BLOCKERs caught on the second-round review — (1) Escape-key parity with Onboarding (added `keydown` listener gated on render); (2) test assertion `||` → `&&` so a partial UUID leak (e.g. only "workspace 0192…" without "tab …") still fails; (3) dead `useEffect` removed from PreTabSessionBanner. Component-manifest entry added; this entry closes the Mini procedure §6–7 obligations.
 
 ## 2026-05-03T08:00:00Z — Phase 23.B activity indicator + tab-strip badge
 

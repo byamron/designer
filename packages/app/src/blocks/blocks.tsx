@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronRight } from "lucide-react";
 import type { BlockProps } from "./registry";
 import { humanizeKind, humanizeRole } from "../util/humanize";
 import { formatRelativeTime } from "../util/time";
@@ -226,6 +226,16 @@ export function ToolUseLine({ artifact }: BlockProps) {
     });
   };
 
+  // Retry path — sidesteps roadmap item 23.C.f4 (Rust-side error
+  // classification) by letting the user choose to refetch. Clears the
+  // dedupe flags so the next `fetchPayload` actually fires; transient
+  // failures (network glitch, IPC hiccup) recover with one click.
+  const retry = () => {
+    fetchedRef.current = false;
+    inflightRef.current = false;
+    fetchPayload();
+  };
+
   const body = payload?.kind === "inline" ? payload.body : "";
   const lines = body.length > 0 ? body.split("\n") : [];
   const overflow = lines.length > TOOL_USE_TRUNCATE_LINES;
@@ -247,9 +257,18 @@ export function ToolUseLine({ artifact }: BlockProps) {
         aria-expanded={expanded}
         onClick={onToggle}
       >
-        <span className="tool-line__dot" aria-hidden="true">
-          ·
-        </span>
+        {/* Discoverability affordance — replaces the prior `·` dot.
+            Chevron rotates 90° on expand via CSS transform on the
+            parent button when aria-expanded=true; carries the same
+            tiny visual weight as the dot but signals click-to-expand
+            without ambiguity. axiom #13: lucide-react size 12,
+            strokeWidth 1.5. */}
+        <ChevronRight
+          size={12}
+          strokeWidth={1.5}
+          className="tool-line__chevron"
+          aria-hidden="true"
+        />
         <span className="tool-line__title">{artifact.title}</span>
         {previewSummary && (
           <span className="tool-line__detail">{previewSummary}</span>
@@ -278,7 +297,22 @@ export function ToolUseLine({ artifact }: BlockProps) {
             <p className="tool-line__status">Loading output…</p>
           )}
           {phase === "error" && (
-            <p className="tool-line__status">Nothing to show.</p>
+            <div className="tool-line__error">
+              <p className="tool-line__status">Nothing to show.</p>
+              {/* Retry path for transient failures (network glitch,
+                  IPC hiccup). For permanent 404s the second fetch
+                  also rejects and the error state re-renders — the
+                  user pays one extra IPC call but recovers transient
+                  cases without a Rust-side error-classification pass
+                  (parked as roadmap item 23.C.f4). */}
+              <button
+                type="button"
+                className="tool-line__retry"
+                onClick={retry}
+              >
+                Try again
+              </button>
+            </div>
           )}
           {phase === "loaded" && body && (
             <pre className="tool-line__pre">{visibleBody}</pre>
