@@ -1,6 +1,7 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ApprovalBlock,
   ArtifactReferenceBlock,
   MessageBlock,
   ReportBlock,
@@ -12,7 +13,13 @@ import {
   type IpcClient,
 } from "../ipc/client";
 import { mockIpcClient } from "./ipcMockClient";
-import type { ArtifactKind, ArtifactSummary } from "../ipc/types";
+import type {
+  ActivityChanged,
+  ArtifactKind,
+  ArtifactSummary,
+  PayloadRef,
+  StreamEvent,
+} from "../ipc/types";
 
 function artifact(role: string | null, summary: string): ArtifactSummary {
   return {
@@ -711,5 +718,338 @@ describe("Same-author meta header collapse (CC5)", () => {
       "utf8",
     );
     expect(css).toMatch(/\.thread--initial\s*>\s*\*\s*\{[^}]*animation:\s*none/);
+  });
+});
+
+// Approval drill-down — Phase 15.J cherry-pick. The block now renders a
+// tool+target title from the artifact, mounts a path/command preview row,
+// surfaces the scope-reassurance copy, replaces the prior "Approved" /
+// "Denied" stubs with manager-grade copy + time-ago, and pulls a
+// Working… affordance via the activity stream after a grant.
+describe("ApprovalBlock drill-down + resolved + working", () => {
+  let originalClient: IpcClient;
+
+  beforeEach(() => {
+    originalClient = ipcClientFn();
+  });
+
+  afterEach(() => {
+    __setIpcClient(originalClient);
+  });
+
+  function approvalArtifact(
+    title = "Claude wants to write to `src/main.rs`",
+  ): ArtifactSummary {
+    return {
+      id: "art_apv_1",
+      workspace_id: "ws_apv",
+      kind: "approval",
+      title,
+      summary: "Write src/main.rs",
+      author_role: "system",
+      version: 1,
+      created_at: "2026-04-30T00:00:00Z",
+      updated_at: "2026-04-30T00:00:00Z",
+      pinned: false,
+    };
+  }
+
+  function writePayload(
+    overrides: Partial<{ approval_id: string; path: string; content: string }> = {},
+  ): PayloadRef {
+    return {
+      kind: "inline",
+      body: JSON.stringify({
+        approval_id: overrides.approval_id ?? "apv-1",
+        tool: "Write",
+        gate: "tool:Write",
+        path: overrides.path ?? "src/main.rs",
+        input: {
+          file_path:
+            "/Users/me/proj/.designer/worktrees/uuid-feat/" +
+            (overrides.path ?? "src/main.rs"),
+          content: overrides.content ?? "fn main() {}",
+        },
+      }),
+    };
+  }
+
+  function bashPayload(
+    overrides: Partial<{ approval_id: string; command: string; description: string }> = {},
+  ): PayloadRef {
+    return {
+      kind: "inline",
+      body: JSON.stringify({
+        approval_id: overrides.approval_id ?? "apv-bash",
+        tool: "Bash",
+        gate: "tool:Bash",
+        path: null,
+        input: {
+          command: overrides.command ?? "cargo test --workspace",
+          description: overrides.description,
+        },
+      }),
+    };
+  }
+
+  // T1 — backend computes a manager-grade title; the block must render
+  // it verbatim (not "Approval: Write" anymore).
+  it("renders the artifact title as the headline", () => {
+    __setIpcClient(mockIpcClient({}));
+    const { container } = render(
+      <ApprovalBlock
+        artifact={approvalArtifact()}
+        {...noProps}
+        payload={writePayload()}
+      />,
+    );
+    const title = container.querySelector(".block__title");
+    expect(title?.textContent).toBe("Claude wants to write to `src/main.rs`");
+    // The kind badge from the prior register must be gone — title now
+    // stands on its own.
+    expect(container.querySelector(".block__kind-badge")).toBeNull();
+  });
+
+  // T2 — Write/Edit drill-down: file path on its own row + content
+  // preview + scope reassurance copy.
+  it("renders the stripped path + content preview + scope copy for Write", () => {
+    __setIpcClient(mockIpcClient({}));
+    const { container } = render(
+      <ApprovalBlock
+        artifact={approvalArtifact()}
+        {...noProps}
+        payload={writePayload({ path: "src/main.rs", content: "fn main() {}\n" })}
+      />,
+    );
+    expect(container.querySelector(".block__approval-path")?.textContent).toBe(
+      "src/main.rs",
+    );
+    expect(container.querySelector(".block__approval-pre")?.textContent).toContain(
+      "fn main()",
+    );
+    const scope = container.querySelector(".block__approval-scope")?.textContent ?? "";
+    expect(scope).toContain("isolated workspace");
+    expect(scope).toContain("main checkout is untouched");
+    // Spec: do NOT use the word "worktree" in user-facing copy.
+    expect(scope.toLowerCase()).not.toContain("worktree");
+  });
+
+  // T3 — Show full disclosure mounts when content exceeds the
+  // preview-line cap (~10 lines).
+  it("collapses long Write content to ~10 lines with Show full disclosure", () => {
+    __setIpcClient(mockIpcClient({}));
+    const longContent = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join(
+      "\n",
+    );
+    const { container } = render(
+      <ApprovalBlock
+        artifact={approvalArtifact()}
+        {...noProps}
+        payload={writePayload({ content: longContent })}
+      />,
+    );
+    const pre = container.querySelector(".block__approval-pre");
+    expect(pre?.textContent?.split("\n").length).toBe(10);
+    const showFull = container.querySelector(
+      ".block__approval-show-full",
+    ) as HTMLButtonElement | null;
+    expect(showFull).not.toBeNull();
+    expect(showFull!.textContent ?? "").toContain("20");
+    fireEvent.click(showFull!);
+    expect(
+      container.querySelector(".block__approval-pre")?.textContent?.split("\n").length,
+    ).toBe(30);
+    expect(container.querySelector(".block__approval-show-full")).toBeNull();
+  });
+
+  // T4 — Bash render: command + description, no path, no Show full
+  // when the command fits on one line.
+  it("renders Bash command + description in monospace", () => {
+    __setIpcClient(mockIpcClient({}));
+    const { container } = render(
+      <ApprovalBlock
+        artifact={approvalArtifact("Claude wants to run `cargo test`")}
+        {...noProps}
+        payload={bashPayload({
+          command: "cargo test",
+          description: "Run the workspace test suite",
+        })}
+      />,
+    );
+    expect(container.querySelector(".block__approval-command")?.textContent).toBe(
+      "cargo test",
+    );
+    expect(
+      container.querySelector(".block__approval-description")?.textContent,
+    ).toBe("Run the workspace test suite");
+    expect(container.querySelector(".block__approval-path")).toBeNull();
+  });
+
+  // T5 — Resolved-state copy: granted reads "Allowed by you · {time-ago}".
+  it("renders 'Allowed by you · {time-ago}' after Allow", async () => {
+    const resolveApproval = vi.fn(async () => undefined);
+    __setIpcClient(mockIpcClient({ resolveApproval }));
+    const { container } = render(
+      <ApprovalBlock
+        artifact={approvalArtifact()}
+        {...noProps}
+        payload={writePayload()}
+      />,
+    );
+    fireEvent.click(container.querySelector(
+      ".block__approval-btn--grant",
+    ) as HTMLButtonElement);
+    await waitFor(() => {
+      const status = container.querySelector(".block__approval-resolved");
+      expect(status?.textContent ?? "").toMatch(/^Allowed by you · /);
+    });
+    expect(resolveApproval).toHaveBeenCalledWith("apv-1", true);
+  });
+
+  // T6 — User-deny copy: "Denied by you · {time-ago}". The resolved
+  // article must NOT carry the prior opacity:0.5 styling — replaced
+  // by a left-border. We assert via the data attribute the CSS hooks
+  // (jsdom doesn't compute styles).
+  it("renders 'Denied by you · {time-ago}' with deny-kind=user after Deny click", async () => {
+    const resolveApproval = vi.fn(async () => undefined);
+    __setIpcClient(mockIpcClient({ resolveApproval }));
+    const { container } = render(
+      <ApprovalBlock
+        artifact={approvalArtifact()}
+        {...noProps}
+        payload={writePayload()}
+      />,
+    );
+    fireEvent.click(container.querySelector(
+      ".block__approval-btn--deny",
+    ) as HTMLButtonElement);
+    await waitFor(() => {
+      const status = container.querySelector(".block__approval-resolved");
+      expect(status?.textContent ?? "").toMatch(/^Denied by you · /);
+    });
+    const article = container.querySelector(".block--approval");
+    expect(article?.getAttribute("data-state")).toBe("denied");
+    expect(article?.getAttribute("data-deny-kind")).toBe("user");
+  });
+
+  // T7 — Timeout-deny: differentiated copy + deny-kind=timeout. The
+  // copy must NOT contain "by you" because the user didn't act.
+  it("renders timeout copy + deny-kind=timeout when ApprovalDenied{reason='timeout'} arrives", async () => {
+    let push: ((ev: StreamEvent) => void) | null = null;
+    __setIpcClient(
+      mockIpcClient({
+        stream: (handler) => {
+          push = handler;
+          return () => {};
+        },
+      }),
+    );
+    const { container } = render(
+      <ApprovalBlock
+        artifact={approvalArtifact()}
+        {...noProps}
+        payload={writePayload({ approval_id: "apv-timeout" })}
+      />,
+    );
+    expect(push).not.toBeNull();
+    act(() => {
+      push?.({
+        kind: "approval_denied",
+        stream_id: "ws_apv",
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        payload: { approval_id: "apv-timeout", reason: "timeout" },
+      });
+    });
+    await waitFor(() => {
+      const status = container.querySelector(".block__approval-resolved");
+      expect(status?.textContent ?? "").toMatch(/didn.+respond in 5 min/);
+    });
+    expect(
+      container.querySelector(".block--approval")?.getAttribute("data-deny-kind"),
+    ).toBe("timeout");
+    expect(
+      container
+        .querySelector(".block__approval-resolved")
+        ?.textContent?.toLowerCase() ?? "",
+    ).not.toContain("by you");
+  });
+
+  // T8 — Working… affordance only mounts when the workspace transitions
+  // to `working` AFTER a grant. A working event before the grant must
+  // not paint the indicator (defensively asserts the resolution gate).
+  it("mounts Working… on activity:working after grant; not before", async () => {
+    let pushActivity: ((ev: ActivityChanged) => void) | null = null;
+    const resolveApproval = vi.fn(async () => undefined);
+    __setIpcClient(
+      mockIpcClient({
+        resolveApproval,
+        activityStream: (handler) => {
+          pushActivity = handler;
+          return () => {};
+        },
+      }),
+    );
+    const { container } = render(
+      <ApprovalBlock
+        artifact={approvalArtifact()}
+        {...noProps}
+        payload={writePayload()}
+      />,
+    );
+    // Pre-grant working event must be ignored.
+    expect(pushActivity).toBeNull();
+    fireEvent.click(container.querySelector(
+      ".block__approval-btn--grant",
+    ) as HTMLButtonElement);
+    await waitFor(() => {
+      expect(pushActivity).not.toBeNull();
+    });
+    act(() => {
+      pushActivity?.({
+        workspace_id: "ws_apv",
+        tab_id: "tab_1",
+        state: "working",
+        since_ms: Date.now(),
+      });
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".block__approval-working")).not.toBeNull();
+    });
+    // Idle transition tears the indicator down.
+    act(() => {
+      pushActivity?.({
+        workspace_id: "ws_apv",
+        tab_id: "tab_1",
+        state: "idle",
+        since_ms: Date.now(),
+      });
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".block__approval-working")).toBeNull();
+    });
+  });
+
+  // CSS source guard — opacity:0.5 used to style denied; the new
+  // pattern is a left-border accent. Lock the rule at source so a
+  // future refactor can't silently revert.
+  it("CSS source: denied state uses left-border accent, not opacity:0.5", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const css = fs.readFileSync(
+      path.resolve(__dirname, "..", "styles", "blocks.css"),
+      "utf8",
+    );
+    // The user-deny variant pulls the danger token; timeout pulls muted.
+    expect(css).toMatch(
+      /\.block--approval\[data-state="denied"\]\[data-deny-kind="user"\][^}]+--color-danger/,
+    );
+    expect(css).toMatch(
+      /\.block--approval\[data-state="denied"\]\[data-deny-kind="timeout"\][^}]+--color-muted/,
+    );
+    // The prior `opacity: 0.5` on the denied state must be gone.
+    expect(css).not.toMatch(
+      /\.block--approval\[data-state="denied"\]\s*\{[^}]*opacity\s*:\s*0\.5/,
+    );
   });
 });

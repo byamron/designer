@@ -27,11 +27,142 @@ use designer_core::{
     author_roles, Actor, ApprovalId, ArtifactId, ArtifactKind, EventPayload, EventStore,
     PayloadRef, StreamId, WorkspaceId,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tracing::{debug, warn};
+
+/// Marker substring identifying Designer worktree paths inside a repo.
+/// Worktrees live at `<repo>/.designer/worktrees/<track-uuid>-<slug>/...`
+/// (see `core_git::worktree_path_for`); the strip helper finds this and
+/// returns the path relative to the worktree root.
+const WORKTREE_MARKER: &str = ".designer/worktrees/";
+
+/// Hard cap on how many characters of a Bash command we put in the
+/// approval title before middle-truncating with an ellipsis. Tuned so the
+/// title still fits on a single inline-card row at typical chat widths.
+const TITLE_BASH_MAX: usize = 80;
+
+/// Strip the worktree prefix from a tool-input path so the user sees a
+/// repo-relative path (`src/main.rs`) instead of the noisy absolute form
+/// (`/Users/.../proj/.designer/worktrees/abc-feat/src/main.rs`).
+///
+/// Never returns an absolute path: if the marker is missing and the input
+/// is absolute, falls back to the basename so a malformed input can't
+/// leak filesystem layout into the inbox UI. Already-relative inputs are
+/// returned verbatim.
+pub(crate) fn strip_worktree_prefix(raw: &str) -> String {
+    // Marker present: the input is a real Designer worktree path. Either
+    // we extract a relative path inside the worktree, or we treat the
+    // input as malformed and return empty (callers fall back to the
+    // generic title) — never leak "worktrees" or "<uuid>-<slug>" into
+    // the user-facing title via the basename helper.
+    if let Some(idx) = raw.find(WORKTREE_MARKER) {
+        let after = &raw[idx + WORKTREE_MARKER.len()..];
+        let Some(slash) = after.find('/') else {
+            return String::new();
+        };
+        let rest = &after[slash + 1..];
+        if rest.is_empty() {
+            return String::new();
+        }
+        return rest.to_string();
+    }
+    // No marker: input is either already relative, or absolute but
+    // outside Designer's worktree layout.
+    if !raw.starts_with('/') {
+        return raw.to_string();
+    }
+    let basename = std::path::Path::new(raw)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    // Defensive: `.designer` itself isn't a useful path to surface and
+    // would leak Designer's internal layout into the title. Treat as
+    // unstrippable (caller falls back to the generic copy).
+    if basename == ".designer" {
+        return String::new();
+    }
+    basename.to_string()
+}
+
+/// Middle-truncate a string with a single ellipsis if it exceeds `max`
+/// chars. Bash commands are arbitrary length; the title should preview
+/// both ends so the user can recognize the verb and the target.
+///
+/// Guarded against `max < 2`: producing a meaningful middle-elided form
+/// requires at least one head char + the ellipsis + one tail char.
+/// Below that the function falls back to plain head-truncation rather
+/// than panicking on usize underflow.
+fn truncate_middle(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        return s.to_string();
+    }
+    if max < 2 {
+        return s.chars().take(max).collect();
+    }
+    let head_len = (max - 1) / 2;
+    let tail_len = max - 1 - head_len;
+    let chars: Vec<char> = s.chars().collect();
+    let head: String = chars[..head_len].iter().collect();
+    let tail: String = chars[count - tail_len..].iter().collect();
+    format!("{head}…{tail}")
+}
+
+/// Stripped repo-relative path for tools whose input carries a
+/// `file_path` field (Write / Edit / MultiEdit). `None` for tools that
+/// don't operate on a single path.
+fn extract_stripped_path(tool: &str, input: &Value) -> Option<String> {
+    match tool {
+        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .map(strip_worktree_prefix),
+        _ => None,
+    }
+}
+
+/// Tool+target headline shown as the artifact title. Reads as
+/// "Claude wants to write to `src/main.rs`" instead of the prior
+/// developer-grade "Approval: Write" register.
+fn compute_title(tool: &str, input: &Value) -> String {
+    match tool {
+        "Write" => match extract_stripped_path(tool, input) {
+            Some(p) if !p.is_empty() => format!("Claude wants to write to `{p}`"),
+            _ => "Claude wants to write a file".to_string(),
+        },
+        "Edit" | "MultiEdit" => match extract_stripped_path(tool, input) {
+            Some(p) if !p.is_empty() => format!("Claude wants to edit `{p}`"),
+            _ => "Claude wants to edit a file".to_string(),
+        },
+        "NotebookEdit" => match extract_stripped_path(tool, input) {
+            Some(p) if !p.is_empty() => format!("Claude wants to edit notebook `{p}`"),
+            _ => "Claude wants to edit a notebook".to_string(),
+        },
+        "Bash" => {
+            let cmd = input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if cmd.is_empty() {
+                "Claude wants to run a shell command".to_string()
+            } else {
+                format!(
+                    "Claude wants to run `{}`",
+                    truncate_middle(cmd, TITLE_BASH_MAX)
+                )
+            }
+        }
+        // Unknown tool: keep the Claude tool name in mono so the user
+        // can still tell what's being requested without us pretending
+        // we know what each one does. Plain prose around it keeps the
+        // register manager-grade.
+        other => format!("Claude wants to use the `{other}` tool"),
+    }
+}
 
 /// Hard ceiling on how long an agent can sit blocked on a single prompt.
 /// Long enough for a real human round-trip (interrupted lunch, context
@@ -236,6 +367,14 @@ impl<S: EventStore + 'static> PermissionHandler for InboxPermissionHandler<S> {
         let artifact_id = ArtifactId::new();
         let gate = format!("tool:{}", req.tool);
 
+        // Compute a manager-grade title (tool + target) and a stripped,
+        // repo-relative `path` so the ApprovalBlock can render the
+        // drill-down preview without re-deriving either from raw input.
+        // Stripping happens here, not in Claude's input — the wire stays
+        // unmodified for Claude (encode_response echoes the original).
+        let title = compute_title(&req.tool, &req.input);
+        let stripped_path = extract_stripped_path(&req.tool, &req.input);
+
         // Pack the payload so the ApprovalBlock can render gate + reason +
         // approval_id without a follow-up fetch. Keep it tight — the block
         // reads `summary` for the headline and `payload.body` (this JSON)
@@ -246,6 +385,7 @@ impl<S: EventStore + 'static> PermissionHandler for InboxPermissionHandler<S> {
             "gate": gate,
             "summary": req.summary,
             "input": req.input,
+            "path": stripped_path,
         })
         .to_string();
 
@@ -293,7 +433,6 @@ impl<S: EventStore + 'static> PermissionHandler for InboxPermissionHandler<S> {
         }
 
         // 3. Emit the inline artifact so it shows up in the thread.
-        let title = format!("Approval: {}", req.tool);
         if let Err(err) = self
             .store
             .append(
@@ -745,6 +884,205 @@ mod tests {
             StreamId::Workspace(stream_ws) => assert_eq!(*stream_ws, ws),
             other => panic!("ApprovalGranted must land on the workspace stream; got {other:?}"),
         }
+    }
+
+    #[test]
+    fn strip_worktree_prefix_removes_designer_worktree_segments() {
+        let p = "/Users/me/proj/.designer/worktrees/abc-feat/src/main.rs";
+        assert_eq!(strip_worktree_prefix(p), "src/main.rs");
+    }
+
+    #[test]
+    fn strip_worktree_prefix_handles_nested_paths() {
+        let p = "/x/y/.designer/worktrees/uuid-branch/packages/app/src/blocks/blocks.tsx";
+        assert_eq!(
+            strip_worktree_prefix(p),
+            "packages/app/src/blocks/blocks.tsx"
+        );
+    }
+
+    #[test]
+    fn strip_worktree_prefix_passes_relative_paths_through() {
+        assert_eq!(strip_worktree_prefix("src/main.rs"), "src/main.rs");
+        assert_eq!(strip_worktree_prefix("README.md"), "README.md");
+    }
+
+    #[test]
+    fn strip_worktree_prefix_falls_back_to_basename_for_unknown_absolute() {
+        // No `.designer/worktrees/` marker → never leak the absolute path;
+        // basename is the safest minimal preview.
+        assert_eq!(strip_worktree_prefix("/etc/passwd"), "passwd");
+        assert_eq!(strip_worktree_prefix("/var/tmp/x.txt"), "x.txt");
+    }
+
+    #[test]
+    fn truncate_middle_keeps_short_strings_intact() {
+        assert_eq!(truncate_middle("cargo test", 80), "cargo test");
+    }
+
+    #[test]
+    fn truncate_middle_inserts_ellipsis_for_overlong_strings() {
+        let long = "a".repeat(200);
+        let out = truncate_middle(&long, 80);
+        assert_eq!(out.chars().count(), 80);
+        assert!(out.contains('…'));
+    }
+
+    #[test]
+    fn compute_title_renders_write_with_stripped_path() {
+        let input = json!({
+            "file_path": "/u/me/proj/.designer/worktrees/abc-feat/src/main.rs",
+            "content": "fn main() {}"
+        });
+        assert_eq!(
+            compute_title("Write", &input),
+            "Claude wants to write to `src/main.rs`"
+        );
+    }
+
+    #[test]
+    fn compute_title_renders_edit_with_stripped_path() {
+        let input = json!({
+            "file_path": "/u/me/proj/.designer/worktrees/uuid-x/packages/app/src/foo.tsx",
+            "old_string": "a",
+            "new_string": "b",
+        });
+        assert_eq!(
+            compute_title("Edit", &input),
+            "Claude wants to edit `packages/app/src/foo.tsx`"
+        );
+    }
+
+    #[test]
+    fn compute_title_renders_bash_with_command() {
+        let input = json!({ "command": "cargo test --workspace" });
+        assert_eq!(
+            compute_title("Bash", &input),
+            "Claude wants to run `cargo test --workspace`"
+        );
+    }
+
+    #[test]
+    fn compute_title_truncates_long_bash_commands() {
+        let cmd =
+            "cargo run --release -- --some-very-long-argument that goes on and on and on and on";
+        let input = json!({ "command": cmd });
+        let title = compute_title("Bash", &input);
+        assert!(title.starts_with("Claude wants to run `"));
+        assert!(title.contains('…'));
+    }
+
+    #[test]
+    fn compute_title_falls_back_for_unknown_tools() {
+        let input = json!({});
+        assert_eq!(
+            compute_title("Glob", &input),
+            "Claude wants to use the `Glob` tool"
+        );
+    }
+
+    #[test]
+    fn compute_title_handles_whitespace_only_bash_command() {
+        let input = json!({ "command": "   \t  " });
+        assert_eq!(
+            compute_title("Bash", &input),
+            "Claude wants to run a shell command"
+        );
+    }
+
+    #[test]
+    fn strip_worktree_prefix_returns_empty_for_trailing_worktree_slash() {
+        // `/repo/.designer/worktrees/uuid-slug/` — slash after the worktree
+        // dir but no actual file path. Result must be empty (caller falls
+        // back to a generic title) — we never want to surface "" or a
+        // half-stripped path to the user.
+        let p = "/Users/me/proj/.designer/worktrees/uuid-feat/";
+        assert_eq!(strip_worktree_prefix(p), "");
+    }
+
+    #[test]
+    fn strip_worktree_prefix_does_not_leak_internal_directory_names() {
+        // Truncated absolute path stops at `.designer/worktrees/` itself —
+        // the basename helper would otherwise return "worktrees", leaking
+        // Designer's internal layout into the title. Must be empty.
+        assert_eq!(strip_worktree_prefix("/repo/.designer/worktrees/"), "");
+        assert_eq!(strip_worktree_prefix("/repo/.designer/"), "");
+    }
+
+    #[test]
+    fn compute_title_falls_back_when_strip_yields_empty_path() {
+        // Pathological input: the tool reports a worktree-root path with
+        // no file inside it. The friendly title must NOT render
+        // `Claude wants to write to ``` (empty backticks); fall through
+        // to the generic copy instead.
+        let input = json!({
+            "file_path": "/Users/me/proj/.designer/worktrees/uuid-feat/",
+            "content": "",
+        });
+        assert_eq!(
+            compute_title("Write", &input),
+            "Claude wants to write a file"
+        );
+    }
+
+    #[test]
+    fn truncate_middle_does_not_panic_on_small_max() {
+        // Defensive guard against a future refactor that might call
+        // `truncate_middle` with `max < 2`. Production only ever calls
+        // with `TITLE_BASH_MAX = 80`, but the function is `pub(crate)`
+        // and a usize underflow would crash the inbox handler.
+        assert_eq!(truncate_middle("hello", 0), "");
+        assert_eq!(truncate_middle("hello", 1), "h");
+        // max == 2 is the smallest size that produces an ellipsis.
+        let two = truncate_middle("hello", 2);
+        assert!(two.contains('…'));
+        assert_eq!(two.chars().count(), 2);
+    }
+
+    /// Approval artifact title and payload pick up the manager-grade
+    /// rewrite (no more `"Approval: Write"`), and the payload carries
+    /// a stripped repo-relative path the frontend can render directly.
+    #[tokio::test]
+    async fn write_approval_artifact_carries_friendly_title_and_stripped_path() {
+        let store = boot_store().await;
+        let handler = Arc::new(InboxPermissionHandler::new(store.clone()));
+        let ws = WorkspaceId::new();
+
+        let h = handler.clone();
+        let handle = tokio::spawn(async move {
+            h.decide(PermissionRequest {
+                tool: "Write".into(),
+                input: json!({
+                    "file_path": "/Users/me/proj/.designer/worktrees/uuid-feat/src/main.rs",
+                    "content": "fn main() {}",
+                }),
+                summary: "Write src/main.rs".into(),
+                workspace_id: Some(ws),
+            })
+            .await
+        });
+
+        let approval_id = wait_for_pending(&handler).await;
+        handler.resolve(approval_id, true, None).await.unwrap();
+        let _ = handle.await.unwrap();
+
+        let events = store.read_all(StreamOptions::default()).await.unwrap();
+        let artifact = events
+            .iter()
+            .find(|e| matches!(e.payload, EventPayload::ArtifactCreated { .. }))
+            .expect("ArtifactCreated event present");
+        let EventPayload::ArtifactCreated { title, payload, .. } = &artifact.payload else {
+            unreachable!();
+        };
+        assert_eq!(title, "Claude wants to write to `src/main.rs`");
+        let PayloadRef::Inline { body } = payload else {
+            panic!("expected inline payload");
+        };
+        let parsed: Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            parsed.get("path").and_then(|v| v.as_str()),
+            Some("src/main.rs")
+        );
     }
 
     /// The optional `GateStatusSink` must be notified after resolve so

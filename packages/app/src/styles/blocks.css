@@ -16,6 +16,10 @@
   /* Accent for interactive block elements (pin, approval grant, links).
      Designer is monochrome; accent = step-9 of the gray scale. */
   --color-accent: var(--accent-9);
+  /* Danger register for user-deny left-borders. Block-layer alias of the
+     project's red-9 token so future palette swaps don't have to chase
+     selectors here. */
+  --color-danger: var(--danger-9);
   /* Typography aliases so block CSS reads consistently with the existing
      body-text register. */
   --line-height-body: var(--type-body-leading);
@@ -805,16 +809,147 @@
   accent-color: var(--color-accent);
 }
 
+/* ApprovalBlock — manager-grade drill-down register. The pending state
+ * highlights with the accent border so the eye finds it first; resolved
+ * states drop chrome but use a left-border to differentiate user-deny
+ * (danger) from timeout-deny (muted). The previous opacity:0.5 read as
+ * "old/dim" — replaced because Allow/Deny is a decision, not history. */
 .block--approval[data-state="pending"] {
   border-color: var(--color-accent);
 }
 
+/* Granted: subtle muting (one step down) so the row recedes without
+ * losing legibility. The Working… affordance below pulls the eye when
+ * the agent is still doing something. */
 .block--approval[data-state="granted"] {
-  opacity: 0.7;
+  border-color: var(--color-border-soft);
 }
 
+/* Denied: left-border carries the meaning, not opacity. User-deny
+ * gets the danger token; timeout-deny stays muted because the user
+ * didn't actively reject — they didn't show up. */
 .block--approval[data-state="denied"] {
-  opacity: 0.5;
+  border-color: var(--color-border-soft);
+  /* 3× the standard border weight so the deny accent reads at a glance
+   * without needing a new token; see Mini axiom #4 (compose with calc
+   * before introducing per-component token aliases). */
+  border-left-width: calc(var(--border-thin) * 3);
+  border-left-style: solid;
+}
+
+.block--approval[data-state="denied"][data-deny-kind="user"] {
+  border-left-color: var(--color-danger);
+}
+
+.block--approval[data-state="denied"][data-deny-kind="timeout"] {
+  border-left-color: var(--color-muted);
+}
+
+/* Header: drop the kind badge — the new title ("Claude wants to write
+ * to `src/main.rs`") is self-describing and the badge added noise. */
+.block__approval-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+/* Tool target: the path or command sits on its own row in mono so the
+ * eye can scan a long path without the title chrome interfering. The
+ * scope reassurance line tucks under it in muted caption register. */
+.block__approval-target {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.block__approval-path,
+.block__approval-command {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
+  background: var(--color-surface-sunken);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-button);
+  padding: var(--space-1) var(--space-2);
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+  word-break: keep-all;
+}
+
+/* Reassurance copy — plain language, NOT enforcement. Kept in muted
+ * caption register so it reads as a footnote, not a primary message. */
+.block__approval-scope {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+}
+
+.block__approval-description {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+}
+
+/* Preview body: file content (Write) or diff hunk (Edit) inside a
+ * sunken pre. Caps height at ~10 lines collapsed so the card stays
+ * glance-able; the Show full disclosure mounts when there's more. */
+.block__approval-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.block__approval-pre {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-sunken);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-button);
+  color: var(--color-foreground);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+/* Diff register: prefix-based coloring on lines that start with - / +.
+ * Plain-text fallback so non-diff previews (Write content) stay neutral. */
+.block__approval-preview[data-lang="diff"] .block__approval-pre {
+  color: var(--color-muted);
+}
+
+.block__approval-show-full {
+  align-self: flex-start;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--color-muted);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: var(--border-thin);
+  transition: color var(--motion-interactive);
+}
+
+.block__approval-show-full:hover {
+  color: var(--color-foreground);
+}
+
+.block__approval-show-full:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-button);
 }
 
 .block__approval-actions {
@@ -848,9 +983,57 @@
   border-color: var(--color-accent);
 }
 
+.block__approval-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .block__approval-resolved {
   font-size: var(--type-caption-size);
   color: var(--color-muted);
+}
+
+/* Working state — pulses three dots after a grant once the workspace
+ * transitions to the working activity state. Mirrors the .thread__activity
+ * register so two indicators in the same view feel related. */
+.block__approval-working {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+}
+
+.block__approval-working-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.block__approval-working-dots > span {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-muted);
+  opacity: 0.4;
+  animation: thread-activity-pulse var(--motion-pulse) infinite ease-in-out;
+}
+
+.block__approval-working-dots > span:nth-child(2) {
+  animation-delay: calc(var(--motion-pulse) / 6);
+}
+
+.block__approval-working-dots > span:nth-child(3) {
+  animation-delay: calc(var(--motion-pulse) / 3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block__approval-working-dots > span {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 .block__prototype-placeholder {

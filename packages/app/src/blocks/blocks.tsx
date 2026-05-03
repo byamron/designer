@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import type { BlockProps } from "./registry";
 import { humanizeKind, humanizeRole } from "../util/humanize";
 import { formatRelativeTime } from "../util/time";
 import { ipcClient } from "../ipc/client";
-import type { PayloadRef, StreamEvent } from "../ipc/types";
+import type { ActivityChanged, PayloadRef, StreamEvent } from "../ipc/types";
 
 /**
  * Block renderers — DP-B (2026-04-30) pass-through pivot.
@@ -397,11 +397,26 @@ export function ReportBlock(props: BlockProps) {
 
 type ApprovalResolution = "pending" | "granted" | "denied";
 
+/// `kind` differentiates a user click from a backend timeout so the
+/// resolved-state copy can read either as "Denied by you · 2m ago" or
+/// "Denied — you didn't respond in 5 min". Pulled from the
+/// `ApprovalDenied.reason` field — `Some("timeout")` from the inbox
+/// handler, `None` from a user click (the frontend doesn't pass a
+/// reason on Deny). Optimistic local denials default to `user`.
+type DenyKind = "user" | "timeout";
+
 interface ApprovalPayload {
   approval_id?: string;
   tool?: string;
   gate?: string;
   reason?: string;
+  /** Stripped repo-relative path computed in inbox_permission.rs.
+   *  Present for Write/Edit/MultiEdit/NotebookEdit; absent for Bash etc. */
+  path?: string | null;
+  /** Raw tool input from Claude (file contents for Write, command for
+   *  Bash, old/new strings for Edit). Opaque shape — block reads only
+   *  the fields it knows by tool. */
+  input?: Record<string, unknown>;
 }
 
 function parseApprovalPayload(body: string): ApprovalPayload {
@@ -414,59 +429,192 @@ function parseApprovalPayload(body: string): ApprovalPayload {
   return {};
 }
 
+// Mirrors the tool-line truncation feel: ~10 lines collapsed before the
+// "Show full" disclosure mounts. The threshold is independent from the
+// 40-line tool-output truncate because the approval surface is meant to
+// stay glance-able — file content drilldown is a confirmation cue, not
+// a code review viewer.
+const APPROVAL_PREVIEW_LINES = 10;
+
+function previewBody(payload: ApprovalPayload): { body: string | null; lang: "diff" | "plain" } {
+  const tool = payload.tool ?? "";
+  const input = (payload.input ?? {}) as Record<string, unknown>;
+  if (tool === "Write") {
+    const content = typeof input.content === "string" ? input.content : null;
+    return { body: content, lang: "plain" };
+  }
+  if (tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") {
+    const oldStr = typeof input.old_string === "string" ? input.old_string : "";
+    const newStr = typeof input.new_string === "string" ? input.new_string : "";
+    if (!oldStr && !newStr) return { body: null, lang: "diff" };
+    // Plain unified-style hunk — no parser, just visual cue. The minus
+    // and plus prefixes give the eye the diff register without pulling
+    // in a real diff lib for what is a confirmation preview.
+    const minus = oldStr ? oldStr.split("\n").map((l) => `- ${l}`).join("\n") : "";
+    const plus = newStr ? newStr.split("\n").map((l) => `+ ${l}`).join("\n") : "";
+    const joined = [minus, plus].filter(Boolean).join("\n");
+    return { body: joined, lang: "diff" };
+  }
+  return { body: null, lang: "plain" };
+}
+
+/// Resolution timestamps captured at the moment we know the approval
+/// terminated, used to render `Allowed by you · 2m ago`. We re-read
+/// `Date.now()` lazily so a clock that's been open for a long time
+/// still shows a sensible relative label.
+interface ResolvedMeta {
+  at: number;
+  denyKind?: DenyKind;
+}
+
 export function ApprovalBlock({ artifact, payload }: BlockProps) {
-  const inline =
-    payload?.kind === "inline" ? parseApprovalPayload(payload.body) : {};
+  const inline = useMemo<ApprovalPayload>(
+    () => (payload?.kind === "inline" ? parseApprovalPayload(payload.body) : {}),
+    [payload],
+  );
   const approvalId = inline.approval_id ?? null;
+  const tool = inline.tool ?? "";
+  const path = inline.path ?? null;
+  const command =
+    tool === "Bash" && typeof inline.input?.command === "string"
+      ? (inline.input.command as string)
+      : null;
+  const description =
+    tool === "Bash" && typeof inline.input?.description === "string"
+      ? (inline.input.description as string)
+      : null;
+  const preview = useMemo(() => previewBody(inline), [inline]);
+
   const [resolution, setResolution] = useState<ApprovalResolution>("pending");
+  const [resolvedMeta, setResolvedMeta] = useState<ResolvedMeta | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showFull, setShowFull] = useState(false);
+  // Working-state copy mounts only after a grant resolves AND the
+  // workspace transitions to `working` — a grant alone isn't enough,
+  // since the agent may exit immediately without firing activity.
+  const [working, setWorking] = useState(false);
   const resolvedRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     if (resolution !== "pending") {
       resolvedRef.current?.focus();
     }
   }, [resolution]);
 
+  // Subscribe to terminal events so a grant/deny landed via another
+  // surface (CLI tool, sibling tab, sweep) flips this card too.
   useEffect(() => {
     if (!approvalId) return;
     const unsubscribe = ipcClient().stream((ev: StreamEvent) => {
       if (ev.kind !== "approval_granted" && ev.kind !== "approval_denied") return;
-      const evApprovalId = (ev.payload as { approval_id?: string } | undefined)?.approval_id;
-      if (evApprovalId !== approvalId) return;
+      const evPayload = ev.payload as
+        | { approval_id?: string; reason?: string | null }
+        | undefined;
+      if (evPayload?.approval_id !== approvalId) return;
+      const at = Date.parse(ev.timestamp);
+      const meta: ResolvedMeta = {
+        at: Number.isFinite(at) ? at : Date.now(),
+      };
+      if (ev.kind === "approval_denied") {
+        meta.denyKind = evPayload?.reason === "timeout" ? "timeout" : "user";
+      }
       setResolution(ev.kind === "approval_granted" ? "granted" : "denied");
+      setResolvedMeta(meta);
       setBusy(false);
     });
     return unsubscribe;
   }, [approvalId]);
 
+  // Working indicator: only mount after a successful grant. Match on
+  // workspace_id (approvals are workspace-scoped; the artifact carries
+  // no tab_id). Drop back to idle when the workspace transitions out
+  // of `working`.
+  useEffect(() => {
+    if (resolution !== "granted") return;
+    const unsubscribe = ipcClient().activityStream((ev: ActivityChanged) => {
+      if (ev.workspace_id !== artifact.workspace_id) return;
+      if (ev.state === "working") setWorking(true);
+      else setWorking(false);
+    });
+    return unsubscribe;
+  }, [resolution, artifact.workspace_id]);
+
   const resolve = async (granted: boolean) => {
     if (busy || !approvalId) return;
     const optimistic: ApprovalResolution = granted ? "granted" : "denied";
     setResolution(optimistic);
+    setResolvedMeta({
+      at: Date.now(),
+      denyKind: granted ? undefined : "user",
+    });
     setBusy(true);
     try {
       await ipcClient().resolveApproval(approvalId, granted);
     } catch {
       setResolution("pending");
+      setResolvedMeta(null);
       setBusy(false);
     }
   };
+
+  const lines = preview.body ? preview.body.split("\n") : [];
+  const overflow = lines.length > APPROVAL_PREVIEW_LINES;
+  const visibleBody =
+    overflow && !showFull
+      ? lines.slice(0, APPROVAL_PREVIEW_LINES).join("\n")
+      : preview.body ?? "";
+  const hiddenLineCount = overflow ? lines.length - APPROVAL_PREVIEW_LINES : 0;
+
+  const showsScopeLine = Boolean(path) || tool === "Bash";
 
   return (
     <article
       className="block block--approval"
       data-component="ApprovalBlock"
       data-state={resolution}
-      aria-label={`Approval: ${artifact.title}`}
+      data-deny-kind={resolution === "denied" ? resolvedMeta?.denyKind ?? "user" : undefined}
+      aria-label={artifact.title}
       aria-busy={busy || undefined}
     >
-      <header className="block__header-row">
-        <span className="block__kind-badge" data-kind={artifact.kind}>
-          {humanizeKind(artifact.kind)}
-        </span>
+      <header className="block__approval-header">
         <h3 className="block__title">{artifact.title}</h3>
       </header>
-      <p className="block__summary">{artifact.summary}</p>
+
+      {(path || command) && (
+        <div className="block__approval-target">
+          {path && <code className="block__approval-path">{path}</code>}
+          {command && !path && (
+            <code className="block__approval-command">{command}</code>
+          )}
+          {showsScopeLine && (
+            <p className="block__approval-scope">
+              in this track&rsquo;s isolated workspace · your main checkout is
+              untouched
+            </p>
+          )}
+        </div>
+      )}
+
+      {description && (
+        <p className="block__approval-description">{description}</p>
+      )}
+
+      {preview.body && (
+        <div className="block__approval-preview" data-lang={preview.lang}>
+          <pre className="block__approval-pre">{visibleBody}</pre>
+          {overflow && !showFull && (
+            <button
+              type="button"
+              className="block__approval-show-full"
+              onClick={() => setShowFull(true)}
+            >
+              Show full ({hiddenLineCount} more{" "}
+              {hiddenLineCount === 1 ? "line" : "lines"})
+            </button>
+          )}
+        </div>
+      )}
+
       {resolution === "pending" ? (
         <div className="block__approval-actions">
           <button
@@ -475,7 +623,7 @@ export function ApprovalBlock({ artifact, payload }: BlockProps) {
             onClick={() => void resolve(true)}
             disabled={busy || !approvalId}
           >
-            Grant
+            Allow
           </button>
           <button
             type="button"
@@ -487,17 +635,44 @@ export function ApprovalBlock({ artifact, payload }: BlockProps) {
           </button>
         </div>
       ) : (
-        <div
-          ref={resolvedRef}
-          tabIndex={-1}
-          className="block__approval-resolved"
-          role="status"
-        >
-          {resolution === "granted" ? "Approved" : "Denied"}
+        <div className="block__approval-footer">
+          <div
+            ref={resolvedRef}
+            tabIndex={-1}
+            className="block__approval-resolved"
+            role="status"
+          >
+            {resolvedLabel(resolution, resolvedMeta)}
+          </div>
+          {working && (
+            <div className="block__approval-working" role="status">
+              <span
+                className="block__approval-working-dots"
+                aria-hidden="true"
+              >
+                <span />
+                <span />
+                <span />
+              </span>
+              <span>Working…</span>
+            </div>
+          )}
         </div>
       )}
     </article>
   );
+}
+
+function resolvedLabel(
+  resolution: Exclude<ApprovalResolution, "pending">,
+  meta: ResolvedMeta | null,
+): string {
+  const denyKind = meta?.denyKind ?? "user";
+  const at = meta?.at ?? Date.now();
+  const rel = formatRelativeTime(new Date(at).toISOString());
+  if (resolution === "granted") return `Allowed by you · ${rel}`;
+  if (denyKind === "timeout") return "Denied — you didn’t respond in 5 min";
+  return `Denied by you · ${rel}`;
 }
 
 // ---------------------------------------------------------------------------
