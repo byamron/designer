@@ -130,7 +130,7 @@ PR #92 closed in friction-fix mode but left layout shift on payload arrival, an 
 **Branch:** chat-tab-state-resync
 **Commit:** PR #93 (59c5d653)
 
-> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. The "ship + follow-up" framing references PR #90's review-pass conclusion, which is grounded; the per-tab persistence priorities are agent inference._
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. The two BLOCKERs (`hasStarted` staleness, `initialPaint` re-arm) and PR #90's review-pass conclusion are visible in the PR bodies; the "ship + follow-up" characterization and per-tab persistence priorities below are likely implementation-agent framing, not transcript-recorded user direction._
 
 **What was done:**
 
@@ -217,7 +217,7 @@ PR #87 stripped the experimental agent-teams framing; same-day dogfood on the re
 **Branch:** chat-tool-expand
 **Commit:** PR #92 (94da44d4)
 
-> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. Round-1 / round-2 reviewer findings are grounded in the PR body; the 40-line cap rationale and per-mount cache shape are agent decisions._
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. Round-1 / round-2 reviewer findings are visible in the PR body; the 40-line cap rationale, per-mount cache shape, and "Tradeoffs discussed" framing below are likely implementation-agent decisions, not transcript-recorded user direction._
 
 **What was done:**
 
@@ -258,7 +258,7 @@ Phase 23.C from the roadmap. The terse `· read foo.rs` line is correct as the d
 **Branch:** chat-tab-remount
 **Commit:** PR #90 (3a77c725)
 
-> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. Two BLOCKERs (`hasStarted` staleness, `initialPaint` re-arm) are grounded in the second review pass on the PR; the "ship-with-follow-up" decision was the implementing agent's recommendation, accepted by the user via the PR #93 follow-up._
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. The two BLOCKERs (`hasStarted` staleness, `initialPaint` re-arm) are visible in the second review pass on the PR; the "ship-with-follow-up" decision is recorded in the PR body as the implementing agent's recommendation. Whether the user actively chose ship+followup vs scope-expand in-session is unverified — what's grounded is that PR #93 followed the next morning._
 
 **What was done:**
 
@@ -299,7 +299,7 @@ The task brief explicitly scoped this PR as "one prop change in MainView plus te
 **Branch:** chat-ux-phase
 **Commit:** PR #89 (7263af51)
 
-> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. Two real spec bugs (uuid API call, `SystemTime`/`Instant` capture) caught by the staff-engineer pre-merge review are grounded; the per-tab subprocess "Phase 19/20/22.A precursor" framing is agent inference._
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. Two real spec bugs (uuid API call, `SystemTime`/`Instant` capture) caught by the staff-engineer pre-merge review are visible in the PR body; the per-tab subprocess "Phase 19/20/22.A precursor" framing and the wave-sequencing rationale are likely planning-agent inference, not transcript-recorded user direction._
 
 **What was done:**
 
@@ -349,7 +349,7 @@ The per-tab subprocess shape is the architectural correction Phase 19 (multi-tra
 **Branch:** release-skill
 **Commit:** PR #88 (2ed58778)
 
-> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. Staff-engineer review findings (race condition in `gh run watch`, semver heuristics) and UX-designer review findings (confirmation gate, PR-body preview) are grounded; the "skill that stops short" shape is agent characterization._
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. Staff-engineer review findings (race condition in `gh run watch`, semver heuristics) and UX-designer review findings (confirmation gate, PR-body preview) are visible in the PR body; the "skill that stops short" shape characterization and "user owns the moment of release" framing are likely implementation-agent voice, not transcript-recorded user direction._
 
 **What was done:**
 
@@ -439,7 +439,7 @@ Workspace archiving was core sidebar functionality the user asked for in the sam
 **Branch:** node24-actions-bump
 **Commit:** PR #86 (7dcd8003)
 
-> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. The June 2 / September 16 GitHub deprecation deadlines and the action-version table are factual; the rejection of `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` is grounded in linked GitHub-Actions issue references in the PR body._
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. The June 2 / September 16 GitHub deprecation deadlines and the action-version table are factual; the rejection of `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` cites linked GitHub-Actions issue references in the PR body. The "no version drift in `release.yml`" framing is likely implementation-agent voice._
 
 **What was done:**
 
@@ -487,7 +487,7 @@ Every CI run was emitting "Node.js 20 actions are deprecated…" warnings. The J
 **Branch:** version-bump-0.1.2
 **Commit:** PR #85 (657fabad)
 
-> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. The drift between the three version sources is factual (the `packages/app/package.json` 0.1.0 → 0.1.2 jump is in the diff); the "three sources are two too many" follow-up framing is agent inference._
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. The drift between the three version sources is factual (the `packages/app/package.json` 0.1.0 → 0.1.2 jump is in the diff); the "three sources are two too many" follow-up framing is implementation-agent inference, not transcript-recorded user direction._
 
 **What was done:**
 
@@ -512,7 +512,7 @@ Bumped workspace + Tauri bundle version `0.1.1` → `0.1.2` for the next release
 **Branch:** merge-queue-plan
 **Commit:** PR #84 (e2209b54)
 
-> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. Two staff-perspective review passes on the spec are referenced in the PR body and grounded; the v1/v2 escape-hatch decisions and the differentiator-vs-existing-tooling framing are spec-author judgment, not user-stated._
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. Two staff-perspective review passes on the spec are referenced in the PR body; the v1/v2 escape-hatch decisions, the differentiator-vs-existing-tooling framing, and the "Decision N" / ADR cross-references are spec-author judgment recorded in the gitignored spec — not transcript-recorded user direction._
 
 **What was done:**
 
