@@ -258,7 +258,6 @@
   font-family: var(--type-family-sans);
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-leading);
-  font-style: italic;
 }
 
 .tool-line__show-full {

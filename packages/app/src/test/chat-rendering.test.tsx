@@ -453,6 +453,13 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
         await pending;
       });
 
+      // React 18+ silenced the legacy "state update on unmounted
+      // component" warning, so a console.error spy alone wouldn't prove
+      // the guard works. Verifying the IPC actually fired and no
+      // console.error landed pins both halves: the promise resolved
+      // post-unmount AND the component swallowed the resolution
+      // without writing state.
+      expect(getArtifact).toHaveBeenCalledTimes(1);
       const stateUpdateWarnings = consoleError.mock.calls.filter((args) =>
         String(args[0] ?? "").includes("unmounted component"),
       );

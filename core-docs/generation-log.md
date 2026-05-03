@@ -726,3 +726,16 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - deviations: none
 - feedback: addresses frc_019dea67 (tool-use rows feel decorative without a way to drill into evidence); per-mount cache + in-flight `useRef` flag dedupes a fast double-click into a single `getArtifact` IPC call
 
+## 2026-05-02T22:54:00Z — manual (Phase 23.C review fixes: loading affordance + a11y)
+
+- prompt: "Apply staff-perspective-review blockers on PR #92: state-update-after-unmount guard, in-flight loading affordance, screen-reader announcement on the new region."
+- trigger: manual (staff-perspective-review follow-up; first-round review caught three blockers, fixed in commit 46a034f5)
+- archetype-reused: none (extends the existing tool-line disclosure idiom from the prior entry)
+- components-reused: ToolUseLine
+- components-new: none (added `.tool-line__loading` style only)
+- primitives: none
+- tokens: --space-4, --color-muted, --type-family-sans, --type-caption-size, --type-caption-leading (all pre-existing)
+- invariants: 6/6 pass
+- deviations: none — initial draft used `font-style: italic` for the loading affordance, dropped during the round-2 review because italic isn't sanctioned in design-language.md §axioms #6 (sans + mono register, no italic in chrome). Muted color alone carries the transient signal.
+- feedback: addresses staff-perspective-review blockers — `mountedRef` guard so `setState` doesn't fire after the row unmounts mid-fetch; `Loading output…` affordance fills the otherwise-empty expanded state; `aria-live="polite"` on both the loading `<p>` and the payload `<pre>` so screen readers hear the new region without us hijacking focus from the head button
+

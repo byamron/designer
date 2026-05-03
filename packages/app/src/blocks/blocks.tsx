@@ -181,12 +181,12 @@ export function ToolUseLine({ artifact }: BlockProps) {
   // Don't write state after unmount; the IPC promise outlives the row
   // when the tab closes mid-fetch.
   const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
+  useEffect(
+    () => () => {
       mountedRef.current = false;
-    };
-  }, []);
+    },
+    [],
+  );
   const previewSummary =
     !expanded && artifact.summary && artifact.summary !== artifact.title
       ? artifact.summary
@@ -270,7 +270,7 @@ export function ToolUseLine({ artifact }: BlockProps) {
           className="tool-line__show-full"
           onClick={() => setShowFull(true)}
         >
-          Show full ({hiddenLineCount} more lines)
+          Show full ({hiddenLineCount} more {hiddenLineCount === 1 ? "line" : "lines"})
         </button>
       )}
     </div>
