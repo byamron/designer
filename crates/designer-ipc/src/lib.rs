@@ -240,6 +240,19 @@ pub struct PostMessageResponse {
     pub artifact_id: ArtifactId,
 }
 
+/// Phase 23.F — request body for `cmd_interrupt_turn`. Tells the active
+/// claude subprocess for `(workspace_id, tab_id)` to abort its current
+/// turn cleanly. The session stays alive; a follow-up `post_message`
+/// continues the conversation. `tab_id` is required: interrupt is always
+/// scoped to one tab's subprocess (Phase 23.E per-tab teams). No response
+/// payload — success means the control_request was queued onto stdin; the
+/// resulting `ActivityChanged{Idle}` arrives over the activity stream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InterruptTurnRequest {
+    pub workspace_id: WorkspaceId,
+    pub tab_id: TabId,
+}
+
 // ---- Track + git wire (Phase 13.E) ---------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

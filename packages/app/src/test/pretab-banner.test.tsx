@@ -5,10 +5,13 @@ import { appStore } from "../store/app";
 import { dataStore } from "../store/data";
 
 /**
- * Phase 23.E migration banner. Fires once per install for users
- * upgrading from a pre-23.E build. Detection signal: any project
- * already carries at least one workspace (proxy for "had Designer
- * before"). Dismissal persists in localStorage.
+ * Per-tab tutorial banner. 23.E.f1 reframed this from a migration
+ * notice (which lied to fresh-install users about "your existing
+ * chats") into a universal one-time tutorial that lands when the
+ * user has at least one workspace. Detection signal kept (any
+ * project carries a workspace) — gates the banner away from the
+ * empty Home where Onboarding owns the surface. Dismissal persists
+ * in localStorage.
  *
  * Boot harness mirrors `tabs.test.tsx` — same mock IPC, same store
  * resets — so we exercise the live app shell, not a stubbed component.
@@ -37,8 +40,8 @@ async function boot() {
   await waitFor(() => screen.getByLabelText("Projects"));
 }
 
-describe("PreTabSessionBanner (Phase 23.E migration notice)", () => {
-  it("renders for upgrading users — workspaces exist + flag not set", async () => {
+describe("PreTabSessionBanner (per-tab tutorial)", () => {
+  it("renders when at least one workspace exists and the flag is unset", async () => {
     await boot();
     // Mock IPC seeds projects + workspaces, so the banner condition
     // (`hasPriorWorkspaces`) is true on every boot of the test harness.
@@ -48,8 +51,27 @@ describe("PreTabSessionBanner (Phase 23.E migration notice)", () => {
       ).not.toBeNull();
     });
     expect(
-      screen.getByText(/tabs are now parallel agents/i),
+      screen.getByText(/each tab is its own conversation/i),
     ).toBeTruthy();
+  });
+
+  it("uses universal tutorial copy that doesn't claim 'existing chats' for fresh installs", async () => {
+    // 23.E.f1 lock-in: the migration-era copy ("your existing chats
+    // start fresh") was inaccurate for users who created their first
+    // workspace post-23.E. The tutorial reframe drops that claim
+    // entirely. Catch any regression that re-introduces it.
+    await boot();
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-component="PreTabSessionBanner"]'),
+      ).not.toBeNull(),
+    );
+    const banner = document.querySelector(
+      '[data-component="PreTabSessionBanner"]',
+    );
+    const text = banner?.textContent ?? "";
+    expect(text.toLowerCase()).not.toContain("existing chats");
+    expect(text.toLowerCase()).not.toContain("start fresh");
   });
 
   it("dismiss button persists the flag and removes the banner", async () => {

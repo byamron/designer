@@ -333,6 +333,43 @@ function WorkspaceRow({
   );
   const recent = useRecentActivity(latestTs);
   const [busy, setBusy] = useState(false);
+  // frc_019dea6b — opening a workspace must always land the user on a
+  // tab. If the workspace has zero open tabs (e.g. the user closed the
+  // last one before this guard landed, or a legacy workspace from
+  // pre-23.E was never seeded), lazy-create "Tab 1". Mirrors the
+  // onCreate flow above. The ref prevents a double-click from spawning
+  // two tabs while the first openTab IPC is in flight.
+  const openingTabRef = useRef(false);
+  const onSelect = async () => {
+    if (openingTabRef.current) {
+      selectWorkspace(workspace.id);
+      return;
+    }
+    const firstOpen = workspace.tabs.find((t) => !t.closed_at);
+    if (firstOpen) {
+      selectWorkspace(workspace.id);
+      selectTab(workspace.id, firstOpen.id);
+      return;
+    }
+    openingTabRef.current = true;
+    try {
+      const tab = await ipcClient().openTab({
+        workspace_id: workspace.id,
+        title: "Tab 1",
+        template: "thread",
+      });
+      if (projectId) await refreshWorkspaces(projectId);
+      selectWorkspace(workspace.id);
+      selectTab(workspace.id, tab.id);
+    } catch (err) {
+      console.error("auto-create tab on workspace open failed", err);
+      // Still select the workspace so the user isn't left without
+      // visible feedback that their click registered.
+      selectWorkspace(workspace.id);
+    } finally {
+      openingTabRef.current = false;
+    }
+  };
   const onArchive = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (busy) return;
@@ -357,11 +394,7 @@ function WorkspaceRow({
         className="workspace-row"
         data-active={active}
         title={`${workspace.name} · ${workspace.base_branch}`}
-        onClick={() => {
-          selectWorkspace(workspace.id);
-          const first = workspace.tabs.find((t) => !t.closed_at);
-          if (first) selectTab(workspace.id, first.id);
-        }}
+        onClick={() => void onSelect()}
       >
         {workspace.status ? (
           <WorkspaceStatusIcon status={workspace.status} />

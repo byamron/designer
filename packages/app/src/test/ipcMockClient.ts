@@ -81,6 +81,7 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
     togglePinArtifact: () => Promise.resolve(false),
     postMessage: () =>
       Promise.reject(new Error("mockIpcClient: postMessage not stubbed")),
+    interruptTurn: () => Promise.resolve(),
     linkRepo: () => Promise.resolve(),
     unlinkRepo: () => Promise.resolve(),
     startTrack: () =>

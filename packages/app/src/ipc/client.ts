@@ -87,6 +87,12 @@ export interface IpcClient {
   togglePinArtifact(id: ArtifactId): Promise<boolean>;
   // Agent wire (Phase 13.D)
   postMessage(req: PostMessageRequest): Promise<PostMessageResponse>;
+  /** Phase 23.F — Stop turn. Tells the per-tab Claude subprocess to abort
+   *  the current turn cleanly. Resolves once the control_request is
+   *  queued onto stdin; the resulting `ActivityChanged{Idle}` arrives
+   *  over `activityStream`. Calling against a tab with no live turn is
+   *  a silent no-op. */
+  interruptTurn(workspaceId: WorkspaceId, tabId: TabId): Promise<void>;
   // Track + git wire (Phase 13.E)
   linkRepo(req: LinkRepoRequest): Promise<void>;
   /// Sever Designer's pointer to the workspace's repo. Idempotent — safe
@@ -245,6 +251,11 @@ class TauriIpcClient implements IpcClient {
   }
   postMessage(req: PostMessageRequest) {
     return invoke<PostMessageResponse>("post_message", { req });
+  }
+  interruptTurn(workspaceId: WorkspaceId, tabId: TabId) {
+    return invoke<void>("interrupt_turn", {
+      req: { workspace_id: workspaceId, tab_id: tabId },
+    });
   }
   linkRepo(req: LinkRepoRequest) {
     return invoke<void>("cmd_link_repo", { req });
@@ -408,6 +419,10 @@ class MockIpcClient implements IpcClient {
   }
   postMessage(req: PostMessageRequest) {
     return Promise.resolve(this.core.postMessage(req));
+  }
+  interruptTurn(workspaceId: WorkspaceId, tabId: TabId) {
+    this.core.interruptTurn(workspaceId, tabId);
+    return Promise.resolve();
   }
   linkRepo(req: LinkRepoRequest) {
     return Promise.resolve(this.core.linkRepo(req));

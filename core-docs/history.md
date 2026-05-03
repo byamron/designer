@@ -88,6 +88,8 @@ Pass-through chat (PR #63 / DP-B) had compact tool-use rows but no way to inspec
 **Branch:** tool-line-polish
 **Commit:** PR #94 (2c0615bc)
 
+> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. Spot-check 2026-05-03: `calc()` silent-fail attribution to round-3 design-engineer review is **grounded**; the "copy beats visual differentiation" framing and the deferred min-height fix are **agent inference**, not user-stated._
+
 **What was done:**
 
 Follow-up to PR #92 (Phase 23.C tool-use expand). The merged PR shipped with deferred review items in its body — closing the PR risked losing them, so the cheap fixes landed here and the rest were parked in roadmap.
@@ -127,6 +129,8 @@ PR #92 closed in friction-fix mode but left layout shift on payload arrival, an 
 **Date:** 2026-05-03
 **Branch:** chat-tab-state-resync
 **Commit:** PR #93 (59c5d653)
+
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. The two BLOCKERs (`hasStarted` staleness, `initialPaint` re-arm) and PR #90's review-pass conclusion are visible in the PR bodies; the "ship + follow-up" characterization and per-tab persistence priorities below are likely implementation-agent framing, not transcript-recorded user direction._
 
 **What was done:**
 
@@ -168,6 +172,8 @@ PR #90's task brief explicitly placed `WorkspaceThread.tsx` and `ComposeDock.tsx
 **Date:** 2026-05-03
 **Branch:** chat-coalescer-ts
 **Commit:** PR #91 (67d05eed)
+
+> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. Spot-check 2026-05-03: reviewer-caught `uuid` API bug and ±2ms→±10ms tolerance widening are **grounded** in commit d7e26e51; the "pre-existing artifact ids stay broken" tradeoff is **agent reasoning** code-documented but not user-weighed._
 
 **What was done:**
 
@@ -211,6 +217,8 @@ PR #87 stripped the experimental agent-teams framing; same-day dogfood on the re
 **Branch:** chat-tool-expand
 **Commit:** PR #92 (94da44d4)
 
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. Round-1 / round-2 reviewer findings are visible in the PR body; the 40-line cap rationale, per-mount cache shape, and "Tradeoffs discussed" framing below are likely implementation-agent decisions, not transcript-recorded user direction._
+
 **What was done:**
 
 `ToolUseLine` (`packages/app/src/blocks/blocks.tsx`) used to expand to a single extra summary line — barely more than the collapsed view. It now fetches the full payload via `getArtifact(id)` on first expand, caches per-mount (deduped via in-flight ref so a fast double-click is a single IPC call), and renders `payload.body` as a monospace `<pre>` under the head. >40 lines truncates with a "Show full (N more line[s])" disclosure that drops the cap.
@@ -250,6 +258,8 @@ Phase 23.C from the roadmap. The terse `· read foo.rs` line is correct as the d
 **Branch:** chat-tab-remount
 **Commit:** PR #90 (3a77c725)
 
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. The two BLOCKERs (`hasStarted` staleness, `initialPaint` re-arm) are visible in the second review pass on the PR; the "ship-with-follow-up" decision is recorded in the PR body as the implementing agent's recommendation. Whether the user actively chose ship+followup vs scope-expand in-session is unverified — what's grounded is that PR #93 followed the next morning._
+
 **What was done:**
 
 `MainView.tsx`: dropped `activeTab` from the React `key` on `<WorkspaceThread>` so the component instance survives tab switches. The previous key forced React to unmount + remount the entire thread on every switch, tearing down the artifact-stream listener, in-flight payload fetches, scroll position, and per-tab expanded-block state. Live agent updates that landed while a user was on a sibling tab were lost — surfaced to the user as "I send a message and leave the tab, the agent stops" (it didn't; the listener did).
@@ -288,6 +298,8 @@ The task brief explicitly scoped this PR as "one prop change in MainView plus te
 **Date:** 2026-05-03
 **Branch:** chat-ux-phase
 **Commit:** PR #89 (7263af51)
+
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. Two real spec bugs (uuid API call, `SystemTime`/`Instant` capture) caught by the staff-engineer pre-merge review are visible in the PR body; the per-tab subprocess "Phase 19/20/22.A precursor" framing and the wave-sequencing rationale are likely planning-agent inference, not transcript-recorded user direction._
 
 **What was done:**
 
@@ -337,6 +349,8 @@ The per-tab subprocess shape is the architectural correction Phase 19 (multi-tra
 **Branch:** release-skill
 **Commit:** PR #88 (2ed58778)
 
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. Staff-engineer review findings (race condition in `gh run watch`, semver heuristics) and UX-designer review findings (confirmation gate, PR-body preview) are visible in the PR body; the "skill that stops short" shape characterization and "user owns the moment of release" framing are likely implementation-agent voice, not transcript-recorded user direction._
+
 **What was done:**
 
 Project-local skill at `.claude/skills/release/SKILL.md` codifying the v0.1.x release workflow. Pre-flight readiness sweep (working tree, CI, version drift, last tag, commits since, open PRs, friction, crashes); GO/HOLD with explicit user confirmation before bumping anything. Bumps the three version sources (`Cargo.toml`, `apps/desktop/src-tauri/tauri.conf.json`, `packages/app/package.json`) + refreshes `Cargo.lock`, drafts the PR title + body, **previews before push**.
@@ -375,6 +389,8 @@ Each Designer release touches three version files and follows a bespoke sequence
 **Date:** 2026-05-02
 **Branch:** friction-triage-19
 **Commit:** PR #87 (13911a7a)
+
+> _Backfilled 2026-05-03 from PR body (PR #96). Rationale framing is agent-authored except where tied to a named staff-review finding, named commit, or quoted user direction. Spot-check 2026-05-03: archiving paired in one ask is **grounded** (user: "Archiving workspaces should also be in this PR because that's core functionality"); confirm-copy fix was a real UX-review catch; the "chat-philosophy memory FB-0001" attribution and the "subtraction beats flag-hiding" framing are **agent inference** (the user said "shouldn't do crazy things on top of CC" — the philosophy anchor is retroactive)._
 
 **What was done:**
 
@@ -423,6 +439,8 @@ Workspace archiving was core sidebar functionality the user asked for in the sam
 **Branch:** node24-actions-bump
 **Commit:** PR #86 (7dcd8003)
 
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. The June 2 / September 16 GitHub deprecation deadlines and the action-version table are factual; the rejection of `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` cites linked GitHub-Actions issue references in the PR body. The "no version drift in `release.yml`" framing is likely implementation-agent voice._
+
 **What was done:**
 
 GitHub deprecated Node 20 on Actions runners. Hard deadlines: June 2 2026 runners default to Node 24 for JS actions; September 16 2026 Node 20 removed entirely. This PR bumped every deprecated action to its first major version with `runs.using: node24`. No job-structure, runner-label, secret, concurrency, or matrix changes — version bumps only.
@@ -469,6 +487,8 @@ Every CI run was emitting "Node.js 20 actions are deprecated…" warnings. The J
 **Branch:** version-bump-0.1.2
 **Commit:** PR #85 (657fabad)
 
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. The drift between the three version sources is factual (the `packages/app/package.json` 0.1.0 → 0.1.2 jump is in the diff); the "three sources are two too many" follow-up framing is implementation-agent inference, not transcript-recorded user direction._
+
 **What was done:**
 
 Bumped workspace + Tauri bundle version `0.1.1` → `0.1.2` for the next release. Synced `packages/app/package.json` from a stale `0.1.0` to `0.1.2`.
@@ -491,6 +511,8 @@ Bumped workspace + Tauri bundle version `0.1.1` → `0.1.2` for the next release
 **Date:** 2026-05-02
 **Branch:** merge-queue-plan
 **Commit:** PR #84 (e2209b54)
+
+> _Backfilled 2026-05-03 from PR body (PR #96); **not spot-checked against the session transcript**. Two staff-perspective review passes on the spec are referenced in the PR body; the v1/v2 escape-hatch decisions, the differentiator-vs-existing-tooling framing, and the "Decision N" / ADR cross-references are spec-author judgment recorded in the gitignored spec — not transcript-recorded user direction._
 
 **What was done:**
 

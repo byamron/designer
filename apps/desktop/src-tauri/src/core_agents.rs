@@ -349,6 +349,44 @@ impl AppCore {
     /// (Phase 13.H+1 tool_use → tool_result correlation in
     /// `ClaudeStreamTranslator`). Emitters without a correlation need
     /// generate a fresh `ArtifactId::new()` per call.
+    /// Phase 23.F — abort the current turn for one tab. Wraps
+    /// `Orchestrator::interrupt`. Unlike `post_message` we don't lazy-spawn
+    /// or retry on `TeamNotFound` / `ChannelClosed`: there's no useful
+    /// recovery for "interrupt a turn that isn't running" — the user's
+    /// intent is satisfied because the activity row is already idle. We
+    /// translate both into `Ok(())` so the frontend doesn't surface noisy
+    /// errors when the user clicks Stop just as the turn ends.
+    pub async fn interrupt_turn(
+        &self,
+        workspace_id: WorkspaceId,
+        tab_id: Option<TabId>,
+    ) -> Result<(), CoreError> {
+        let dispatch_tab = resolve_tab(tab_id);
+        match self
+            .orchestrator
+            .interrupt(workspace_id, dispatch_tab)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(OrchestratorError::TeamNotFound(_))
+            | Err(OrchestratorError::ChannelClosed { .. }) => {
+                debug!(
+                    %workspace_id,
+                    tab = %dispatch_tab,
+                    "interrupt_turn: no live team or stale handle; treating as no-op"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                warn!(error = %e, %workspace_id, tab = %dispatch_tab, "orchestrator interrupt failed");
+                Err(CoreError::Invariant(format!(
+                    "couldn't interrupt the turn — {}",
+                    humanize_dispatch_error(&e)
+                )))
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn emit_agent_artifact(
         &self,
@@ -1387,6 +1425,13 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(())
         }
+        async fn interrupt(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+        ) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
     }
 
     #[cfg(test)]
@@ -1737,7 +1782,9 @@ mod tests {
 
     /// T-23E-3 — close tab kills its subprocess. Spawn the team via a
     /// post; close the tab; assert the orchestrator's teams map no
-    /// longer carries `(workspace_id, tab_id)`.
+    /// longer carries `(workspace_id, tab_id)`. Two tabs are opened so
+    /// the last-tab guard in `core::close_tab` does not turn the close
+    /// into a no-op (frc_019dea6b).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn t_23e_3_close_tab_shuts_down_team() {
         let (core, mock) = boot_core_with_mock().await;
@@ -1751,6 +1798,10 @@ mod tests {
             .unwrap();
         let tab = core
             .open_tab(ws.id, "T".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        let _keep = core
+            .open_tab(ws.id, "Keep".into(), designer_core::TabTemplate::Thread)
             .await
             .unwrap();
         core.post_message(ws.id, Some(tab.id), None, "hi".into())
@@ -1946,6 +1997,13 @@ mod tests {
             tokio::time::sleep(Duration::from_secs(30)).await;
             Ok(())
         }
+        async fn interrupt(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+        ) -> designer_claude::OrchestratorResult<()> {
+            Ok(())
+        }
     }
 
     async fn boot_core_with_stalling() -> Arc<AppCore> {
@@ -1987,6 +2045,12 @@ mod tests {
             .unwrap();
         let tab = core
             .open_tab(ws.id, "T".into(), designer_core::TabTemplate::Thread)
+            .await
+            .unwrap();
+        // Open a second tab so the last-tab guard in `close_tab` doesn't
+        // short-circuit before the shutdown path is exercised.
+        let _keep = core
+            .open_tab(ws.id, "Keep".into(), designer_core::TabTemplate::Thread)
             .await
             .unwrap();
 

@@ -360,6 +360,7 @@ export function createVisualIpcClient(
     },
     togglePinArtifact: () => Promise.resolve(true),
     postMessage: () => Promise.resolve({ artifact_id: "art_new" }),
+    interruptTurn: () => Promise.resolve(),
     linkRepo: () => Promise.resolve(),
     unlinkRepo: () => Promise.resolve(),
     startTrack: () => Promise.resolve("trk_stub"),

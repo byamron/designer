@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, StopCircle } from "lucide-react";
 import { activityKey, useDataState } from "../store/data";
+import { ipcClient } from "../ipc/client";
 import type { TabId, WorkspaceId } from "../ipc/types";
 
 /**
@@ -9,6 +10,7 @@ import type { TabId, WorkspaceId } from "../ipc/types";
  *
  *   - `idle`               → renders nothing (the row hides)
  *   - `working`            → "Working… {MM:SS|H:MM:SS}" with a pulsing dot
+ *                            and a Stop button that fires `interruptTurn`
  *   - `awaiting_approval`  → "Approve to continue" with a chevron
  *
  * The Rust enum names (`ActivityState::Working` …) are deliberately
@@ -21,6 +23,15 @@ import type { TabId, WorkspaceId } from "../ipc/types";
  * change `since_ms` (Rust translator suppresses no-op transitions),
  * so the counter keeps incrementing through bursty stream events.
  *
+ * Phase 23.F — Stop affordance. The button only renders when
+ * `state === "working"` (no-op for `awaiting_approval`, where the
+ * recovery path is the inbox decision, not an interrupt). Click
+ * dispatches `interruptTurn` and optimistically hides the row; the
+ * authoritative `ActivityChanged{Idle}` arriving over the activity
+ * stream is what actually clears the slice in the data store, and the
+ * optimistic flag resets on the next state edge so a stale "stopped"
+ * doesn't suppress a later `Working` for the same tab.
+ *
  * **A11y**: the live region wraps only the *label* ("Working…" /
  * "Approve to continue") — never the elapsed counter. A naive
  * `aria-live="polite"` on the outer container would re-announce the
@@ -28,7 +39,10 @@ import type { TabId, WorkspaceId } from "../ipc/types";
  * is the screen-reader equivalent of a robotic stopwatch and violates
  * Designer's calm-by-default axiom. The counter is `aria-hidden` so
  * AT users hear "Working…" once on the state edge and the visible
- * elapsed display is a sighted-user affordance only.
+ * elapsed display is a sighted-user affordance only. The Stop button
+ * lives in the natural tab-order *after* the live label so a
+ * keyboard user advancing from the composer textarea reads the
+ * status, then lands on the actionable control.
  */
 export function ComposeDockActivityRow({
   workspaceId,
@@ -40,6 +54,17 @@ export function ComposeDockActivityRow({
   const slice = useDataState((s) => s.activity[activityKey(workspaceId, tabId)]);
 
   const [now, setNow] = useState(() => Date.now());
+  // Optimistic-hide flag: set when the user clicks Stop, reset on the
+  // next state edge so a follow-up turn shows the row again. Keyed off
+  // `slice.since_ms` so the optimistic flag clears when the
+  // authoritative Idle (or any other transition) lands — a single
+  // useEffect does the reset rather than a second `useState` + manual
+  // sync that drifts.
+  const [stoppedAt, setStoppedAt] = useState<number | null>(null);
+  useEffect(() => {
+    setStoppedAt(null);
+  }, [slice?.state, slice?.since_ms]);
+
   useEffect(() => {
     if (!slice || slice.state !== "working") {
       // The elapsed counter only ticks while the working state is
@@ -52,6 +77,13 @@ export function ComposeDockActivityRow({
   }, [slice?.state, slice?.since_ms]);
 
   if (!slice) {
+    return null;
+  }
+
+  // Optimistic hide: the user clicked Stop and we're waiting for the
+  // backend's `Idle` to land. Render nothing in the meantime so the
+  // dock visibly responds to the click.
+  if (stoppedAt !== null) {
     return null;
   }
 
@@ -77,8 +109,28 @@ export function ComposeDockActivityRow({
     );
   }
 
-  // Working: render the pulsing dot + elapsed counter.
+  // Working: render the pulsing dot + elapsed counter + Stop button.
   const elapsedMs = Math.max(0, now - slice.since_ms);
+  const onStop = () => {
+    if (!tabId) {
+      // The activity row only renders when the slice exists, and the
+      // slice is keyed by `(workspace, tab)` — a missing tabId here
+      // means the caller mounted us against the legacy
+      // workspace-wide path; nothing to interrupt.
+      return;
+    }
+    setStoppedAt(Date.now());
+    void ipcClient()
+      .interruptTurn(workspaceId, tabId)
+      .catch((err) => {
+        // If the IPC fails, drop the optimistic hide so the row
+        // re-appears and the user can try again. We intentionally
+        // don't surface a toast — the row reappearing is the signal.
+        console.warn("interruptTurn failed", err);
+        setStoppedAt(null);
+      });
+  };
+
   return (
     <div
       className="compose-dock-activity-row"
@@ -97,6 +149,14 @@ export function ComposeDockActivityRow({
           {formatElapsed(elapsedMs)}
         </span>
       </span>
+      <button
+        type="button"
+        className="compose-dock-activity-row__stop"
+        onClick={onStop}
+        aria-label="Stop response"
+      >
+        <StopCircle size={14} strokeWidth={1.5} aria-hidden="true" />
+      </button>
     </div>
   );
 }

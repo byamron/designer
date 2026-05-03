@@ -52,6 +52,10 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
     togglePinArtifact: (id) => Promise.resolve(mock.togglePinArtifact(id)),
     postMessage: (req) => Promise.resolve(mock.postMessage(req)),
+    interruptTurn: (workspaceId, tabId) => {
+      mock.interruptTurn(workspaceId, tabId);
+      return Promise.resolve();
+    },
     linkRepo: () => Promise.resolve(),
     unlinkRepo: () => Promise.resolve(),
     startTrack: (req) => Promise.resolve(mock.startTrack(req)),
