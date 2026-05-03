@@ -2466,6 +2466,18 @@ The expand-to-payload pattern landed (PR #92) and the layout-stability + error-s
 
 Acceptance gate (whole follow-up batch shipped): user manager can drill into a tool-use row without hovering to discover it; parent thread can collapse all rows programmatically; Read/Edit runs of length ≥3 coalesce under one disclosure; transient errors offer a retry while permanent 404s stay quietly cached.
 
+### Phase 23.E follow-ups — Deferred items *(parked from PR #95's staff-perspective review and PR #98's second-round review — captured here so they don't rot in closed PR bodies)*
+
+Phase 23.E (per-tab Claude subprocess; PR #95) and its follow-up PR #98 (migration banner + ChannelClosed copy humanize) closed the per-tab dispatch contract and the immediate user-facing rough edges. Three items remain deferred — none rises to a blocker; each waits on a signal that doesn't exist yet:
+
+- **23.E.f1 — Detection-signal brittleness on `PreTabSessionBanner`.** The banner uses "any project carries a workspace" as the proxy for "had Designer before the upgrade." A user who installs Designer fresh post-23.E, then creates their first workspace, briefly sees a banner whose copy ("your existing chats start fresh") doesn't apply to them. They dismiss it once and never see it again, but the message is technically false in that edge case. The known stronger signal — first-`MessagePosted` timestamp predates 23.E's merge — is brittle across clock skew and across machines that boot Designer for the first time long after the release. Re-evaluate if dogfood reports any "wait, what existing chats?" friction; otherwise leave the banner as-is and let the FALSE-positive auto-dismiss. Owner: future Phase 23 polish PR. Tiny frontend if changed.
+
+- **23.E.f2 — Banner archetype consolidation.** `UpdatePrompt` (bottom-left auto-updater pill) and `PreTabSessionBanner` (top-center migration notice) are the codebase's two floating notice surfaces today. Both are bespoke `<div>` chrome with parallel CSS structures (overlay surface, pill radius, dismiss button, raised z-index). Two instances is below the abstraction threshold; consolidating now would be premature. Trigger for the consolidation: the first PR that ships a third banner-like surface. The right shape at that point is a shared `<Banner>` component or a `Notice` archetype registered in `core-docs/component-manifest.json`, with the existing two refactored to use it. ~½ day frontend at trigger time.
+
+- **23.E.f3 — Per-workspace memory chip / topbar readout.** Phase 23.E's per-tab subprocess model means every tab is a full claude (~50–200 MB resident); a workspace with ten tabs runs about 1 GB of headroom. Pattern-log captures the cost. A topbar chip ("8 tabs · ~800 MB") would let the user see when their workspace approaches the OS pressure threshold and prompt them to close unused tabs. Pending dogfood signal — if no one reports memory pressure, the chip would be cognitive load without value. Revisit after the first dogfood week with multi-tab workflows. Owner: future Phase 23 polish PR or Phase 24 if the signal lands later. ~1 day full-stack (Rust subprocess RSS read + topbar component).
+
+Acceptance gate (whole follow-up batch shipped): manager users with no pre-23.E history never see a banner; the third floating-notice surface ships against a shared `<Banner>` archetype rather than a third bespoke instance; multi-tab workspaces surface their memory cost in the topbar before the OS surfaces it as pressure.
+
 ---
 
 ## Milestones (summary)
