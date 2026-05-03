@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import type { BlockProps } from "./registry";
 import { humanizeKind, humanizeRole } from "../util/humanize";
 import { formatRelativeTime } from "../util/time";
 import { ipcClient } from "../ipc/client";
-import type { StreamEvent } from "../ipc/types";
+import type { PayloadRef, StreamEvent } from "../ipc/types";
 
 /**
  * Block renderers — DP-B (2026-04-30) pass-through pivot.
@@ -165,10 +165,58 @@ function isToolUseReport(artifact: BlockProps["artifact"]): boolean {
   return TOOL_USE_TITLE_PREFIXES.some((p) => artifact.title.startsWith(p));
 }
 
+// Mirrors a typical terminal viewport at common laptop sizes; revisit
+// if dogfood says it's wrong.
+const TOOL_USE_TRUNCATE_LINES = 40;
+
 export function ToolUseLine({ artifact }: BlockProps) {
   const [expanded, setExpanded] = useState(false);
-  const showSummary =
-    artifact.summary && artifact.summary !== artifact.title;
+  const [payload, setPayload] = useState<PayloadRef | null>(null);
+  const [showFull, setShowFull] = useState(false);
+  // Dedupe rapid double-clicks: a request that's already settled won't
+  // refire, and a request in flight won't spawn a second one.
+  const fetchedRef = useRef(false);
+  const inflightRef = useRef(false);
+  const previewSummary =
+    !expanded && artifact.summary && artifact.summary !== artifact.title
+      ? artifact.summary
+      : null;
+
+  const fetchPayload = useCallback(() => {
+    if (fetchedRef.current || inflightRef.current) return;
+    inflightRef.current = true;
+    void ipcClient()
+      .getArtifact(artifact.id)
+      .then((detail) => {
+        fetchedRef.current = true;
+        setPayload(detail.payload);
+      })
+      .catch(() => {
+        // Speculative kinds whose emitters aren't wired may 404 — leave
+        // the head visible without a body rather than crashing the row.
+      })
+      .finally(() => {
+        inflightRef.current = false;
+      });
+  }, [artifact.id]);
+
+  const onToggle = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      if (next) fetchPayload();
+      return next;
+    });
+  };
+
+  const body = payload?.kind === "inline" ? payload.body : "";
+  const lines = body.length > 0 ? body.split("\n") : [];
+  const overflow = lines.length > TOOL_USE_TRUNCATE_LINES;
+  const visibleBody =
+    overflow && !showFull
+      ? lines.slice(0, TOOL_USE_TRUNCATE_LINES).join("\n")
+      : body;
+  const hiddenLineCount = overflow ? lines.length - TOOL_USE_TRUNCATE_LINES : 0;
+
   return (
     <div
       className="tool-line"
@@ -178,21 +226,34 @@ export function ToolUseLine({ artifact }: BlockProps) {
       <button
         type="button"
         className="tool-line__head"
-        aria-expanded={showSummary ? expanded : undefined}
-        onClick={showSummary ? () => setExpanded((v) => !v) : undefined}
+        aria-expanded={expanded}
+        onClick={onToggle}
       >
         <span className="tool-line__dot" aria-hidden="true">
           ·
         </span>
         <span className="tool-line__title">{artifact.title}</span>
-        {showSummary && !expanded && (
-          <span className="tool-line__detail">{artifact.summary}</span>
+        {previewSummary && (
+          <span className="tool-line__detail">{previewSummary}</span>
         )}
       </button>
-      {showSummary && expanded && (
-        <p className="tool-line__detail tool-line__detail--expanded">
-          {artifact.summary}
-        </p>
+      {expanded && body && (
+        <pre
+          className="tool-line__pre"
+          role="region"
+          aria-label={`${artifact.title} output`}
+        >
+          {visibleBody}
+        </pre>
+      )}
+      {expanded && overflow && !showFull && (
+        <button
+          type="button"
+          className="tool-line__show-full"
+          onClick={() => setShowFull(true)}
+        >
+          Show full ({hiddenLineCount} more lines)
+        </button>
       )}
     </div>
   );

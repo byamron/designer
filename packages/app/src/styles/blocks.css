@@ -230,12 +230,53 @@
   white-space: nowrap;
 }
 
-.tool-line__detail--expanded {
+/* Expanded payload — full tool output rendered as monospace under the
+ * head. `white-space: pre-wrap` so long lines wrap inside the parent's
+ * max-width (`.tool-line` already caps at min(48rem, 100%)); horizontal
+ * scroll is acceptable on lines without breakpoints rather than the row
+ * stretching the whole thread. */
+.tool-line__pre {
   margin: 0;
-  padding-left: calc(var(--space-2) + 1ch);
+  padding: var(--space-2) var(--space-3);
+  padding-left: var(--space-4);
+  background: var(--color-surface-sunken);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-button);
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
   white-space: pre-wrap;
-  overflow: visible;
-  text-overflow: clip;
+  overflow-x: auto;
+  word-break: break-word;
+}
+
+.tool-line__show-full {
+  align-self: flex-start;
+  margin-left: var(--space-4);
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--color-muted);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: var(--border-thin);
+  transition: color var(--motion-interactive);
+}
+
+.tool-line__show-full:hover {
+  color: var(--color-foreground);
+}
+
+.tool-line__show-full:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-button);
 }
 
 /* --- artifact reference (DP-B) ----------------------------------------

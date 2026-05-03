@@ -1,11 +1,17 @@
-import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ArtifactReferenceBlock,
   MessageBlock,
   ReportBlock,
   ToolUseLine,
 } from "../blocks/blocks";
+import {
+  __setIpcClient,
+  ipcClient as ipcClientFn,
+  type IpcClient,
+} from "../ipc/client";
+import { mockIpcClient } from "./ipcMockClient";
 import type { ArtifactKind, ArtifactSummary } from "../ipc/types";
 
 function artifact(role: string | null, summary: string): ArtifactSummary {
@@ -225,22 +231,197 @@ describe("Tool-use line rendering (DP-B)", () => {
     expect(container.querySelector('[data-component="ToolCallGroup"]')).toBeNull();
   });
 
-  it("expands to show the detail line on click when summary differs from title", () => {
+  it("toggles data-expanded on head click", () => {
     const a = reportArtifact("Used Bash", { summary: "cargo test --workspace" });
     const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
     const line = container.querySelector('[data-component="ToolUseLine"]')!;
     expect(line.getAttribute("data-expanded")).toBe("false");
     fireEvent.click(line.querySelector("button")!);
     expect(line.getAttribute("data-expanded")).toBe("true");
-    expect(container.querySelector(".tool-line__detail--expanded")).not.toBeNull();
   });
 
-  it("hides the head-button click target when summary matches title (no detail)", () => {
+  it("always wires the head as an expander, even when summary equals title", () => {
     const a = reportArtifact("Used Read", { summary: "Used Read" });
     const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
     const button = container.querySelector(".tool-line__head") as HTMLButtonElement;
-    // No aria-expanded means no expander is wired
-    expect(button.getAttribute("aria-expanded")).toBeNull();
+    // Expand-to-payload (Phase 23.C) means every tool-line is expandable.
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+// Phase 23.C — expanding a ToolUseLine fetches the artifact payload via
+// IPC and renders the body as a monospace <pre>; long output truncates
+// to 40 lines with a "Show full" disclosure; collapsing and re-expanding
+// reuses the cached payload (no second IPC call).
+describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
+  let originalClient: IpcClient;
+
+  beforeEach(() => {
+    originalClient = ipcClientFn();
+  });
+
+  afterEach(() => {
+    __setIpcClient(originalClient);
+  });
+
+  function makeReport() {
+    return reportArtifact("Read core-docs/spec.md", {
+      summary: "Read 412 lines from the canonical spec.",
+    });
+  }
+
+  function shortBody(): string {
+    return ["line 1", "line 2", "line 3"].join("\n");
+  }
+
+  function longBody(lines: number): string {
+    return Array.from({ length: lines }, (_, i) => `line ${i + 1}`).join("\n");
+  }
+
+  // T-23C-1 — expand triggers the payload fetch exactly once per click.
+  it("T-23C-1 — expand triggers a getArtifact fetch and renders the payload body", async () => {
+    const a = makeReport();
+    const getArtifact = vi.fn().mockResolvedValue({
+      summary: a,
+      payload: { kind: "inline", body: shortBody() },
+    });
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    const button = container.querySelector(".tool-line__head") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector(".tool-line__pre")).not.toBeNull();
+    });
+    expect(getArtifact).toHaveBeenCalledTimes(1);
+    expect(getArtifact).toHaveBeenCalledWith(a.id);
+    const pre = container.querySelector(".tool-line__pre")!;
+    expect(pre.tagName).toBe("PRE");
+    expect(pre.textContent).toContain("line 1");
+    expect(pre.textContent).toContain("line 3");
+  });
+
+  // T-23C-2 — long-output truncate + Show full disclosure.
+  it("T-23C-2 — truncates to 40 lines collapsed; Show full reveals the rest", async () => {
+    const a = makeReport();
+    const getArtifact = vi.fn().mockResolvedValue({
+      summary: a,
+      payload: { kind: "inline", body: longBody(100) },
+    });
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    await act(async () => {
+      fireEvent.click(container.querySelector(".tool-line__head")!);
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".tool-line__pre")).not.toBeNull();
+    });
+
+    let pre = container.querySelector(".tool-line__pre")!;
+    let renderedLines = (pre.textContent ?? "").split("\n");
+    expect(renderedLines.length).toBe(40);
+    expect(renderedLines[0]).toBe("line 1");
+    expect(renderedLines[39]).toBe("line 40");
+
+    const showFull = container.querySelector(
+      ".tool-line__show-full",
+    ) as HTMLButtonElement;
+    expect(showFull).not.toBeNull();
+    expect(showFull.textContent ?? "").toContain("60");
+
+    fireEvent.click(showFull);
+
+    pre = container.querySelector(".tool-line__pre")!;
+    renderedLines = (pre.textContent ?? "").split("\n");
+    expect(renderedLines.length).toBe(100);
+    expect(renderedLines[99]).toBe("line 100");
+    expect(container.querySelector(".tool-line__show-full")).toBeNull();
+  });
+
+  // T-23C-3 — collapse + re-expand reuses cached payload (no second IPC call).
+  it("T-23C-3 — collapse + re-expand reuses the cached payload (no refetch)", async () => {
+    const a = makeReport();
+    const getArtifact = vi.fn().mockResolvedValue({
+      summary: a,
+      payload: { kind: "inline", body: shortBody() },
+    });
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    const head = container.querySelector(".tool-line__head") as HTMLButtonElement;
+
+    await act(async () => {
+      fireEvent.click(head);
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".tool-line__pre")).not.toBeNull();
+    });
+
+    fireEvent.click(head); // collapse
+    expect(container.querySelector(".tool-line__pre")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(head); // re-expand
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".tool-line__pre")).not.toBeNull();
+    });
+
+    expect(getArtifact).toHaveBeenCalledTimes(1);
+  });
+
+  // T-23C-3 corollary — fast double-click doesn't fire the fetch twice.
+  it("dedupes a fast double-click into a single fetch", async () => {
+    const a = makeReport();
+    let resolve: ((v: unknown) => void) | null = null;
+    const pending = new Promise((r) => (resolve = r));
+    const getArtifact = vi.fn().mockReturnValue(pending);
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    const head = container.querySelector(".tool-line__head") as HTMLButtonElement;
+
+    // Two synchronous clicks before the in-flight fetch resolves.
+    fireEvent.click(head);
+    fireEvent.click(head);
+    fireEvent.click(head);
+
+    await act(async () => {
+      resolve!({
+        summary: a,
+        payload: { kind: "inline", body: shortBody() },
+      });
+      await pending;
+    });
+
+    expect(getArtifact).toHaveBeenCalledTimes(1);
+  });
+
+  // T-23C-4 — accessibility: <pre> has role=region + aria-label.
+  it("T-23C-4 — expanded <pre> has role=region and an aria-label naming the tool", async () => {
+    const a = makeReport();
+    const getArtifact = vi.fn().mockResolvedValue({
+      summary: a,
+      payload: { kind: "inline", body: shortBody() },
+    });
+    __setIpcClient(mockIpcClient({ getArtifact }));
+
+    const { container } = render(<ToolUseLine artifact={a} {...noProps} />);
+    await act(async () => {
+      fireEvent.click(container.querySelector(".tool-line__head")!);
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".tool-line__pre")).not.toBeNull();
+    });
+
+    const pre = container.querySelector(".tool-line__pre")!;
+    expect(pre.getAttribute("role")).toBe("region");
+    const label = pre.getAttribute("aria-label") ?? "";
+    expect(label).toContain(a.title);
   });
 });
 
