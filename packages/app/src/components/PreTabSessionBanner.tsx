@@ -48,33 +48,26 @@ export function PreTabSessionBanner() {
   });
   const dataLoaded = useDataState((s) => s.loaded);
 
-  // Auto-dismiss once shown so a quick return-visit during the same
-  // launch doesn't double-render. We only flip the flag after the
-  // banner has actually rendered (which requires `dataLoaded` AND
-  // `hasPriorWorkspaces`); first-run users with no workspaces never
-  // hit this, and the flag stays `false` for them. If they later create
-  // a workspace, this banner is still suppressed because the migration
-  // it describes does not apply to them — only users who had chats
-  // before the rotation see it.
+  const dismiss = () => {
+    dismissedFlag.write(true);
+    setDismissed(true);
+  };
+
+  // Keyboard parity with `Onboarding` — Escape dismisses. Bound only
+  // while the banner is actually rendered so we don't intercept the
+  // key globally when it isn't on screen.
   useEffect(() => {
-    if (dismissed) return;
-    if (!dataLoaded) return;
-    if (!hasPriorWorkspaces) return;
-    // The user is seeing the banner this paint; queue the persistent
-    // flip on the next tick so a fast remount in the same launch
-    // doesn't replay the animation. We also still render the dismiss
-    // button — the flag just guarantees one-and-done, not the
-    // user-initiated affordance.
+    if (dismissed || !dataLoaded || !hasPriorWorkspaces) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismiss();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [dismissed, dataLoaded, hasPriorWorkspaces]);
 
   if (dismissed) return null;
   if (!dataLoaded) return null;
   if (!hasPriorWorkspaces) return null;
-
-  const dismiss = () => {
-    dismissedFlag.write(true);
-    setDismissed(true);
-  };
 
   return (
     <div

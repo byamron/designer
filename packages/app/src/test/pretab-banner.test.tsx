@@ -83,6 +83,22 @@ describe("PreTabSessionBanner (Phase 23.E migration notice)", () => {
     ).toBeNull();
   });
 
+  it("Escape dismisses the banner and persists the flag", async () => {
+    await boot();
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-component="PreTabSessionBanner"]'),
+      ).not.toBeNull(),
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-component="PreTabSessionBanner"]'),
+      ).toBeNull();
+    });
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("true");
+  });
+
   it("stays hidden when no workspaces exist (fresh install)", async () => {
     await boot();
     // Force the dataStore into a "fresh install" shape: zero projects

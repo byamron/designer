@@ -1528,8 +1528,13 @@ mod tests {
             !msg.contains("stdin channel closed"),
             "ChannelClosed Display string leaked to user-facing copy (got: {msg})"
         );
+        // The pre-fix Display reads "stdin channel closed for workspace
+        // {uuid} / tab {uuid}" — *both* "workspace " and "tab " markers
+        // appear together. AND-combine so a partial leak (just one of
+        // the two) still fails; the previous `||` would pass when only
+        // one marker was present, defeating the defense-in-depth.
         assert!(
-            !msg.contains("workspace ") || !msg.contains("tab "),
+            !msg.contains("workspace ") && !msg.contains("tab "),
             "raw UUIDs leaked into user-facing copy (got: {msg})"
         );
 
