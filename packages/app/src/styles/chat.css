@@ -82,18 +82,24 @@
 /* Phase 23.F — Stop button. Sits at the trailing edge of the row,
  * mirrors the chevron's positioning + muted-by-default treatment, and
  * lifts to the foreground on hover/focus so the affordance reads as
- * actionable without screaming for attention while a turn is healthy. */
+ * actionable without screaming for attention while a turn is healthy.
+ * The padding reaches the `--target-sm` (24px) hit-box from the 14px
+ * icon — small enough to not blow out the row's vertical rhythm,
+ * large enough to satisfy the touch-target axiom. Color transition
+ * uses `--motion-interactive` so the hover/focus lift eases instead of
+ * popping. */
 .compose-dock-activity-row__stop {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: var(--space-1);
   border: 0;
   background: transparent;
   color: var(--color-muted);
   cursor: pointer;
   border-radius: var(--radius-pill);
+  transition: color var(--motion-interactive);
 }
 
 .compose-dock-activity-row__stop:hover,
@@ -102,8 +108,8 @@
 }
 
 .compose-dock-activity-row__stop:focus-visible {
-  outline: var(--border-thin) solid var(--accent-9);
-  outline-offset: var(--space-1);
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
 }
 
 @keyframes compose-dock-activity-pulse {

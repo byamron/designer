@@ -153,7 +153,7 @@ export function ComposeDockActivityRow({
         type="button"
         className="compose-dock-activity-row__stop"
         onClick={onStop}
-        aria-label="Stop turn"
+        aria-label="Stop response"
       >
         <StopCircle size={14} strokeWidth={1.5} aria-hidden="true" />
       </button>

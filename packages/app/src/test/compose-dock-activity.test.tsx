@@ -142,7 +142,7 @@ describe("ComposeDockActivityRow", () => {
         },
       }));
       rerender(<ComposeDockActivityRow workspaceId={WS} tabId={TAB_A} />);
-      const stop = screen.getByRole("button", { name: "Stop turn" });
+      const stop = screen.getByRole("button", { name: "Stop response" });
       expect(stop).toBeTruthy();
     });
 
@@ -161,7 +161,7 @@ describe("ComposeDockActivityRow", () => {
       const { container } = render(
         <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A} />,
       );
-      const stop = screen.getByRole("button", { name: "Stop turn" });
+      const stop = screen.getByRole("button", { name: "Stop response" });
       await act(async () => {
         fireEvent.click(stop);
       });
@@ -194,7 +194,7 @@ describe("ComposeDockActivityRow", () => {
       // The Stop button is the next focusable element after the textarea
       // — it has no tabIndex override, so Tab natively reaches it. Use a
       // direct focus assertion since JSDOM's Tab handling is limited.
-      const stop = screen.getByRole("button", { name: "Stop turn" });
+      const stop = screen.getByRole("button", { name: "Stop response" });
       stop.focus();
       expect(document.activeElement).toBe(stop);
 
