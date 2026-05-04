@@ -40,7 +40,10 @@ export type ArtifactKind =
   | "task-list"
   | "diagram"
   | "variant"
-  | "track-rollup";
+  | "track-rollup"
+  | "roadmap"
+  | "roadmap-edit-proposal"
+  | "completion-claim";
 
 export type PayloadRef =
   | { kind: "inline"; body: string }

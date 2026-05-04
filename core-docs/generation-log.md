@@ -843,6 +843,18 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - deviations: none. Considered tightening the detection signal to "any pre-23.E MessagePosted event exists" (would require a new IPC + bootData round-trip) — rejected as disproportionate to the false-positive's blast radius (small, one-time, dismissible). Reframed copy instead so the banner is true for all users regardless of upgrade history.
 - feedback: closes 23.E.f1. Title changed from "Tabs are now parallel agents" to "Each tab is its own conversation"; body changed from "Each tab gets its own conversation. Your existing chats start fresh on the next message." to "Tabs run independent claude agents — open more from + to work on parallel things side by side." Test `pretab-banner.test.tsx > 'uses universal tutorial copy that doesn't claim existing chats for fresh installs'` locks the reframe against regression. Roadmap entry for 23.E.f1 marked closed.
 
+## 2026-05-03T22:30:00Z — manual (Phase 22.A: Roadmap canvas foundation)
+
+- prompt: "Implement Phase 22.A — Roadmap canvas foundation per core-docs/roadmap.md lines 1905–1959. Parse roadmap.md into a structural cache, render it as a live tree of nodes with stable HTML-comment anchors, overlay workspace/track/sub-agent presence, support drill-in actions. Read-only canvas; direct edits open the markdown in a tab."
+- trigger: manual (orchestrated by /staff-perspective-review across three reviewer perspectives — staff engineer, staff UX designer, staff design engineer — before any code was written; reviewer findings synthesized into the implementation plan)
+- archetype-reused: none (canvas is a net-new surface)
+- components-reused: IconButton (chevrons + Open-in-editor at --target-sm), Tooltip (Done-shipped hint, multi-claim overflow, Open-in-editor)
+- components-new: RoadmapCanvas, RoadmapStatusCircle, RoadmapBlock (+ co-located stubs RoadmapEditProposalBlock and CompletionClaimBlock claiming registry slots for 22.D)
+- primitives: Stack-equivalent flex columns (no new primitives needed; existing tokens drive the layout)
+- tokens: --space-1, --space-2, --space-3, --space-4, --space-5, --radius-sm, --radius-md, --color-text, --color-text-meta, --color-border-subtle, --color-success, --color-on-success, --font-size-xs, --font-size-sm, --font-size-md, --font-mono, --font-weight-strong, --motion-standard, --target-sm, --gray-a3 (sub-row tint stub — TODO(22.G) swap to --team-tint-light), --focus-outline-width, --focus-outline-color, --accent-8, --color-surface-2, --color-surface-3, --color-danger
+- invariants: pending — runs on tools/invariants/check.mjs in the quality-gates pass
+- deviations: none. Stub only: --team-tint-light/dark land in 22.G; for 22.A the sub-row tint uses --gray-a3 light / --gray-a4 dark with an inline TODO(22.G) marker so the chromatic version slots in cleanly.
+- feedback: pending. Backend: 24 roadmap module tests + 3 projection determinism tests + 1 real-roadmap.md smoke test (parses 301 KB / 143 nodes in 3.5 ms — well under the 100 ms budget). Frontend: 195 vitest tests green; tsc clean. The /staff-perspective-review pass returned 11 blockers (10 adopted; 1 pushed to follow-up); the synthesized plan is the canonical record of those decisions. Phase 22.I (shipping history) deliberately deferred per workspace direction.
 ## 2026-05-03T17:30:00Z — manual (Promote Archived workspaces to a sidebar tab)
 
 - prompt: "Archived should be a tab with the same format as 'Home' — with the archive icon, and selecting it brings you to a page with the workspaces."

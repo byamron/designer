@@ -542,6 +542,38 @@
       "last_updated": "2026-04-29"
     },
     {
+      "name": "RoadmapCanvas",
+      "path": "packages/app/src/components/RoadmapCanvas.tsx",
+      "purpose": "Phase 22.A — top-level Roadmap canvas surface. Renders the phase strip, parse-error slab, or empty-state slab depending on the IPC view. Mounts via the block-renderer registry under the `roadmap` artifact kind, and is also used directly by `HomeTabA` when the `show_roadmap_canvas` feature flag is on. ARIA tree role on the phase strip; per-node `useSyncExternalStore` subscriptions via the roadmap store; lazy body markdown render via a Web Worker.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": ["IconButton", "Tooltip"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "radius-sm", "radius-md", "color-text", "color-text-meta", "color-border-subtle", "color-success", "font-size-xs", "font-size-sm", "font-size-md", "font-mono", "motion-standard", "target-sm"],
+      "css_prefix": "roadmap-",
+      "last_updated": "2026-05-03"
+    },
+    {
+      "name": "RoadmapStatusCircle",
+      "path": "packages/app/src/components/RoadmapStatusCircle.tsx",
+      "purpose": "Phase 22.A — conic-arc status glyph for roadmap nodes. Forked from `WorkspaceStatusIcon` (a Lucide-glyph wrapper) — the canvas needs an animated SVG arc, not a glyph swap. Implementation: SVG circle with `stroke-dasharray` for partial fills (CSS `conic-gradient` does NOT transition between stops). Reduced-motion: instant flip. Minimum render size `--icon-md` (14 px); below that the dasharray reads as a tick — fall back to filled dot via `data-tiny`.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["color-success", "color-on-success", "motion-standard"],
+      "css_prefix": "roadmap-status-circle",
+      "last_updated": "2026-05-03"
+    },
+    {
+      "name": "RoadmapBlock",
+      "path": "packages/app/src/blocks/RoadmapBlock.tsx",
+      "purpose": "Phase 22.A — block-renderer wrapper for the `roadmap` artifact kind. Reads `project_id` from the artifact's `summary` field and mounts `RoadmapCanvas`. Co-located stubs `RoadmapEditProposalBlock` and `CompletionClaimBlock` reserve the registry slots for Phase 22.D's renderers; both fall through to `GenericBlock` until 22.D ships.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": [],
+      "last_updated": "2026-05-03"
+    },
+    {
       "name": "RecentReportsSection",
       "path": "packages/app/src/components/RecentReports/RecentReportsSection.tsx",
       "purpose": "Phase 22.B Home-tab surface — curated highlights of shipped work in manager voice. Two-step disclosure: inline 1–2 line `summary_high` + classification chip + workspace label + PR link is always visible; click expands the report inline with the full body and an `Open in tab` button. Three reports default; `Show more` reveals 4–5; `Show all (N)` expands the full list inline (no project-level Reports tab — Decision 56). Section header reads `N unread` or `All caught up`; reads advance implicitly on inline expand and tab open, plus an explicit `Mark all read` footer. Renders behind the `show_recent_reports_v2` feature flag; reports without `summary_high` fall back to the legacy `summary` field per roadmap §22.B migration.",

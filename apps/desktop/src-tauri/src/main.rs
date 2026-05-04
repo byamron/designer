@@ -16,6 +16,7 @@ use designer_desktop::commands_git;
 use designer_desktop::commands_learn;
 use designer_desktop::commands_local;
 use designer_desktop::commands_reports;
+use designer_desktop::commands_roadmap;
 use designer_desktop::commands_safety;
 use designer_desktop::core::AppCoreBoot;
 use designer_desktop::core_agents::{coalesce_window_from_env, spawn_message_coalescer};
@@ -194,6 +195,9 @@ fn main() {
             commands_reports::cmd_get_reports_unread_count,
             commands_reports::cmd_list_recent_reports,
             commands_reports::cmd_mark_reports_read,
+            commands_roadmap::cmd_get_roadmap,
+            commands_roadmap::cmd_set_node_status,
+            commands_roadmap::cmd_write_roadmap_draft,
             commands_safety::cmd_get_cost_chip_preference,
             commands_safety::cmd_get_cost_status,
             commands_safety::cmd_get_feature_flags,

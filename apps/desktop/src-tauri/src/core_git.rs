@@ -332,6 +332,7 @@ impl AppCore {
         workspace_id: WorkspaceId,
         branch: String,
         base: Option<String>,
+        anchor_node_id: Option<designer_core::roadmap::NodeId>,
     ) -> Result<TrackId, CoreError> {
         validate_branch(&branch)?;
         let repo = require_linked_repo(workspace_id, self)?;
@@ -388,6 +389,7 @@ impl AppCore {
                     workspace_id,
                     worktree_path: target.clone(),
                     branch,
+                    anchor_node_id,
                 },
             )
             .await
@@ -822,7 +824,7 @@ mod tests {
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
 
         let track_id = core
-            .start_track(ws, "feature/a".into(), None)
+            .start_track(ws, "feature/a".into(), None, None)
             .await
             .unwrap();
         let track = core.get_track(track_id).await.expect("track exists");
@@ -882,7 +884,7 @@ mod tests {
         let core = boot_test_core().await;
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         let track_id = core
-            .start_track(ws, "feature/b".into(), None)
+            .start_track(ws, "feature/b".into(), None, None)
             .await
             .unwrap();
         let before = core.list_artifacts(ws).await.len();
@@ -937,7 +939,7 @@ mod tests {
         // Re-install the fake (seed_workspace_with_repo replaced it for link_repo).
         set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
         let track_id = core
-            .start_track(ws, "feature/c".into(), None)
+            .start_track(ws, "feature/c".into(), None, None)
             .await
             .unwrap();
 
@@ -1012,7 +1014,7 @@ mod tests {
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
         let track_id = core
-            .start_track(ws, "feature/sig".into(), None)
+            .start_track(ws, "feature/sig".into(), None, None)
             .await
             .unwrap();
         assert!(core.check_track_status(track_id).await.unwrap().is_some());
@@ -1170,7 +1172,7 @@ mod tests {
             .await
             .unwrap();
         let res = core
-            .start_track(workspace.id, "feature/x".into(), None)
+            .start_track(workspace.id, "feature/x".into(), None, None)
             .await;
         assert!(matches!(res, Err(CoreError::NotFound(_))));
     }
@@ -1181,7 +1183,7 @@ mod tests {
         let core = boot_test_core().await;
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         let res = core
-            .start_track(ws, "--upload-pack=evil".into(), None)
+            .start_track(ws, "--upload-pack=evil".into(), None, None)
             .await;
         match res {
             Err(CoreError::Invariant(msg)) => assert!(msg.contains("must not start with '-'")),
@@ -1194,7 +1196,7 @@ mod tests {
         let _g = test_lock().lock().await;
         let core = boot_test_core().await;
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
-        let res = core.start_track(ws, "bad branch".into(), None).await;
+        let res = core.start_track(ws, "bad branch".into(), None, None).await;
         match res {
             Err(CoreError::Invariant(msg)) => assert!(msg.contains("invalid characters")),
             other => panic!("expected Invariant error, got {other:?}"),
@@ -1214,10 +1216,16 @@ mod tests {
 
         let core_a = core.clone();
         let core_b = core.clone();
-        let fut_a =
-            tokio::spawn(async move { core_a.start_track(ws, "feature/race".into(), None).await });
-        let fut_b =
-            tokio::spawn(async move { core_b.start_track(ws, "feature/race".into(), None).await });
+        let fut_a = tokio::spawn(async move {
+            core_a
+                .start_track(ws, "feature/race".into(), None, None)
+                .await
+        });
+        let fut_b = tokio::spawn(async move {
+            core_b
+                .start_track(ws, "feature/race".into(), None, None)
+                .await
+        });
         let r_a = fut_a.await.unwrap();
         let r_b = fut_b.await.unwrap();
         let oks = [&r_a, &r_b].iter().filter(|r| r.is_ok()).count();
@@ -1252,7 +1260,9 @@ mod tests {
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
 
-        let res = core.start_track(ws, "feature/rollback".into(), None).await;
+        let res = core
+            .start_track(ws, "feature/rollback".into(), None, None)
+            .await;
         assert!(res.is_err(), "seed commit failure must propagate");
         // remove_worktree was called by the cleanup path.
         let removed = fake.remove_calls.lock().unwrap().clone();
@@ -1271,7 +1281,7 @@ mod tests {
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
         let track_id = core
-            .start_track(ws, "feature/dup".into(), None)
+            .start_track(ws, "feature/dup".into(), None, None)
             .await
             .unwrap();
         let core_a = core.clone();
@@ -1302,7 +1312,7 @@ mod tests {
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
         let track_id = core
-            .start_track(ws, "feature/timeout".into(), None)
+            .start_track(ws, "feature/timeout".into(), None, None)
             .await
             .unwrap();
         let res = core.request_merge(track_id).await;
@@ -1330,7 +1340,7 @@ mod tests {
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
         let track_id = core
-            .start_track(ws, "feature/exists".into(), None)
+            .start_track(ws, "feature/exists".into(), None, None)
             .await
             .unwrap();
         let res = core.request_merge(track_id).await;
@@ -1361,7 +1371,7 @@ mod tests {
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
         let track_id = core
-            .start_track(ws, "feature/auth".into(), None)
+            .start_track(ws, "feature/auth".into(), None, None)
             .await
             .unwrap();
         let res = core.request_merge(track_id).await;
@@ -1409,7 +1419,7 @@ mod tests {
         let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
         set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
         let track_id = core
-            .start_track(ws, "feature/sum".into(), None)
+            .start_track(ws, "feature/sum".into(), None, None)
             .await
             .unwrap();
 

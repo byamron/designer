@@ -23,6 +23,7 @@ import { DesignerNoticedHome } from "../components/DesignerNoticed";
 import { RecentReportsSection } from "../components/RecentReports";
 import { RepoUnlinkModal } from "../components/RepoUnlinkModal";
 import { RepoLinkModal } from "../components/RepoLinkModal";
+import { RoadmapCanvas } from "../components/RoadmapCanvas";
 import { ipcClient } from "../ipc/client";
 
 /**
@@ -39,6 +40,27 @@ export function HomeTabA({ project }: { project: Project }) {
   const workspaces = useDataState((s) => s.workspaces);
   const autonomyOverride = useAppState((s) => s.autonomyOverrides[project.id]);
   const autonomy: Autonomy = autonomyOverride ?? project.autonomy ?? "suggest";
+
+  // Phase 22.A — opt-in Roadmap canvas variant. When the flag is on,
+  // the canvas takes the lead and the Active workspaces / Autonomy /
+  // Needs-your-attention sections are deleted at project altitude
+  // (those signals live in the workspace strip + adjacent attention
+  // column once 22.E ships).
+  const [roadmapFlag, setRoadmapFlag] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcClient()
+      .getFeatureFlags()
+      .then((f) => {
+        if (!cancelled) setRoadmapFlag(f.show_roadmap_canvas);
+      })
+      .catch(() => {
+        if (!cancelled) setRoadmapFlag(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Phase 21.A1.1 — opening the home tab is the "I'm caught up"
   // signal for the Designer noticed unread badge. Fire once per
@@ -79,6 +101,18 @@ export function HomeTabA({ project }: { project: Project }) {
     const firstTab = ws?.tabs.find((t) => !t.closed_at);
     if (firstTab) selectTab(id, firstTab.id);
   };
+
+  if (roadmapFlag) {
+    return (
+      <TabLayout>
+        <div className="home-a">
+          <RoadmapCanvas projectId={project.id} />
+          <ProjectRepoSection project={project} workspaces={projectWorkspaces} />
+          <DesignerNoticedHome projectId={project.id} />
+        </div>
+      </TabLayout>
+    );
+  }
 
   return (
     <TabLayout>

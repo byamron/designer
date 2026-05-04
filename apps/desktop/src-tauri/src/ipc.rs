@@ -346,7 +346,7 @@ pub async fn cmd_start_track(
     if req.branch.trim().is_empty() {
         return Err(IpcError::invalid_request("branch must not be empty"));
     }
-    core.start_track(req.workspace_id, req.branch, req.base)
+    core.start_track(req.workspace_id, req.branch, req.base, req.anchor_node_id)
         .await
         .map_err(IpcError::from)
 }

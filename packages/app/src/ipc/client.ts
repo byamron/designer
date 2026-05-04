@@ -144,6 +144,102 @@ export interface IpcClient {
   listProposals(req: ListProposalsRequest): Promise<ProposalDto[]>;
   resolveProposal(req: ResolveProposalRequest): Promise<void>;
   signalProposal(req: SignalProposalRequest): Promise<void>;
+  // Roadmap canvas (Phase 22.A)
+  getRoadmap(projectId: ProjectId): Promise<RoadmapView>;
+  setNodeStatus(
+    projectId: ProjectId,
+    nodeId: NodeId,
+    status: NodeStatus,
+  ): Promise<void>;
+  writeRoadmapDraft(projectId: ProjectId, content: string): Promise<void>;
+}
+
+// ---- Phase 22.A roadmap canvas DTOs ---------------------------------------
+export type NodeId = string;
+export type NodeStatus =
+  | "backlog"
+  | "todo"
+  | "in-progress"
+  | "in-review"
+  | "done"
+  | "canceled"
+  | "blocked";
+
+export interface RoadmapNode {
+  id: NodeId;
+  parent_id: NodeId | null;
+  depth: number;
+  headline: string;
+  body_offset: number;
+  body_length: number;
+  child_ids: NodeId[];
+  external_source?: ExternalSource | null;
+  status: NodeStatus;
+  shipped_at?: string | null;
+  shipped_pr?: { url: string; number: number | null } | null;
+}
+
+export type ExternalSource =
+  | { kind: "linear"; issue_id: string }
+  | { kind: "git-hub"; repo: string; number: number }
+  | { kind: "url"; href: string };
+
+export interface NodeView extends RoadmapNode {
+  derived_status: NodeStatus;
+}
+
+export interface NodeClaim {
+  node_id: NodeId;
+  workspace_id: WorkspaceId;
+  track_id: TrackId;
+  subagent_role?: string | null;
+  claimed_at: string;
+}
+
+export interface NodeShipment {
+  node_id: NodeId;
+  workspace_id: WorkspaceId;
+  track_id: TrackId;
+  pr_url: string;
+  shipped_at: string;
+}
+
+export interface RoadmapTreeView {
+  source: string;
+  nodes: NodeView[];
+}
+
+export interface RoadmapParseError {
+  line: number;
+  column?: number | null;
+  snippet: string;
+  hint: string;
+}
+
+export interface NodeClaimsForView {
+  node_id: NodeId;
+  claims: NodeClaim[];
+}
+
+export interface NodeShipmentsForView {
+  node_id: NodeId;
+  shipments: NodeShipment[];
+}
+
+export interface RoadmapHash {
+  mtime_unix_secs: number;
+  size_bytes: number;
+  content_hash: string;
+}
+
+export interface RoadmapView {
+  tree: RoadmapTreeView | null;
+  parse_error: RoadmapParseError | null;
+  claims: NodeClaimsForView[];
+  shipments: NodeShipmentsForView[];
+  source_hash: RoadmapHash | null;
+  /** Absolute path to core-docs/roadmap.md, resolved server-side. */
+  roadmap_path: string;
 }
 
 // ---- Phase 13.G safety DTOs -----------------------------------------------
@@ -184,6 +280,9 @@ export interface CostChipPreferences {
 export interface FeatureFlags {
   show_models_section: boolean;
   show_all_artifacts_in_spine: boolean;
+  /** Phase 22.A — render the Roadmap canvas as the lead Home-tab surface. */
+  show_roadmap_canvas: boolean;
+  /** Phase 22.B — show the new Recent Reports surface on Home. */
   show_recent_reports_v2: boolean;
 }
 
@@ -366,6 +465,19 @@ class TauriIpcClient implements IpcClient {
   signalProposal(req: SignalProposalRequest) {
     return invoke<void>("cmd_signal_proposal", { req });
   }
+  getRoadmap(projectId: ProjectId) {
+    return invoke<RoadmapView>("cmd_get_roadmap", { projectId });
+  }
+  setNodeStatus(projectId: ProjectId, nodeId: NodeId, status: NodeStatus) {
+    return invoke<void>("cmd_set_node_status", {
+      projectId,
+      nodeId,
+      status,
+    });
+  }
+  writeRoadmapDraft(projectId: ProjectId, content: string) {
+    return invoke<void>("cmd_write_roadmap_draft", { projectId, content });
+  }
 }
 
 class MockIpcClient implements IpcClient {
@@ -505,6 +617,7 @@ class MockIpcClient implements IpcClient {
   private mockFlags: FeatureFlags = {
     show_models_section: false,
     show_all_artifacts_in_spine: false,
+    show_roadmap_canvas: false,
     show_recent_reports_v2: false,
   };
   private mockReportReadAt: Map<ProjectId, string> = new Map();
@@ -583,6 +696,23 @@ class MockIpcClient implements IpcClient {
     return Promise.resolve();
   }
   signalProposal(_req: SignalProposalRequest) {
+    return Promise.resolve();
+  }
+  getRoadmap(_projectId: ProjectId) {
+    // Mock: empty roadmap (drives the "Paste a draft" empty-state slab).
+    return Promise.resolve<RoadmapView>({
+      tree: null,
+      parse_error: null,
+      claims: [],
+      shipments: [],
+      source_hash: null,
+      roadmap_path: "core-docs/roadmap.md",
+    });
+  }
+  setNodeStatus(_p: ProjectId, _n: NodeId, _s: NodeStatus) {
+    return Promise.resolve();
+  }
+  writeRoadmapDraft(_p: ProjectId, _c: string) {
     return Promise.resolve();
   }
 }

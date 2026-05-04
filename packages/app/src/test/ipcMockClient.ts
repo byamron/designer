@@ -117,6 +117,7 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
       Promise.resolve<FeatureFlags>({
         show_models_section: false,
         show_all_artifacts_in_spine: false,
+        show_roadmap_canvas: false,
         show_recent_reports_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
@@ -124,6 +125,7 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
         show_models_section: name === "show_models_section" ? enabled : false,
         show_all_artifacts_in_spine:
           name === "show_all_artifacts_in_spine" ? enabled : false,
+        show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
         show_recent_reports_v2:
           name === "show_recent_reports_v2" ? enabled : false,
       }),
@@ -144,6 +146,17 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
+    getRoadmap: () =>
+      Promise.resolve({
+        tree: null,
+        parse_error: null,
+        claims: [],
+        shipments: [],
+        source_hash: null,
+        roadmap_path: "core-docs/roadmap.md",
+      }),
+    setNodeStatus: () => Promise.resolve(),
+    writeRoadmapDraft: () => Promise.resolve(),
   };
   return { ...defaults, ...overrides };
 }

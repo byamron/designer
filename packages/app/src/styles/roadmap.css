@@ -1,0 +1,364 @@
+/* Phase 22.A — Roadmap canvas styles.
+ *
+ * Token references use Mini's canonical names:
+ *   - color roles: --color-foreground, --color-muted, --color-border-soft,
+ *     --color-surface-raised, --color-surface-overlay
+ *   - semantic: --success-9 (Done), --danger-9 (errors)
+ *   - typography: --type-caption-size / --type-body-size / --type-h3-size
+ *     and --type-family-mono; weights via --weight-*
+ *   - motion: --motion-standard composed with --ease-out-enter for arc
+ *     transitions; --motion-pulse for the team-dot pulse keyframe
+ *
+ * Reduced motion: every transition is gated by a `@media
+ * (prefers-reduced-motion: reduce)` block at the bottom. Pulses are
+ * opacity + transform on a pseudo-element (GPU-composited; never
+ * box-shadow, which is paint-only and janks under N concurrent dots).
+ */
+
+.roadmap-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.roadmap-canvas--loading .roadmap-canvas__loading {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+}
+
+.roadmap-phase-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.roadmap-phase-strip__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.roadmap-phase-strip__title {
+  font-size: var(--type-h3-size);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+}
+
+.roadmap-phase-strip__filter {
+  /* Wraps a SegmentedToggle. */
+  display: inline-flex;
+}
+
+.roadmap-phase-strip__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* CSS Containment 2: the browser remembers the actual rendered height per
+   * element after first paint, so this is a transient first-render guess —
+   * not a magic number that locks the surface to 800. Sized off the breakpoint
+   * token so it tracks the same layout grain. */
+  contain-intrinsic-size: auto var(--breakpoint-md);
+  content-visibility: auto;
+}
+
+.roadmap-node-row {
+  border-radius: var(--radius-2, 6px);
+  padding: var(--space-1) 0;
+  outline: none;
+}
+
+.roadmap-node-row:focus-visible {
+  outline: var(--focus-outline-width, 2px) solid var(--focus-outline-color);
+  outline-offset: var(--border-thin);
+}
+
+.roadmap-node-row__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.roadmap-node-row__chevron {
+  width: var(--target-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.roadmap-node-row__chevron-spacer {
+  display: inline-block;
+  width: var(--target-sm);
+}
+
+.roadmap-node-row__chevron-glyph {
+  transition: transform var(--motion-standard) var(--ease-out-enter);
+}
+
+.roadmap-node-row__chevron-glyph[data-expanded="true"] {
+  transform: rotate(90deg);
+}
+
+.roadmap-node-row__headline {
+  flex: 1 1 auto;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-foreground);
+}
+
+.roadmap-node-row__ratio {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.roadmap-node-row__children {
+  list-style: none;
+  margin: 0 0 0 var(--space-4);
+  padding: 0;
+  border-left: var(--border-thin) solid var(--color-border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Sub-row team tint — uses 22.G's `--team-N-tint` family (color-mix of
+ * `--team-N` with `--team-tint-light` / `--team-tint-dark` alphas). Until
+ * the IPC threads `team_id` through `NodeClaim` (follow-up to 22.G), every
+ * claimed parent renders the team-1 tint as a placeholder identity; once
+ * the team metadata lands, swap the constant for `var(--team-${team_id}-tint)`
+ * derived per row. Stub still beats the bare `--gray-a3` neutral by
+ * conveying chromatic identity, which is the point of axiom #3's
+ * amendment. */
+.roadmap-node-row[data-status="in-progress"]
+  > .roadmap-node-row__children
+  > .roadmap-node-row {
+  background: var(--team-1-tint);
+}
+
+.roadmap-node-row__body {
+  margin: var(--space-2) 0 var(--space-2)
+    calc(var(--space-4) + var(--target-sm));
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
+}
+
+.roadmap-node-row__body--error pre {
+  color: var(--danger-9);
+  white-space: pre-wrap;
+}
+
+/* ---- Status circle ---- */
+
+.roadmap-status-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--color-foreground);
+}
+
+.roadmap-status-circle[data-status="done"] {
+  color: var(--success-9);
+}
+
+.roadmap-status-circle__svg {
+  display: block;
+}
+
+.roadmap-status-circle__arc {
+  transition: stroke-dasharray var(--motion-standard) var(--ease-out-enter);
+}
+
+/* ---- Team label + multi-claim stack ---- */
+
+.roadmap-multi-claim-stack {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.roadmap-team-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+}
+
+.roadmap-team-label__dot {
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: 50%;
+  background: currentColor;
+  position: relative;
+}
+
+.roadmap-team-label__dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0.5;
+  transform: scale(1);
+  animation: roadmap-team-pulse var(--motion-pulse) ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes roadmap-team-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0; transform: scale(2); }
+}
+
+.roadmap-multi-claim-stack__overflow {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-2, 6px);
+  cursor: default;
+}
+
+/* ---- Done = shipped hint ---- */
+
+.roadmap-done-shipped-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--target-sm);
+  height: var(--target-sm);
+  color: var(--color-muted);
+  cursor: help;
+}
+
+/* ---- Parse error slab ---- */
+
+.roadmap-parse-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-card, 12px);
+  background: var(--color-surface-raised);
+}
+
+.roadmap-parse-error__title {
+  margin: 0;
+  font-size: var(--type-h3-size);
+  font-weight: var(--weight-semibold);
+}
+
+.roadmap-parse-error__hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--type-body-size);
+}
+
+.roadmap-parse-error__snippet {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--color-surface-overlay);
+  border-radius: var(--radius-2, 6px);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.roadmap-parse-error__action {
+  align-self: flex-start;
+}
+
+/* ---- Empty state ---- */
+
+.roadmap-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-thin) dashed var(--color-border-soft);
+  border-radius: var(--radius-card, 12px);
+  text-align: center;
+}
+
+.roadmap-empty__copy {
+  margin: 0;
+  color: var(--color-foreground);
+}
+
+/* Empty-state dialog uses its own scrim class so it never collides with the
+ * singleton AppDialog (Help). Both render via createPortal-style absolute
+ * scrims; sharing the class would let two dialogs stack on top of each other
+ * with shared focus-trap state. */
+.roadmap-empty-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--color-scrim, rgba(0, 0, 0, 0.4));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--layer-modal);
+}
+
+.roadmap-empty-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: var(--breakpoint-sm, 30rem);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-card, 12px);
+  box-shadow: var(--shadow-overlay, 0 16px 48px rgba(0, 0, 0, 0.2));
+}
+
+.roadmap-empty-dialog__title {
+  margin: 0;
+  font-size: var(--type-h3-size);
+  font-weight: var(--weight-semibold);
+}
+
+.roadmap-empty-dialog__copy {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--type-body-size);
+}
+
+.roadmap-empty-dialog__textarea {
+  /* Six body rows at the locked rhythm — no arbitrary `rows` attr. */
+  min-height: calc(var(--space-5) * 6);
+  padding: var(--space-2);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-2, 6px);
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
+}
+
+.roadmap-empty-dialog__actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* ---- Reduced motion ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .roadmap-status-circle__arc,
+  .roadmap-node-row__chevron-glyph {
+    transition: none;
+  }
+  .roadmap-team-label__dot::after {
+    animation: none;
+    opacity: 0;
+  }
+}

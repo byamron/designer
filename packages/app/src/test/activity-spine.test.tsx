@@ -84,6 +84,7 @@ function stubClient(artifacts: ArtifactSummary[]): IpcClient {
       Promise.resolve({
         show_models_section: false,
         show_all_artifacts_in_spine: false,
+        show_roadmap_canvas: false,
         show_recent_reports_v2: false,
       }),
     setFeatureFlag: (

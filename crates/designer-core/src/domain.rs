@@ -233,6 +233,18 @@ pub enum ArtifactKind {
     Variant,
     /// Track-rollup: N child events coalesced under one card.
     TrackRollup,
+    /// Phase 22.A — the roadmap canvas surface itself. Lives in the
+    /// project Home tab when `show_roadmap_canvas` is on. Never appears
+    /// in the activity spine.
+    Roadmap,
+    /// Phase 22.A reserves the registry slot; 22.D ships the renderer
+    /// (inline diff card on the canvas). Falls through to the generic
+    /// renderer until 22.D lands.
+    RoadmapEditProposal,
+    /// Phase 22.A reserves the registry slot; 22.D ships the renderer
+    /// (status-change card on the canvas). Falls through to the generic
+    /// renderer until 22.D lands.
+    CompletionClaim,
 }
 
 /// Payload storage discriminant. Small payloads live inline on the event;
