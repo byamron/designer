@@ -333,3 +333,140 @@
    If a chromatic accent is ever introduced (requires amending
    design-language.md axiom #3), add a [data-accent="name"] block
    here per Mini's convention. */
+
+/* ============================================================
+   Team identity palette (axiom #3 amendment, 2026-05-03)
+   ============================================================
+   Sixteen hues stepped around an OKLCH wheel at fixed lightness
+   and a chroma deliberately below the semantic palette so that
+   success / warning / danger / info still pop against team color.
+   Light + dark variants keep contrast against --color-content-surface
+   in both modes. Identity is orthogonal to accent (monochrome) and
+   semantic (signal) — see design-language.md axiom #3 and
+   pattern-log.md (2026-05-03 — Team identity vs accent vs semantic).
+
+   Tokens:
+     --team-1..--team-16        inked color (status circles, dots,
+                                pill borders)
+     --team-1-tint..-16-tint    soft tint for row backgrounds; uses
+                                --team-tint-light (light) or
+                                --team-tint-dark (dark) as the
+                                color-mix alpha
+     --team-tint-light          7% — light-mode tint alpha
+     --team-tint-dark           10% — dark-mode tint alpha
+     --team-pulse-rate-1..-16   per-team pulse durations in
+                                [1.4s, 2.0s], chosen to avoid simple
+                                rational ratios so dots drift in
+                                and out of phase rather than syncing.
+
+   Hues are 22.5° apart starting at 0°. Chroma 0.10 in both modes —
+   below Radix semantic-9 chroma (~0.13–0.20). Lightness anchors:
+   light mode 0.55 (ink-on-paper); dark mode 0.78 (lifted figure
+   against the dark-sand page). */
+:root {
+  /* Tint alphas — used by --team-N-tint via color-mix. Override the
+     per-team --team-N-tint bindings in .dark-theme to swap which
+     alpha applies. */
+  --team-tint-light: 7%;
+  --team-tint-dark:  10%;
+
+  /* Inked colors (light mode anchors). */
+  --team-1:  oklch(0.55 0.10 0deg);
+  --team-2:  oklch(0.55 0.10 22.5deg);
+  --team-3:  oklch(0.55 0.10 45deg);
+  --team-4:  oklch(0.55 0.10 67.5deg);
+  --team-5:  oklch(0.55 0.10 90deg);
+  --team-6:  oklch(0.55 0.10 112.5deg);
+  --team-7:  oklch(0.55 0.10 135deg);
+  --team-8:  oklch(0.55 0.10 157.5deg);
+  --team-9:  oklch(0.55 0.10 180deg);
+  --team-10: oklch(0.55 0.10 202.5deg);
+  --team-11: oklch(0.55 0.10 225deg);
+  --team-12: oklch(0.55 0.10 247.5deg);
+  --team-13: oklch(0.55 0.10 270deg);
+  --team-14: oklch(0.55 0.10 292.5deg);
+  --team-15: oklch(0.55 0.10 315deg);
+  --team-16: oklch(0.55 0.10 337.5deg);
+
+  /* Tints (light mode — 7% alpha mix on transparent). */
+  --team-1-tint:  color-mix(in srgb, var(--team-1)  var(--team-tint-light), transparent);
+  --team-2-tint:  color-mix(in srgb, var(--team-2)  var(--team-tint-light), transparent);
+  --team-3-tint:  color-mix(in srgb, var(--team-3)  var(--team-tint-light), transparent);
+  --team-4-tint:  color-mix(in srgb, var(--team-4)  var(--team-tint-light), transparent);
+  --team-5-tint:  color-mix(in srgb, var(--team-5)  var(--team-tint-light), transparent);
+  --team-6-tint:  color-mix(in srgb, var(--team-6)  var(--team-tint-light), transparent);
+  --team-7-tint:  color-mix(in srgb, var(--team-7)  var(--team-tint-light), transparent);
+  --team-8-tint:  color-mix(in srgb, var(--team-8)  var(--team-tint-light), transparent);
+  --team-9-tint:  color-mix(in srgb, var(--team-9)  var(--team-tint-light), transparent);
+  --team-10-tint: color-mix(in srgb, var(--team-10) var(--team-tint-light), transparent);
+  --team-11-tint: color-mix(in srgb, var(--team-11) var(--team-tint-light), transparent);
+  --team-12-tint: color-mix(in srgb, var(--team-12) var(--team-tint-light), transparent);
+  --team-13-tint: color-mix(in srgb, var(--team-13) var(--team-tint-light), transparent);
+  --team-14-tint: color-mix(in srgb, var(--team-14) var(--team-tint-light), transparent);
+  --team-15-tint: color-mix(in srgb, var(--team-15) var(--team-tint-light), transparent);
+  --team-16-tint: color-mix(in srgb, var(--team-16) var(--team-tint-light), transparent);
+
+  /* Pulse rates — sixteen values sampled from [1.4s, 2.0s] chosen so
+     no two form a simple rational ratio (no n:m with small n, m).
+     Baked at author-time so the keyframe utilities never need a JS
+     randomizer. Values are deliberately frozen — re-sampling on
+     every release would change which dot pairs sync at any given
+     moment, which is exactly the visual jitter we don't want. */
+  --team-pulse-rate-1:  1.413s;
+  --team-pulse-rate-2:  1.451s;
+  --team-pulse-rate-3:  1.487s;
+  --team-pulse-rate-4:  1.523s;
+  --team-pulse-rate-5:  1.559s;
+  --team-pulse-rate-6:  1.597s;
+  --team-pulse-rate-7:  1.633s;
+  --team-pulse-rate-8:  1.669s;
+  --team-pulse-rate-9:  1.709s;
+  --team-pulse-rate-10: 1.747s;
+  --team-pulse-rate-11: 1.787s;
+  --team-pulse-rate-12: 1.823s;
+  --team-pulse-rate-13: 1.867s;
+  --team-pulse-rate-14: 1.913s;
+  --team-pulse-rate-15: 1.951s;
+  --team-pulse-rate-16: 1.991s;
+}
+
+/* Dark-mode anchors. Lightness lifts to 0.78 so the inked color
+   stays a clearly chromatic figure against the dark-sand page;
+   chroma stays at 0.10 for the same orthogonality with semantic.
+   Tint mixes use --team-tint-dark (10%) — a hair more visible than
+   the light-mode 7% to compensate for the darker page. */
+.dark-theme {
+  --team-1:  oklch(0.78 0.10 0deg);
+  --team-2:  oklch(0.78 0.10 22.5deg);
+  --team-3:  oklch(0.78 0.10 45deg);
+  --team-4:  oklch(0.78 0.10 67.5deg);
+  --team-5:  oklch(0.78 0.10 90deg);
+  --team-6:  oklch(0.78 0.10 112.5deg);
+  --team-7:  oklch(0.78 0.10 135deg);
+  --team-8:  oklch(0.78 0.10 157.5deg);
+  --team-9:  oklch(0.78 0.10 180deg);
+  --team-10: oklch(0.78 0.10 202.5deg);
+  --team-11: oklch(0.78 0.10 225deg);
+  --team-12: oklch(0.78 0.10 247.5deg);
+  --team-13: oklch(0.78 0.10 270deg);
+  --team-14: oklch(0.78 0.10 292.5deg);
+  --team-15: oklch(0.78 0.10 315deg);
+  --team-16: oklch(0.78 0.10 337.5deg);
+
+  --team-1-tint:  color-mix(in srgb, var(--team-1)  var(--team-tint-dark), transparent);
+  --team-2-tint:  color-mix(in srgb, var(--team-2)  var(--team-tint-dark), transparent);
+  --team-3-tint:  color-mix(in srgb, var(--team-3)  var(--team-tint-dark), transparent);
+  --team-4-tint:  color-mix(in srgb, var(--team-4)  var(--team-tint-dark), transparent);
+  --team-5-tint:  color-mix(in srgb, var(--team-5)  var(--team-tint-dark), transparent);
+  --team-6-tint:  color-mix(in srgb, var(--team-6)  var(--team-tint-dark), transparent);
+  --team-7-tint:  color-mix(in srgb, var(--team-7)  var(--team-tint-dark), transparent);
+  --team-8-tint:  color-mix(in srgb, var(--team-8)  var(--team-tint-dark), transparent);
+  --team-9-tint:  color-mix(in srgb, var(--team-9)  var(--team-tint-dark), transparent);
+  --team-10-tint: color-mix(in srgb, var(--team-10) var(--team-tint-dark), transparent);
+  --team-11-tint: color-mix(in srgb, var(--team-11) var(--team-tint-dark), transparent);
+  --team-12-tint: color-mix(in srgb, var(--team-12) var(--team-tint-dark), transparent);
+  --team-13-tint: color-mix(in srgb, var(--team-13) var(--team-tint-dark), transparent);
+  --team-14-tint: color-mix(in srgb, var(--team-14) var(--team-tint-dark), transparent);
+  --team-15-tint: color-mix(in srgb, var(--team-15) var(--team-tint-dark), transparent);
+  --team-16-tint: color-mix(in srgb, var(--team-16) var(--team-tint-dark), transparent);
+}
