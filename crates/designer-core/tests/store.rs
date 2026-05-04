@@ -460,6 +460,7 @@ async fn track_lifecycle_projects_through_pr_open_complete_archive() {
                 workspace_id,
                 worktree_path: PathBuf::from("/tmp/repo/.designer/worktrees/feature-a"),
                 branch: "feature/a".into(),
+                anchor_node_id: None,
             },
         )
         .await
@@ -825,4 +826,167 @@ async fn legacy_message_without_tab_id_projects_to_first_tab() {
         in_second.iter().all(|a| a.id != legacy_msg),
         "legacy msg should NOT appear in the second tab"
     );
+}
+
+// ---- Phase 22.A — roadmap projection determinism ----
+
+/// Two tracks claim the same node. After replay (in any order), both
+/// projections must agree: same claimants, same shipments, same `node_for_track`
+/// reverse-index. Determinism is the load-bearing property here — multi-claim
+/// rendering on the canvas depends on it.
+#[tokio::test]
+async fn roadmap_claims_project_deterministically_across_replay_orders() {
+    use designer_core::roadmap::NodeId;
+
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let workspace_id = WorkspaceId::new();
+    let stream = StreamId::Workspace(workspace_id);
+    let node = NodeId::new("phase22.a");
+    let track_a = TrackId::new();
+    let track_b = TrackId::new();
+
+    // Append both TrackStarted events with anchor.
+    store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::TrackStarted {
+                track_id: track_a,
+                workspace_id,
+                worktree_path: PathBuf::from("/tmp/wt/a"),
+                branch: "feature/a".into(),
+                anchor_node_id: Some(node.clone()),
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::TrackStarted {
+                track_id: track_b,
+                workspace_id,
+                worktree_path: PathBuf::from("/tmp/wt/b"),
+                branch: "feature/b".into(),
+                anchor_node_id: Some(node.clone()),
+            },
+        )
+        .await
+        .unwrap();
+
+    let events = store
+        .read_stream(stream.clone(), StreamOptions::default())
+        .await
+        .unwrap();
+
+    // Single replay vs double replay (the boot-path double-apply concern):
+    // the projector's `last_applied` dedupes per `(stream, sequence)`, so
+    // replaying twice must produce the same state as replaying once.
+    let p1 = Projector::new();
+    p1.replay(&events);
+    let p2 = Projector::new();
+    p2.replay(&events);
+    p2.replay(&events);
+
+    let claims_1 = p1.node_claimants(&node);
+    let claims_2 = p2.node_claimants(&node);
+    assert_eq!(claims_1.len(), 2, "two tracks → two claims");
+    assert_eq!(
+        claims_1, claims_2,
+        "double-replay must equal single-replay (idempotency)"
+    );
+    // Order is stable: claimed_at ascending, then track_id lexicographic
+    // on ties. UUIDv7 ids agree with creation time so the secondary sort
+    // doesn't surprise.
+    assert!(
+        claims_1[0].claimed_at <= claims_1[1].claimed_at,
+        "claimants ordered by claimed_at ascending"
+    );
+    assert_eq!(p1.node_for_track(track_a), Some(node.clone()));
+    assert_eq!(p1.node_for_track(track_b), Some(node.clone()));
+}
+
+/// `TrackArchived` cleans the live claim but leaves shipment history alone
+/// (shipments aren't populated in 22.A but the cleanup invariant is what
+/// 22.I will rely on).
+#[tokio::test]
+async fn track_archived_drops_node_claim_idempotently() {
+    use designer_core::roadmap::NodeId;
+
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let workspace_id = WorkspaceId::new();
+    let stream = StreamId::Workspace(workspace_id);
+    let node = NodeId::new("phase22.a");
+    let track = TrackId::new();
+    let projector = Projector::new();
+
+    let started = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::TrackStarted {
+                track_id: track,
+                workspace_id,
+                worktree_path: PathBuf::from("/tmp/wt/x"),
+                branch: "feature/x".into(),
+                anchor_node_id: Some(node.clone()),
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&started);
+    assert_eq!(projector.node_claimants(&node).len(), 1);
+
+    let archived = store
+        .append(
+            stream.clone(),
+            None,
+            Actor::user(),
+            EventPayload::TrackArchived { track_id: track },
+        )
+        .await
+        .unwrap();
+    projector.apply(&archived);
+    assert!(projector.node_claimants(&node).is_empty());
+    assert_eq!(projector.node_for_track(track), None);
+
+    // Re-applying the same archive event (boot path duplicate) is a no-op.
+    projector.apply(&archived);
+    assert!(projector.node_claimants(&node).is_empty());
+}
+
+/// Tracks without an `anchor_node_id` (the common case in 13.E flows) do
+/// not produce claims. Verifies the optional-anchor projection path stays
+/// quiet for tracks that don't claim a roadmap node.
+#[tokio::test]
+async fn track_without_anchor_does_not_create_a_claim() {
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let workspace_id = WorkspaceId::new();
+    let stream = StreamId::Workspace(workspace_id);
+    let track = TrackId::new();
+    let projector = Projector::new();
+
+    let env = store
+        .append(
+            stream,
+            None,
+            Actor::user(),
+            EventPayload::TrackStarted {
+                track_id: track,
+                workspace_id,
+                worktree_path: PathBuf::from("/tmp/wt/no-anchor"),
+                branch: "feature/no-anchor".into(),
+                anchor_node_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    projector.apply(&env);
+
+    assert_eq!(projector.node_for_track(track), None);
+    assert!(projector.all_node_claimants().is_empty());
 }

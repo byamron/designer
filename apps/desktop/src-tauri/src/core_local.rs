@@ -645,6 +645,9 @@ fn artifact_kind_label(k: ArtifactKind) -> &'static str {
         ArtifactKind::Diagram => "diagram",
         ArtifactKind::Variant => "variant",
         ArtifactKind::TrackRollup => "track-rollup",
+        ArtifactKind::Roadmap => "roadmap",
+        ArtifactKind::RoadmapEditProposal => "roadmap-edit-proposal",
+        ArtifactKind::CompletionClaim => "completion-claim",
     }
 }
 

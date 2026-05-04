@@ -13,6 +13,7 @@ pub mod finding;
 pub mod ids;
 pub mod projection;
 pub mod proposal;
+pub mod roadmap;
 pub mod store;
 pub mod time;
 

@@ -36,6 +36,7 @@ pub struct CostChipPreferences {
 pub struct FeatureFlagsResponse {
     pub show_models_section: bool,
     pub show_all_artifacts_in_spine: bool,
+    pub show_roadmap_canvas: bool,
 }
 
 impl From<&FeatureFlags> for FeatureFlagsResponse {
@@ -43,6 +44,7 @@ impl From<&FeatureFlags> for FeatureFlagsResponse {
         FeatureFlagsResponse {
             show_models_section: f.show_models_section,
             show_all_artifacts_in_spine: f.show_all_artifacts_in_spine,
+            show_roadmap_canvas: f.show_roadmap_canvas,
         }
     }
 }
@@ -118,6 +120,7 @@ pub fn cmd_set_feature_flag(
         "show_all_artifacts_in_spine" => {
             settings.feature_flags.show_all_artifacts_in_spine = enabled
         }
+        "show_roadmap_canvas" => settings.feature_flags.show_roadmap_canvas = enabled,
         other => {
             return Err(IpcError::invalid_request(format!(
                 "unknown feature flag: {other}"

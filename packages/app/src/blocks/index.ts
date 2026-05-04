@@ -18,6 +18,11 @@ import {
   MessageBlock,
   ReportBlock,
 } from "./blocks";
+import {
+  CompletionClaimBlock,
+  RoadmapBlock,
+  RoadmapEditProposalBlock,
+} from "./RoadmapBlock";
 
 registerBlockRenderer("message", MessageBlock);
 registerBlockRenderer("approval", ApprovalBlock);
@@ -30,6 +35,12 @@ registerBlockRenderer("code-change", ArtifactReferenceBlock);
 registerBlockRenderer("pr", ArtifactReferenceBlock);
 registerBlockRenderer("task-list", ArtifactReferenceBlock);
 registerBlockRenderer("prototype", ArtifactReferenceBlock);
+// Phase 22.A — roadmap canvas + reserved 22.D stubs (claim the slots so
+// 22.D doesn't fight for them on landing; both stubs fall through to
+// GenericBlock until 22.D ships).
+registerBlockRenderer("roadmap", RoadmapBlock);
+registerBlockRenderer("roadmap-edit-proposal", RoadmapEditProposalBlock);
+registerBlockRenderer("completion-claim", CompletionClaimBlock);
 // TODO(DP-C): re-register `diagram` / `variant` / `track-rollup` once
 // their payload sources ship. Stubs were misleading — they exposed
 // only title + summary with no real body. WorkspaceThread falls back

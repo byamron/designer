@@ -201,11 +201,20 @@ pub enum EventPayload {
     /// A track started inside a workspace: one worktree + one branch + one
     /// agent team + one PR series. Emitted by Phase 13.E when
     /// `create_workspace` (or a later multi-track trigger) spawns a track.
+    ///
+    /// `anchor_node_id` is the Phase 22.A roadmap-canvas claim hook —
+    /// when a track starts against a known roadmap node, the field is
+    /// populated and the roadmap projection derives a `NodeClaim` for it.
+    /// Additive per the Lane 0 ADR: legacy events without the field
+    /// decode via `serde(default)` and project to "track without a
+    /// roadmap claim", which is the existing semantics.
     TrackStarted {
         track_id: TrackId,
         workspace_id: WorkspaceId,
         worktree_path: PathBuf,
         branch: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        anchor_node_id: Option<crate::roadmap::NodeId>,
     },
     /// The track's PR merged (or the track was otherwise considered done).
     /// Typically followed by automatic worktree cleanup.
@@ -577,6 +586,14 @@ mod tests {
                 workspace_id: ws,
                 worktree_path: PathBuf::from("/tmp/wt/a"),
                 branch: "feature/a".into(),
+                anchor_node_id: None,
+            },
+            EventPayload::TrackStarted {
+                track_id: track,
+                workspace_id: ws,
+                worktree_path: PathBuf::from("/tmp/wt/a"),
+                branch: "feature/a".into(),
+                anchor_node_id: Some(crate::roadmap::NodeId::new("phase22.a")),
             },
             EventPayload::TrackCompleted { track_id: track },
             EventPayload::PullRequestOpened {
@@ -613,6 +630,28 @@ mod tests {
             EventPayload::TrackArchived { track_id: track }.kind(),
             EventKind::TrackArchived
         );
+    }
+
+    /// Phase 22.A — `anchor_node_id` was added additively to `TrackStarted`.
+    /// Old events written before 22.A omit the field; they must still
+    /// deserialize. This is the contract the Lane 0 ADR requires.
+    #[test]
+    fn legacy_track_started_without_anchor_decodes() {
+        let ws = WorkspaceId::new();
+        let track = TrackId::new();
+        let legacy_json = serde_json::json!({
+            "kind": "track_started",
+            "track_id": track,
+            "workspace_id": ws,
+            "worktree_path": "/tmp/wt/legacy",
+            "branch": "feature/legacy"
+        });
+        let payload: EventPayload =
+            serde_json::from_value(legacy_json).expect("legacy event should still decode");
+        match payload {
+            EventPayload::TrackStarted { anchor_node_id, .. } => assert_eq!(anchor_node_id, None),
+            other => panic!("decoded to wrong variant: {other:?}"),
+        }
     }
 
     /// Tracks 13.K + 13.L — Friction variants must round-trip through

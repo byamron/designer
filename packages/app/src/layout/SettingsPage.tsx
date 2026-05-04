@@ -271,7 +271,54 @@ function PreferencesSection() {
       >
         <SpineAllArtifactsToggle />
       </SettingsRow>
+      <SettingsRow
+        label="Show roadmap canvas (Phase 22.A preview)"
+        description="Renders the Roadmap canvas as the lead surface on the project Home tab. Off by default — when on, replaces the Active workspaces, Autonomy, and Needs-your-attention sections at project altitude."
+      >
+        <RoadmapCanvasToggle />
+      </SettingsRow>
     </>
+  );
+}
+
+function RoadmapCanvasToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcClient()
+      .getFeatureFlags()
+      .then((f) => {
+        if (!cancelled) setEnabled(f.show_roadmap_canvas);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const onChange = async (next: "on" | "off") => {
+    const wantOn = next === "on";
+    setEnabled(wantOn);
+    try {
+      const updated = await ipcClient().setFeatureFlag(
+        "show_roadmap_canvas",
+        wantOn,
+      );
+      setEnabled(updated.show_roadmap_canvas);
+    } catch {
+      setEnabled(!wantOn);
+    }
+  };
+  return (
+    <div data-component="RoadmapCanvasToggle">
+      <SegmentedToggle<"on" | "off">
+        ariaLabel="Show roadmap canvas on Home tab"
+        value={enabled === null ? "off" : enabled ? "on" : "off"}
+        onChange={onChange}
+        options={[
+          { value: "off", label: "Off" },
+          { value: "on", label: "On" },
+        ]}
+      />
+    </div>
   );
 }
 

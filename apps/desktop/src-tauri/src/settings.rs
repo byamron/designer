@@ -76,6 +76,13 @@ pub struct FeatureFlags {
     /// orchestrator emitted.
     #[serde(default)]
     pub show_all_artifacts_in_spine: bool,
+    /// Phase 22.A — render the Roadmap canvas as the lead surface on the
+    /// project Home tab. When on, the canvas replaces the
+    /// Active-workspaces / Autonomy / Needs-your-attention sections at
+    /// project altitude. Off by default until the canvas matures past
+    /// the dogfood-readiness bar.
+    #[serde(default)]
+    pub show_roadmap_canvas: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

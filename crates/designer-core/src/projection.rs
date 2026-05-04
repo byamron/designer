@@ -8,6 +8,7 @@ use crate::domain::{
 };
 use crate::event::{EventEnvelope, EventPayload};
 use crate::ids::{ArtifactId, ProjectId, StreamId, TabId, TrackId, WorkspaceId};
+use crate::roadmap::{NodeClaim, NodeId, NodeShipment};
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -84,6 +85,19 @@ struct ProjectorState {
     tracks: BTreeMap<TrackId, Track>,
     /// Track ids in insertion order per workspace.
     tracks_by_workspace: BTreeMap<WorkspaceId, Vec<TrackId>>,
+    /// Phase 22.A — live claims keyed by roadmap node, in `claimed_at`
+    /// ascending order; ties break on `track_id` lexicographic for
+    /// deterministic event-replay (UUIDv7 ordering agrees with claim time
+    /// in practice). Cleaned on `TrackArchived`.
+    node_to_claimants: BTreeMap<NodeId, Vec<NodeClaim>>,
+    /// Phase 22.A — reverse index for O(1) "what did this track claim?"
+    /// lookups. Set on `TrackStarted`-with-anchor; cleared on
+    /// `TrackArchived`.
+    claimants_to_node: HashMap<TrackId, NodeId>,
+    /// Phase 22.A — append-only shipping history keyed by node. Phase
+    /// 22.A defines the shape; Phase 22.I owns the population path on
+    /// `TrackCompleted`.
+    node_to_shipments: BTreeMap<NodeId, Vec<NodeShipment>>,
     /// Highest sequence already applied per stream. Backs the trait
     /// `apply` doc-comment promise of "idempotent within a given
     /// sequence" — without it, the dual-apply boot path
@@ -208,6 +222,54 @@ impl Projector {
 
     pub fn track(&self, id: TrackId) -> Option<Track> {
         self.inner.read().tracks.get(&id).cloned()
+    }
+
+    /// Phase 22.A — live claims for a roadmap node. Order is deterministic:
+    /// `claimed_at` ascending, `track_id` lexicographic on ties.
+    pub fn node_claimants(&self, node_id: &NodeId) -> Vec<NodeClaim> {
+        self.inner
+            .read()
+            .node_to_claimants
+            .get(node_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Phase 22.A — the node a track is currently claiming, if any.
+    pub fn node_for_track(&self, track_id: TrackId) -> Option<NodeId> {
+        self.inner.read().claimants_to_node.get(&track_id).cloned()
+    }
+
+    /// Phase 22.A — append-only shipping history for a node. Empty until
+    /// 22.I emits the population path.
+    pub fn node_shipments(&self, node_id: &NodeId) -> Vec<NodeShipment> {
+        self.inner
+            .read()
+            .node_to_shipments
+            .get(node_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// All `(NodeId, claims)` pairs — used by the canvas IPC to overlay
+    /// presence onto every parsed node in one read.
+    pub fn all_node_claimants(&self) -> Vec<(NodeId, Vec<NodeClaim>)> {
+        self.inner
+            .read()
+            .node_to_claimants
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    /// All `(NodeId, shipments)` pairs.
+    pub fn all_node_shipments(&self) -> Vec<(NodeId, Vec<NodeShipment>)> {
+        self.inner
+            .read()
+            .node_to_shipments
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 }
 
@@ -440,6 +502,7 @@ impl Projection for Projector {
                 workspace_id,
                 worktree_path,
                 branch,
+                anchor_node_id,
             } => {
                 state.tracks.insert(
                     *track_id,
@@ -459,6 +522,29 @@ impl Projection for Projector {
                 let list = state.tracks_by_workspace.entry(*workspace_id).or_default();
                 if !list.contains(track_id) {
                     list.push(*track_id);
+                }
+                // Phase 22.A — derive the roadmap claim when the track
+                // started against a known node.
+                if let Some(node_id) = anchor_node_id.as_ref() {
+                    let claim = NodeClaim {
+                        node_id: node_id.clone(),
+                        workspace_id: *workspace_id,
+                        track_id: *track_id,
+                        subagent_role: None,
+                        claimed_at: event.timestamp,
+                    };
+                    let claims = state.node_to_claimants.entry(node_id.clone()).or_default();
+                    if !claims.iter().any(|c| c.track_id == *track_id) {
+                        claims.push(claim);
+                        // Maintain the deterministic order: claimed_at
+                        // ascending, ties break on track_id lexicographic.
+                        claims.sort_by(|a, b| {
+                            a.claimed_at
+                                .cmp(&b.claimed_at)
+                                .then_with(|| a.track_id.to_string().cmp(&b.track_id.to_string()))
+                        });
+                    }
+                    state.claimants_to_node.insert(*track_id, node_id.clone());
                 }
             }
             EventPayload::PullRequestOpened {
@@ -480,6 +566,16 @@ impl Projection for Projector {
                 if let Some(t) = state.tracks.get_mut(track_id) {
                     t.state = TrackState::Archived;
                     t.archived_at = Some(event.timestamp);
+                }
+                // Phase 22.A — drop the live claim. Shipment records (22.I)
+                // are append-only and persist regardless.
+                if let Some(node_id) = state.claimants_to_node.remove(track_id) {
+                    if let Some(claims) = state.node_to_claimants.get_mut(&node_id) {
+                        claims.retain(|c| c.track_id != *track_id);
+                        if claims.is_empty() {
+                            state.node_to_claimants.remove(&node_id);
+                        }
+                    }
                 }
             }
             // Events not relevant to the core projection are ignored — per-subsystem

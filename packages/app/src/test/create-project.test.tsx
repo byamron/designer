@@ -67,13 +67,14 @@ function makeClient() {
     getFeatureFlags: () =>
       Promise.resolve({
         show_models_section: false,
-        show_all_artifacts_in_spine: false,
+        show_all_artifacts_in_spine: false, show_roadmap_canvas: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve({
         show_models_section: name === "show_models_section" ? enabled : false,
         show_all_artifacts_in_spine:
           name === "show_all_artifacts_in_spine" ? enabled : false,
+        show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
       }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
@@ -89,6 +90,8 @@ function makeClient() {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
+  getRoadmap: () => Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null }),
+  setNodeStatus: () => Promise.resolve(),
   });
 }
 

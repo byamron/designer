@@ -70,7 +70,7 @@ function makeStubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     getFeatureFlags: () =>
       Promise.resolve({
         show_models_section: false,
-        show_all_artifacts_in_spine: false,
+        show_all_artifacts_in_spine: false, show_roadmap_canvas: false,
       }),
     setFeatureFlag: notImpl("setFeatureFlag"),
     listFindings: notImpl("listFindings"),

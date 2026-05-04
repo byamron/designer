@@ -273,6 +273,12 @@ pub struct StartTrackRequest {
     /// Defaults to the workspace's `base_branch` when `None`.
     #[serde(default)]
     pub base: Option<String>,
+    /// Phase 22.A: when present, the track claims this roadmap node — the
+    /// roadmap projection derives a `NodeClaim` and the canvas pulses the
+    /// node's status circle. Optional; legacy callers that don't know
+    /// about the canvas pass `None`.
+    #[serde(default)]
+    pub anchor_node_id: Option<designer_core::roadmap::NodeId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

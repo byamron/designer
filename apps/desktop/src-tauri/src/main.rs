@@ -15,6 +15,7 @@ use designer_desktop::commands_friction;
 use designer_desktop::commands_git;
 use designer_desktop::commands_learn;
 use designer_desktop::commands_local;
+use designer_desktop::commands_roadmap;
 use designer_desktop::commands_safety;
 use designer_desktop::core::AppCoreBoot;
 use designer_desktop::core_agents::{coalesce_window_from_env, spawn_message_coalescer};
@@ -190,6 +191,8 @@ fn main() {
             commands_learn::cmd_signal_proposal,
             commands_local::cmd_audit_artifact,
             commands_local::cmd_recap_workspace,
+            commands_roadmap::cmd_get_roadmap,
+            commands_roadmap::cmd_set_node_status,
             commands_safety::cmd_get_cost_chip_preference,
             commands_safety::cmd_get_cost_status,
             commands_safety::cmd_get_feature_flags,
