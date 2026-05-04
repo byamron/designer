@@ -38,10 +38,12 @@ import { IconButton } from "./IconButton";
 import { Tooltip } from "./Tooltip";
 import { SegmentedToggle } from "./SegmentedToggle";
 import { RoadmapStatusCircle } from "./RoadmapStatusCircle";
+import { ShippedHereBadge } from "../blocks/ShippedHereBadge";
 import { ipcClient } from "../ipc/client";
 import type {
   NodeClaim,
   NodeId,
+  NodeShipment,
   NodeView,
   RoadmapParseError,
   RoadmapView,
@@ -263,6 +265,10 @@ function RoadmapNodeRow({
     () => view.claims.find((c) => c.node_id === node.id)?.claims ?? [],
     [view.claims, node.id],
   );
+  const shipments: NodeShipment[] = useMemo(
+    () => view.shipments.find((s) => s.node_id === node.id)?.shipments ?? [],
+    [view.shipments, node.id],
+  );
   const expandable = childNodes.length > 0 || node.body_length > 0;
   const authoredDoneSuppressed =
     node.status === "done" && node.derived_status === "in-review";
@@ -342,6 +348,14 @@ function RoadmapNodeRow({
           </IconButton>
         </Tooltip>
       </div>
+      {shipments.length > 0 && (
+        <div
+          className="roadmap-node-row__shipments"
+          aria-label="Shipping history"
+        >
+          <ShippedHereBadge shipments={shipments} />
+        </div>
+      )}
       {expanded && childNodes.length > 0 && (
         <ul className="roadmap-node-row__children" role="group">
           {childNodes.map((child) => (

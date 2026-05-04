@@ -90,6 +90,7 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
       ),
     requestMerge: () =>
       Promise.reject(new Error("mockIpcClient: requestMerge not stubbed")),
+    completeTrack: () => Promise.resolve(),
     listTracks: () => Promise.resolve<TrackSummary[]>([]),
     getTrack: () =>
       Promise.reject<TrackSummary>(

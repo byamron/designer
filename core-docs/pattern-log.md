@@ -615,3 +615,29 @@ Cross-surface durations stay separate by intent. `--motion-blink: 700ms` (stream
 Stuck state at `1.6×` duration (`calc(var(--motion-spin) * 1.6)` = 1.28 s cycle) reads as "patient" without urgency. The multiplier was picked over `2×` empirically — `2×` made the rotation read as "broken/stalled," `1.5×` was indistinguishable from the base, `1.6×` lands as "slowed down on purpose." If a future dogfood signal flags either too slow (user thinks it's frozen) or too fast (the slowdown is invisible), retune the multiplier in the same CSS rule.
 
 Opacity literals `0.7` (submitting) and `0.5` (stuck) are styling, not signal. They establish a de-emphasis register against the surface's foreground/muted tokens. Promoting to opacity tokens would require a design-language amendment for a single-surface use case; staff design-engineer review accepted the literals on those grounds.
+
+## 2026-05-03 — PrOpen → Merged status-circle crossfade is opacity-layered, not stroke-tweened
+
+When a track's PR merges and the canvas flips a node's status circle from In Review (conic-arc partial fill at the team color) to Done (solid green fill + checkmark), the spec calls for a 400 ms ease-out crossfade rather than an instant flip. The naive implementation — `setState({ status: "done" })` and let the SVG re-render — produces an instant swap because conditional JSX has no `from` opacity for CSS to transition through.
+
+The fix lives in two places. (1) The Done overlay (`<g class="roadmap-status-circle__done-overlay">` containing the green-fill circle + checkmark path) is **always** rendered into the SVG, not gated on `status === "done"`. Its opacity defaults to `0` and flips to `1` when the parent carries `data-status="done"`. (2) The conic-arc partial fill is **also** rendered when status is Done (at the InReview fill ratio), with `opacity: 0` so it fades out as the green fades in over the same `--motion-emphasized` window. The two layers sit on top of each other through the entire 400 ms transition and the eye reads it as a single smooth swap.
+
+The conic-gradient route was rejected by 22.A's commit message ("CSS conic-gradient cannot transition between stops — confirmed in the spec"). Stroke-dasharray tweening from the partial fill to a full ring was tried and discarded — the resulting ring is a stroked outline, not a filled disk, and produces a visibly different shape during the transition than the destination Done glyph. Opacity layering on stable shapes is the only path that gets one continuous visual into a single shape on both sides of the merge.
+
+Reduced-motion: the crossfade transition is added to the existing `@media (prefers-reduced-motion: reduce)` block in `roadmap.css` so the swap is instant under that preference. Per axiom #5, every animation in the canvas has a reduced-motion fallback; this crossfade is no exception.
+
+Cost: the Done overlay renders for every node regardless of state. SVG is small (one `<circle>` + one `<path>`), so the per-row paint cost is negligible — and the trade is worth a non-jarring transition on what the spec calls the "demonstrably alive" moment of the canvas.
+
+## 2026-05-03 — `NodeShipmentRecorded` collapses two side effects into one event
+
+Phase 22.I needed the merge transition to record a permanent shipping entry *and* drop the live claim atomically — the canvas must never observe an intermediate state where the claim is gone but the shipment hasn't landed (or vice versa). The straightforward approach — emit two events, let the projection handle each separately — has a window where a reader between the appends sees the inconsistent middle state.
+
+The pattern: one event = both side effects. `NodeShipmentRecorded { node_id, workspace_id, track_id, pr_url, shipped_at }` carries enough data for the projection to (a) append a `NodeShipment` entry to `node_to_shipments[node_id]` and (b) drop the claim from `node_to_claimants[node_id]` + `claimants_to_node[track_id]` in the same `apply()` call. One projector write, one consistent post-state, no observable gap.
+
+Idempotency lives at two layers. The projector's `last_applied` guard short-circuits a duplicate `(stream, sequence)` apply (the standard dual-apply boot path). On top of that, the arm itself is idempotent on `(node_id, track_id)` — re-replaying through a fresh projector still produces a single shipment record. Belt-and-braces: a producer that double-emits under retry never produces a duplicate badge.
+
+`TrackArchived`'s claim cleanup stays as an idempotent fallback. A track that's archived without merging (the user cancels work) still cleans up its live claim through the archive path. A track that merges then later archives goes through `NodeShipmentRecorded` first (claim already cleaned), and the archive arm is a harmless no-op for the now-missing claim.
+
+This also informs how a future merge-watcher should integrate. `complete_track(track_id, pr_url?)` is the public seam in `core_git.rs` — it emits `TrackCompleted` then `NodeShipmentRecorded` if the track has a roadmap claim and a PR URL. A watcher polling `gh pr view --json state,mergeCommit` calls `complete_track` once per detected merge; the in-memory idempotency guards (the projector's `last_applied` plus the projection's `(node_id, track_id)` check) cover the inevitable double-fire under flapping gh state.
+
+The additive `pr_url: String` field on `PullRequestOpened` (with `serde(default)` for legacy decode) is the supporting change that makes this work end-to-end without a parallel store. The Track domain object had `pr_url: Option<String>` since 13.E but was never populated — `PullRequestOpened` only carried `pr_number`. Filling the gap means `complete_track(track_id, None)` can resolve the URL from the projection, no caller plumbing required.

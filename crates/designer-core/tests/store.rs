@@ -487,6 +487,7 @@ async fn track_lifecycle_projects_through_pr_open_complete_archive() {
             EventPayload::PullRequestOpened {
                 track_id,
                 pr_number: 42,
+                pr_url: "https://example.com/pr/42".into(),
             },
         )
         .await

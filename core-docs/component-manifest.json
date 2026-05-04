@@ -559,7 +559,7 @@
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["color-success", "color-on-success", "motion-standard"],
+      "tokens_referenced": ["success-9", "color-surface-base", "motion-standard", "motion-emphasized", "ease-out-enter"],
       "css_prefix": "roadmap-status-circle",
       "last_updated": "2026-05-03"
     },
@@ -571,6 +571,17 @@
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": [],
+      "last_updated": "2026-05-03"
+    },
+    {
+      "name": "ShippedHereBadge",
+      "path": "packages/app/src/blocks/ShippedHereBadge.tsx",
+      "purpose": "Phase 22.I — persistent 'Shipped here' pill rendered below a Done node's headline on the roadmap canvas. Each pill carries audit-trail copy on hover/focus ('Shipped by team {team} via PR #{n} on {YYYY-MM-DD}') via the existing `Tooltip` primitive. Multi-shipment nodes stack pills horizontally; past three, collapses to a `+N` chip with an overflow tooltip that lists the remaining audit lines. Reuses the same multi-claim grammar so live presence and shipping history read as parallel artifacts on the same node.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": ["Tooltip"],
+      "tokens_referenced": ["space-1", "type-caption-size", "weight-semibold", "color-muted", "color-surface-overlay", "color-border-soft", "border-thin", "radius-2", "target-sm", "focus-outline-color", "focus-outline-width"],
+      "css_prefix": "roadmap-shipped-here-badge",
       "last_updated": "2026-05-03"
     },
     {

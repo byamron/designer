@@ -71,6 +71,10 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       unlinkRepo: (req) => Promise.resolve(mock.unlinkRepo(req)),
       startTrack: (req) => Promise.resolve(mock.startTrack(req)),
       requestMerge: (req) => Promise.resolve(mock.requestMerge(req)),
+      completeTrack: (req) => {
+        mock.completeTrack(req);
+        return Promise.resolve();
+      },
       listTracks: (ws) => Promise.resolve(mock.listTracks(ws)),
       getTrack: (id) => Promise.resolve(mock.getTrack(id)),
       listPendingApprovals: () => Promise.resolve([]),

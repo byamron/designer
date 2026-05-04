@@ -44,6 +44,10 @@ function makeClient() {
     unlinkRepo: (req) => Promise.resolve(core.unlinkRepo(req)),
     startTrack: (req) => Promise.resolve(core.startTrack(req)),
     requestMerge: (req) => Promise.resolve(core.requestMerge(req)),
+    completeTrack: (req) => {
+      core.completeTrack?.(req);
+      return Promise.resolve();
+    },
     listTracks: (ws) => Promise.resolve(core.listTracks(ws)),
     getTrack: (id) => Promise.resolve(core.getTrack(id)),
     listPendingApprovals: () => Promise.resolve([]),

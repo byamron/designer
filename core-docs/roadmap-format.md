@@ -132,3 +132,30 @@ without an edit, `git checkout` that moves mtime backward, or a noisy
 filesystem clock will not cause spurious re-parses. The frontend
 re-fetches the roadmap when the Designer window regains focus, so an
 external edit shows up the next time you switch back.
+
+## Track::Merged atomicity invariant (Phase 22.I)
+
+When a track merges against a roadmap node, the canvas must show one
+consistent transition: the live-claim pill disappears, the status circle
+flips to Done (green), and a "Shipped here" badge appears below the
+headline. The user must never observe an intermediate state where the
+claim is gone but the badge hasn't landed (or vice versa).
+
+The mechanism: one event records both side effects.
+`NodeShipmentRecorded { node_id, workspace_id, track_id, pr_url,
+shipped_at }` is emitted alongside `TrackCompleted` on the merge
+transition. The projection's apply for that single event (a) appends a
+shipment entry to `node_to_shipments[node_id]` and (b) drops the live
+claim from `node_to_claimants[node_id]` + `claimants_to_node[track_id]`.
+One projector write = both side effects = no observable gap.
+
+Ordering: `TrackCompleted` is appended **first** so the track's
+`Track.state` visibly transitions to Merged before the shipment record
+lands. Any reader between the two appends sees a consistent intermediate
+state ("merged but not yet recorded") rather than the inverse
+("recorded but track still PrOpen").
+
+Idempotency: the shipment append is idempotent on `(node_id, track_id)`,
+and `TrackArchived` retains its own claim-cleanup arm as a fallback for
+tracks archived without merging. A double-fire from a flapping merge
+watcher produces exactly one shipment record per track.

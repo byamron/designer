@@ -15,6 +15,14 @@ import type { NodeStatus } from "../ipc/client";
  * (no transition) via the `@media (prefers-reduced-motion: reduce)` rule
  * in `roadmap.css`.
  *
+ * Phase 22.I — PrOpen → Merged crossfade. The "Done" overlay (filled
+ * green circle + checkmark) is always rendered into the SVG with an
+ * `opacity` that's 0 by default and 1 once `data-status="done"`. CSS
+ * transitions the opacity over `--motion-emphasized` (400 ms ease-out)
+ * so the conic-arc + the green-fill cross-fade through each other on
+ * the merge transition. Reduced-motion drops the transition entirely
+ * via the existing `@media (prefers-reduced-motion: reduce)` block.
+ *
  * Minimum render size: `--icon-md` (14 px). Below that the dasharray
  * progression reads as a tick, not an arc — fall back to a filled dot at
  * the corresponding semantic color via the `data-tiny` attribute.
@@ -90,9 +98,13 @@ export function RoadmapStatusCircle({
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
   const fill = STATUS_TO_FILL_PCT[status];
-  const dashLen = circumference * fill;
+  // Render the arc whenever the lifecycle is in flight OR fully shipped —
+  // that way the arc fades out underneath the Done overlay during the
+  // crossfade rather than disappearing before the green fades in.
+  const arcFill = status === "done" ? 0.85 : fill;
+  const renderArc = arcFill > 0 && arcFill < 1;
+  const dashLen = circumference * arcFill;
   const gapLen = circumference - dashLen;
-  const isShipped = status === "done";
   const isCanceled = status === "canceled";
 
   return (
@@ -121,8 +133,11 @@ export function RoadmapStatusCircle({
           strokeOpacity="0.3"
           strokeWidth="1.25"
         />
-        {/* Filled segment: animated stroke-dasharray for InProgress/InReview. */}
-        {fill > 0 && fill < 1 && (
+        {/* Filled segment: animated stroke-dasharray for InProgress/InReview.
+         * Also rendered (at the InReview fill ratio) when status is Done so
+         * the arc fades out underneath the green overlay during the
+         * PrOpen → Merged crossfade. */}
+        {renderArc && (
           <circle
             cx="7"
             cy="7"
@@ -136,27 +151,27 @@ export function RoadmapStatusCircle({
             className="roadmap-status-circle__arc"
           />
         )}
-        {/* Done: solid fill + checkmark. */}
-        {isShipped && (
-          <>
-            <circle
-              cx="7"
-              cy="7"
-              r={radius}
-              fill="var(--color-success, currentColor)"
-              stroke="var(--color-success, currentColor)"
-              strokeWidth="1.25"
-            />
-            <path
-              d="M4.5 7.2 L6.2 8.9 L9.5 5.4"
-              stroke="var(--color-on-success, white)"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
-          </>
-        )}
+        {/* Done overlay: always emitted so the opacity transition has both
+         * sides of the crossfade in the DOM. Visibility is gated by CSS on
+         * the parent's `data-status="done"`. */}
+        <g className="roadmap-status-circle__done-overlay" aria-hidden="true">
+          <circle
+            cx="7"
+            cy="7"
+            r={radius}
+            fill="var(--success-9, currentColor)"
+            stroke="var(--success-9, currentColor)"
+            strokeWidth="1.25"
+          />
+          <path
+            d="M4.5 7.2 L6.2 8.9 L9.5 5.4"
+            stroke="var(--color-surface-base, white)"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </g>
         {/* Canceled: diagonal slash. */}
         {isCanceled && (
           <line

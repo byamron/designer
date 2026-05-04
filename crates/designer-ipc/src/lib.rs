@@ -286,6 +286,17 @@ pub struct RequestMergeRequest {
     pub track_id: TrackId,
 }
 
+/// Phase 22.I — mark a track as merged from outside the `gh` flow (e.g.
+/// dogfood manual trigger, future merge-watcher). `pr_url` overrides the
+/// `Track.pr_url` populated by `PullRequestOpened`; pass `None` to use
+/// whatever the track already has.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompleteTrackRequest {
+    pub track_id: TrackId,
+    #[serde(default)]
+    pub pr_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackSummary {
     pub id: TrackId,

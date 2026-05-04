@@ -35,6 +35,7 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     unlinkRepo: () => Promise.resolve(),
     startTrack: () => Promise.reject(new Error("nope")),
     requestMerge: () => Promise.reject(new Error("nope")),
+    completeTrack: () => Promise.resolve(),
     listTracks: () => Promise.resolve([]),
     getTrack: () => Promise.reject(new Error("nope")),
     listPendingApprovals: () => Promise.resolve([]),

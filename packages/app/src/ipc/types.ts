@@ -238,6 +238,17 @@ export interface RequestMergeRequest {
   track_id: TrackId;
 }
 
+/** Phase 22.I — wire mirror of `designer_ipc::CompleteTrackRequest`.
+ * Marks a track as merged; the backend emits both `TrackCompleted` and
+ * (when the track is anchored to a roadmap node) `NodeShipmentRecorded`
+ * so the canvas atomically gains the shipping-history badge. */
+export interface CompleteTrackRequest {
+  track_id: TrackId;
+  /** When omitted, falls back to the `Track.pr_url` populated by
+   * `PullRequestOpened`. */
+  pr_url?: string | null;
+}
+
 export interface StreamEvent {
   kind: string;
   stream_id: string;

@@ -360,6 +360,15 @@ pub async fn cmd_request_merge(
         .map_err(IpcError::from)
 }
 
+pub async fn cmd_complete_track(
+    core: &Arc<AppCore>,
+    req: designer_ipc::CompleteTrackRequest,
+) -> Result<(), IpcError> {
+    core.complete_track(req.track_id, req.pr_url)
+        .await
+        .map_err(IpcError::from)
+}
+
 pub async fn cmd_list_tracks(
     core: &Arc<AppCore>,
     workspace_id: WorkspaceId,

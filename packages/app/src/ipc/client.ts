@@ -25,6 +25,7 @@ import type {
   ReportFrictionRequest,
   ReportFrictionResponse,
   RequestMergeRequest,
+  CompleteTrackRequest,
   ResolveProposalRequest,
   SignalFindingRequest,
   SignalProposalRequest,
@@ -102,6 +103,10 @@ export interface IpcClient {
   unlinkRepo(req: UnlinkRepoRequest): Promise<void>;
   startTrack(req: StartTrackRequest): Promise<TrackId>;
   requestMerge(req: RequestMergeRequest): Promise<number>;
+  /** Phase 22.I — emit `TrackCompleted` (+ `NodeShipmentRecorded` when
+   * the track is anchored). Idempotent against repeat calls; the
+   * backend short-circuits if the track is already Merged or Archived. */
+  completeTrack(req: CompleteTrackRequest): Promise<void>;
   listTracks(workspaceId: WorkspaceId): Promise<TrackSummary[]>;
   getTrack(id: TrackId): Promise<TrackSummary>;
   // Safety surfaces (Phase 13.G)
@@ -374,6 +379,9 @@ class TauriIpcClient implements IpcClient {
   requestMerge(req: RequestMergeRequest) {
     return invoke<number>("cmd_request_merge", { req });
   }
+  completeTrack(req: CompleteTrackRequest) {
+    return invoke<void>("cmd_complete_track", { req });
+  }
   listTracks(workspaceId: WorkspaceId) {
     return invoke<TrackSummary[]>("cmd_list_tracks", { workspaceId });
   }
@@ -565,6 +573,10 @@ class MockIpcClient implements IpcClient {
   }
   requestMerge(req: RequestMergeRequest) {
     return Promise.resolve(this.core.requestMerge(req));
+  }
+  completeTrack(req: CompleteTrackRequest) {
+    this.core.completeTrack?.(req);
+    return Promise.resolve();
   }
   listTracks(workspaceId: WorkspaceId) {
     return Promise.resolve(this.core.listTracks(workspaceId));

@@ -224,15 +224,37 @@ pub enum EventPayload {
         track_id: TrackId,
     },
     /// The PR for a track was opened on GitHub (via `gh pr create`).
+    /// `pr_url` is additive (Phase 22.I) — legacy events written before
+    /// 22.I omit the field and decode via `serde(default)` to an empty
+    /// string. The projection only sets `Track.pr_url` when non-empty
+    /// so legacy replays don't synthesize a useless `Some("")`.
     PullRequestOpened {
         track_id: TrackId,
         pr_number: u64,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        pr_url: String,
     },
     /// Completed track moved into workspace history (read-only reference).
     /// Reserved for Phase 18; Phase 13.E does not emit this yet, but the
     /// shape is frozen here so later migration is zero.
     TrackArchived {
         track_id: TrackId,
+    },
+    /// Phase 22.I — a track shipped against a roadmap node. Emitted
+    /// alongside `TrackCompleted` when a merge fires for a track with a
+    /// roadmap claim and a PR url. The projection arm appends to
+    /// `node_to_shipments` and atomically drops the live claim from
+    /// `node_to_claimants` and `claimants_to_node` — one event yields
+    /// both side effects, so the canvas never reads an intermediate
+    /// state where the claim is gone but the shipment hasn't landed
+    /// (or vice versa). Replay-safe: the append is idempotent on the
+    /// `(node_id, track_id)` pair.
+    NodeShipmentRecorded {
+        node_id: crate::roadmap::NodeId,
+        workspace_id: WorkspaceId,
+        track_id: TrackId,
+        pr_url: String,
+        shipped_at: Timestamp,
     },
     /// Workspace forked: a sibling workspace inherits the source's docs,
     /// decisions, and chat history as a read-only baseline. Reserved for
@@ -504,6 +526,7 @@ pub enum EventKind {
     TrackCompleted,
     PullRequestOpened,
     TrackArchived,
+    NodeShipmentRecorded,
     WorkspaceForked,
     WorkspacesReconciled,
     ArtifactCreated,
@@ -557,6 +580,7 @@ impl EventPayload {
             EventPayload::TrackCompleted { .. } => EventKind::TrackCompleted,
             EventPayload::PullRequestOpened { .. } => EventKind::PullRequestOpened,
             EventPayload::TrackArchived { .. } => EventKind::TrackArchived,
+            EventPayload::NodeShipmentRecorded { .. } => EventKind::NodeShipmentRecorded,
             EventPayload::WorkspaceForked { .. } => EventKind::WorkspaceForked,
             EventPayload::WorkspacesReconciled { .. } => EventKind::WorkspacesReconciled,
             EventPayload::ArtifactCreated { .. } => EventKind::ArtifactCreated,
@@ -616,8 +640,16 @@ mod tests {
             EventPayload::PullRequestOpened {
                 track_id: track,
                 pr_number: 42,
+                pr_url: "https://example.com/pr/42".into(),
             },
             EventPayload::TrackArchived { track_id: track },
+            EventPayload::NodeShipmentRecorded {
+                node_id: crate::roadmap::NodeId::new("phase22.i"),
+                workspace_id: ws,
+                track_id: track,
+                pr_url: "https://github.com/byamron/designer/pull/123".into(),
+                shipped_at: Timestamp::UNIX_EPOCH,
+            },
             EventPayload::WorkspaceForked {
                 source_workspace_id: ws,
                 new_workspace_id: other_ws,
@@ -667,6 +699,31 @@ mod tests {
             serde_json::from_value(legacy_json).expect("legacy event should still decode");
         match payload {
             EventPayload::TrackStarted { anchor_node_id, .. } => assert_eq!(anchor_node_id, None),
+            other => panic!("decoded to wrong variant: {other:?}"),
+        }
+    }
+
+    /// Phase 22.I — `pr_url` was added additively to `PullRequestOpened`.
+    /// Old events written before 22.I omit the field; they must still
+    /// deserialize. Mirrors the `legacy_track_started_without_anchor_decodes`
+    /// contract.
+    #[test]
+    fn legacy_pull_request_opened_without_url_decodes() {
+        let track = TrackId::new();
+        let legacy_json = serde_json::json!({
+            "kind": "pull_request_opened",
+            "track_id": track,
+            "pr_number": 7
+        });
+        let payload: EventPayload =
+            serde_json::from_value(legacy_json).expect("legacy event should still decode");
+        match payload {
+            EventPayload::PullRequestOpened {
+                pr_url, pr_number, ..
+            } => {
+                assert_eq!(pr_number, 7);
+                assert!(pr_url.is_empty(), "missing field defaults to empty string");
+            }
             other => panic!("decoded to wrong variant: {other:?}"),
         }
     }

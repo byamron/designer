@@ -60,6 +60,10 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     unlinkRepo: () => Promise.resolve(),
     startTrack: (req) => Promise.resolve(mock.startTrack(req)),
     requestMerge: (req) => Promise.resolve(mock.requestMerge(req)),
+    completeTrack: (req) => {
+      mock.completeTrack(req);
+      return Promise.resolve();
+    },
     listTracks: (w) => Promise.resolve(mock.listTracks(w)),
     getTrack: (id) => Promise.resolve(mock.getTrack(id)),
     listPendingApprovals: () => Promise.resolve([]),

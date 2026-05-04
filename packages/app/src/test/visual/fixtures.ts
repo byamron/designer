@@ -409,6 +409,7 @@ export function createVisualIpcClient(
     unlinkRepo: () => Promise.resolve(),
     startTrack: () => Promise.resolve("trk_stub"),
     requestMerge: () => Promise.resolve(0),
+    completeTrack: () => Promise.resolve(),
     listTracks: () => Promise.resolve([]),
     getTrack: () => Promise.reject(new Error("not in fixture")),
     listPendingApprovals: () => Promise.resolve(pendingApprovals),

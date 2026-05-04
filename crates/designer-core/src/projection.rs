@@ -704,9 +704,13 @@ impl Projection for Projector {
             EventPayload::PullRequestOpened {
                 track_id,
                 pr_number,
+                pr_url,
             } => {
                 if let Some(t) = state.tracks.get_mut(track_id) {
                     t.pr_number = Some(*pr_number);
+                    if !pr_url.is_empty() {
+                        t.pr_url = Some(pr_url.clone());
+                    }
                     t.state = TrackState::PrOpen;
                 }
             }
@@ -722,13 +726,53 @@ impl Projection for Projector {
                     t.archived_at = Some(event.timestamp);
                 }
                 // Phase 22.A — drop the live claim. Shipment records (22.I)
-                // are append-only and persist regardless.
+                // are append-only and persist regardless. Idempotent against
+                // a NodeShipmentRecorded that already cleaned the claim.
                 if let Some(node_id) = state.claimants_to_node.remove(track_id) {
                     if let Some(claims) = state.node_to_claimants.get_mut(&node_id) {
                         claims.retain(|c| c.track_id != *track_id);
                         if claims.is_empty() {
                             state.node_to_claimants.remove(&node_id);
                         }
+                    }
+                }
+            }
+            // Phase 22.I — append the shipment and atomically drop the live
+            // claim. One event = both side effects so the canvas never
+            // observes an intermediate state. Append is idempotent on
+            // `(node_id, track_id)` so a re-replay (or a producer that
+            // double-emits under a transient retry) yields exactly one
+            // history entry per shipping track.
+            EventPayload::NodeShipmentRecorded {
+                node_id,
+                workspace_id,
+                track_id,
+                pr_url,
+                shipped_at,
+            } => {
+                let entry = NodeShipment {
+                    node_id: node_id.clone(),
+                    workspace_id: *workspace_id,
+                    track_id: *track_id,
+                    pr_url: pr_url.clone(),
+                    shipped_at: *shipped_at,
+                };
+                let history = state.node_to_shipments.entry(node_id.clone()).or_default();
+                if !history.iter().any(|s| s.track_id == *track_id) {
+                    history.push(entry);
+                }
+                // Atomic claim cleanup. If the track had a different node
+                // id stored (rare — claim moved before shipment), only
+                // clean the entry for the node the shipment landed against.
+                if let Some(stored) = state.claimants_to_node.get(track_id).cloned() {
+                    if &stored == node_id {
+                        state.claimants_to_node.remove(track_id);
+                    }
+                }
+                if let Some(claims) = state.node_to_claimants.get_mut(node_id) {
+                    claims.retain(|c| c.track_id != *track_id);
+                    if claims.is_empty() {
+                        state.node_to_claimants.remove(node_id);
                     }
                 }
             }
@@ -904,6 +948,150 @@ mod recent_reports_tests {
         projector.mark_reports_read(project, ts(500));
         projector.mark_reports_read(project, ts(100));
         assert_eq!(projector.report_read_at(project), Some(ts(500)));
+    }
+
+    /// Phase 22.I — full lifecycle (Active → PrOpen → Merged → Archived
+    /// after merge): the shipping history must be present after
+    /// `NodeShipmentRecorded` lands and must persist across `TrackArchived`.
+    /// Live claims clean up on the shipment event; the archive arm is a
+    /// no-op for the claim by then.
+    #[test]
+    fn shipment_record_persists_through_archive() {
+        use crate::ids::{TrackId, WorkspaceId};
+        use crate::roadmap::NodeId;
+        use std::path::PathBuf;
+        let projector = Projector::new();
+        let workspace = WorkspaceId::new();
+        let track = TrackId::new();
+        let node = NodeId::new("phase22.i.fixture");
+
+        let envelope = |sequence: u64, t: Timestamp, payload: EventPayload| EventEnvelope {
+            id: EventId::new(),
+            stream: StreamId::Workspace(workspace),
+            sequence,
+            timestamp: t,
+            actor: Actor::system(),
+            version: 1,
+            causation_id: None,
+            correlation_id: None,
+            payload,
+        };
+
+        // Active claim against the node.
+        projector.apply(&envelope(
+            1,
+            ts(100),
+            EventPayload::TrackStarted {
+                track_id: track,
+                workspace_id: workspace,
+                worktree_path: PathBuf::from("/tmp/wt/x"),
+                branch: "feature/x".into(),
+                anchor_node_id: Some(node.clone()),
+            },
+        ));
+        assert_eq!(projector.node_claimants(&node).len(), 1, "claim live");
+
+        // PR opens — the claim is still live, no shipment yet.
+        projector.apply(&envelope(
+            2,
+            ts(200),
+            EventPayload::PullRequestOpened {
+                track_id: track,
+                pr_number: 42,
+                pr_url: "https://github.com/byamron/designer/pull/42".into(),
+            },
+        ));
+        assert!(projector.node_shipments(&node).is_empty());
+        assert_eq!(projector.node_claimants(&node).len(), 1);
+
+        // Merge: TrackCompleted then NodeShipmentRecorded land together.
+        projector.apply(&envelope(
+            3,
+            ts(300),
+            EventPayload::TrackCompleted { track_id: track },
+        ));
+        projector.apply(&envelope(
+            4,
+            ts(300),
+            EventPayload::NodeShipmentRecorded {
+                node_id: node.clone(),
+                workspace_id: workspace,
+                track_id: track,
+                pr_url: "https://github.com/byamron/designer/pull/42".into(),
+                shipped_at: ts(300),
+            },
+        ));
+        let shipments = projector.node_shipments(&node);
+        assert_eq!(shipments.len(), 1, "exactly one shipment");
+        assert_eq!(shipments[0].track_id, track);
+        assert_eq!(
+            shipments[0].pr_url,
+            "https://github.com/byamron/designer/pull/42"
+        );
+        assert!(
+            projector.node_claimants(&node).is_empty(),
+            "live claim cleaned up atomically with the shipment"
+        );
+
+        // Archive after merge: shipment must persist; claim cleanup is a
+        // no-op since the merge already cleaned it.
+        projector.apply(&envelope(
+            5,
+            ts(400),
+            EventPayload::TrackArchived { track_id: track },
+        ));
+        let still = projector.node_shipments(&node);
+        assert_eq!(still.len(), 1, "shipment survives archive");
+        assert_eq!(
+            still[0].pr_url,
+            "https://github.com/byamron/designer/pull/42"
+        );
+    }
+
+    /// Phase 22.I — replay rebuilds the same shipment history in the same
+    /// order. Locks the projection's append-only contract: feeding the
+    /// log twice (once for the live apply path, once for the boot replay)
+    /// must not produce duplicate `NodeShipment` entries.
+    #[test]
+    fn shipment_replay_is_idempotent_on_node_track_pair() {
+        use crate::ids::{TrackId, WorkspaceId};
+        use crate::roadmap::NodeId;
+        let projector = Projector::new();
+        let workspace = WorkspaceId::new();
+        let track = TrackId::new();
+        let node = NodeId::new("phase22.i.replay");
+
+        let env = EventEnvelope {
+            id: EventId::new(),
+            stream: StreamId::Workspace(workspace),
+            sequence: 1,
+            timestamp: ts(500),
+            actor: Actor::system(),
+            version: 1,
+            causation_id: None,
+            correlation_id: None,
+            payload: EventPayload::NodeShipmentRecorded {
+                node_id: node.clone(),
+                workspace_id: workspace,
+                track_id: track,
+                pr_url: "https://example.com/pr/1".into(),
+                shipped_at: ts(500),
+            },
+        };
+        // First apply records the entry.
+        projector.apply(&env);
+        // Second apply (mimicking the dual-apply boot path) is a no-op.
+        // `last_applied` short-circuits before the arm, but the arm is
+        // also idempotent on `(node_id, track_id)` so a replay through
+        // a fresh projector still produces a single record.
+        let fresh = Projector::new();
+        fresh.replay(std::slice::from_ref(&env));
+        fresh.replay(std::slice::from_ref(&env));
+        assert_eq!(fresh.node_shipments(&node).len(), 1);
+        assert_eq!(
+            fresh.node_shipments(&node)[0].pr_url,
+            "https://example.com/pr/1"
+        );
     }
 
     #[test]

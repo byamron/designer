@@ -19,6 +19,7 @@ import type {
   ProjectId,
   ProjectSummary,
   RequestMergeRequest,
+  CompleteTrackRequest,
   SpineRow,
   StartTrackRequest,
   StreamEvent,
@@ -84,6 +85,7 @@ export interface MockCore {
   unlinkRepo(req: UnlinkRepoRequest): void;
   startTrack(req: StartTrackRequest): TrackId;
   requestMerge(req: RequestMergeRequest): number;
+  completeTrack(req: CompleteTrackRequest): void;
   listTracks(workspaceId: WorkspaceId): TrackSummary[];
   getTrack(id: TrackId): TrackSummary;
 }
@@ -715,6 +717,20 @@ export function createMockCore(): MockCore {
         summary: `PR #${number} opened`,
       });
       return number;
+    },
+    completeTrack(req) {
+      const t = tracks.find((t) => t.id === req.track_id);
+      if (!t) return;
+      if (t.state === "merged" || t.state === "archived") return;
+      t.state = "merged";
+      t.completed_at = now();
+      if (req.pr_url) t.pr_url = req.pr_url;
+      emit({
+        kind: "track_completed",
+        stream_id: t.workspace_id,
+        timestamp: now(),
+        summary: `Track ${t.id} merged`,
+      });
     },
     listTracks(workspaceId) {
       return tracks.filter((t) => t.workspace_id === workspaceId);
