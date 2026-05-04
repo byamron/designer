@@ -166,13 +166,36 @@ impl Projector {
     /// `tab_id` are attributed to the workspace's first tab at projection
     /// time, so they appear there and nowhere else.
     pub fn artifacts_in_tab(&self, workspace_id: WorkspaceId, tab_id: TabId) -> Vec<Artifact> {
-        self.inner
-            .read()
+        let state = self.inner.read();
+        // Workspace's "first tab" — preferred non-closed tab, falling
+        // back to the oldest tab regardless of state. Used to attribute
+        // orphan (`tab_id: None`) Messages so legacy histories remain
+        // readable. Computed once outside the filter.
+        let first_tab_id: Option<TabId> = state.workspaces.get(&workspace_id).and_then(|w| {
+            w.tabs
+                .iter()
+                .find(|t| t.closed_at.is_none())
+                .or_else(|| w.tabs.first())
+                .map(|t| t.id)
+        });
+        state
             .artifacts
             .values()
             .filter(|a| a.workspace_id == workspace_id && a.archived_at.is_none())
             .filter(|a| match a.kind {
-                ArtifactKind::Message => a.tab_id == Some(tab_id),
+                ArtifactKind::Message => match a.tab_id {
+                    Some(t) => t == tab_id,
+                    // Apply-time attribution at `apply()` only works when
+                    // a tab already existed in the projection state when
+                    // the Message event was applied. Replay walks events
+                    // in stream order, so a Message emitted before any
+                    // `TabCreated` arrives stays as `None` — and Phase
+                    // 23.E's strict tab match would hide it forever.
+                    // Attribute orphans to the workspace's first tab at
+                    // query time so existing chat histories survive
+                    // restarts.
+                    None => first_tab_id == Some(tab_id),
+                },
                 _ => true,
             })
             .cloned()
