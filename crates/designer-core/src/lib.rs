@@ -18,8 +18,8 @@ pub mod time;
 
 pub use anchor::Anchor;
 pub use domain::{
-    author_roles, Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project, Tab, TabTemplate,
-    Track, TrackState, Workspace, WorkspaceState,
+    author_roles, Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project,
+    ReportClassification, Tab, TabTemplate, Track, TrackState, Workspace, WorkspaceState,
 };
 pub use error::{CoreError, Result};
 pub use event::{Event, EventEnvelope, EventKind, EventPayload, FrictionFileError, ScreenshotRef};
@@ -29,8 +29,8 @@ pub use ids::{
     StreamId, TabId, TaskId, TrackId, WorkspaceId,
 };
 pub use projection::{
-    artifact_belongs_in_spine, Projection, ProjectionError, Projector, SPINE_ARTIFACT_KINDS,
-    SPINE_AUTHOR_ROLES,
+    artifact_belongs_in_spine, classify_from_title, Projection, ProjectionError, Projector,
+    SPINE_ARTIFACT_KINDS, SPINE_AUTHOR_ROLES,
 };
 pub use proposal::{Proposal, ProposalKind, ProposalResolution, ProposalStatus};
 pub use store::{EventStore, SqliteEventStore, StreamOptions};

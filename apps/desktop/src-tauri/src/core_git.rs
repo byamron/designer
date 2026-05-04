@@ -491,6 +491,8 @@ impl AppCore {
                     author_role: Some(author_roles::TRACK.into()),
                     // PR artifacts are workspace-wide work products.
                     tab_id: None,
+                    summary_high: None,
+                    classification: None,
                 },
             )
             .await?;
@@ -581,6 +583,8 @@ impl AppCore {
             summary,
             payload: PayloadRef::inline(body),
             author_role: Some(author_roles::TRACK.into()),
+            summary_high: None,
+            classification: None,
         };
         self.append_artifact_with_summary_hook(draft).await?;
         Ok(Some(artifact_id))

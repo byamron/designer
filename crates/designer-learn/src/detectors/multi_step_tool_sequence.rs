@@ -458,6 +458,8 @@ mod tests {
                 payload: designer_core::PayloadRef::inline(""),
                 author_role: Some(author_roles::AGENT.into()),
                 tab_id: None,
+                summary_high: None,
+                classification: None,
             },
             ws,
         )

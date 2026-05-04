@@ -269,6 +269,12 @@ function PreferencesSection() {
       >
         <SpineAllArtifactsToggle />
       </SettingsRow>
+      <SettingsRow
+        label="Show Recent Reports on Home"
+        description="Adds a curated highlights surface to the project Home tab — recent shipped work in plain language, with a chip for the kind of change and a link to the PR. Off by default during initial rollout."
+      >
+        <RecentReportsToggle />
+      </SettingsRow>
     </>
   );
 }
@@ -304,6 +310,47 @@ function ModelsSectionToggle() {
     <div data-component="ModelsSectionToggle">
       <SegmentedToggle<"on" | "off">
         ariaLabel="Show placeholder Models section"
+        value={enabled === null ? "off" : enabled ? "on" : "off"}
+        onChange={onChange}
+        options={[
+          { value: "off", label: "Off" },
+          { value: "on", label: "On" },
+        ]}
+      />
+    </div>
+  );
+}
+
+function RecentReportsToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcClient()
+      .getFeatureFlags()
+      .then((f) => {
+        if (!cancelled) setEnabled(f.show_recent_reports_v2);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const onChange = async (next: "on" | "off") => {
+    const wantOn = next === "on";
+    setEnabled(wantOn);
+    try {
+      const updated = await ipcClient().setFeatureFlag(
+        "show_recent_reports_v2",
+        wantOn,
+      );
+      setEnabled(updated.show_recent_reports_v2);
+    } catch {
+      setEnabled(!wantOn);
+    }
+  };
+  return (
+    <div data-component="RecentReportsToggle">
+      <SegmentedToggle<"on" | "off">
+        ariaLabel="Show Recent Reports on Home"
         value={enabled === null ? "off" : enabled ? "on" : "off"}
         onChange={onChange}
         options={[

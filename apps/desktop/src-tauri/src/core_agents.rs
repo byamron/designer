@@ -277,6 +277,8 @@ impl AppCore {
                     payload: PayloadRef::inline(body),
                     author_role: Some(USER_AUTHOR_ROLE.into()),
                     tab_id,
+                    summary_high: None,
+                    classification: None,
                 },
             )
             .await?;
@@ -422,6 +424,8 @@ impl AppCore {
                     author_role,
                     // Diagram/report kinds are workspace-wide — no tab scope.
                     tab_id: None,
+                    summary_high: None,
+                    classification: None,
                 },
             )
             .await?;
@@ -468,6 +472,8 @@ impl AppCore {
                     summary,
                     payload,
                     parent_version,
+                    summary_high: None,
+                    classification: None,
                 },
             )
             .await?;
@@ -735,6 +741,8 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                             payload: PayloadRef::inline(body),
                             author_role: Some(author_role),
                             tab_id: reply_tab,
+                            summary_high: None,
+                            classification: None,
                         },
                     )
                     .await;
