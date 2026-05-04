@@ -282,4 +282,89 @@ describe("WorkspaceThread activity model (B7, B14, B17)", () => {
 
     resolvePost();
   });
+
+  // Regression — Phase 23.D kept WorkspaceThread mounted across tab
+  // switches, but the local `activity` / `sending` / `sendError`
+  // state was a single value, so a turn in flight on Tab A leaked
+  // the "Designer is thinking" indicator and the dock's busy lockout
+  // onto Tab B after the user switched. The fix is to key all three
+  // by the tab's stateKey. This test pins that behavior: a stalled
+  // send on tab A must NOT paint the activity indicator on tab B,
+  // but switching back to A must still show A's pending state.
+  it("activity state is per-tab — a stalled send on A does not bleed into B", async () => {
+    let resolvePost!: () => void;
+    const stalledClient: IpcClient = {
+      ...makeClient(mock, workspace),
+      postMessage: vi.fn(
+        () =>
+          new Promise<{ artifact_id: string }>((r) => {
+            resolvePost = () => r({ artifact_id: "stalled" });
+          }),
+      ),
+    };
+    __setIpcClient(stalledClient);
+
+    const tabA = "tab-a-019df0aa" as unknown as Parameters<
+      typeof WorkspaceThread
+    >[0]["tabId"];
+    const tabB = "tab-b-019df0bb" as unknown as Parameters<
+      typeof WorkspaceThread
+    >[0]["tabId"];
+
+    const { rerender } = render(
+      <WorkspaceThread workspace={workspace} tabId={tabA} />,
+    );
+    const ta = await waitFor(() =>
+      document.querySelector<HTMLTextAreaElement>("textarea.compose__input"),
+    );
+    fireEvent.change(ta!, { target: { value: "ping" } });
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>(".btn-icon--primary")!,
+    );
+
+    // Tab A shows the activity indicator.
+    await waitFor(() => {
+      expect(
+        document
+          .querySelector('[data-component="WorkspaceThread"]')
+          ?.getAttribute("data-activity"),
+      ).toBe("submitting");
+    });
+    expect(
+      document.querySelector('[data-component="ActivityIndicator"]'),
+    ).not.toBeNull();
+
+    // Switch to tab B — same WorkspaceThread component instance,
+    // tabId prop changes (mirrors Phase 23.D's mounted-across-switch
+    // behavior).
+    rerender(<WorkspaceThread workspace={workspace} tabId={tabB} />);
+    await waitFor(() => {
+      expect(
+        document
+          .querySelector('[data-component="WorkspaceThread"]')
+          ?.getAttribute("data-activity"),
+      ).toBe("idle");
+    });
+    expect(
+      document.querySelector('[data-component="ActivityIndicator"]'),
+    ).toBeNull();
+    // The compose form must not be locked busy on B — that's A's state.
+    expect(
+      document
+        .querySelector<HTMLFormElement>("form.compose")!
+        .getAttribute("aria-busy"),
+    ).not.toBe("true");
+
+    // Switch back to A — A's pending state is restored.
+    rerender(<WorkspaceThread workspace={workspace} tabId={tabA} />);
+    await waitFor(() => {
+      expect(
+        document
+          .querySelector('[data-component="WorkspaceThread"]')
+          ?.getAttribute("data-activity"),
+      ).toBe("submitting");
+    });
+
+    resolvePost();
+  });
 });

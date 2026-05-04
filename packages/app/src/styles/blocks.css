@@ -447,47 +447,68 @@
   font-family: var(--type-family-sans);
 }
 
-.thread__activity-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
+/* Compact unicode spinner — a single braille cell with one dot
+ * cycling through the 8 positions. ~1ch wide vs the prior three 8-px
+ * dots; reads as motion-along-a-path at caption density without
+ * crowding the thread. CSS-only: the React markup is an empty span
+ * and the `content` keyframe drives the glyph swap. Inspired by
+ * Conductor's compact loading affordance.
+ *
+ * The `steps(1)` timing function snaps between frames — no fractional
+ * tweens — so every paint shows one of the 8 canonical glyphs cleanly.
+ */
+.thread__activity-spinner {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+  font-family: var(--type-family-mono);
+  color: var(--color-foreground);
+  opacity: 0.7;
+  /* Lift the glyph slightly so the dot path centers against the
+   * adjacent caption x-height. Braille cells render with the dot
+   * cluster offset toward the top of the line box. */
+  line-height: 1;
 }
 
-.thread__activity-dots > span {
-  /* 8 px dots — 4 px reads as punctuation; 8 px reads as a thinking
-   * indicator at typical reading distances. Scale animation ranges
-   * 85–100 % so even at peak the dots stay below the cap height of
-   * the adjacent caption text and don't feel like buttons. */
-  width: var(--space-3);
-  height: var(--space-3);
-  border-radius: var(--radius-pill);
-  background: var(--color-foreground);
-  opacity: 0.4;
-  animation: thread-activity-pulse var(--motion-pulse) infinite ease-in-out;
+.thread__activity-spinner::before {
+  content: "⠁";
+  animation: thread-activity-spin var(--motion-spin) steps(1) infinite;
 }
 
-.thread__activity-dots > span:nth-child(2) {
-  animation-delay: calc(var(--motion-pulse) / 6);
+@keyframes thread-activity-spin {
+  0%    { content: "⠁"; }
+  12.5% { content: "⠈"; }
+  25%   { content: "⠐"; }
+  37.5% { content: "⠠"; }
+  50%   { content: "⢀"; }
+  62.5% { content: "⡀"; }
+  75%   { content: "⠄"; }
+  87.5% { content: "⠂"; }
 }
 
-.thread__activity-dots > span:nth-child(3) {
-  animation-delay: calc(var(--motion-pulse) / 3);
+.thread__activity[data-state="stuck"] .thread__activity-spinner {
+  color: var(--color-muted);
+  opacity: 0.5;
 }
 
-.thread__activity[data-state="stuck"] .thread__activity-dots > span {
-  background: var(--color-muted);
-  animation-duration: calc(var(--motion-pulse) * 1.5);
-}
-
-@keyframes thread-activity-pulse {
-  0%, 80%, 100% { opacity: 0.25; transform: scale(0.85); }
-  40%           { opacity: 1;    transform: scale(1); }
+.thread__activity[data-state="stuck"] .thread__activity-spinner::before {
+  /* Stuck reads as "this is taking longer than usual" — slow the
+   * rotation so the surface feels patient, not urgent. */
+  animation-duration: calc(var(--motion-spin) * 1.6);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thread__activity-dots > span {
+  .thread__activity-spinner::before {
     animation: none;
-    opacity: 0.6;
+    /* Horizontal ellipsis (U+2026) — universally read as "in
+     * progress / thinking". Picked over the all-dots braille `⠿`
+     * after a UX review flagged that the static braille block was
+     * indistinguishable from the spinner's individual rotation
+     * frames at a glance, leaving reduced-motion users unable to
+     * tell "thinking" from a frozen frame. The ellipsis is
+     * unambiguously a progress indicator regardless of motion
+     * state and is rendered at 1ch by every monospace family. */
+    content: "…";
   }
 }
 

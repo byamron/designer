@@ -210,58 +210,86 @@ export function WorkspaceThread({
     [refresh],
   );
 
-  // Surfaced when post_message rejects (subprocess down, validation, etc.).
-  // Cleared on the next successful send. Suggestion mode never reappears
-  // mid-session — once `hasStarted` is true the thread stays visible so
-  // the user sees both their failed draft (still in the dock) and the
-  // history of successful sends.
-  const [sendError, setSendError] = useState<string | null>(null);
-  // Track in-flight sends so the UI can disable the dock and avoid
-  // double-dispatching the same draft. The compose dock clears its draft
-  // on the synchronous return of `onSend`, so the user-facing optimistic
-  // state lives here, gated by this flag.
-  const [sending, setSending] = useState(false);
-  // B7 — five-state activity model. We track three observable phases
-  // today: idle / submitting (waiting for the first agent artifact) /
-  // stuck (15s elapsed with no progress). Streaming-cursor + per-tool
-  // spinner phases will land when the Rust core emits
-  // `agent_streaming` / `tool_started` events — until then they're
-  // architecturally cheap (just additional values for `activity`).
+  // Per-tab state. Phase 23.D keeps `WorkspaceThread` mounted across
+  // tab switches, so a single `activity` / `sending` / `sendError`
+  // would leak: a turn in flight on tab A would keep the "Designer is
+  // thinking" indicator and the dock's busy lockout painted on tab B
+  // after the user switched. Key these by `stateKey` and read the
+  // current tab's slice on render. The closures below capture the
+  // stateKey at the moment of send, so a send that started on A
+  // resolves to A even if the user has switched to B in the meantime.
   type Activity = "idle" | "submitting" | "stuck";
-  const [activity, setActivity] = useState<Activity>("idle");
-  // Snapshot of the artifact count taken when we flipped to submitting.
-  // The phase clears as soon as a new artifact lands beyond it.
-  const submittedAtCountRef = useRef(0);
-  const stuckTimerRef = useRef<number | null>(null);
-  const STUCK_AFTER_MS = 15_000;
-  // Synchronous re-entry guard. React `useState` updates are batched, so
-  // two clicks within the same microtask will both observe the prior
+  const [sendErrorByTab, setSendErrorByTab] = useState<
+    Record<string, string | null>
+  >({});
+  const [sendingByTab, setSendingByTab] = useState<Record<string, boolean>>({});
+  const [activityByTab, setActivityByTab] = useState<Record<string, Activity>>(
+    {},
+  );
+  const sendError = sendErrorByTab[stateKey] ?? null;
+  const sending = sendingByTab[stateKey] ?? false;
+  const activity = activityByTab[stateKey] ?? "idle";
+  // Refs keyed the same way. Mutating these does not trigger a re-
+  // render — they store the per-tab snapshot the async send loop
+  // refers back to.
+  const submittedAtCountByTab = useRef<Record<string, number>>({});
+  const stuckTimerByTab = useRef<Record<string, number | null>>({});
+  // Synchronous re-entry guard. React `useState` updates are batched,
+  // so two clicks within the same microtask both observe the prior
   // `sending = false` if we gated on state alone. The ref is set
-  // synchronously so a second click during the in-flight send
-  // short-circuits before reaching `ipcClient().postMessage`.
-  const sendingRef = useRef(false);
+  // synchronously so a second click on the *same tab* during the in-
+  // flight send short-circuits before reaching `postMessage`.
+  const sendingRefByTab = useRef<Record<string, boolean>>({});
+  const STUCK_AFTER_MS = 15_000;
   // Mirror of `artifacts.length` kept in a ref so `onSend` doesn't
   // need `artifacts` in its dep list — otherwise every refresh would
   // recreate the callback identity and thrash any downstream memo on
   // ComposeDock.
   const artifactCountRef = useRef(0);
   artifactCountRef.current = artifacts?.length ?? 0;
+  // Tiny helpers so the send loop reads cleanly. Each writes the
+  // entry for `key` (the stateKey captured at send time, NOT the
+  // currently visible stateKey).
+  const setSendErrorFor = (key: string, value: string | null) =>
+    setSendErrorByTab((prev) => ({ ...prev, [key]: value }));
+  const setSendingFor = (key: string, value: boolean) =>
+    setSendingByTab((prev) => ({ ...prev, [key]: value }));
+  const setActivityFor = (
+    key: string,
+    next: Activity | ((prev: Activity) => Activity),
+  ) =>
+    setActivityByTab((prev) => {
+      const current = prev[key] ?? "idle";
+      const value = typeof next === "function" ? next(current) : next;
+      if (current === value) return prev;
+      return { ...prev, [key]: value };
+    });
   const onSend = useCallback(
     async (payload: ComposeSendPayload) => {
       if (!payload.text.trim() && payload.attachments.length === 0) return;
-      if (sendingRef.current) return;
-      sendingRef.current = true;
+      // Capture the stateKey at click time so every subsequent state
+      // mutation in this closure (success or failure) lands on the tab
+      // the user actually sent from — even if they switch tabs while
+      // the send is in flight. `stateKey` here is React's closed-over
+      // value at the moment the callback was created (which is keyed
+      // off the current tabId, kept fresh by the dependency array).
+      const sendKey = stateKey;
+      if (sendingRefByTab.current[sendKey]) return;
+      sendingRefByTab.current[sendKey] = true;
       setHasStarted(true);
-      setSending(true);
-      setSendError(null);
+      setSendingFor(sendKey, true);
+      setSendErrorFor(sendKey, null);
       // B7 — flip to "submitting" the moment the user clicks send. The
       // count snapshot lets the activity-clearing effect detect when a
       // new agent artifact has landed (count grows past the snapshot).
-      submittedAtCountRef.current = artifactCountRef.current;
-      setActivity("submitting");
-      if (stuckTimerRef.current) window.clearTimeout(stuckTimerRef.current);
-      stuckTimerRef.current = window.setTimeout(() => {
-        setActivity((prev) => (prev === "submitting" ? "stuck" : prev));
+      submittedAtCountByTab.current[sendKey] = artifactCountRef.current;
+      setActivityFor(sendKey, "submitting");
+      const existingTimer = stuckTimerByTab.current[sendKey];
+      if (existingTimer) window.clearTimeout(existingTimer);
+      stuckTimerByTab.current[sendKey] = window.setTimeout(() => {
+        setActivityFor(sendKey, (prev) =>
+          prev === "submitting" ? "stuck" : prev,
+        );
       }, STUCK_AFTER_MS);
       try {
         await ipcClient().postMessage({
@@ -278,8 +306,7 @@ export function WorkspaceThread({
           tab_id: tabId,
           // Per-message model selection (frontend identifier — Rust
           // maps to the Claude CLI `--model` arg). Switching models
-          // respawns the team in core_agents; the workspace-derived
-          // session id keeps conversation history intact.
+          // respawns the team in core_agents.
           model: payload.meta.model,
         });
         // The backend coalescer streams the agent reply into the
@@ -288,66 +315,81 @@ export function WorkspaceThread({
         // append to local state here — the projector is the source
         // of truth and `refresh()` is idempotent.
       } catch (err) {
-        setSendError(describeIpcError(err));
+        setSendErrorFor(sendKey, describeIpcError(err));
         // ComposeDock clears its own draft synchronously after onSend
         // returns. On failure we restore it so the user doesn't have to
         // retype — the failed text re-appears in the textarea and we
         // refocus so they can edit and resend. Backend guarantees no
         // user artifact lands when dispatch fails (see
         // `core_agents.rs::post_message`), so retrying with the same
-        // text does not produce duplicates.
-        composeRef.current?.setDraft(payload.text);
-        composeRef.current?.focus();
-        // Failure path: clear the activity indicator immediately —
-        // the user is staring at an alert banner, not waiting for a
-        // reply.
-        if (stuckTimerRef.current) {
-          window.clearTimeout(stuckTimerRef.current);
-          stuckTimerRef.current = null;
+        // text does not produce duplicates. Only restore + refocus
+        // when the user is still on the tab they sent from; if they
+        // switched tabs we leave the destination tab alone.
+        if (sendKey === stateKey) {
+          composeRef.current?.setDraft(payload.text);
+          composeRef.current?.focus();
         }
-        setActivity("idle");
+        // Failure path: clear the activity indicator immediately for
+        // the originating tab — the user is staring at an alert
+        // banner, not waiting for a reply.
+        const t = stuckTimerByTab.current[sendKey];
+        if (t) {
+          window.clearTimeout(t);
+          stuckTimerByTab.current[sendKey] = null;
+        }
+        setActivityFor(sendKey, "idle");
       } finally {
-        sendingRef.current = false;
-        setSending(false);
+        sendingRefByTab.current[sendKey] = false;
+        setSendingFor(sendKey, false);
         // Always re-fetch — even on failure, an earlier successful
         // send may have produced a coalesced reply since the last poll.
         void refresh();
       }
     },
-    [workspace.id, tabId, refresh],
+    [workspace.id, tabId, stateKey, refresh],
   );
 
   // B7 — clear activity once a new agent artifact lands. The submitting
   // and stuck states both end the same way: the artifact list grew past
-  // the snapshot we took when the user clicked send.
+  // the snapshot we took when the user clicked send. The snapshot is
+  // per-tab so this only resolves the indicator for tabs that have a
+  // pending send; other tabs' activity entries are untouched.
   useEffect(() => {
+    if (activity === "idle") return;
     const count = artifacts?.length ?? 0;
-    if (activity !== "idle" && count > submittedAtCountRef.current) {
-      // Look for an artifact authored by anyone other than the user,
-      // landed after the snapshot. If there is one, the agent has
-      // started replying — clear.
-      const fresh = (artifacts ?? []).slice(submittedAtCountRef.current);
-      const agentReplied = fresh.some(
-        (a) =>
-          a.author_role !== null &&
-          a.author_role !== "user" &&
-          a.author_role !== "you",
-      );
-      if (agentReplied) {
-        if (stuckTimerRef.current) {
-          window.clearTimeout(stuckTimerRef.current);
-          stuckTimerRef.current = null;
-        }
-        setActivity("idle");
+    const snapshot = submittedAtCountByTab.current[stateKey] ?? 0;
+    if (count <= snapshot) return;
+    // Look for an artifact authored by anyone other than the user,
+    // landed after the snapshot. If there is one, the agent has
+    // started replying for THIS tab — clear.
+    const fresh = (artifacts ?? []).slice(snapshot);
+    const agentReplied = fresh.some(
+      (a) =>
+        a.author_role !== null &&
+        a.author_role !== "user" &&
+        a.author_role !== "you",
+    );
+    if (agentReplied) {
+      const t = stuckTimerByTab.current[stateKey];
+      if (t) {
+        window.clearTimeout(t);
+        stuckTimerByTab.current[stateKey] = null;
       }
+      setActivityFor(stateKey, "idle");
     }
-  }, [artifacts, activity]);
+    // setActivityFor is identity-stable; safe to omit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifacts, activity, stateKey]);
 
-  // Clear the timer on unmount so we don't fire setActivity on a
-  // disposed component.
+  // Clear all per-tab stuck timers on unmount so we don't fire
+  // setActivity on a disposed component.
   useEffect(
     () => () => {
-      if (stuckTimerRef.current) window.clearTimeout(stuckTimerRef.current);
+      const timers = stuckTimerByTab.current;
+      for (const key of Object.keys(timers)) {
+        const t = timers[key];
+        if (t) window.clearTimeout(t);
+      }
     },
     [],
   );
@@ -544,15 +586,18 @@ export function WorkspaceThread({
 }
 
 /**
- * B7 — visible feedback for the agent's working state. Three observable
+ * B7 — visible feedback for the agent's working state. Two observable
  * phases today (more land when the Rust core emits streaming events):
  *
  *   submitting — the user just sent; we're waiting for the first reply
  *   stuck      — 15s elapsed without any agent artifact appearing
  *
- * The dots use the existing `--motion-pulse` token; reduced-motion
- * collapses them to static glyphs (no animation override needed —
- * `--motion-pulse` itself respects the media query at the token layer).
+ * The visual is a compact single-character braille spinner — one dot
+ * traversing the 8 positions of the braille cell on a tight loop. Reads
+ * as motion-along-a-path at one-character width, replacing the prior
+ * three 8-px dot row that crowded the thread. CSS-driven via a
+ * `::before { content: ... }` keyframe so React holds no animation
+ * state. Reduced-motion swaps the spinner for a static glyph.
  */
 function ActivityIndicator({
   activity,
@@ -568,7 +613,7 @@ function ActivityIndicator({
   // declaring `aria-live` again would either duplicate the announcement
   // or get ignored by AT depending on the engine. Stick with the role
   // alone. data-state is the visual hook; aria-label gives AT the text
-  // even when the dot row is hidden by reduced-motion.
+  // even when the spinner is hidden by reduced-motion.
   return (
     <div
       className="thread__activity"
@@ -577,11 +622,7 @@ function ActivityIndicator({
       role="status"
       aria-label={label}
     >
-      <span className="thread__activity-dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
+      <span className="thread__activity-spinner" aria-hidden="true" />
       <span className="thread__activity-label">{label}</span>
     </div>
   );

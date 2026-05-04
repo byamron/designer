@@ -241,6 +241,7 @@ Surfaced by the four-perspective review of #28–#34 (2026-04-27). Lane 1 landed
 - Spec and roadmap are complete for the planning phase. Treat `spec.md` as architectural source of truth and `roadmap.md` as the sequence source of truth.
 - Working name is **Designer**; provisional.
 - `.claude/` agents are not populated yet — first real agent scaffolding happens in Phase 1. `.claude/skills/` is populated via the Mini install (2026-04-21): 6 design-system skills (`elicit-design-language`, `generate-ui`, `check-component-reuse`, `enforce-tokens`, `audit-a11y`, `propagate-language-update`). Frontend wiring is deferred to Phase 8.
+- **Open architectural question:** ADR 0007 (proposed, 2026-05-03) — collapse the Phase 23.E per-tab Claude subprocess into a single per-app or per-workspace subprocess; tab/workspace context tagged in prompts instead of in the process topology. Triggered by two reliability bugs that were both downstream of per-tab plumbing (model-swap session collision + history-blanks-on-tab-switch). See `core-docs/adr/0007-single-claude-subprocess.md`.
 
 ## Active Work Items
 

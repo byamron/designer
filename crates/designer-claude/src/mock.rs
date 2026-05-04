@@ -356,6 +356,20 @@ impl<S: EventStore + 'static> Orchestrator for MockOrchestrator<S> {
         self.agents.lock().remove(&(workspace_id, tab_id));
         Ok(())
     }
+
+    async fn kill(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
+        // Explicit override of the `Orchestrator::kill` default impl
+        // (which delegates to `shutdown`). Mock has no subprocess to
+        // SIGKILL, but we override for parity with `ClaudeCodeOrchestrator`
+        // and so a future divergence in `shutdown` (e.g. a graceful-
+        // teardown wait that simulates real Claude's 60s budget)
+        // doesn't accidentally trap model-change tests in a wait. This
+        // body matches `shutdown`'s today; the explicit declaration is
+        // the contract.
+        self.teams.lock().remove(&(workspace_id, tab_id));
+        self.agents.lock().remove(&(workspace_id, tab_id));
+        Ok(())
+    }
 }
 
 impl<S: EventStore> MockOrchestrator<S> {
