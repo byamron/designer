@@ -46,10 +46,56 @@ function isUserAuthor(role: string | null): boolean {
   return r === "user" || r === "you";
 }
 
+// `first_line_truncate(body, 140)` in the Rust backend appends U+2026
+// when the body exceeds 140 chars OR when only the first line was
+// taken from a multi-line body. Either case means the rendered
+// summary is incomplete; fetch the full payload body and render that
+// instead. False-positives (a message legitimately ending in "…") are
+// harmless — the fetched body is the same string.
+//
+// Phase-24-pending workaround. When Phase 24 lands the artifact
+// transform goes away and chat consumes AgentTurn* events directly;
+// this fetch becomes unnecessary.
+const TRUNCATION_MARKER = "…";
+
 export function MessageBlock({ artifact }: BlockProps) {
   const author = isUserAuthor(artifact.author_role) ? "you" : "agent";
   const displayName = humanizeRole(artifact.author_role);
   const relTime = formatRelativeTime(artifact.created_at);
+
+  const summary = artifact.summary ?? "";
+  const likelyTruncated = summary.endsWith(TRUNCATION_MARKER);
+
+  const [fullBody, setFullBody] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!likelyTruncated) return;
+    let cancelled = false;
+    void ipcClient()
+      .getArtifact(artifact.id)
+      .then((detail) => {
+        if (cancelled || !mountedRef.current) return;
+        if (detail.payload.kind === "inline") {
+          setFullBody(detail.payload.body);
+        }
+      })
+      .catch(() => {
+        // Best-effort. Fall back to the truncated summary on failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [artifact.id, likelyTruncated]);
+
+  const text = fullBody ?? summary;
+
   return (
     <article
       className="block block--message"
@@ -72,7 +118,7 @@ export function MessageBlock({ artifact }: BlockProps) {
         </header>
       )}
       <div className="block__message-body">
-        <MessageProse text={artifact.summary} />
+        <MessageProse text={text} />
       </div>
     </article>
   );
