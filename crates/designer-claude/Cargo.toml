@@ -26,6 +26,12 @@ uuid.workspace = true
 parking_lot.workspace = true
 dashmap.workspace = true
 
+# Spike-only deps for the Phase 24 SIGINT verification binary
+# (src/bin/sigint_spike.rs). Optional; pulled in only when the
+# `claude_live` feature is on, which also gates the binary itself.
+libc = { version = "0.2", optional = true }
+anyhow = { workspace = true, optional = true }
+
 [dev-dependencies]
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
@@ -35,4 +41,11 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # default; hermetic CI (Tier 1) never enables it. Self-hosted-runner CI
 # (Tier 2) and local dev runs enable via `--features claude_live`. See
 # core-docs/adr/0001-claude-runtime-primitive.md and spec Decision 33.
-claude_live = []
+# Also gates the Phase 24 P2 SIGINT spike binary so a normal
+# `cargo build --workspace` never compiles it.
+claude_live = ["dep:libc", "dep:anyhow"]
+
+[[bin]]
+name = "sigint_spike"
+path = "src/bin/sigint_spike.rs"
+required-features = ["claude_live"]
