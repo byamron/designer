@@ -360,6 +360,16 @@
       "last_updated": "2026-04-21"
     },
     {
+      "name": "TeamColorCatalog",
+      "path": "packages/app/src/lab/TeamColorCatalog.tsx",
+      "purpose": "Phase 22.G visual review surface. Renders all sixteen --team-N hues with their light + dark variants side-by-side, plus the per-team pulse animation, so the team identity palette can be inspected as one surface. Lab-only and dev-only; no consumer UI references --team-* tokens yet.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["team-1..16", "team-1-tint..16-tint", "team-pulse-rate-1..16", "space-1", "space-2", "space-3", "space-4", "space-5", "space-7", "space-8", "radius-card", "radius-button", "radius-pill", "border-thin", "color-content-surface", "color-border-soft", "color-foreground", "color-muted", "type-caption-size", "type-family-mono"],
+      "last_updated": "2026-05-03"
+    },
+    {
       "name": "CostChip",
       "path": "packages/app/src/components/CostChip.tsx",
       "purpose": "Phase 13.G workspace topbar widget. Shows `<spent> / <cap>` with a colored band (50% green / 80% amber / >80% red, dimmed when no cap). Click expands a popover with daily / weekly / per-track breakdown (week + per-track placeholders defer to a follow-up). Hidden by default per spec Decision 34; the COST_CHIP_PREFERENCE_EVENT custom event triggers a re-fetch when Settings flips the toggle. Subscribes to the `cost_recorded` stream event so the chip updates per turn without explicit refresh.",

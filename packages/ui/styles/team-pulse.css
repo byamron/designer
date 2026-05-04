@@ -1,0 +1,67 @@
+/* ============================================================
+   Team identity pulse (axiom #3 amendment, Phase 22.G)
+   ============================================================
+   Per-team status / presence dot. Pulses at one of sixteen
+   incommensurate rates baked into tokens.css as
+   --team-pulse-rate-1..-16, so dots drift in and out of phase
+   rather than syncing into a metronome.
+
+   Usage:
+     <span class="team-dot team-dot--7" aria-hidden="true" />
+   The hue is bound by --team-N (N matches the modifier index);
+   the rate is bound by --team-pulse-rate-N. Both honor the
+   active mode (light / dark) via tokens.css.
+
+   Sixteen named keyframe rules carry the per-team rate via the
+   --team-pulse-rate-N token. The shape is identical across all
+   sixteen — only the duration differs — but the modifier class
+   selects both the color binding and the duration in one step.
+
+   prefers-reduced-motion fully suppresses the pulse to a static
+   dot per design-language.md axiom on motion fallbacks. */
+
+@keyframes team-pulse-1  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-2  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-3  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-4  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-5  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-6  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-7  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-8  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-9  { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-10 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-11 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-12 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-13 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-14 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-15 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes team-pulse-16 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.team-dot {
+  display: inline-block;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--team-1);
+}
+
+.team-dot--1  { background: var(--team-1);  animation: team-pulse-1  var(--team-pulse-rate-1)  var(--ease-standard) infinite; }
+.team-dot--2  { background: var(--team-2);  animation: team-pulse-2  var(--team-pulse-rate-2)  var(--ease-standard) infinite; }
+.team-dot--3  { background: var(--team-3);  animation: team-pulse-3  var(--team-pulse-rate-3)  var(--ease-standard) infinite; }
+.team-dot--4  { background: var(--team-4);  animation: team-pulse-4  var(--team-pulse-rate-4)  var(--ease-standard) infinite; }
+.team-dot--5  { background: var(--team-5);  animation: team-pulse-5  var(--team-pulse-rate-5)  var(--ease-standard) infinite; }
+.team-dot--6  { background: var(--team-6);  animation: team-pulse-6  var(--team-pulse-rate-6)  var(--ease-standard) infinite; }
+.team-dot--7  { background: var(--team-7);  animation: team-pulse-7  var(--team-pulse-rate-7)  var(--ease-standard) infinite; }
+.team-dot--8  { background: var(--team-8);  animation: team-pulse-8  var(--team-pulse-rate-8)  var(--ease-standard) infinite; }
+.team-dot--9  { background: var(--team-9);  animation: team-pulse-9  var(--team-pulse-rate-9)  var(--ease-standard) infinite; }
+.team-dot--10 { background: var(--team-10); animation: team-pulse-10 var(--team-pulse-rate-10) var(--ease-standard) infinite; }
+.team-dot--11 { background: var(--team-11); animation: team-pulse-11 var(--team-pulse-rate-11) var(--ease-standard) infinite; }
+.team-dot--12 { background: var(--team-12); animation: team-pulse-12 var(--team-pulse-rate-12) var(--ease-standard) infinite; }
+.team-dot--13 { background: var(--team-13); animation: team-pulse-13 var(--team-pulse-rate-13) var(--ease-standard) infinite; }
+.team-dot--14 { background: var(--team-14); animation: team-pulse-14 var(--team-pulse-rate-14) var(--ease-standard) infinite; }
+.team-dot--15 { background: var(--team-15); animation: team-pulse-15 var(--team-pulse-rate-15) var(--ease-standard) infinite; }
+.team-dot--16 { background: var(--team-16); animation: team-pulse-16 var(--team-pulse-rate-16) var(--ease-standard) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .team-dot { animation: none; opacity: 1; }
+}
