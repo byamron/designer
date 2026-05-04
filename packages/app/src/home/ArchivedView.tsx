@@ -26,12 +26,12 @@ export function ArchivedView({ project }: { project: Project }) {
     <TabLayout>
       <div className="home-a">
         <header className="archived-view__head">
-          <Archive size={20} strokeWidth={1.5} aria-hidden="true" />
+          <Archive size={16} strokeWidth={1.5} aria-hidden="true" />
           <div>
             <h2 className="archived-view__title">Archived workspaces</h2>
             <p className="archived-view__subtitle">
               {archived.length === 0
-                ? "Nothing archived yet — archived workspaces will appear here."
+                ? "Archive workspaces from the sidebar to see them here."
                 : `${archived.length} archived workspace${archived.length === 1 ? "" : "s"} in ${project.name}.`}
             </p>
           </div>

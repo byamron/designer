@@ -26,12 +26,12 @@
     {
       "name": "WorkspaceSidebar",
       "path": "packages/app/src/layout/WorkspaceSidebar.tsx",
-      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover). Each row reveals an Archive IconButton on hover/focus-within (workspace-row__actions slot). Below the active list, a collapsible Archived (N) group pins to the bottom of the sidebar via flex-column auto-margin; archived rows surface Restore + Delete IconButtons. Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar). 13.E: when the active workspace has at least one mergeable track, a Request Merge IconButton (GitPullRequest) renders inline next to the project title — runs cmd_request_merge on the most recent eligible track.",
+      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Archived button (both share .sidebar-home styling — top-level project view tabs that route the main pane via activeView) + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover). Each row reveals an Archive IconButton on hover/focus-within (workspace-row__actions slot); the archived list itself lives behind the Archived sidebar tab as the ArchivedView main-pane page (2026-05-03 promotion — the prior collapsible bottom-of-sidebar group was removed). Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar). 13.E: when the active workspace has at least one mergeable track, a Request Merge IconButton (GitPullRequest) renders inline next to the project title — runs cmd_request_merge on the most recent eligible track.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11", "icon-md"],
-      "last_updated": "2026-05-02"
+      "last_updated": "2026-05-03"
     },
     {
       "name": "MainView",
@@ -92,6 +92,17 @@
       "primitives_used": [],
       "tokens_referenced": [],
       "last_updated": "2026-04-23"
+    },
+    {
+      "name": "ArchivedView",
+      "path": "packages/app/src/home/ArchivedView.tsx",
+      "purpose": "Project-level archived workspaces page — rendered in the main pane when the sidebar's Archived tab is active (activeView === \"archived\"). Lists every archived workspace in the active project with Restore + Delete (window.confirm gated) IconButton actions. Replaces the prior collapsible Archived section at the bottom of the sidebar; promoting it to a full main-pane surface keeps the sidebar to one concern (active workspace navigation) and gives the archive operation room to grow (filter, search, bulk actions) without crowding the sidebar.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "icon-lg", "type-h3-size", "type-h3-leading", "type-body-size", "type-caption-size", "type-family-mono", "weight-semibold", "weight-medium", "color-foreground", "color-muted", "color-border", "border-thin"],
+      "css_prefix": "archived-view__",
+      "last_updated": "2026-05-03"
     },
     {
       "name": "WorkspaceThread",

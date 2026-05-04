@@ -15,6 +15,7 @@ beforeEach(() => {
     ...s,
     activeProject: null,
     activeWorkspace: null,
+    activeView: "home",
     activeTabByWorkspace: {},
   }));
 });
