@@ -905,6 +905,8 @@ async fn legacy_message_before_any_tab_event_surfaces_on_first_tab() {
                     payload: PayloadRef::inline("orphan"),
                     author_role: Some("user".into()),
                     tab_id: None,
+                    summary_high: None,
+                    classification: None,
                 },
             )
             .await
