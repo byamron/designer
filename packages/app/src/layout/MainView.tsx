@@ -24,6 +24,8 @@ import { Tooltip } from "../components/Tooltip";
 import { IconButton } from "../components/IconButton";
 import { IconX, IconPlus } from "../components/icons";
 import { CostChip } from "../components/CostChip";
+import { RenameInput } from "../components/RenameInput";
+import { RowContextMenu, type ContextMenuItem } from "../components/RowContextMenu";
 
 export function MainView() {
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
@@ -272,7 +274,9 @@ function WorkspaceMain({
           <TabButton
             key={tab.id}
             workspaceId={workspace.id}
+            projectId={workspace.project_id}
             id={tab.id}
+            tab={tab}
             label={displayLabel(tab, idx)}
             active={activeTab === tab.id}
             isOnly={visibleTabs.length <= 1}
@@ -361,6 +365,8 @@ function nextTabTitle(allTabs: ReadonlyArray<Tab>): string {
 function TabButton({
   id,
   workspaceId,
+  projectId,
+  tab,
   label,
   active,
   isOnly = false,
@@ -368,6 +374,8 @@ function TabButton({
 }: {
   id: Tab["id"];
   workspaceId: string;
+  projectId: string;
+  tab: Tab;
   label: string;
   active: boolean;
   isOnly?: boolean;
@@ -381,9 +389,46 @@ function TabButton({
   // the dock row's pulse vs. chevron.
   const slice = useDataState((s) => s.activity[activityKey(workspaceId, id)]);
   const showBadge: ActivityState | null = !active && slice ? slice.state : null;
+  const [renaming, setRenaming] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // Throws on failure so RenameInput can keep the input open and paint
+  // an inline error register. Without that, an IPC failure silently
+  // reverts to the old name with no signal — cf. UX review.
+  const commitRename = async (next: string) => {
+    try {
+      await ipcClient().renameTab(workspaceId, id, next);
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+    setRenaming(false);
+    await refreshWorkspaces(projectId);
+  };
+
+  const items: ContextMenuItem[] = [
+    {
+      label: "Rename",
+      shortcut: "↵",
+      onSelect: () => setRenaming(true),
+    },
+    ...(onClose && !isOnly
+      ? [
+          {
+            label: "Close tab",
+            shortcut: "⌘W",
+            onSelect: onClose,
+            destructive: true,
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div className="tab-button-wrap" data-active={active}>
-      <Tooltip label={label} shortcut={active && onClose ? "⌘W" : undefined}>
+      <Tooltip
+        label={renaming ? "" : label}
+        shortcut={active && onClose ? "⌘W" : undefined}
+      >
         <button
           type="button"
           role="tab"
@@ -393,7 +438,21 @@ function TabButton({
           tabIndex={active ? 0 : -1}
           className="tab-button"
           data-active={active}
-          onClick={() => selectTab(workspaceId, id)}
+          data-renaming={renaming || undefined}
+          onClick={() => {
+            if (renaming) return;
+            selectTab(workspaceId, id);
+          }}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setRenaming(true);
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMenu({ x: e.clientX, y: e.clientY });
+          }}
           onAuxClick={(e) => {
             if (e.button === 1 && onClose) {
               e.preventDefault();
@@ -401,6 +460,22 @@ function TabButton({
             }
           }}
           onKeyDown={(e) => {
+            if (renaming) return;
+            // Keyboard parity with the right-click + double-click paths
+            // — F2 is the macOS / Finder convention; Enter on a focused
+            // tab matches Linear's row-action convention. Modifier keys
+            // are reserved for ⌘W / arrow nav, so don't shadow them.
+            if (
+              (e.key === "F2" || e.key === "Enter") &&
+              !e.metaKey &&
+              !e.ctrlKey &&
+              !e.altKey &&
+              !e.shiftKey
+            ) {
+              e.preventDefault();
+              setRenaming(true);
+              return;
+            }
             if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
               e.preventDefault();
               const parent = (e.currentTarget.parentElement?.parentElement as HTMLElement) || null;
@@ -433,9 +508,27 @@ function TabButton({
               }
             />
           )}
-          <span className="tab-button__label">{label}</span>
+          {renaming ? (
+            <RenameInput
+              initialValue={tab.title}
+              ariaLabel={`Rename tab ${label}`}
+              className="tab-button__label tab-button__rename"
+              onCommit={(next) => void commitRename(next)}
+              onCancel={() => setRenaming(false)}
+            />
+          ) : (
+            <span className="tab-button__label">{label}</span>
+          )}
         </button>
       </Tooltip>
+      {menu && (
+        <RowContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={items}
+          onDismiss={() => setMenu(null)}
+        />
+      )}
       {onClose && (
         <button
           type="button"

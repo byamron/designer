@@ -118,6 +118,12 @@ pub struct WorkspaceSummary {
     pub agent_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameWorkspaceRequest {
+    pub workspace_id: WorkspaceId,
+    pub name: String,
+}
+
 // ---- Tabs ----------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +151,13 @@ pub struct OpenTabRequest {
 
 fn default_tab_template() -> TabTemplate {
     TabTemplate::Thread
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameTabRequest {
+    pub workspace_id: WorkspaceId,
+    pub tab_id: TabId,
+    pub title: String,
 }
 
 // ---- Artifacts (Phase 13.1) ----------------------------------------------

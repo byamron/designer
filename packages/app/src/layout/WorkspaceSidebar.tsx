@@ -26,6 +26,8 @@ import { Tooltip } from "../components/Tooltip";
 import { PaneResizer } from "../components/PaneResizer";
 import { WorkspaceStatusIcon } from "../components/WorkspaceStatusIcon";
 import { IconPlus, IconCollapseLeft, IconPullRequest } from "../components/icons";
+import { RenameInput } from "../components/RenameInput";
+import { RowContextMenu, type ContextMenuItem } from "../components/RowContextMenu";
 
 export function WorkspaceSidebar() {
   const activeProjectId = useAppState((s) => s.activeProject);
@@ -184,32 +186,6 @@ export function WorkspaceSidebar() {
         </button>
       </Tooltip>
 
-      <Tooltip
-        label={
-          archivedCount > 0
-            ? `Archived workspaces (${archivedCount})`
-            : "Archived workspaces"
-        }
-      >
-        <button
-          type="button"
-          className="sidebar-home"
-          data-active={archivedActive}
-          onClick={onArchived}
-          disabled={!activeProjectId}
-        >
-          <Archive size={16} strokeWidth={1.5} aria-hidden="true" />
-          <span className="sidebar-home__label">
-            <span>Archived</span>
-            {archivedCount > 0 && (
-              <span className="sidebar-home__badge" aria-hidden="true">
-                {archivedCount > 99 ? "99+" : archivedCount}
-              </span>
-            )}
-          </span>
-        </button>
-      </Tooltip>
-
       <div className="sidebar-group">
         <div className="sidebar-group__head">
           <span className="sidebar-label">Workspaces</span>
@@ -225,7 +201,7 @@ export function WorkspaceSidebar() {
         {workspaces.length === 0 ? (
           <p className="sidebar-empty">
             {archivedCount > 0
-              ? "No active workspaces — see Archived above."
+              ? "No active workspaces — see Archived below."
               : "No workspaces yet."}
           </p>
         ) : (
@@ -240,6 +216,39 @@ export function WorkspaceSidebar() {
             ))}
           </ul>
         )}
+      </div>
+
+      {/* Archived is a rarely-visited destination — pinned to the bottom of
+          the sidebar, same register as Settings/Help in the project rail.
+          The sidebar's flex column + this footer's `margin-top: auto`
+          push it to the bottom regardless of how many active workspaces
+          sit above. */}
+      <div className="sidebar-footer">
+        <Tooltip
+          label={
+            archivedCount > 0
+              ? `Archived workspaces (${archivedCount})`
+              : "Archived workspaces"
+          }
+        >
+          <button
+            type="button"
+            className="sidebar-home"
+            data-active={archivedActive}
+            onClick={onArchived}
+            disabled={!activeProjectId}
+          >
+            <Archive size={16} strokeWidth={1.5} aria-hidden="true" />
+            <span className="sidebar-home__label">
+              <span>Archived</span>
+              {archivedCount > 0 && (
+                <span className="sidebar-home__badge" aria-hidden="true">
+                  {archivedCount > 99 ? "99+" : archivedCount}
+                </span>
+              )}
+            </span>
+          </button>
+        </Tooltip>
       </div>
     </aside>
   );
@@ -338,6 +347,21 @@ function WorkspaceRow({
   );
   const recent = useRecentActivity(latestTs);
   const [busy, setBusy] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // Throws on failure so RenameInput keeps the input open + paints an
+  // inline error register — cf. UX review. The setRenaming(false) only
+  // fires on success.
+  const commitRename = async (next: string) => {
+    try {
+      await ipcClient().renameWorkspace(workspace.id, next);
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+    setRenaming(false);
+    if (projectId) await refreshWorkspaces(projectId);
+  };
   // frc_019dea6b — opening a workspace must always land the user on a
   // tab. If the workspace has zero open tabs (e.g. the user closed the
   // last one before this guard landed, or a legacy workspace from
@@ -392,14 +416,71 @@ function WorkspaceRow({
       setBusy(false);
     }
   };
+  const items: ContextMenuItem[] = [
+    {
+      label: "Rename",
+      shortcut: "↵",
+      onSelect: () => setRenaming(true),
+    },
+    {
+      label: "Archive",
+      onSelect: () => {
+        void (async () => {
+          if (busy) return;
+          setBusy(true);
+          try {
+            await ipcClient().archiveWorkspace(workspace.id);
+            if (projectId) await refreshWorkspaces(projectId);
+            if (active) selectWorkspace(null);
+          } catch (err) {
+            console.error("archive_workspace failed", err);
+          } finally {
+            setBusy(false);
+          }
+        })();
+      },
+      destructive: true,
+      disabled: busy,
+    },
+  ];
   return (
     <li data-component="WorkspaceRow" className="workspace-row__wrap">
       <button
         type="button"
         className="workspace-row"
         data-active={active}
-        title={`${workspace.name} · ${workspace.base_branch}`}
-        onClick={() => void onSelect()}
+        data-renaming={renaming || undefined}
+        title={renaming ? undefined : `${workspace.name} · ${workspace.base_branch}`}
+        onClick={() => {
+          if (renaming) return;
+          void onSelect();
+        }}
+        onDoubleClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setRenaming(true);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
+        onKeyDown={(e) => {
+          if (renaming) return;
+          // F2 / Enter parity with the right-click + double-click
+          // paths so a keyboard-only user can rename without a mouse.
+          // Modifier keys are reserved for the global ⌘⇧N etc.
+          if (
+            (e.key === "F2" || e.key === "Enter") &&
+            !e.metaKey &&
+            !e.ctrlKey &&
+            !e.altKey &&
+            !e.shiftKey
+          ) {
+            e.preventDefault();
+            setRenaming(true);
+          }
+        }}
       >
         {workspace.status ? (
           <WorkspaceStatusIcon status={workspace.status} />
@@ -411,7 +492,17 @@ function WorkspaceRow({
             aria-hidden="true"
           />
         )}
-        <span className="workspace-row__title">{workspace.name}</span>
+        {renaming ? (
+          <RenameInput
+            initialValue={workspace.name}
+            ariaLabel={`Rename workspace ${workspace.name}`}
+            className="workspace-row__title workspace-row__rename"
+            onCommit={(next) => void commitRename(next)}
+            onCancel={() => setRenaming(false)}
+          />
+        ) : (
+          <span className="workspace-row__title">{workspace.name}</span>
+        )}
       </button>
       <span className="workspace-row__actions">
         <IconButton
@@ -422,6 +513,14 @@ function WorkspaceRow({
           <Archive size={14} strokeWidth={1.5} aria-hidden="true" />
         </IconButton>
       </span>
+      {menu && (
+        <RowContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={items}
+          onDismiss={() => setMenu(null)}
+        />
+      )}
     </li>
   );
 }

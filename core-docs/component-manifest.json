@@ -26,12 +26,12 @@
     {
       "name": "WorkspaceSidebar",
       "path": "packages/app/src/layout/WorkspaceSidebar.tsx",
-      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Archived button (both share .sidebar-home styling — top-level project view tabs that route the main pane via activeView) + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover). Each row reveals an Archive IconButton on hover/focus-within (workspace-row__actions slot); the archived list itself lives behind the Archived sidebar tab as the ArchivedView main-pane page (2026-05-03 promotion — the prior collapsible bottom-of-sidebar group was removed). Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar). 13.E: when the active workspace has at least one mergeable track, a Request Merge IconButton (GitPullRequest) renders inline next to the project title — runs cmd_request_merge on the most recent eligible track.",
+      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover) + an Archived footer pinned to the bottom via .sidebar-footer (margin-top: auto), matching Home's exact register so position is the only delta. Each workspace row reveals an Archive IconButton on hover/focus-within (workspace-row__actions slot) and exposes inline rename via right-click (RowContextMenu), double-click, or F2/Enter on the focused row (RenameInput); the archived list itself still lives behind the Archived footer as the ArchivedView main-pane page. Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar). 13.E: when the active workspace has at least one mergeable track, a Request Merge IconButton (GitPullRequest) renders inline next to the project title — runs cmd_request_merge on the most recent eligible track.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11", "icon-md"],
-      "last_updated": "2026-05-03"
+      "last_updated": "2026-05-04"
     },
     {
       "name": "MainView",
@@ -239,6 +239,28 @@
       "primitives_used": [],
       "tokens_referenced": ["target-sm", "target-md", "radius-button", "radius-badge", "radius-pill", "color-muted", "color-foreground", "color-background", "color-surface-raised", "color-surface-overlay", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
       "last_updated": "2026-04-22"
+    },
+    {
+      "name": "RenameInput",
+      "path": "packages/app/src/components/RenameInput.tsx",
+      "purpose": "Inline rename input that replaces a label span in place — used by tab buttons and workspace rows. Mounts focused with the existing value selected (Finder/Linear convention). Enter commits, Escape cancels, blur commits, empty/whitespace and unchanged values cancel without writing an event. Commit handlers may throw — on rejection the input stays mounted, paints a --color-danger outline, and surfaces an inline role=\"alert\" message so IPC failures aren't silent. Per-keystroke onChange clears the error register so the affordance doesn't feel sticky.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-8", "border-thin", "radius-button", "color-border", "color-content-surface", "color-danger", "color-foreground", "color-muted", "type-family-sans", "type-caption-size", "type-caption-leading", "weight-regular", "surface-shadow", "focus-outline-width", "focus-outline-color", "layer-floating"],
+      "css_prefix": "rename-input rename-input-wrap rename-input__error tab-button__rename workspace-row__rename",
+      "last_updated": "2026-05-04"
+    },
+    {
+      "name": "RowContextMenu",
+      "path": "packages/app/src/components/RowContextMenu.tsx",
+      "purpose": "Lightweight right-click context menu used by tab buttons and workspace rows. Portal-rendered into document.body at fixed viewport coordinates from the click event, with on-mount viewport clamping so the menu never lands off-screen. Dismisses on outside click, Escape, scroll (capture), resize, or window blur. Keyboard nav: Up/Down moves the active item, Enter activates, Escape closes. Items support an optional shortcut hint glyph (right-aligned, mono, weight-regular) and a destructive variant (--color-danger fill). Hand-rolled rather than wrapping the Mini Menu archetype because @radix-ui/react-dropdown-menu is not installed in the app workspace.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-8", "border-thin", "radius-button", "radius-card", "color-content-surface", "color-border", "color-foreground", "color-muted", "color-surface-overlay", "color-danger", "type-family-sans", "type-family-mono", "type-caption-size", "type-caption-leading", "weight-regular", "surface-shadow", "motion-interactive", "layer-floating"],
+      "css_prefix": "row-context-menu",
+      "last_updated": "2026-05-04"
     },
     {
       "name": "SegmentedToggle",

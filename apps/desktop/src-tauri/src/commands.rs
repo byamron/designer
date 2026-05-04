@@ -11,7 +11,8 @@ use crate::settings::{ResolvedTheme, Settings, ThemeChoice};
 use designer_core::{ArtifactId, ProjectId, Tab, TabId, WorkspaceId};
 use designer_ipc::{
     ArtifactDetail, ArtifactSummary, CreateProjectRequest, CreateWorkspaceRequest, IpcError,
-    OpenTabRequest, ProjectSummary, SpineRow, TogglePinRequest, WorkspaceSummary,
+    OpenTabRequest, ProjectSummary, RenameTabRequest, RenameWorkspaceRequest, SpineRow,
+    TogglePinRequest, WorkspaceSummary,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -52,6 +53,22 @@ pub async fn create_workspace(
     req: CreateWorkspaceRequest,
 ) -> Result<WorkspaceSummary, IpcError> {
     ipc::cmd_create_workspace(&core, req).await
+}
+
+#[tauri::command]
+pub async fn rename_workspace(
+    core: State<'_, Arc<AppCore>>,
+    req: RenameWorkspaceRequest,
+) -> Result<WorkspaceSummary, IpcError> {
+    ipc::cmd_rename_workspace(&core, req).await
+}
+
+#[tauri::command]
+pub async fn rename_tab(
+    core: State<'_, Arc<AppCore>>,
+    req: RenameTabRequest,
+) -> Result<Tab, IpcError> {
+    ipc::cmd_rename_tab(&core, req).await
 }
 
 #[tauri::command]
