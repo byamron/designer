@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import { closeDialog, useAppState } from "../store/app";
 import { SegmentedToggle } from "../components/SegmentedToggle";
 import { DesignerNoticedPage } from "../components/DesignerNoticed";
 import { IconButton } from "../components/IconButton";
-import { IconX } from "../components/icons";
-import { messageFromError, useFocusTrap } from "../lib/modal";
 import {
   getThemeMode,
   setThemeMode,
@@ -547,30 +545,26 @@ function ActivitySection() {
   );
 }
 
-type FrictionFilter = "open" | "addressed" | "resolved" | "all";
+// Drops the explicit "addressed" chip per the agent-driven triage redesign:
+// the user only cares about "still on me" vs "done". Addressed entries
+// (rows the agent has touched but not yet resolved) fold under "Open" with
+// a visual marker so the user can still see "agent is on it" without
+// clicking. Mark-addressed itself is now exclusively the agent's job via
+// `designer friction address` — no FE path remains.
+type FrictionFilter = "open" | "resolved" | "all";
 
 interface FilterDef {
   value: FrictionFilter;
   label: string;
-  emptyCopy: string;
 }
 
 const FILTERS: FilterDef[] = [
-  {
-    value: "open",
-    label: "Open",
-    emptyCopy: "No open friction. Press ⌘⇧F to capture something.",
-  },
-  {
-    value: "addressed",
-    label: "Addressed",
-    emptyCopy: "Nothing addressed yet — items move here when you mark them addressed.",
-  },
-  { value: "resolved", label: "Resolved", emptyCopy: "Nothing resolved yet." },
-  { value: "all", label: "All", emptyCopy: "No friction captured yet. Press ⌘⇧F to start." },
+  { value: "open", label: "Open" },
+  { value: "resolved", label: "Resolved" },
+  { value: "all", label: "All" },
 ];
 
-type RowAction = "address" | "resolve" | "reopen" | "show-record" | "show-screenshot";
+type RowAction = "resolve" | "reopen" | "show-record" | "show-screenshot";
 
 // Slightly longer than `--motion-emphasized` (400ms) so the
 // `data-just-updated` attribute lingers a beat past the animation —
@@ -598,7 +592,6 @@ export function FrictionTriageSection() {
   const [filter, setFilter] = useState<FrictionFilter>("open");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [addressTarget, setAddressTarget] = useState<FrictionEntry | null>(null);
   // Highlight rows whose state changed since the last fetch so an
   // external refresh (CLI write, optimistic update) is *visible*. Set
   // is the source of truth; per-id timers in the ref clear entries
@@ -654,7 +647,8 @@ export function FrictionTriageSection() {
 
   // Initial load — apply the projection synchronously and auto-fall-through
   // from the default "Open" filter to "All" when there's history but no
-  // open items, so the user doesn't land on a dead empty state.
+  // open *or* addressed items, so the user doesn't land on a dead empty
+  // state. "Open" includes addressed (agent-owned) rows since the redesign.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -662,7 +656,10 @@ export function FrictionTriageSection() {
         const list = await ipcClient().listFriction();
         if (cancelled) return;
         setEntries(list);
-        if (list.length > 0 && list.every((e) => e.state !== "open")) {
+        if (
+          list.length > 0 &&
+          list.every((e) => e.state !== "open" && e.state !== "addressed")
+        ) {
           setFilter("all");
         }
       } catch {
@@ -700,23 +697,73 @@ export function FrictionTriageSection() {
   }, []);
 
   const counts = useMemo(() => {
-    const c = { open: 0, addressed: 0, resolved: 0, all: 0 };
+    let openOrAddressed = 0;
+    let resolved = 0;
+    let addressed = 0;
+    let all = 0;
     for (const e of entries ?? []) {
-      c.all += 1;
-      c[e.state] += 1;
+      all += 1;
+      if (e.state === "open" || e.state === "addressed") openOrAddressed += 1;
+      if (e.state === "resolved") resolved += 1;
+      if (e.state === "addressed") addressed += 1;
     }
-    return c;
+    return { open: openOrAddressed, resolved, all, addressed };
   }, [entries]);
 
   const filtered = useMemo(() => {
     if (!entries) return null;
-    return filter === "all" ? entries : entries.filter((e) => e.state === filter);
+    if (filter === "all") return entries;
+    if (filter === "open") {
+      return entries.filter((e) => e.state === "open" || e.state === "addressed");
+    }
+    return entries.filter((e) => e.state === filter);
   }, [entries, filter]);
 
   const filterOptions = useMemo(
-    () => FILTERS.map((f) => ({ value: f.value, label: `${f.label} (${counts[f.value]})` })),
+    () =>
+      FILTERS.map((f) => ({
+        value: f.value,
+        label: `${f.label} (${counts[f.value]})`,
+      })),
     [counts],
   );
+
+  // Group rows by humanized anchor so reports filed against the same
+  // surface visually cluster — sets the agent's mental model ("fix the
+  // cluster") and dedups visual noise. Single-anchor groups render flat
+  // (no header). Order within each group preserves the projection's
+  // most-recent-first sort; group order matches the first row's position
+  // in `filtered` so the most recently active surface stays at the top.
+  const clusters = useMemo(() => {
+    if (!filtered) return null;
+    const order: string[] = [];
+    const map = new Map<string, FrictionEntry[]>();
+    for (const e of filtered) {
+      const key = e.anchor_descriptor || "(unanchored)";
+      if (!map.has(key)) {
+        map.set(key, []);
+        order.push(key);
+      }
+      map.get(key)!.push(e);
+    }
+    return order.map((key) => ({
+      key,
+      label: humanizeAnchor(key),
+      rows: map.get(key)!,
+    }));
+  }, [filtered]);
+
+  // Empty-state copy keyed by filter. Note: the "Open" filter folds
+  // addressed (agent-owned) rows in, so when the Open list is empty it's
+  // empty for real — there's no need for a separate "all caught up but
+  // the agent has work in flight" message. (That path was considered
+  // pre-implementation but is unreachable: if addressed > 0, the rows
+  // are visible.)
+  const emptyCopy = useMemo(() => {
+    if (filter === "resolved") return "Nothing resolved yet.";
+    if (filter === "all") return "No friction captured yet. Press ⌘⇧F to start.";
+    return "No open friction. Press ⌘⇧F to capture something.";
+  }, [filter]);
 
   // Apply a state transition optimistically + dispatch the IPC call. Keeps
   // the UI responsive even on a large event store; the next refresh
@@ -728,10 +775,6 @@ export function FrictionTriageSection() {
     }
     if (action === "show-screenshot") {
       if (entry.screenshot_path) await ipcClient().revealInFinder(entry.screenshot_path);
-      return;
-    }
-    if (action === "address") {
-      setAddressTarget(entry);
       return;
     }
     setBusyId(entry.friction_id);
@@ -765,13 +808,8 @@ export function FrictionTriageSection() {
     <>
       <SettingsSectionHeader
         label="Friction"
-        description="Internal feedback captured via the bottom-right button or ⌘⇧F. Records persist as local markdown files in the linked repo (gitignored by default)."
+        description="Capture internal feedback via the bottom-right button or ⌘⇧F. Reports persist as local markdown files in the linked repo (gitignored by default). The Triage button hands the active set to an agent — your job is to file, not sort."
       />
-      <p className="friction-triage__hint">
-        Working with agents? <em>Copy prompt</em> on a row dispatches one report; the bulk{" "}
-        <em>Copy …</em> button bundles the active filter into one prompt. Terminal triage:{" "}
-        <code>designer friction list --json</code>. Full loop: <code>core-docs/workflow.md</code>.
-      </p>
       <div className="friction-triage__filters">
         <SegmentedToggle<FrictionFilter>
           ariaLabel="Filter friction by state"
@@ -781,64 +819,141 @@ export function FrictionTriageSection() {
         />
         <CopyBatchPromptButton entries={filtered} filter={filter} />
       </div>
-      <ul className="friction-triage" aria-label={`Friction — ${filter}`}>
-        {filtered === null ? (
+      {filtered === null ? (
+        <ul className="friction-triage" aria-label={`Friction — ${filter}`}>
           <li className="friction-triage__empty">Loading…</li>
-        ) : filtered.length === 0 ? (
-          <li className="friction-triage__empty">
-            {FILTERS.find((f) => f.value === filter)?.emptyCopy}
-          </li>
-        ) : (
-          filtered.map((e) => (
-            <FrictionRow
-              key={e.friction_id}
-              entry={e}
-              expanded={expanded.has(e.friction_id)}
-              busy={busyId === e.friction_id}
-              justUpdated={recentlyUpdated.has(e.friction_id)}
-              onToggle={() => toggleExpanded(e.friction_id)}
-              onAction={(action) => runAction(e, action)}
-            />
-          ))
-        )}
-      </ul>
-      {addressTarget && (
-        <AddressFrictionDialog
-          entry={addressTarget}
-          onCancel={() => setAddressTarget(null)}
-          onSubmit={async (prUrl) => {
-            const target = addressTarget;
-            setAddressTarget(null);
-            setBusyId(target.friction_id);
-            setEntries((prev) =>
-              prev
-                ? prev.map((e) =>
-                    e.friction_id === target.friction_id
-                      ? { ...e, state: "addressed", pr_url: prUrl }
-                      : e,
-                  )
-                : prev,
-            );
-            try {
-              await ipcClient().addressFriction({
-                friction_id: target.friction_id,
-                workspace_id: target.workspace_id,
-                pr_url: prUrl,
-              });
-            } finally {
-              setBusyId(null);
-            }
-          }}
-        />
+        </ul>
+      ) : filtered.length === 0 ? (
+        <ul className="friction-triage" aria-label={`Friction — ${filter}`}>
+          <li className="friction-triage__empty">{emptyCopy}</li>
+        </ul>
+      ) : (
+        <div className="friction-triage" aria-label={`Friction — ${filter}`}>
+          {clusters!.map((c) => (
+            <FrictionCluster
+              key={c.key}
+              label={c.label}
+              count={c.rows.length}
+              showHeader={c.rows.length > 1}
+            >
+              {c.rows.map((e) => (
+                <FrictionRow
+                  key={e.friction_id}
+                  entry={e}
+                  expanded={expanded.has(e.friction_id)}
+                  busy={busyId === e.friction_id}
+                  justUpdated={recentlyUpdated.has(e.friction_id)}
+                  onToggle={() => toggleExpanded(e.friction_id)}
+                  onAction={(action) => runAction(e, action)}
+                />
+              ))}
+            </FrictionCluster>
+          ))}
+        </div>
       )}
     </>
   );
 }
 
+/// Group of rows sharing an `anchor_descriptor`. Single-row clusters
+/// render flat (no header) so the redesign doesn't add visual noise to
+/// the most common case (one report, one place). Multi-row clusters get
+/// a small header that reads as the agent's mental model: "fix the
+/// cluster," not "fix each row."
+function FrictionCluster({
+  label,
+  count,
+  showHeader,
+  children,
+}: {
+  label: string;
+  count: number;
+  showHeader: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="friction-triage__cluster">
+      {showHeader && (
+        <header className="friction-triage__cluster-header">
+          <span className="friction-triage__cluster-name">{label}</span>
+          <span aria-hidden="true">·</span>
+          <span className="friction-triage__cluster-count">
+            {count} reports
+          </span>
+        </header>
+      )}
+      <ul className="friction-triage__cluster-rows" role="list">
+        {children}
+      </ul>
+    </section>
+  );
+}
+
+/// Convert an `anchor_descriptor` (developer-shaped string from
+/// `Anchor::descriptor()` in `designer-core`) to something a manager can
+/// read. PascalCase components → spaced words; routes → breadcrumb;
+/// already-prefixed shapes ("tool:Read", "message X", "src/foo.rs:10-12")
+/// pass through unchanged because they're already legible.
+export function humanizeAnchor(descriptor: string): string {
+  if (!descriptor) return "Unanchored";
+  if (descriptor.startsWith("/")) {
+    const parts = descriptor.split("/").filter(Boolean);
+    if (parts.length === 0) return "Home";
+    return parts
+      .map((p) =>
+        p
+          .replace(/[-_]/g, " ")
+          .replace(/\b([a-z])/g, (_, c) => c.toUpperCase()),
+      )
+      .join(" › ");
+  }
+  if (/^[A-Z][A-Za-z0-9]+$/.test(descriptor)) {
+    return descriptor.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  }
+  return descriptor;
+}
+
+/// Compact relative-time label for the row meta line. The previous
+/// `toLocaleString()` (e.g., "5/3/2026, 2:45:30 PM") wraps badly at the
+/// 960px min window; "2h ago" / "3d ago" reads as the manager-grade
+/// "when, roughly" the surface actually wants. Falls back to a compact
+/// month+day for anything older than a week, plus a year suffix when the
+/// entry is older than the current calendar year. Pure for unit-testing;
+/// the row passes a stable `now` only in tests — production calls fall
+/// through to `Date.now()` so the relative read keeps ticking forward
+/// across re-renders without explicit time wiring.
+export function formatRelativeTime(iso: string, now: number = Date.now()): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diffMs = now - then;
+  // Future or clock skew → don't render a negative duration; treat the
+  // entry as fresh and let the next refresh reconcile the wall clock.
+  if (diffMs < 0) return "just now";
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  const d = new Date(then);
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  const month = d.toLocaleString(undefined, { month: "short" });
+  return sameYear ? `${month} ${d.getDate()}` : `${month} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
 /// One row in the master list. Split out so the row is a `<li>` with
-/// non-nested-button siblings (chevron toggle + actions row) rather than
-/// the row-summary `<button>` containing other buttons — invalid HTML
-/// that the previous draft tripped on.
+/// non-nested-button siblings (chevron toggle + ⋯ menu) rather than the
+/// row-summary `<button>` containing other buttons — invalid HTML.
+///
+/// Per the agent-driven triage redesign:
+/// - The row chrome is title + state + ⋯; everything else collapses into
+///   the menu so the content can breathe.
+/// - "Addressed" rows surface an inline `agent · …` marker so the user
+///   can see "the agent is on it" without having to switch filters or
+///   expand the row. This is the trust signal that lets "Open" silently
+///   contain agent-owned rows.
 function FrictionRow({
   entry: e,
   expanded,
@@ -882,59 +997,31 @@ function FrictionRow({
             <span className="friction-triage__state-dot" aria-hidden="true" />
             {e.state}
           </span>
-          <span aria-hidden="true">·</span>
-          <span>{new Date(e.created_at).toLocaleString()}</span>
-          <span aria-hidden="true">·</span>
-          <span>{e.anchor_descriptor}</span>
-          {e.pr_url && (
+          {e.state === "addressed" && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span
+                className="friction-triage__agent"
+                title="An agent is working on this report — it will move to Resolved when the PR lands."
+              >
+                {e.pr_url ? `agent · ${shortPrLabel(e.pr_url)}` : "agent · working"}
+              </span>
+            </>
+          )}
+          {e.state === "resolved" && e.pr_url && (
             <>
               <span aria-hidden="true">·</span>
               <span className="friction-triage__pr">{shortPrLabel(e.pr_url)}</span>
             </>
           )}
+          <span aria-hidden="true">·</span>
+          <span title={new Date(e.created_at).toLocaleString()}>
+            {formatRelativeTime(e.created_at)}
+          </span>
         </span>
       </button>
       <div className="friction-triage__actions">
-        {(e.state === "open" || e.state === "addressed") && (
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => onAction("address")}
-          >
-            {e.state === "open" ? "Mark addressed" : "Update PR"}
-          </button>
-        )}
-        {e.state !== "resolved" && (
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => onAction("resolve")}
-          >
-            Mark resolved
-          </button>
-        )}
-        {e.state !== "open" && (
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => onAction("reopen")}
-          >
-            Reopen
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn"
-          disabled={!e.local_path}
-          onClick={() => onAction("show-record")}
-        >
-          Show in Finder
-        </button>
-        <CopyPathButton path={e.local_path} />
-        <CopyAgentPromptButton entry={e} />
+        <FrictionRowMenu entry={e} busy={busy} onAction={onAction} />
       </div>
       {expanded && (
         <div
@@ -962,6 +1049,162 @@ function FrictionRow({
         </div>
       )}
     </li>
+  );
+}
+
+/// ⋯ menu trigger + popover. Hand-rolled (no Mini Menu primitive yet —
+/// see pattern-log entry 2026-05-03 "FrictionRowMenu inline popover" for
+/// the rationale). When the second menu need lands we'll promote this to
+/// a real primitive; until then a 60-line one-off is cheaper than a new
+/// archetype.
+///
+/// Behavior: click trigger toggles. ESC closes + restores focus to the
+/// trigger. Click outside closes. Items render conditionally on row
+/// state — Resolved hides "Mark resolved", Open hides "Reopen". Disabled
+/// items are still rendered (greyed) so menu height doesn't dance
+/// between rows.
+function FrictionRowMenu({
+  entry: e,
+  busy,
+  onAction,
+}: {
+  entry: FrictionEntry;
+  busy: boolean;
+  onAction: (action: RowAction) => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const { copied: pathCopied, copy: copyPath } = useCopyWithFeedback();
+  const { copied: promptCopied, copy: copyPrompt } = useCopyWithFeedback();
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    const onClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (
+        menuRef.current?.contains(target) ||
+        triggerRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onClick);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onClick);
+    };
+  }, [open]);
+
+  // Auto-focus the first menu item when the menu opens, so the keyboard
+  // path ("Tab to ⋯, Enter, ↓ to choose") works without a hover.
+  useEffect(() => {
+    if (!open) return;
+    const first = menuRef.current?.querySelector<HTMLButtonElement>(
+      "[role='menuitem']:not([disabled])",
+    );
+    first?.focus();
+  }, [open]);
+
+  const close = () => setOpen(false);
+  const run = async (action: RowAction) => {
+    close();
+    await onAction(action);
+  };
+
+  return (
+    <div className="friction-triage__menu-wrap">
+      <IconButton
+        ref={triggerRef}
+        size="sm"
+        label="More actions"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={busy}
+      >
+        <MoreHorizontal size={14} strokeWidth={1.6} aria-hidden="true" />
+      </IconButton>
+      {open && (
+        <div
+          ref={menuRef}
+          className="friction-triage__menu"
+          role="menu"
+          aria-label={`Actions for ${e.title || "report"}`}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="friction-triage__menu-item"
+            disabled={!e.local_path}
+            onClick={async () => {
+              if (!e.local_path) return;
+              await copyPrompt(buildAgentPrompt(e));
+              close();
+            }}
+          >
+            {promptCopied ? "Copied!" : "Copy prompt for agent"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="friction-triage__menu-item"
+            disabled={!e.local_path}
+            onClick={() => void run("show-record")}
+          >
+            Show in Finder
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="friction-triage__menu-item"
+            disabled={!e.local_path}
+            onClick={async () => {
+              if (!e.local_path) return;
+              await copyPath(e.local_path);
+              close();
+            }}
+          >
+            {pathCopied ? "Copied!" : "Copy path"}
+          </button>
+          <div
+            className="friction-triage__menu-sep"
+            role="separator"
+            aria-hidden="true"
+          />
+          {e.state !== "resolved" && (
+            <button
+              type="button"
+              role="menuitem"
+              className="friction-triage__menu-item"
+              onClick={() => void run("resolve")}
+            >
+              Mark resolved
+            </button>
+          )}
+          {e.state !== "open" && (
+            <button
+              type="button"
+              role="menuitem"
+              className="friction-triage__menu-item"
+              onClick={() => void run("reopen")}
+            >
+              Reopen
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -996,24 +1239,6 @@ function useCopyWithFeedback(): {
   return { copied, copy };
 }
 
-/// Copy the on-disk path of the friction record to the clipboard so the
-/// user can paste it into an agent prompt themselves.
-function CopyPathButton({ path }: { path: string }) {
-  const { copied, copy } = useCopyWithFeedback();
-  return (
-    <button
-      type="button"
-      className="btn"
-      disabled={!path}
-      onClick={() => copy(path)}
-      title={path || "No path recorded for this entry"}
-      aria-live="polite"
-    >
-      {copied ? "Copied!" : "Copy path"}
-    </button>
-  );
-}
-
 /// Single source of truth for the close-the-loop CLI invocation that
 /// gets baked into every agent prompt. Both `buildAgentPrompt` (one
 /// row) and `buildBatchAgentPrompt` (filter bundle) reference this so a
@@ -1035,30 +1260,6 @@ function buildAgentPrompt(entry: FrictionEntry): string {
   return lines.join("\n");
 }
 
-/// Copy a pre-formatted agent prompt (path + close-the-loop CLI). Sits
-/// next to "Copy path" — the path button is the primitive; this one is
-/// the workflow shortcut for the dogfood "ask Claude to fix it" loop.
-function CopyAgentPromptButton({ entry }: { entry: FrictionEntry }) {
-  const { copied, copy } = useCopyWithFeedback();
-  const disabled = !entry.local_path;
-  return (
-    <button
-      type="button"
-      className="btn"
-      disabled={disabled}
-      onClick={() => copy(buildAgentPrompt(entry))}
-      title={
-        disabled
-          ? "No path recorded for this entry"
-          : "Copy a prompt for Claude / agent CLIs that includes the path and the close-the-loop command"
-      }
-      aria-live="polite"
-    >
-      {copied ? "Copied!" : "Copy prompt"}
-    </button>
-  );
-}
-
 /// Build a single prompt that bundles every entry currently shown by the
 /// filter so the user can hand the whole batch to one agent session
 /// rather than dispatching them one at a time. Each entry contributes a
@@ -1069,31 +1270,43 @@ function buildBatchAgentPrompt(entries: FrictionEntry[], filter: FrictionFilter)
   if (entries.length === 0) return "";
   const stateLabel = filter === "all" ? "" : `${filter} `;
   const lines: string[] = [
-    `Read these ${entries.length} ${stateLabel}Designer friction reports and propose fixes:`,
+    `You are triaging ${entries.length} ${stateLabel}Designer friction reports.`,
     "",
+    "Reports:",
   ];
   for (const e of entries) {
-    if (e.local_path) lines.push(e.local_path);
+    if (e.local_path) lines.push(`- ${e.local_path}`);
   }
   lines.push(
     "",
-    "Triage them, group fixes that share files, and ship as one PR per cluster.",
-    "After opening each PR, close the loop:",
+    "Do all of the following:",
+    "1. Read every report.",
+    "2. Cluster reports that describe the same root cause or touch the same surface; treat each cluster as one unit of work.",
+    "3. For each cluster, plan the smallest correct fix and ship it as a single PR (one PR per cluster, not per report).",
+    "4. As soon as a cluster's PR is open, run this for every friction id in that cluster so the user sees the agent picked it up:",
     "",
-    `  ${ADDRESS_CLI} <friction_id> --pr <PR_URL>`,
+    `   ${ADDRESS_CLI} <friction_id> --pr <PR_URL>`,
     "",
-    "(IDs are the `frc_…` slug at the start of each filename.)",
+    "5. After the PR is merged, mark each id resolved:",
+    "",
+    "   designer friction resolve <friction_id>",
+    "",
+    "6. If a report is invalid, already fixed, or a duplicate, mark it resolved and add a one-line note in the PR or the closing comment.",
+    "",
+    "(Friction ids are the `frc_…` slug at the start of each filename.)",
   );
   return lines.join("\n");
 }
 
-/// Bulk version of `CopyAgentPromptButton` — emits one prompt that lists
-/// every currently-filtered record. The label shows the count so the
-/// affordance is honest about what will land on the clipboard.
+/// Section-level primary CTA: copies a single prompt that hands the
+/// active filter to an agent for triage (cluster, plan, ship one PR per
+/// cluster, close the loop). The visual primary register signals "this
+/// is the path you should be using" — the per-row menu's "Copy prompt"
+/// is the fallback for one-off dispatch.
 ///
 /// The component accepts `entries: FrictionEntry[] | null` so the parent
 /// can pass `filtered` directly without a `?? []` fallback that would
-/// briefly render "Copy 0 as one prompt" during the initial fetch.
+/// briefly render a count-bearing label during the initial fetch.
 /// `null` → loading register (no count, disabled); `[]` → loaded-empty
 /// register (no count, disabled); `[…]` → ready (count, enabled).
 function CopyBatchPromptButton({
@@ -1108,17 +1321,21 @@ function CopyBatchPromptButton({
   const ready = entries !== null;
   const disabled = !ready || usable.length === 0;
   // Label hides the count in both the loading and loaded-empty states
-  // so the user never sees an honest-but-noisy "Copy 0" mid-fetch.
-  const label = !ready || usable.length === 0 ? "Copy as prompt" : `Copy ${usable.length} as one prompt`;
+  // so the user never sees an honest-but-noisy "Triage 0" mid-fetch.
+  const label =
+    !ready || usable.length === 0
+      ? "Triage with agent"
+      : `Triage ${usable.length} with agent`;
   const title = !ready
     ? "Loading friction records…"
     : disabled
       ? "No friction records in this filter"
-      : `Bundle ${usable.length} ${filter} record${usable.length === 1 ? "" : "s"} into one agent prompt`;
+      : `Hand ${usable.length} ${filter} report${usable.length === 1 ? "" : "s"} to an agent — it will cluster, plan, ship PRs, and close the loop`;
   return (
     <button
       type="button"
       className="btn friction-triage__batch-copy"
+      data-variant="primary"
       disabled={disabled}
       onClick={() => copy(buildBatchAgentPrompt(usable, filter))}
       title={title}
@@ -1129,133 +1346,3 @@ function CopyBatchPromptButton({
   );
 }
 
-function AddressFrictionDialog({
-  entry,
-  onCancel,
-  onSubmit,
-}: {
-  entry: FrictionEntry;
-  onCancel: () => void;
-  onSubmit: (prUrl: string | null) => void | Promise<void>;
-}) {
-  const [value, setValue] = useState(entry.pr_url ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useFocusTrap(dialogRef, { onEscape: onCancel, busy });
-
-  useEffect(() => {
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, []);
-
-  const submit = () => {
-    const trimmed = value.trim();
-    if (trimmed && !/^https?:\/\/[^\s]+$/i.test(trimmed)) {
-      setError("Enter a full URL starting with http:// or https://, or leave it blank.");
-      return;
-    }
-    setBusy(true);
-    try {
-      void onSubmit(trimmed.length > 0 ? trimmed : null);
-    } catch (err) {
-      setError(messageFromError(err, "mark addressed"));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div
-      className="app-dialog-scrim"
-      data-component="AddressFrictionDialog"
-      role="presentation"
-      onClick={(e) => {
-        // `click` fires only when both mousedown and mouseup land on the
-        // scrim — so a drag started inside the card and released on the
-        // scrim doesn't surprise-dismiss.
-        if (e.target === e.currentTarget && !busy) onCancel();
-      }}
-    >
-      <div
-        ref={dialogRef}
-        className="app-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="address-friction-title"
-      >
-        <header className="app-dialog__head">
-          <h2 className="app-dialog__title" id="address-friction-title">
-            Mark addressed
-          </h2>
-          <IconButton label="Close" shortcut="Esc" onClick={onCancel} disabled={busy}>
-            <IconX size={12} />
-          </IconButton>
-        </header>
-        <div className="app-dialog__body">
-          <section className="app-dialog__section">
-            <span className="app-dialog__section-label">Friction</span>
-            <p className="address-friction__entry-title" title={entry.title}>
-              {entry.title}
-            </p>
-          </section>
-          <section className="app-dialog__section" aria-label="PR URL">
-            <label
-              className="app-dialog__section-label"
-              htmlFor="address-friction-pr"
-            >
-              PR URL (optional)
-            </label>
-            <input
-              ref={inputRef}
-              id="address-friction-pr"
-              type="url"
-              className="quick-switcher__input"
-              placeholder="https://github.com/owner/repo/pull/123"
-              value={value}
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-              onChange={(e) => {
-                setValue(e.target.value);
-                if (error) setError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
-              aria-invalid={error !== null}
-              aria-describedby={error ? "address-friction-error" : undefined}
-              disabled={busy}
-            />
-            {error && (
-              <p
-                id="address-friction-error"
-                role="alert"
-                className="address-friction__error"
-              >
-                {error}
-              </p>
-            )}
-          </section>
-          <div className="address-friction__actions">
-            <button type="button" className="btn" onClick={onCancel} disabled={busy}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn"
-              data-variant="primary"
-              onClick={submit}
-              disabled={busy}
-            >
-              {busy ? "Saving…" : "Mark addressed"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}

@@ -26,12 +26,12 @@
     {
       "name": "WorkspaceSidebar",
       "path": "packages/app/src/layout/WorkspaceSidebar.tsx",
-      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover). Each row reveals an Archive IconButton on hover/focus-within (workspace-row__actions slot). Below the active list, a collapsible Archived (N) group pins to the bottom of the sidebar via flex-column auto-margin; archived rows surface Restore + Delete IconButtons. Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar). 13.E: when the active workspace has at least one mergeable track, a Request Merge IconButton (GitPullRequest) renders inline next to the project title — runs cmd_request_merge on the most recent eligible track.",
+      "purpose": "Sits directly on the page surface (no fill, no border) per the two-tier register. Project title (self-describing name + path) + collapse IconButton + Home button + Archived button (both share .sidebar-home styling — top-level project view tabs that route the main pane via activeView) + Workspaces list (status icon + name, single line — branch name lives in the row's title attribute for hover). Each row reveals an Archive IconButton on hover/focus-within (workspace-row__actions slot); the archived list itself lives behind the Archived sidebar tab as the ArchivedView main-pane page (2026-05-03 promotion — the prior collapsible bottom-of-sidebar group was removed). Via WorkspaceStatusIcon, the 7-variant status set reads the same here as on HomeTabA. Pane resizer sits at the floating-surface edge (cursor-only feedback; no visible bar). 13.E: when the active workspace has at least one mergeable track, a Request Merge IconButton (GitPullRequest) renders inline next to the project title — runs cmd_request_merge on the most recent eligible track.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "space-5", "target-sm", "radius-button", "radius-badge", "color-muted", "color-foreground", "color-border", "color-surface-overlay", "type-caption-size", "type-body-size", "weight-medium", "motion-interactive", "success-11", "warning-11", "danger-11", "info-11", "icon-md"],
-      "last_updated": "2026-05-02"
+      "last_updated": "2026-05-03"
     },
     {
       "name": "MainView",
@@ -92,6 +92,17 @@
       "primitives_used": [],
       "tokens_referenced": [],
       "last_updated": "2026-04-23"
+    },
+    {
+      "name": "ArchivedView",
+      "path": "packages/app/src/home/ArchivedView.tsx",
+      "purpose": "Project-level archived workspaces page — rendered in the main pane when the sidebar's Archived tab is active (activeView === \"archived\"). Lists every archived workspace in the active project with Restore + Delete (window.confirm gated) IconButton actions. Replaces the prior collapsible Archived section at the bottom of the sidebar; promoting it to a full main-pane surface keeps the sidebar to one concern (active workspace navigation) and gives the archive operation room to grow (filter, search, bulk actions) without crowding the sidebar.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "icon-lg", "type-h3-size", "type-h3-leading", "type-body-size", "type-caption-size", "type-family-mono", "weight-semibold", "weight-medium", "color-foreground", "color-muted", "color-border", "border-thin"],
+      "css_prefix": "archived-view__",
+      "last_updated": "2026-05-03"
     },
     {
       "name": "WorkspaceThread",
@@ -442,6 +453,17 @@
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "radius-pill", "radius-button", "color-accent", "color-background", "color-foreground", "color-muted", "color-surface-overlay", "color-border", "elevation-raised", "motion-interactive", "type-body-size", "type-caption-size", "type-family-mono", "weight-medium", "width-tooltip-max", "border-thin", "border-strong", "focus-outline-offset", "layer-overlay"],
       "last_updated": "2026-04-28"
+    },
+    {
+      "name": "FrictionTriageSection",
+      "path": "packages/app/src/layout/SettingsPage.tsx",
+      "purpose": "Settings → Activity → Friction triage list. Reduced to a single agent-driven loop after the friction-triage redesign (2026-05-03): file reports via ⌘⇧F, hand them to an agent with one click, the agent clusters / plans / ships / closes the loop. Per-row chrome is title + state + ⋯; everything else collapses into the menu. Filter chips: Open / Resolved / All — Open includes addressed (agent-owned) rows so agent-in-flight work stays visible without a chip switch. Addressed rows surface an inline `agent · <PR>` (or `agent · working`) marker on the meta line, which is the trust signal that lets the silent fold work. Section primary CTA is `Triage with agent` — copies a multi-step prompt that tells the agent to cluster reports by root cause, ship one PR per cluster, and close the loop with `designer friction address` then `designer friction resolve`. Rows cluster by `anchor_descriptor` under a small humanized header (`Settings › Friction · 3 reports`); single-anchor reports render flat to avoid noise. The previous AddressFrictionDialog (manual mark-addressed) is gone — that path is now exclusively the agent CLI's job. Recently-updated rows still carry a one-shot `data-just-updated` flash so external CLI writes are visible. Empty-state copy is per-filter only: a context-aware Open copy ('all caught up, agent has work in flight') was considered but proved unreachable in practice — addressed rows fold under Open with a marker, so when Open is empty there's no agent activity to surface.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "color-foreground", "color-muted", "color-surface-raised", "color-surface-overlay", "color-border", "accent-7", "accent-9", "accent-11", "gray-9", "border-thin", "radius-button", "radius-card", "type-body-size", "type-caption-size", "type-caption-tracking", "type-family-mono", "weight-medium", "motion-interactive", "motion-quick", "motion-emphasized", "ease-out-enter", "elevation-overlay", "focus-outline-width", "focus-outline-color", "focus-outline-offset", "layer-overlay"],
+      "css_prefix": "friction-triage__",
+      "last_updated": "2026-05-03"
     },
     {
       "name": "FrictionWidget",

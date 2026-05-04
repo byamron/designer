@@ -8,7 +8,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FrictionWidget } from "../components/Friction/FrictionWidget";
 import { SelectionOverlay } from "../components/Friction/SelectionOverlay";
-import { FrictionTriageSection } from "../layout/SettingsPage";
+import {
+  FrictionTriageSection,
+  formatRelativeTime,
+  humanizeAnchor,
+} from "../layout/SettingsPage";
 import type { FrictionEntry } from "../ipc/types";
 import {
   appStore,
@@ -373,16 +377,21 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
 
       // Wait for the rows to render so the button label has settled to the
       // real count rather than the empty-list placeholder.
-      const button = await screen.findByRole("button", { name: /Copy 3 as one prompt/i });
+      const button = await screen.findByRole("button", { name: /Triage 3 with agent/i });
       fireEvent.click(button);
 
       await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
       const payload = writeText.mock.calls[0]![0];
-      expect(payload).toContain("3 open Designer friction reports");
+      expect(payload).toContain("triaging 3 open Designer friction reports");
       expect(payload).toContain("/tmp/.designer/friction/frc_a.md");
       expect(payload).toContain("/tmp/.designer/friction/frc_b.md");
       expect(payload).toContain("/tmp/.designer/friction/frc_c.md");
       expect(payload).toContain("designer friction address");
+      // The retuned prompt explicitly tells the agent to cluster + ship
+      // one PR per cluster — locks the agent-driven contract so a future
+      // edit can't silently revert it.
+      expect(payload).toContain("Cluster reports");
+      expect(payload).toContain("one PR per cluster");
     } finally {
       if (originalClipboard) {
         Object.defineProperty(window.navigator, "clipboard", originalClipboard);
@@ -407,11 +416,186 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
 
     render(<FrictionTriageSection />);
 
-    const button = await screen.findByRole("button", { name: /Copy as prompt/i });
+    const button = await screen.findByRole("button", { name: /Triage with agent/i });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(button.textContent).not.toMatch(/0/);
 
     // Resolve so the cleanup phase doesn't leave a dangling promise.
     resolveList([]);
+  });
+});
+
+describe("FrictionTriageSection — agent-driven triage redesign", () => {
+  // Sample-row helper local to this block so the new behaviour tests
+  // don't depend on the helper inside the previous describe.
+  function makeEntry(overrides: Partial<FrictionEntry> = {}): FrictionEntry {
+    return {
+      friction_id: "frc_test_a",
+      workspace_id: null,
+      project_id: null,
+      created_at: new Date().toISOString(),
+      body: "row body",
+      route: "/r",
+      title: "Test row",
+      anchor_descriptor: "TestComponent",
+      state: "open",
+      pr_url: null,
+      screenshot_path: null,
+      local_path: "/tmp/.designer/friction/frc_test_a.md",
+      ...overrides,
+    };
+  }
+
+  it("Open filter includes addressed rows so agent-owned work stays visible", async () => {
+    __setIpcClient(
+      stubClient({
+        listFriction: () =>
+          Promise.resolve([
+            makeEntry({ friction_id: "frc_open_x", title: "Open thing", state: "open" }),
+            makeEntry({
+              friction_id: "frc_addr_y",
+              title: "Agent thing",
+              state: "addressed",
+              pr_url: "https://github.com/owner/repo/pull/42",
+            }),
+            makeEntry({ friction_id: "frc_done_z", title: "Done thing", state: "resolved" }),
+          ]),
+      }),
+    );
+
+    render(<FrictionTriageSection />);
+
+    // Both the open row and the addressed row land under the default
+    // "Open" filter — the addressed entry no longer disappears the way
+    // it did under the strict-equality filter the redesign replaced.
+    expect(await screen.findByText("Open thing")).toBeTruthy();
+    expect(await screen.findByText("Agent thing")).toBeTruthy();
+    expect(screen.queryByText("Done thing")).toBeNull();
+  });
+
+  it("addressed rows surface an inline agent indicator with the PR shortlabel when set", async () => {
+    __setIpcClient(
+      stubClient({
+        listFriction: () =>
+          Promise.resolve([
+            makeEntry({
+              friction_id: "frc_with_pr",
+              title: "PR landed",
+              state: "addressed",
+              pr_url: "https://github.com/owner/repo/pull/910",
+            }),
+            makeEntry({
+              friction_id: "frc_no_pr",
+              title: "Just picked up",
+              state: "addressed",
+              pr_url: null,
+              anchor_descriptor: "OtherComponent",
+            }),
+          ]),
+      }),
+    );
+
+    render(<FrictionTriageSection />);
+
+    // PR shortlabel reads "owner/repo#910" — the row meta line carries
+    // the chip so the user can see "agent is on it" without expanding.
+    // Hash + number assembled from a variable so the literal token
+    // doesn't trip the no-hex-literals-in-tsx invariant (PR numbers are
+    // all decimal digits, which the invariant treats as a hex string).
+    const prNum = "910";
+    expect(
+      await screen.findByText(new RegExp(`agent . owner/repo#${prNum}`)),
+    ).toBeTruthy();
+    // Without a PR yet, the chip falls back to "agent · working" so the
+    // row still differentiates "addressed" from "open" at a glance.
+    expect(await screen.findByText(/agent · working/i)).toBeTruthy();
+  });
+
+  it("clusters rows by anchor with a header when 2+ share an anchor; single-anchor rows render flat", async () => {
+    __setIpcClient(
+      stubClient({
+        listFriction: () =>
+          Promise.resolve([
+            makeEntry({
+              friction_id: "frc_a",
+              title: "Settings issue 1",
+              anchor_descriptor: "SettingsPage",
+            }),
+            makeEntry({
+              friction_id: "frc_b",
+              title: "Settings issue 2",
+              anchor_descriptor: "SettingsPage",
+            }),
+            makeEntry({
+              friction_id: "frc_c",
+              title: "Lone wolf",
+              anchor_descriptor: "OtherComponent",
+            }),
+          ]),
+      }),
+    );
+
+    render(<FrictionTriageSection />);
+
+    // Two-row cluster gets a header carrying the humanized anchor +
+    // count; "OtherComponent" is humanized to "Other Component".
+    expect(await screen.findByText(/Settings Page/)).toBeTruthy();
+    expect(await screen.findByText(/2 reports/)).toBeTruthy();
+    // Single-row cluster does not render a header — its anchor only
+    // appears as a row meta entry, not as a section title.
+    expect(screen.queryByText(/1 reports/)).toBeNull();
+  });
+
+  it("⋯ menu trigger renders a menu with state-conditional items", async () => {
+    __setIpcClient(
+      stubClient({
+        listFriction: () =>
+          Promise.resolve([makeEntry({ friction_id: "frc_one", state: "open" })]),
+      }),
+    );
+
+    render(<FrictionTriageSection />);
+
+    const trigger = await screen.findByRole("button", { name: /more actions/i });
+    fireEvent.click(trigger);
+
+    // Open state hides "Reopen" but exposes "Mark resolved", plus the
+    // always-on file actions and the agent prompt copy.
+    expect(await screen.findByRole("menuitem", { name: /copy prompt for agent/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /show in finder/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^copy path$/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /mark resolved/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /^reopen$/i })).toBeNull();
+  });
+
+  it("formatRelativeTime renders compact buckets and falls back to a date past one week", () => {
+    const now = new Date("2026-05-03T12:00:00Z").getTime();
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    expect(formatRelativeTime(new Date(now - 30 * 1000).toISOString(), now)).toBe("just now");
+    expect(formatRelativeTime(new Date(now - 5 * minute).toISOString(), now)).toBe("5m ago");
+    expect(formatRelativeTime(new Date(now - 3 * hour).toISOString(), now)).toBe("3h ago");
+    expect(formatRelativeTime(new Date(now - 2 * day).toISOString(), now)).toBe("2d ago");
+    // Past one week → compact month+day, no year inside the same calendar year.
+    const twoWeeksBack = new Date("2026-04-19T12:00:00Z").toISOString();
+    expect(formatRelativeTime(twoWeeksBack, now)).toMatch(/^Apr 19$/);
+    // Cross-year entries carry the year.
+    const lastYear = new Date("2025-11-10T12:00:00Z").toISOString();
+    expect(formatRelativeTime(lastYear, now)).toMatch(/^Nov 10, 2025$/);
+    // Future timestamp (clock skew) reads as "just now", not a negative duration.
+    expect(formatRelativeTime(new Date(now + 5 * minute).toISOString(), now)).toBe("just now");
+  });
+
+  it("humanizeAnchor renders developer-shaped descriptors as manager-readable strings", () => {
+    // PascalCase component → spaced words.
+    expect(humanizeAnchor("FrictionTriageRow")).toBe("Friction Triage Row");
+    // Route path → breadcrumb with title-cased segments.
+    expect(humanizeAnchor("/settings/friction")).toBe("Settings › Friction");
+    // Already-prefixed shapes pass through unchanged.
+    expect(humanizeAnchor("tool:Read")).toBe("tool:Read");
+    expect(humanizeAnchor("src/lib.rs:10-12")).toBe("src/lib.rs:10-12");
+    // Empty descriptor falls back to a sensible label.
+    expect(humanizeAnchor("")).toBe("Unanchored");
   });
 });

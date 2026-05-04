@@ -1,8 +1,7 @@
 /**
- * Shared modal utilities. RepoLinkModal, CreateProjectModal, and the
- * 13.L AddressFrictionDialog all consume these — when the next caller
- * lands the missing piece is a `<Modal>` primitive that owns the
- * scrim+head+body composition.
+ * Shared modal utilities. RepoLinkModal and CreateProjectModal consume
+ * these — when the next caller lands the missing piece is a `<Modal>`
+ * primitive that owns the scrim+head+body composition.
  */
 
 import { useEffect, type RefObject } from "react";
