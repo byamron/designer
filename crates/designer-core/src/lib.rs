@@ -19,8 +19,9 @@ pub mod time;
 
 pub use anchor::Anchor;
 pub use domain::{
-    author_roles, Actor, Artifact, ArtifactKind, Autonomy, PayloadRef, Project,
-    ReportClassification, Tab, TabTemplate, Track, TrackState, Workspace, WorkspaceState,
+    author_roles, Actor, AgentContentBlockKind, AgentStopReason, Artifact, ArtifactKind, Autonomy,
+    ClaudeMessageId, ClaudeSessionId, PayloadRef, Project, ReportClassification, Tab, TabTemplate,
+    TokenUsage, Track, TrackState, Workspace, WorkspaceState,
 };
 pub use error::{CoreError, Result};
 pub use event::{Event, EventEnvelope, EventKind, EventPayload, FrictionFileError, ScreenshotRef};

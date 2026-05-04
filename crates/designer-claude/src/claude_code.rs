@@ -699,9 +699,20 @@ fn event_to_payload(
         // `EventPayload` here. Phase 23.B `ActivityChanged` is also
         // broadcast-only by design (no projector arm, no replay
         // invariant) — see pattern-log.md.
+        //
+        // Phase 24 (ADR 0008) — `AgentTurn*` likewise route through the
+        // AppCore bridge: it knows the active user-post `event_id` for
+        // stamping `parent_user_event_id` on `AgentTurnStarted` and is
+        // the single writer for the persisted chat-domain events.
         OrchestratorEvent::ArtifactProduced { .. }
         | OrchestratorEvent::ArtifactUpdated { .. }
-        | OrchestratorEvent::ActivityChanged { .. } => None,
+        | OrchestratorEvent::ActivityChanged { .. }
+        | OrchestratorEvent::AgentTurnStarted { .. }
+        | OrchestratorEvent::AgentContentBlockStarted { .. }
+        | OrchestratorEvent::AgentContentBlockDelta { .. }
+        | OrchestratorEvent::AgentContentBlockEnded { .. }
+        | OrchestratorEvent::AgentToolResult { .. }
+        | OrchestratorEvent::AgentTurnEnded { .. } => None,
     }
 }
 

@@ -371,10 +371,7 @@ impl std::fmt::Display for ClaudeSessionId {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentContentBlockKind {
     Text,
-    ToolUse {
-        name: String,
-        tool_use_id: String,
-    },
+    ToolUse { name: String, tool_use_id: String },
     Thinking,
 }
 

@@ -4,7 +4,10 @@
 
 use crate::claude_code::ClaudeSignal;
 use async_trait::async_trait;
-use designer_core::{AgentId, ArtifactId, ArtifactKind, TabId, TaskId, WorkspaceId};
+use designer_core::{
+    AgentContentBlockKind, AgentId, AgentStopReason, ArtifactId, ArtifactKind, ClaudeMessageId,
+    ClaudeSessionId, TabId, TaskId, TokenUsage, WorkspaceId,
+};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use thiserror::Error;
@@ -167,6 +170,60 @@ pub enum OrchestratorEvent {
         tab_id: TabId,
         state: ActivityState,
         since: SystemTime,
+    },
+
+    // -----------------------------------------------------------------
+    // Phase 24 — chat pass-through (ADR 0008)
+    //
+    // Broadcast variants emitted by the translator when phase24 mode is
+    // on. AppCore's bridge converts each into the matching
+    // `EventPayload::AgentTurn*` and writes it to the event log. The
+    // legacy `MessagePosted{author_role: AGENT|TEAM_LEAD}` /
+    // `ArtifactProduced{kind: Report}` / `ArtifactUpdated` /
+    // `ActivityChanged` flow continues to fire when phase24 mode is off
+    // for legacy-renderer compatibility.
+    // -----------------------------------------------------------------
+    AgentTurnStarted {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        model: String,
+        session_id: ClaudeSessionId,
+    },
+    AgentContentBlockStarted {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        block_index: u32,
+        block_kind: AgentContentBlockKind,
+    },
+    AgentContentBlockDelta {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        block_index: u32,
+        delta: String,
+    },
+    AgentContentBlockEnded {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        block_index: u32,
+    },
+    AgentToolResult {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        tool_use_id: String,
+        content: String,
+        is_error: bool,
+    },
+    AgentTurnEnded {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        stop_reason: AgentStopReason,
+        usage: TokenUsage,
     },
 }
 
