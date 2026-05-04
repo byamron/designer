@@ -16,6 +16,7 @@ import type {
   Workspace,
 } from "../ipc/types";
 import { HomeTabA } from "../home/HomeTabA";
+import { ArchivedView } from "../home/ArchivedView";
 import { WorkspaceThread } from "../tabs/WorkspaceThread";
 import { emptyArray } from "../util/empty";
 import type { WorkspaceSummary } from "../ipc/types";
@@ -27,6 +28,7 @@ import { CostChip } from "../components/CostChip";
 export function MainView() {
   const activeWorkspaceId = useAppState((s) => s.activeWorkspace);
   const activeProjectId = useAppState((s) => s.activeProject);
+  const activeView = useAppState((s) => s.activeView);
   const activeTabByWorkspace = useAppState((s) => s.activeTabByWorkspace);
   const projects = useDataState((s) => s.projects);
   const workspaces = useDataState((s) => s.workspaces);
@@ -140,20 +142,27 @@ export function MainView() {
   }
 
   if (!workspace) {
+    const isArchived = activeView === "archived";
     return (
       <main className="app-main" data-component="MainView" aria-label="Main" id="main-content" tabIndex={-1}>
-        {/* Project home — always the Panels variant. The palette is still
-            available for blank tabs (BlankTab) where it better fits the
-            "I don't know what I want yet; show me affordances" intent. */}
+        {/* Project home / Archived — both surfaces render in the same
+            slot since they're the project-level views the sidebar tabs
+            switch between. The Palette variant is still used for blank
+            tabs (BlankTab) where it better fits the "I don't know what
+            I want yet; show me affordances" intent. */}
         <div className="main-surface">
           <section
             className="tab-body"
             role="region"
-            id="project-home"
-            aria-label={`${project.name} home`}
+            id={isArchived ? "project-archived" : "project-home"}
+            aria-label={`${project.name} ${isArchived ? "archived workspaces" : "home"}`}
             tabIndex={0}
           >
-            <HomeTabA project={project} />
+            {isArchived ? (
+              <ArchivedView project={project} />
+            ) : (
+              <HomeTabA project={project} />
+            )}
           </section>
         </div>
       </main>
