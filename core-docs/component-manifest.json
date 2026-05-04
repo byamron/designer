@@ -571,6 +571,9 @@
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": [],
+      "last_updated": "2026-05-03"
+    },
+    {
       "name": "RecentReportsSection",
       "path": "packages/app/src/components/RecentReports/RecentReportsSection.tsx",
       "purpose": "Phase 22.B Home-tab surface — curated highlights of shipped work in manager voice. Two-step disclosure: inline 1–2 line `summary_high` + classification chip + workspace label + PR link is always visible; click expands the report inline with the full body and an `Open in tab` button. Three reports default; `Show more` reveals 4–5; `Show all (N)` expands the full list inline (no project-level Reports tab — Decision 56). Section header reads `N unread` or `All caught up`; reads advance implicitly on inline expand and tab open, plus an explicit `Mark all read` footer. Renders behind the `show_recent_reports_v2` feature flag; reports without `summary_high` fall back to the legacy `summary` field per roadmap §22.B migration.",
