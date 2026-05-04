@@ -211,6 +211,7 @@ async fn run_demo() -> anyhow::Result<()> {
             env: Default::default(),
             cwd: None,
             model: None,
+            phase24: false,
         })
         .await?;
 

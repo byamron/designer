@@ -150,6 +150,7 @@ mod tests {
                 env: Default::default(),
                 cwd: None,
                 model: None,
+                phase24: false,
             })
             .await
             .unwrap();
@@ -340,6 +341,7 @@ mod tests {
                 env: Default::default(),
                 cwd: None,
                 model: None,
+                phase24: false,
             })
             .await
             .unwrap();

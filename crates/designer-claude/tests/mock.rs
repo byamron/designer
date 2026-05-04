@@ -23,6 +23,7 @@ async fn mock_spawns_team_emits_expected_events() {
         env: Default::default(),
         cwd: None,
         model: None,
+        phase24: false,
     })
     .await
     .unwrap();
@@ -60,6 +61,7 @@ async fn mock_assign_task_produces_create_and_complete() {
         env: Default::default(),
         cwd: None,
         model: None,
+        phase24: false,
     })
     .await
     .unwrap();

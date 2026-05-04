@@ -68,6 +68,13 @@ pub struct TeamSpec {
     /// specs decode unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Phase 24 (ADR 0008) — emit the new `AgentTurn*` chat-domain
+    /// events from the stream translator instead of the legacy
+    /// `MessagePosted` / `ArtifactProduced` flow. Read from the
+    /// `show_chat_v2` feature flag at spawn time. Additive on the wire
+    /// so legacy specs decode as `false` (legacy emission).
+    #[serde(default)]
+    pub phase24: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
