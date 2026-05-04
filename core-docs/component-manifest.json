@@ -559,7 +559,7 @@
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["success-9", "color-surface-base", "motion-standard", "motion-emphasized", "ease-out-enter"],
+      "tokens_referenced": ["success-9", "color-background", "motion-standard", "motion-emphasized", "ease-out-enter"],
       "css_prefix": "roadmap-status-circle",
       "last_updated": "2026-05-03"
     },

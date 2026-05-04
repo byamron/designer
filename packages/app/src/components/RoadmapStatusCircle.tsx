@@ -165,7 +165,7 @@ export function RoadmapStatusCircle({
           />
           <path
             d="M4.5 7.2 L6.2 8.9 L9.5 5.4"
-            stroke="var(--color-surface-base, white)"
+            stroke="var(--color-background)"
             strokeWidth="1.5"
             strokeLinecap="round"
             strokeLinejoin="round"

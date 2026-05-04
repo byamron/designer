@@ -64,10 +64,14 @@ export function ShippedHereBadge({ shipments, teamLabel = defaultTeamLabel }: Pr
       ))}
       {overflow > 0 && (
         <Tooltip
+          // The Tooltip primitive sets `white-space: nowrap` on its label,
+          // so multiline joins collapse + ellipse. Use `; ` to keep each
+          // overflow line distinguishable on a single line — mirrors
+          // `RoadmapMultiClaimStack`'s `, ` overflow grammar.
           label={shipments
             .slice(COLLAPSE_AFTER)
             .map((s) => auditLine(s, teamLabel))
-            .join("\n")}
+            .join(" ; ")}
           side="top"
         >
           <span

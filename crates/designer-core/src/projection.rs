@@ -1092,6 +1092,15 @@ mod recent_reports_tests {
             fresh.node_shipments(&node)[0].pr_url,
             "https://example.com/pr/1"
         );
+        // The arm collapses two side effects into one event: the shipment
+        // append AND the live-claim cleanup. Dual-apply must keep both
+        // halves consistent — assert that node_claimants stays empty after
+        // the second replay, not just that node_shipments has exactly one
+        // entry.
+        assert!(
+            fresh.node_claimants(&node).is_empty(),
+            "live claim cleanup is also idempotent under dual-apply"
+        );
     }
 
     #[test]
