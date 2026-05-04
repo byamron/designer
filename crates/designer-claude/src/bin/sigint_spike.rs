@@ -243,9 +243,14 @@ fn print_line(tag: &str, idx: usize, line: &str) {
 }
 
 fn spawn_claude(session_id: Uuid) -> anyhow::Result<Child> {
-    // Mirrors crates/designer-claude/src/claude_code.rs build_command
-    // exactly except for env vars and cwd, which the spike doesn't
-    // care about. Importantly: piped stdio, no PTY.
+    // Mirrors crates/designer-claude/src/claude_code.rs build_command:
+    // same flags, same defaults for setting-sources / max-turns /
+    // permission-mode, same piped stdio (no PTY). Differences:
+    //   - no env injection (DESIGNER_WORKSPACE_ID etc.) — the spike
+    //     does not exercise the orchestrator side
+    //   - no cwd override — runs in the workspace cwd, fine for the
+    //     interrupt question
+    //   - no model override — lets `claude` pick its default
     let mut cmd = Command::new("claude");
     cmd.arg("-p")
         .args(["--output-format", "stream-json"])

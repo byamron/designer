@@ -58,10 +58,12 @@ reproduced below.
   next line — Designer can pattern-match this to render the spec's
   "Interrupted" inline marker (§5.4.2) without inventing a new event.
 - A final `result` envelope with `subtype: "error_during_execution"`
-  closes the turn. This is the existing translator arm — no new
-  plumbing required to surface it as `AgentTurnEnded { stop_reason:
-  Interrupted }`. (The `stop_reason` field on the envelope is `null`;
-  the discriminator is `subtype`.)
+  closes the turn. The `stop_reason` field on this envelope is
+  `null`; the discriminator the implementer pattern-matches is
+  `subtype`. (Note: today the translator's `translate_result` early-
+  returns on any non-`success` subtype — see `stream.rs:416-425` —
+  so this envelope is currently dropped on the floor. D7 will need
+  to add the arm. See "Implementation sketch" below.)
 - Exit code 0, no signal in `ExitStatus`. Cleanest possible exit.
 - Total time from signal to exit: ~7s, dominated by API-side ack of
   the interrupt — not a stdio buffering problem.
@@ -134,10 +136,18 @@ Use **SIGINT via `libc::kill(child_pid, SIGINT)`** for §5.4.2's
    `interrupt_request_line()` over stdin with a `libc::kill(pid,
    SIGINT)` call. Keep the in-band path as a fallback in case the
    writer task is alive but the OS denies the signal (extremely rare).
-3. The reader task already handles the `result` envelope via the
-   existing translator arm — `error_during_execution` should map to
-   `AgentTurnEnded { stop_reason: Interrupted }`. Verify the existing
-   translator covers this subtype; add a case if not.
+3. Translator work is required — *not* free. Two gaps:
+   - `translate_result` at `crates/designer-claude/src/stream.rs:416-425`
+     currently early-returns on any non-`success` subtype. The
+     `error_during_execution` envelope the spike captured is silently
+     dropped today. Add an arm that emits the Phase 24
+     `AgentTurnEnded { stop_reason: Interrupted }` event for that
+     subtype.
+   - `AgentTurnEnded` and `stop_reason: Interrupted` themselves are
+     part of the Phase 24 event vocabulary (`core-docs/adr/0008-phase-24-event-vocabulary.md`)
+     and do not exist in `designer-core/src/event.rs` yet. They land
+     when the Phase 24 implementation track does, so D7 either
+     follows that track or co-introduces the variants.
 4. Designer's per-spawn random session id (Cut 1, 2026-05-03) means
    the next user message after an interrupt naturally respawns. No
    `--resume` plumbing needed; spec D7 doesn't require session
