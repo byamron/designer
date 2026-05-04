@@ -104,6 +104,17 @@ pub struct FeatureFlags {
     /// off, every code path stays on the legacy
     /// `MessagePosted` / `ArtifactProduced` flow with the 120 ms
     /// coalescer.
+    ///
+    /// **Transition behaviour:** the flag is read once at subprocess
+    /// spawn; flipping it only takes effect on the next respawn (next
+    /// user message after a model swap or tab re-open). Until the
+    /// Phase 24 renderer follow-up lands, flipping ON during dogfood
+    /// will leave the legacy renderer unable to display new
+    /// `AgentTurn*` events — chat will appear frozen mid-turn. The
+    /// Settings → Preferences toggle for this flag intentionally lives
+    /// in the renderer follow-up so the toggle can warn before the
+    /// flip; until then, dogfood operators flip the flag by editing
+    /// `settings.json` directly and respawning.
     #[serde(default)]
     pub show_chat_v2: bool,
 }

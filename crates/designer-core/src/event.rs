@@ -999,7 +999,7 @@ mod tests {
         let parent = EventId::new();
         let turn = ClaudeMessageId::new("msg_01ABC");
         let session = ClaudeSessionId::new("sess_01XYZ");
-        let cases = vec![
+        let cases = [
             EventPayload::AgentTurnStarted {
                 workspace_id: ws,
                 tab_id: tab,

@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApprovalBlock } from "../blocks/blocks";
 import { CostChip, COST_CHIP_PREFERENCE_EVENT } from "../components/CostChip";
@@ -35,7 +41,11 @@ function makeApprovalArtifact(): ArtifactSummary {
 function approvalPayload(approvalId: string): PayloadRef {
   return {
     kind: "inline",
-    body: JSON.stringify({ approval_id: approvalId, tool: "Write", gate: "tool:Write" }),
+    body: JSON.stringify({
+      approval_id: approvalId,
+      tool: "Write",
+      gate: "tool:Write",
+    }),
   };
 }
 
@@ -73,6 +83,7 @@ function makeStubClient(overrides: Partial<IpcClient> = {}): IpcClient {
         show_all_artifacts_in_spine: false,
         show_roadmap_canvas: false,
         show_recent_reports_v2: false,
+        show_chat_v2: false,
       }),
     setFeatureFlag: notImpl("setFeatureFlag"),
     listFindings: notImpl("listFindings"),
@@ -285,7 +296,9 @@ describe("CostChip", () => {
     enabled = true;
     act(() => {
       window.dispatchEvent(
-        new CustomEvent(COST_CHIP_PREFERENCE_EVENT, { detail: { enabled: true } }),
+        new CustomEvent(COST_CHIP_PREFERENCE_EVENT, {
+          detail: { enabled: true },
+        }),
       );
     });
 

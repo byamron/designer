@@ -528,10 +528,14 @@ impl ClaudeStreamTranslator {
                     prior.pending_usage,
                 ));
             }
-            // session_id is captured from `system/init`. Unwrap-or a
-            // fresh-uuid fallback only fires if init never landed,
-            // which shouldn't happen in --print stream-json but keeps
-            // the field load-bearing.
+            // session_id is captured from `system/init`. The
+            // fresh-UUID fallback only fires if `system/init` was
+            // dropped — shouldn't occur with stream-json discipline,
+            // but keeps the turn unblocked if it does. The synthesized
+            // id never matches a real Claude session id, so a
+            // `--resume` against it would mint a new session — correct
+            // fail-open behavior for a runtime invariant we can't
+            // enforce.
             let session_id = self
                 .session_id
                 .clone()
@@ -995,9 +999,11 @@ fn stop_reason_from_str(s: &str) -> AgentStopReason {
 }
 
 /// Phase 24 — accumulate per-turn usage across `message.usage` blocks
-/// from successive assistant envelopes. Anthropic's Messages API
-/// reports cumulative counts per envelope; taking the maximum on each
-/// field is the correct merge.
+/// from successive assistant envelopes. Each envelope carries the
+/// running cumulative total for the turn so far (Anthropic's Messages
+/// API never reports per-delta usage); taking the maximum on each
+/// field captures the final cumulative count without regressing on a
+/// stale earlier envelope.
 fn merge_usage(prev: TokenUsage, usage: &Value) -> TokenUsage {
     let pick = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0) as u32;
     TokenUsage {
@@ -1927,8 +1933,8 @@ mod tests {
     // shape-compatible with both forms.
     // ----------------------------------------------------------------
 
-    fn collect_phase24<'a>(
-        translator: &'a mut ClaudeStreamTranslator,
+    fn collect_phase24(
+        translator: &mut ClaudeStreamTranslator,
         lines: &[&str],
     ) -> Vec<OrchestratorEvent> {
         let mut out = Vec::new();

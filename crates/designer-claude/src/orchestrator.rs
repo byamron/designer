@@ -71,8 +71,13 @@ pub struct TeamSpec {
     /// Phase 24 (ADR 0008) — emit the new `AgentTurn*` chat-domain
     /// events from the stream translator instead of the legacy
     /// `MessagePosted` / `ArtifactProduced` flow. Read from the
-    /// `show_chat_v2` feature flag at spawn time. Additive on the wire
-    /// so legacy specs decode as `false` (legacy emission).
+    /// `show_chat_v2` feature flag at spawn time and held for the
+    /// lifetime of this subprocess — flipping the flag mid-session
+    /// only takes effect after the next respawn (model swap, dead-
+    /// team recovery, or the user closing and re-opening the tab).
+    /// `false` keeps the legacy emission path live for renderer
+    /// compatibility until the Phase 24 frontend rewrite ships.
+    /// Additive on the wire so legacy specs decode as `false`.
     #[serde(default)]
     pub phase24: bool,
 }

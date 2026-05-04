@@ -86,12 +86,14 @@ function stubClient(artifacts: ArtifactSummary[]): IpcClient {
         show_all_artifacts_in_spine: false,
         show_roadmap_canvas: false,
         show_recent_reports_v2: false,
+        show_chat_v2: false,
       }),
     setFeatureFlag: (
       name:
         | "show_models_section"
         | "show_all_artifacts_in_spine"
-        | "show_recent_reports_v2",
+        | "show_recent_reports_v2"
+        | "show_chat_v2",
       enabled: boolean,
     ) =>
       Promise.resolve({
@@ -100,6 +102,7 @@ function stubClient(artifacts: ArtifactSummary[]): IpcClient {
           name === "show_all_artifacts_in_spine" ? enabled : false,
         show_recent_reports_v2:
           name === "show_recent_reports_v2" ? enabled : false,
+        show_chat_v2: name === "show_chat_v2" ? enabled : false,
       }),
     reportFriction: noop,
     listFriction: () => Promise.resolve([]),
@@ -166,7 +169,9 @@ describe("ActivitySpine — designer:focus-artifact handler (DP-B)", () => {
     });
 
     await waitFor(() => {
-      const flashed = container.querySelector('.spine-artifact[data-flash="true"]');
+      const flashed = container.querySelector(
+        '.spine-artifact[data-flash="true"]',
+      );
       expect(flashed).not.toBeNull();
     });
   });
@@ -190,7 +195,9 @@ describe("ActivitySpine — designer:focus-artifact handler (DP-B)", () => {
     });
 
     // No row was flashed.
-    expect(container.querySelector('.spine-artifact[data-flash="true"]')).toBeNull();
+    expect(
+      container.querySelector('.spine-artifact[data-flash="true"]'),
+    ).toBeNull();
   });
 
   it("removes its event listener on unmount (no leak across tabs)", async () => {

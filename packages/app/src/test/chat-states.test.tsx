@@ -35,7 +35,8 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     resolveApproval: (id, granted, reason) =>
       Promise.resolve(mock.resolveApproval(id, granted, reason)),
     listArtifacts: (w) => Promise.resolve(mock.listArtifacts(w)),
-    listArtifactsInTab: (w, t) => Promise.resolve(mock.listArtifactsInTab(w, t)),
+    listArtifactsInTab: (w, t) =>
+      Promise.resolve(mock.listArtifactsInTab(w, t)),
     listSpineArtifacts: (w) => Promise.resolve(mock.listSpineArtifacts(w)),
     listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
     getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -79,16 +80,19 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
         show_all_artifacts_in_spine: false,
         show_roadmap_canvas: false,
         show_recent_reports_v2: false,
+        show_chat_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve({
         show_models_section: name === "show_models_section" ? enabled : false,
-        show_all_artifacts_in_spine: name === "show_all_artifacts_in_spine" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
         show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
-        show_recent_reports_v2: name === "show_recent_reports_v2" ? enabled : false,
+        show_recent_reports_v2:
+          name === "show_recent_reports_v2" ? enabled : false,
+        show_chat_v2: name === "show_chat_v2" ? enabled : false,
       }),
-    reportFriction: () =>
-      Promise.resolve({ friction_id: "f", local_path: "" }),
+    reportFriction: () => Promise.resolve({ friction_id: "f", local_path: "" }),
     listFriction: () => Promise.resolve([]),
     resolveFriction: () => Promise.resolve(),
     addressFriction: () => Promise.resolve(),
@@ -101,8 +105,16 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
-  getRoadmap: () => Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null, roadmap_path: "core-docs/roadmap.md" }),
-  setNodeStatus: () => Promise.resolve(),
+    getRoadmap: () =>
+      Promise.resolve({
+        tree: null,
+        parse_error: null,
+        claims: [],
+        shipments: [],
+        source_hash: null,
+        roadmap_path: "core-docs/roadmap.md",
+      }),
+    setNodeStatus: () => Promise.resolve(),
     writeRoadmapDraft: () => Promise.resolve(),
     listRecentReports: () => Promise.resolve([]),
     getReportsUnreadCount: () => Promise.resolve(0),
@@ -147,9 +159,8 @@ describe("WorkspaceThread activity model (B7, B14, B17)", () => {
     );
     fireEvent.change(ta!, { target: { value: "go" } });
 
-    const sendBtn = document.querySelector<HTMLButtonElement>(
-      ".btn-icon--primary",
-    )!;
+    const sendBtn =
+      document.querySelector<HTMLButtonElement>(".btn-icon--primary")!;
     expect(sendBtn.disabled).toBe(false);
 
     fireEvent.click(sendBtn);

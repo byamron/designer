@@ -79,13 +79,17 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
         show_all_artifacts_in_spine: false,
         show_roadmap_canvas: false,
         show_recent_reports_v2: false,
+        show_chat_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve({
         show_models_section: name === "show_models_section" ? enabled : false,
-        show_all_artifacts_in_spine: name === "show_all_artifacts_in_spine" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
         show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
-        show_recent_reports_v2: name === "show_recent_reports_v2" ? enabled : false,
+        show_recent_reports_v2:
+          name === "show_recent_reports_v2" ? enabled : false,
+        show_chat_v2: name === "show_chat_v2" ? enabled : false,
       }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_stub_abcdef", local_path: "" }),
@@ -101,8 +105,16 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
-  getRoadmap: () => Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null, roadmap_path: "core-docs/roadmap.md" }),
-  setNodeStatus: () => Promise.resolve(),
+    getRoadmap: () =>
+      Promise.resolve({
+        tree: null,
+        parse_error: null,
+        claims: [],
+        shipments: [],
+        source_hash: null,
+        roadmap_path: "core-docs/roadmap.md",
+      }),
+    setNodeStatus: () => Promise.resolve(),
     writeRoadmapDraft: () => Promise.resolve(),
     listRecentReports: () => Promise.resolve([]),
     getReportsUnreadCount: () => Promise.resolve(0),
@@ -123,7 +135,9 @@ describe("FrictionWidget — Track 13.M composer-default flow", () => {
 
   it("does not render while frictionMode === 'off'", () => {
     render(<FrictionWidget />);
-    expect(screen.queryByRole("dialog", { name: /capture friction/i })).toBeNull();
+    expect(
+      screen.queryByRole("dialog", { name: /capture friction/i }),
+    ).toBeNull();
   });
 
   it("opens with the body textarea autofocused on ⌘⇧F", async () => {
@@ -175,7 +189,7 @@ describe("FrictionWidget — Track 13.M composer-default flow", () => {
         frictionMode: "composing",
         frictionAnchor: {
           kind: "dom-element",
-          selectorPath: "[data-component=\"WorkspaceSidebar\"]",
+          selectorPath: '[data-component="WorkspaceSidebar"]',
           route: "/workspace/x",
           component: "WorkspaceSidebar",
           stableId: undefined,
@@ -362,7 +376,10 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
     // strictly local to this test. Without restoration the stub leaks
     // into every later test in the same vitest worker that touches
     // navigator.clipboard.
-    const originalClipboard = Object.getOwnPropertyDescriptor(window.navigator, "clipboard");
+    const originalClipboard = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "clipboard",
+    );
     const writeText = vi.fn(async (_text: string) => {});
     Object.defineProperty(window.navigator, "clipboard", {
       value: { writeText },
@@ -371,17 +388,30 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
 
     try {
       const entries = [
-        makeEntry({ friction_id: "frc_a", local_path: "/tmp/.designer/friction/frc_a.md" }),
-        makeEntry({ friction_id: "frc_b", local_path: "/tmp/.designer/friction/frc_b.md" }),
-        makeEntry({ friction_id: "frc_c", local_path: "/tmp/.designer/friction/frc_c.md" }),
+        makeEntry({
+          friction_id: "frc_a",
+          local_path: "/tmp/.designer/friction/frc_a.md",
+        }),
+        makeEntry({
+          friction_id: "frc_b",
+          local_path: "/tmp/.designer/friction/frc_b.md",
+        }),
+        makeEntry({
+          friction_id: "frc_c",
+          local_path: "/tmp/.designer/friction/frc_c.md",
+        }),
       ];
-      __setIpcClient(stubClient({ listFriction: () => Promise.resolve(entries) }));
+      __setIpcClient(
+        stubClient({ listFriction: () => Promise.resolve(entries) }),
+      );
 
       render(<FrictionTriageSection />);
 
       // Wait for the rows to render so the button label has settled to the
       // real count rather than the empty-list placeholder.
-      const button = await screen.findByRole("button", { name: /Triage 3 with agent/i });
+      const button = await screen.findByRole("button", {
+        name: /Triage 3 with agent/i,
+      });
       fireEvent.click(button);
 
       await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
@@ -402,7 +432,8 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
       } else {
         // jsdom doesn't ship a clipboard descriptor by default; if there
         // wasn't one before, drop ours rather than leave a stub behind.
-        delete (window.navigator as unknown as { clipboard?: unknown }).clipboard;
+        delete (window.navigator as unknown as { clipboard?: unknown })
+          .clipboard;
       }
     }
   });
@@ -420,7 +451,9 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
 
     render(<FrictionTriageSection />);
 
-    const button = await screen.findByRole("button", { name: /Triage with agent/i });
+    const button = await screen.findByRole("button", {
+      name: /Triage with agent/i,
+    });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(button.textContent).not.toMatch(/0/);
 
@@ -455,14 +488,22 @@ describe("FrictionTriageSection — agent-driven triage redesign", () => {
       stubClient({
         listFriction: () =>
           Promise.resolve([
-            makeEntry({ friction_id: "frc_open_x", title: "Open thing", state: "open" }),
+            makeEntry({
+              friction_id: "frc_open_x",
+              title: "Open thing",
+              state: "open",
+            }),
             makeEntry({
               friction_id: "frc_addr_y",
               title: "Agent thing",
               state: "addressed",
               pr_url: "https://github.com/owner/repo/pull/42",
             }),
-            makeEntry({ friction_id: "frc_done_z", title: "Done thing", state: "resolved" }),
+            makeEntry({
+              friction_id: "frc_done_z",
+              title: "Done thing",
+              state: "resolved",
+            }),
           ]),
       }),
     );
@@ -554,21 +595,31 @@ describe("FrictionTriageSection — agent-driven triage redesign", () => {
     __setIpcClient(
       stubClient({
         listFriction: () =>
-          Promise.resolve([makeEntry({ friction_id: "frc_one", state: "open" })]),
+          Promise.resolve([
+            makeEntry({ friction_id: "frc_one", state: "open" }),
+          ]),
       }),
     );
 
     render(<FrictionTriageSection />);
 
-    const trigger = await screen.findByRole("button", { name: /more actions/i });
+    const trigger = await screen.findByRole("button", {
+      name: /more actions/i,
+    });
     fireEvent.click(trigger);
 
     // Open state hides "Reopen" but exposes "Mark resolved", plus the
     // always-on file actions and the agent prompt copy.
-    expect(await screen.findByRole("menuitem", { name: /copy prompt for agent/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /show in finder/i })).toBeTruthy();
+    expect(
+      await screen.findByRole("menuitem", { name: /copy prompt for agent/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("menuitem", { name: /show in finder/i }),
+    ).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /^copy path$/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /mark resolved/i })).toBeTruthy();
+    expect(
+      screen.getByRole("menuitem", { name: /mark resolved/i }),
+    ).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: /^reopen$/i })).toBeNull();
   });
 
@@ -577,10 +628,18 @@ describe("FrictionTriageSection — agent-driven triage redesign", () => {
     const minute = 60 * 1000;
     const hour = 60 * minute;
     const day = 24 * hour;
-    expect(formatRelativeTime(new Date(now - 30 * 1000).toISOString(), now)).toBe("just now");
-    expect(formatRelativeTime(new Date(now - 5 * minute).toISOString(), now)).toBe("5m ago");
-    expect(formatRelativeTime(new Date(now - 3 * hour).toISOString(), now)).toBe("3h ago");
-    expect(formatRelativeTime(new Date(now - 2 * day).toISOString(), now)).toBe("2d ago");
+    expect(
+      formatRelativeTime(new Date(now - 30 * 1000).toISOString(), now),
+    ).toBe("just now");
+    expect(
+      formatRelativeTime(new Date(now - 5 * minute).toISOString(), now),
+    ).toBe("5m ago");
+    expect(
+      formatRelativeTime(new Date(now - 3 * hour).toISOString(), now),
+    ).toBe("3h ago");
+    expect(formatRelativeTime(new Date(now - 2 * day).toISOString(), now)).toBe(
+      "2d ago",
+    );
     // Past one week → compact month+day, no year inside the same calendar year.
     const twoWeeksBack = new Date("2026-04-19T12:00:00Z").toISOString();
     expect(formatRelativeTime(twoWeeksBack, now)).toMatch(/^Apr 19$/);
@@ -588,7 +647,9 @@ describe("FrictionTriageSection — agent-driven triage redesign", () => {
     const lastYear = new Date("2025-11-10T12:00:00Z").toISOString();
     expect(formatRelativeTime(lastYear, now)).toMatch(/^Nov 10, 2025$/);
     // Future timestamp (clock skew) reads as "just now", not a negative duration.
-    expect(formatRelativeTime(new Date(now + 5 * minute).toISOString(), now)).toBe("just now");
+    expect(
+      formatRelativeTime(new Date(now + 5 * minute).toISOString(), now),
+    ).toBe("just now");
   });
 
   it("humanizeAnchor renders developer-shaped descriptors as manager-readable strings", () => {
