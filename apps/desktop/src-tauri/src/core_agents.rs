@@ -151,9 +151,13 @@ impl AppCore {
         // is currently running on, force a respawn before the message
         // dispatches. Claude takes `--model` once at process start; the
         // only way to change models for an existing session is to
-        // restart the subprocess. Session id is workspace-derived
-        // (UUIDv5) so Claude resumes the same session — conversation
-        // history is preserved across the swap.
+        // restart the subprocess. Cut 1 (2026-05-03): the new
+        // subprocess gets a fresh random session id, so model swap
+        // resets Claude's *internal* short-term memory — the
+        // user-facing transcript persists in `events.db` and renders
+        // unchanged. The prior deterministic-session-id scheme tried
+        // to preserve in-process memory across the swap and was the
+        // source of the "Session ID is already in use" hang.
         //
         // Phase 23.E: model is per-tab, so the comparator is keyed by
         // `(workspace, tab)` — switching model on tab A does not
@@ -169,6 +173,20 @@ impl AppCore {
                 to = ?requested_cli_model,
                 "model change requested; respawning tab team"
             );
+            // Fast-kill the live subprocess before respawning so the
+            // deterministic per-tab session id is released before the
+            // new claude tries to claim it. Without this, the new spawn
+            // dies with `Error: Session ID … is already in use` and the
+            // user sees a forever-spinning chat. Only the model-change
+            // path needs this — the dead-team recovery branch below
+            // (`TeamNotFound` / `ChannelClosed`) already runs after the
+            // subprocess is gone, so its session id is free. Skipped
+            // when there's no prior team (first-post lazy spawn) so
+            // tests + boot-path don't pay an unnecessary kill round-
+            // trip.
+            if current_cli_model.is_some() {
+                let _ = self.orchestrator.kill(workspace_id, dispatch_tab).await;
+            }
             self.spawn_tab_team(workspace_id, dispatch_tab, requested_cli_model.clone())
                 .await
                 .map_err(|e| CoreError::Invariant(format!("couldn't reach Claude — {e}")))?;
@@ -1375,6 +1393,13 @@ mod tests {
         calls: std::sync::atomic::AtomicU32,
         spawn_calls: std::sync::atomic::AtomicU32,
         shutdown_calls: std::sync::atomic::AtomicU32,
+        kill_calls: std::sync::atomic::AtomicU32,
+        // Records `("kill" | "spawn" | "post" | "shutdown", call_index)`
+        // tuples in invocation order so model-change tests can assert
+        // that `kill` runs *before* the matching `spawn`. Without an
+        // ordered log, atomic counters alone can't distinguish "killed
+        // before respawn" (correct) from "spawned then killed" (wrong).
+        call_order: parking_lot::Mutex<Vec<&'static str>>,
         second_post_result: parking_lot::Mutex<Option<designer_claude::OrchestratorError>>,
     }
 
@@ -1384,6 +1409,7 @@ mod tests {
         async fn spawn_team(&self, _spec: TeamSpec) -> designer_claude::OrchestratorResult<()> {
             self.spawn_calls
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.call_order.lock().push("spawn");
             Ok(())
         }
         async fn assign_task(
@@ -1401,6 +1427,7 @@ mod tests {
             _author_role: String,
             _body: String,
         ) -> designer_claude::OrchestratorResult<()> {
+            self.call_order.lock().push("post");
             let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if n == 0 {
                 Err(designer_claude::OrchestratorError::ChannelClosed {
@@ -1431,6 +1458,17 @@ mod tests {
         ) -> designer_claude::OrchestratorResult<()> {
             self.shutdown_calls
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.call_order.lock().push("shutdown");
+            Ok(())
+        }
+        async fn kill(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+        ) -> designer_claude::OrchestratorResult<()> {
+            self.kill_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.call_order.lock().push("kill");
             Ok(())
         }
         async fn interrupt(
@@ -1450,6 +1488,8 @@ mod tests {
             calls: std::sync::atomic::AtomicU32::new(0),
             spawn_calls: std::sync::atomic::AtomicU32::new(0),
             shutdown_calls: std::sync::atomic::AtomicU32::new(0),
+            kill_calls: std::sync::atomic::AtomicU32::new(0),
+            call_order: parking_lot::Mutex::new(Vec::new()),
             second_post_result: parking_lot::Mutex::new(None),
         });
         let dir = tempdir().unwrap();
@@ -1610,6 +1650,102 @@ mod tests {
         assert_eq!(flaky.calls.load(Ordering::SeqCst), 2);
     }
 
+    /// Regression guard for the chat-hangs-on-model-swap bug.
+    ///
+    /// When the user changes the chat model mid-conversation, Claude's
+    /// `--session-id` is deterministic per `(workspace, tab)` — the
+    /// **old** subprocess holds that session id until it fully exits.
+    /// If we spawn the new claude before tearing down the old one, the
+    /// new spawn dies with `Error: Session ID … is already in use` and
+    /// the user sees a forever-spinning chat. The fix: `kill` the team
+    /// before `spawn_team` runs on the model-change branch (skipped on
+    /// the lazy-first-spawn path where there's no prior team to kill).
+    ///
+    /// Asserts:
+    /// 1. First post pins a model, no kill (no prior team).
+    /// 2. Same-model repost: no kill, no new spawn.
+    /// 3. Different-model post: kill *runs before* the new spawn.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn model_change_kills_before_spawn() {
+        use std::sync::atomic::Ordering;
+
+        let (core, flaky) = boot_core_with_flaky().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+
+        // First post: lazy-spawn, no kill (no prior team).
+        core.post_message(ws.id, None, Some("haiku-4.5".into()), "first".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            flaky.kill_calls.load(Ordering::SeqCst),
+            0,
+            "first post must not call kill — there is no prior team"
+        );
+        let spawns_after_first = flaky.spawn_calls.load(Ordering::SeqCst);
+        assert!(
+            spawns_after_first >= 1,
+            "first post should have spawned at least once"
+        );
+
+        // Reset the call_order log so the model-swap assertion below
+        // only sees the swap-driven calls.
+        flaky.call_order.lock().clear();
+
+        // Same-model repost: no kill, no new spawn.
+        let kills_before = flaky.kill_calls.load(Ordering::SeqCst);
+        let spawns_before = flaky.spawn_calls.load(Ordering::SeqCst);
+        core.post_message(ws.id, None, Some("haiku-4.5".into()), "second".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            flaky.kill_calls.load(Ordering::SeqCst),
+            kills_before,
+            "same-model repost must not call kill"
+        );
+        assert_eq!(
+            flaky.spawn_calls.load(Ordering::SeqCst),
+            spawns_before,
+            "same-model repost must not respawn"
+        );
+
+        // Reset the call_order again to isolate the swap.
+        flaky.call_order.lock().clear();
+
+        // Model swap: kill must run, and it must run BEFORE the new
+        // spawn — not after.
+        core.post_message(ws.id, None, Some("sonnet-4.6".into()), "third".into())
+            .await
+            .unwrap();
+        assert!(
+            flaky.kill_calls.load(Ordering::SeqCst) > kills_before,
+            "model swap must call kill at least once"
+        );
+        let order = flaky.call_order.lock().clone();
+        let kill_idx = order.iter().position(|c| *c == "kill");
+        let spawn_idx = order.iter().position(|c| *c == "spawn");
+        assert!(
+            kill_idx.is_some(),
+            "model swap must invoke kill (call_order: {order:?})"
+        );
+        assert!(
+            spawn_idx.is_some(),
+            "model swap must invoke spawn (call_order: {order:?})"
+        );
+        assert!(
+            kill_idx.unwrap() < spawn_idx.unwrap(),
+            "kill must precede spawn on model swap so the deterministic \
+             session id is released before the new claude tries to \
+             claim it (call_order: {order:?})"
+        );
+    }
+
     /// The frontend identifier → Claude CLI model mapper is the
     /// contract the IPC layer commits to. Lock the mapping so a future
     /// model rename has to update both ends together.
@@ -1714,9 +1850,11 @@ mod tests {
     // ----------------------------------------------------------------
     // Phase 23.E acceptance tests (T-23E-2 .. T-23E-6).
     //
-    // T-23E-1 (distinct session ids) is in-crate alongside
-    // `derive_session_id` — see
-    // `designer-claude::claude_code::tests::session_id_is_deterministic_per_workspace_and_tab`.
+    // T-23E-1 (distinct session ids) was retired in Cut 1 (2026-05-03)
+    // along with the deterministic-session-id scheme — every spawn now
+    // gets a fresh random id, so per-tab uniqueness is a stdlib
+    // guarantee, not a Designer invariant. See
+    // `designer-claude::claude_code::tests::no_deterministic_session_seed_remains`.
     // ----------------------------------------------------------------
 
     /// Build an `AppCore` whose orchestrator is a fresh `MockOrchestrator`
@@ -2003,6 +2141,16 @@ mod tests {
             _tab_id: TabId,
         ) -> designer_claude::OrchestratorResult<()> {
             tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok(())
+        }
+        async fn kill(
+            &self,
+            _ws: WorkspaceId,
+            _tab_id: TabId,
+        ) -> designer_claude::OrchestratorResult<()> {
+            // Override the default trait impl (which would delegate to
+            // the 30-second `shutdown`) so model-change tests against a
+            // stalling orchestrator return promptly.
             Ok(())
         }
         async fn interrupt(

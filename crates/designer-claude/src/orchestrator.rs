@@ -234,6 +234,20 @@ pub trait Orchestrator: Send + Sync {
     /// open tabs and call this for each.
     async fn shutdown(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()>;
 
+    /// Fast teardown: skip the graceful "Clean up the team" turn and kill
+    /// the subprocess immediately. Required by the model-change respawn
+    /// path — Claude's `--session-id` is deterministic per `(workspace,
+    /// tab)`, and a healthy old subprocess holds that id until it exits;
+    /// the new spawn would die with `Session ID … is already in use`. We
+    /// can't pay the 60-second `SHUTDOWN_TIMEOUT` budget for a model swap.
+    ///
+    /// Default implementation delegates to `shutdown` so mock orchestrators
+    /// without subprocesses behave identically. Real-Claude impls override
+    /// with `start_kill` + `wait` + abort-tasks (sub-100 ms).
+    async fn kill(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
+        self.shutdown(workspace_id, tab_id).await
+    }
+
     /// Phase 23.F — abort Claude's current turn for one tab without tearing
     /// down the team. Sends an `interrupt` control_request over stdin so the
     /// model bails on whatever it's producing right now; the session stays

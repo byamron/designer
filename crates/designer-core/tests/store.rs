@@ -842,3 +842,100 @@ async fn legacy_message_without_tab_id_projects_to_first_tab() {
         "legacy msg should NOT appear in the second tab"
     );
 }
+
+/// Replay-order race: a legacy `Message` `ArtifactCreated` event with
+/// `tab_id: None` may be applied **before** any `TabOpened` event in
+/// the stream (the workspace's tabs were created later in the user's
+/// history). The apply-time attribution falls through to `None`
+/// because no tab exists yet — and Phase 23.E's strict tab match
+/// would hide the message forever. The query-side fallback in
+/// `artifacts_in_tab` must surface it on the workspace's first tab
+/// once tabs do exist.
+#[tokio::test]
+async fn legacy_message_before_any_tab_event_surfaces_on_first_tab() {
+    use designer_core::{TabId, TabTemplate};
+
+    let store = SqliteEventStore::open_in_memory().unwrap();
+    let projector = Projector::new();
+    let project_id = ProjectId::new();
+    let workspace_id = WorkspaceId::new();
+    let later_tab = TabId::new();
+
+    // Order matters: workspace exists, then a legacy message lands
+    // *before* any tab is created.
+    let envs = vec![
+        store
+            .append(
+                StreamId::Project(project_id),
+                None,
+                Actor::user(),
+                EventPayload::ProjectCreated {
+                    project_id,
+                    name: "P".into(),
+                    root_path: PathBuf::from("/tmp/p"),
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceCreated {
+                    workspace_id,
+                    project_id,
+                    name: "ws".into(),
+                    base_branch: "main".into(),
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::ArtifactCreated {
+                    artifact_id: ArtifactId::new(),
+                    workspace_id,
+                    artifact_kind: ArtifactKind::Message,
+                    title: "orphan".into(),
+                    summary: "orphan".into(),
+                    payload: PayloadRef::inline("orphan"),
+                    author_role: Some("user".into()),
+                    tab_id: None,
+                },
+            )
+            .await
+            .unwrap(),
+        store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabOpened {
+                    tab_id: later_tab,
+                    workspace_id,
+                    title: "Tab opened later".into(),
+                    template: TabTemplate::Thread,
+                },
+            )
+            .await
+            .unwrap(),
+    ];
+    for env in &envs {
+        projector.apply(env);
+    }
+
+    let in_tab = projector.artifacts_in_tab(workspace_id, later_tab);
+    assert_eq!(
+        in_tab
+            .iter()
+            .filter(|a| a.kind == ArtifactKind::Message)
+            .count(),
+        1,
+        "orphan legacy message should surface on the workspace's first tab \
+         even though it landed in the stream before any TabOpened event"
+    );
+}
