@@ -39,11 +39,13 @@ export function RecentReportsSection({ projectId }: { projectId: ProjectId }) {
   const [error, setError] = useState<string | null>(null);
   const [visibleCap, setVisibleCap] = useState<number>(DEFAULT_VISIBLE);
   const [disclosure, setDisclosure] = useState<Record<string, Disclosure>>({});
-  // Once `markReportsRead` resolves, we want the unread badge to flip
-  // immediately rather than waiting for the next refetch — track that
-  // locally so we don't need to round-trip through the backend on the
-  // expand path.
-  const markedRef = useRef(false);
+  // Implicit-mark guard: clicking to expand a row counts as "I've
+  // seen it", but we don't want to fire the IPC on every subsequent
+  // expand within the same session. The explicit "Mark all read"
+  // footer is NOT gated by this — if a new report lands after the
+  // implicit mark fired, the user can still flush the badge to zero
+  // by clicking the footer.
+  const implicitMarkedRef = useRef(false);
 
   const refetch = useCallback(async () => {
     setError(null);
@@ -72,7 +74,7 @@ export function RecentReportsSection({ projectId }: { projectId: ProjectId }) {
   useEffect(() => {
     setVisibleCap(DEFAULT_VISIBLE);
     setDisclosure({});
-    markedRef.current = false;
+    implicitMarkedRef.current = false;
   }, [projectId]);
 
   const showMore = useCallback(() => {
@@ -84,16 +86,22 @@ export function RecentReportsSection({ projectId }: { projectId: ProjectId }) {
   }, [reports]);
 
   const markRead = useCallback(async () => {
-    if (markedRef.current) return;
-    markedRef.current = true;
     try {
       const remaining = await ipcClient().markReportsRead(projectId);
       setUnread(remaining);
     } catch {
-      // Allow a future explicit "Mark all read" click to retry.
-      markedRef.current = false;
+      // Swallow — the next refetch will reconcile, and the user can
+      // try again. We don't surface a toast for a transient failure.
     }
   }, [projectId]);
+
+  // Implicit path: only fire the IPC the first time per session.
+  // Avoids N IPC calls when the user expands several rows in a row.
+  const markReadImplicit = useCallback(async () => {
+    if (implicitMarkedRef.current) return;
+    implicitMarkedRef.current = true;
+    await markRead();
+  }, [markRead]);
 
   const onToggle = useCallback(
     (id: string) => {
@@ -104,12 +112,12 @@ export function RecentReportsSection({ projectId }: { projectId: ProjectId }) {
         } else {
           next[id] = "expanded";
           // Implicit-mark: any inline expand counts as "I've seen it".
-          void markRead();
+          void markReadImplicit();
         }
         return next;
       });
     },
-    [markRead],
+    [markReadImplicit],
   );
 
   const visible = useMemo(
@@ -158,7 +166,7 @@ export function RecentReportsSection({ projectId }: { projectId: ProjectId }) {
               row={row}
               expanded={disclosure[row.artifact_id] === "expanded"}
               onToggle={() => onToggle(row.artifact_id)}
-              onOpenedTab={markRead}
+              onOpenedTab={markReadImplicit}
             />
           ))}
         </ul>
@@ -264,42 +272,43 @@ function RecentReportRowView({
       data-expanded={expanded || undefined}
       data-classification={row.classification}
     >
-      <button
-        type="button"
-        className="recent-reports__toggle"
-        aria-expanded={expanded}
-        aria-controls={`recent-report-detail-${row.artifact_id}`}
-        onClick={onToggle}
-      >
-        <span
-          className="recent-reports__chip"
-          data-classification={row.classification}
+      {/* Toggle button + PR link are siblings, not nested. Nesting an
+          `<a>` inside a `<button>` is invalid HTML; keyboard focus
+          skips the inner link in most browsers and screen readers
+          drop it from the accessibility tree. Same anti-pattern the
+          FrictionTriageRow refactor ripped out. */}
+      <div className="recent-reports__head">
+        <button
+          type="button"
+          className="recent-reports__toggle"
+          aria-expanded={expanded}
+          aria-controls={`recent-report-detail-${row.artifact_id}`}
+          onClick={onToggle}
         >
-          {CLASSIFICATION_LABELS[row.classification]}
-        </span>
-        <span className="recent-reports__summary" title={row.summary_high}>
-          {row.summary_high}
-        </span>
-        <span className="recent-reports__meta">
+          <span
+            className="recent-reports__chip"
+            data-classification={row.classification}
+          >
+            {CLASSIFICATION_LABELS[row.classification]}
+          </span>
+          <span className="recent-reports__summary" title={row.summary_high}>
+            {row.summary_high}
+          </span>
           <span className="recent-reports__workspace" title={row.workspace_name}>
             {row.workspace_name}
           </span>
-          {row.pr_url && (
-            <>
-              <span aria-hidden="true">·</span>
-              <a
-                className="recent-reports__pr"
-                href={row.pr_url}
-                target="_blank"
-                rel="noreferrer noopener"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {shortPrLabel(row.pr_url)}
-              </a>
-            </>
-          )}
-        </span>
-      </button>
+        </button>
+        {row.pr_url && (
+          <a
+            className="recent-reports__pr"
+            href={row.pr_url}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            {shortPrLabel(row.pr_url)}
+          </a>
+        )}
+      </div>
       {expanded && (
         <div
           className="recent-reports__detail"

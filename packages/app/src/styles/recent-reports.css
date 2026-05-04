@@ -24,6 +24,17 @@
   flex-direction: column;
 }
 
+/* Top-row layout: the toggle button (chip + summary + workspace
+ * label) on the left grows, the PR link sits as a sibling on the
+ * right. Siblings — not nested — so the link is reachable by
+ * keyboard and announced by screen readers as its own affordance. */
+.recent-reports__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+
 .recent-reports__toggle {
   all: unset;
   cursor: pointer;
@@ -31,8 +42,8 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) 0;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   box-sizing: border-box;
 }
 
@@ -40,6 +51,15 @@
   outline: var(--focus-outline-width) solid var(--focus-outline-color);
   outline-offset: var(--focus-outline-offset);
   border-radius: var(--radius-badge);
+}
+
+.recent-reports__workspace {
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  font-family: var(--type-family-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .recent-reports__chip {
@@ -92,25 +112,25 @@
   text-align: left;
 }
 
-.recent-reports__meta {
+.recent-reports__pr {
   color: var(--color-muted);
   font-size: var(--type-caption-size);
   font-family: var(--type-family-mono);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  white-space: nowrap;
-}
-
-.recent-reports__pr {
-  color: var(--color-muted);
   text-decoration: none;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .recent-reports__pr:hover,
 .recent-reports__pr:focus-visible {
   color: var(--color-foreground);
   text-decoration: underline;
+}
+
+.recent-reports__pr:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+  border-radius: var(--radius-badge);
 }
 
 .recent-reports__detail {
