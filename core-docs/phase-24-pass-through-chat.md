@@ -310,7 +310,7 @@ Test: trigger each error state in §5.6 via fixture or live test. Assert user-fa
 
 ## 8. Open questions
 
-- **Q1** — Flag-gating strategy. Options: (a) compile-time `--features phase-24-chat` for clean rollout in dev/staging; (b) runtime `show_chat_v2` feature flag with default-off in dogfood for one week, default-on after; (c) hard cut-over with rollback via `git revert`. *Recommendation:* (b) — runtime flag gives observability and a kill switch. Dispatch decision before workspace start.
+- **Q1 — RESOLVED 2026-05-04.** Runtime `show_chat_v2` flag gating, default off in dogfood for one week, default on after. Settings → Preferences toggle, follows the existing `show_models_section` / `show_recent_reports_v2` / `show_roadmap_canvas` template. Two-week stable-dogfood window before flipping the default permanently and deleting the flag in a follow-up PR. Provides kill switch + per-user observability + smooth rollback if a regression escapes.
 - **Q2** — Multi-agent / sub-agent chat in Phase 25+. The single-subprocess-per-tab model assumes one agent per tab; future phases may want N agents per tab. The new event contract supports this (`turn_id` is per-message; a tab can have interleaved turns from multiple agent sessions if Designer routes them so). Out of scope for Phase 24, tracked here as a forward-compat checkpoint.
 - **Q3** — Thinking-block default disclosure. Spec says default-collapsed; some users may prefer default-expanded for transparency. *Recommendation:* default-collapsed for v1, add a per-project preference in a follow-up if dogfood signal asks.
 - **Q4** — Scroll-anchor behavior when a 5000-token response streams in. Out of scope for the architectural spec; assigned as a Phase 24.a polish pass after first dogfood.
