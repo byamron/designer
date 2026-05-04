@@ -866,6 +866,36 @@ export function humanizeAnchor(descriptor: string): string {
   return descriptor;
 }
 
+/// Compact relative-time label for the row meta line. The previous
+/// `toLocaleString()` (e.g., "5/3/2026, 2:45:30 PM") wraps badly at the
+/// 960px min window; "2h ago" / "3d ago" reads as the manager-grade
+/// "when, roughly" the surface actually wants. Falls back to a compact
+/// month+day for anything older than a week, plus a year suffix when the
+/// entry is older than the current calendar year. Pure for unit-testing;
+/// the row passes a stable `now` only in tests — production calls fall
+/// through to `Date.now()` so the relative read keeps ticking forward
+/// across re-renders without explicit time wiring.
+export function formatRelativeTime(iso: string, now: number = Date.now()): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diffMs = now - then;
+  // Future or clock skew → don't render a negative duration; treat the
+  // entry as fresh and let the next refresh reconcile the wall clock.
+  if (diffMs < 0) return "just now";
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  const d = new Date(then);
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  const month = d.toLocaleString(undefined, { month: "short" });
+  return sameYear ? `${month} ${d.getDate()}` : `${month} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
 /// One row in the master list. Split out so the row is a `<li>` with
 /// non-nested-button siblings (chevron toggle + ⋯ menu) rather than the
 /// row-summary `<button>` containing other buttons — invalid HTML.
@@ -938,7 +968,9 @@ function FrictionRow({
             </>
           )}
           <span aria-hidden="true">·</span>
-          <span>{new Date(e.created_at).toLocaleString()}</span>
+          <span title={new Date(e.created_at).toLocaleString()}>
+            {formatRelativeTime(e.created_at)}
+          </span>
         </span>
       </button>
       <div className="friction-triage__actions">

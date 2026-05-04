@@ -8,7 +8,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FrictionWidget } from "../components/Friction/FrictionWidget";
 import { SelectionOverlay } from "../components/Friction/SelectionOverlay";
-import { FrictionTriageSection, humanizeAnchor } from "../layout/SettingsPage";
+import {
+  FrictionTriageSection,
+  formatRelativeTime,
+  humanizeAnchor,
+} from "../layout/SettingsPage";
 import type { FrictionEntry } from "../ipc/types";
 import {
   appStore,
@@ -556,6 +560,25 @@ describe("FrictionTriageSection — agent-driven triage redesign", () => {
     expect(screen.getByRole("menuitem", { name: /^copy path$/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /mark resolved/i })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: /^reopen$/i })).toBeNull();
+  });
+
+  it("formatRelativeTime renders compact buckets and falls back to a date past one week", () => {
+    const now = new Date("2026-05-03T12:00:00Z").getTime();
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    expect(formatRelativeTime(new Date(now - 30 * 1000).toISOString(), now)).toBe("just now");
+    expect(formatRelativeTime(new Date(now - 5 * minute).toISOString(), now)).toBe("5m ago");
+    expect(formatRelativeTime(new Date(now - 3 * hour).toISOString(), now)).toBe("3h ago");
+    expect(formatRelativeTime(new Date(now - 2 * day).toISOString(), now)).toBe("2d ago");
+    // Past one week → compact month+day, no year inside the same calendar year.
+    const twoWeeksBack = new Date("2026-04-19T12:00:00Z").toISOString();
+    expect(formatRelativeTime(twoWeeksBack, now)).toMatch(/^Apr 19$/);
+    // Cross-year entries carry the year.
+    const lastYear = new Date("2025-11-10T12:00:00Z").toISOString();
+    expect(formatRelativeTime(lastYear, now)).toMatch(/^Nov 10, 2025$/);
+    // Future timestamp (clock skew) reads as "just now", not a negative duration.
+    expect(formatRelativeTime(new Date(now + 5 * minute).toISOString(), now)).toBe("just now");
   });
 
   it("humanizeAnchor renders developer-shaped descriptors as manager-readable strings", () => {
