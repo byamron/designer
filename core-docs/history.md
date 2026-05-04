@@ -37,6 +37,42 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 24 Step 1 — chat-domain event vocabulary (foundation)
+**Date:** 2026-05-04
+**Branch:** phase-24-chat-pass-through
+**Status:** In-flight; foundation commit. Phase 24's full implementation continues in 13 subsequent steps on the same branch, behind `show_chat_v2` (default OFF).
+
+**What was done:**
+
+Additively extended `crates/designer-core` with the chat-domain event vocabulary defined in ADR 0008 (`core-docs/adr/0008-phase-24-event-vocabulary.md`). Six new `EventPayload` variants — `AgentTurnStarted`, `AgentContentBlockStarted`, `AgentContentBlockDelta`, `AgentContentBlockEnded`, `AgentToolResult`, `AgentTurnEnded` — projecting Claude Code's stream-json content-block model 1:1 onto Designer's event log. Five supporting types in `domain.rs`: `ClaudeMessageId`, `ClaudeSessionId` (transparent newtypes around the strings Claude emits — Designer does not mint either), `AgentContentBlockKind` (Text / ToolUse / Thinking), `AgentStopReason` (EndTurn / ToolUse / MaxTokens / Interrupted / Error), `TokenUsage`. `CostRecorded` gained additive `tab_id` / `turn_id` fields so per-turn cost can attribute correctly when the new emission path lights up. `EventEnvelope.version` bumped 2 → 3. Round-trip serde tests + a legacy `cost_recorded` decode test pin the additive contract.
+
+**Why:**
+
+Foundation step for the architectural chat pass-through pass (`core-docs/phase-24-pass-through-chat.md`). Phase 24 replaces the bespoke `MessagePosted` + `ArtifactProduced{kind:Report}` two-event split + 120 ms coalescer + synthesized `Idle/Working` state with a typed projection of Claude Code's stream-json — every subsequent step (translator rewrite, coalescer deletion, renderer rewrite) needs these variants to exist before it can emit them.
+
+**Design decisions:**
+
+- `block_kind` on `AgentContentBlockStarted` (not `kind` as the ADR sketches). The outer `EventPayload` enum uses `#[serde(tag = "kind")]`; a variant field also called `kind` collides with the discriminator at serialize time. Same precedent as `ArtifactCreated.artifact_kind`. The ADR §1 type sketch showed `kind: AgentContentBlockKind` for clarity; the runtime constraint forces a rename. Documented in the variant's doc comment so future contributors understand the rename.
+- Additive over destructive. ADR 0008 is explicit: deprecate-don't-delete the legacy chat variants so old event logs decode forever. No `#[deprecated]` attribute on `MessagePosted` itself (it stays load-bearing for `Actor::User` author messages); a doc-comment flag notes the `Actor::Agent` case is deprecated for forward writes. Same pattern for `ArtifactProduced{kind:Report,author_role:agent|workspace-lead}` — the variant stays for non-tool-use Reports.
+- `CostRecorded` extension stays additive too. Existing dogfood machines have months of `cost_recorded` events without `tab_id` / `turn_id`; both fields are `Option<…>` with `#[serde(default)]` so legacy decodes survive. Kept `u64` token / dollar fields (ADR §1's `u32` sketch was aspirational; staying with the existing widths avoids a coercion that doesn't pay rent).
+
+**Technical decisions:**
+
+- All new ID types are `#[serde(transparent)]` newtypes around `String`. Claude's `message_id` and `session_id` are opaque strings, not UUIDs — wrapping them as `Uuid`-typed IDs (the `id_type!` macro's pattern) would force a parse round-trip Designer doesn't need.
+- Envelope version bump comment in `store.rs:379` makes it grep-able: future contributors looking at `version: 3` can find the rationale (1→2 for 13.L Friction; 2→3 for Phase 24 chat) in one place.
+- Round-trip test covers each new variant + each `AgentContentBlockKind` sub-variant. Modeled on the existing `track_events_roundtrip_through_serde` and `friction_events_roundtrip_and_map_kinds` tests so the contract is enforced consistently with prior frozen-vocabulary work.
+
+**Tradeoffs discussed:**
+
+- Strict deletion vs. additive extension. ADR 0008's "Alternatives considered" weighed migration-on-boot, compile-time flag, single raw-JSON variant, and modify-existing-fields. Additive + renderer-side legacy projection won — chat events are dense, migration is fragile, and the projection is small + deletable.
+- Field rename vs. `#[serde(rename = …)]` workaround. Could have kept Rust field name `kind` and renamed the JSON key to something else, but that splits Rust intent from JSON wire format and surprises future readers. Renaming Rust field to `block_kind` is the cleaner fix and matches the codebase precedent (`artifact_kind`).
+
+**Lessons learned:**
+
+- Serde's `tag = "kind"` collision with field-named `kind` is a quiet trap in Rust. The error surfaces only on `cargo check`, not `cargo expand`, and the message ("variant field name `kind` conflicts with internal tag") is precise. Worth flagging in the ADR template for future event-vocabulary additions.
+
+---
+
 ### Phase 23.C — Tool-use rows expand to full payload (three-PR trail)
 **Date:** 2026-05-03 (trail spans 2026-05-02 → 2026-05-03)
 **Branch:** chat-tool-expand → tool-line-polish → tool-line-discoverability

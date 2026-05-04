@@ -92,6 +92,8 @@ mod fixture_data {
                 tokens_input: 1_000,
                 tokens_output: 500,
                 dollars_cents: cents,
+                tab_id: None,
+                turn_id: None,
             },
         )
     }

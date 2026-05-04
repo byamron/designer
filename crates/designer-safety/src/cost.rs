@@ -115,6 +115,7 @@ impl<S: EventStore> CostTracker<S> {
                 tokens_input,
                 tokens_output,
                 dollars_cents,
+                ..
             } = &env.payload
             {
                 let entry = acc.entry(*workspace_id).or_default();
@@ -153,6 +154,8 @@ impl<S: EventStore> CostTracker<S> {
                     tokens_input: delta.tokens_input,
                     tokens_output: delta.tokens_output,
                     dollars_cents: delta.dollars_cents,
+                    tab_id: None,
+                    turn_id: None,
                 },
             )
             .await
@@ -218,6 +221,7 @@ mod tests {
                 tokens_input,
                 tokens_output,
                 dollars_cents,
+                ..
             } = &env.payload
             {
                 let mut entry = usage.entry(*workspace_id).or_default();
@@ -248,6 +252,8 @@ mod tests {
                         tokens_input: i,
                         tokens_output: i * 2,
                         dollars_cents: i * 3 + 7,
+                        tab_id: None,
+                        turn_id: None,
                     },
                 )
                 .await
