@@ -146,8 +146,10 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
         claims: [],
         shipments: [],
         source_hash: null,
+        roadmap_path: "core-docs/roadmap.md",
       }),
     setNodeStatus: () => Promise.resolve(),
+    writeRoadmapDraft: () => Promise.resolve(),
   };
   return { ...defaults, ...overrides };
 }

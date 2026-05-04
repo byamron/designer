@@ -36,6 +36,7 @@ import {
 import { ChevronRight, ExternalLink, Info } from "lucide-react";
 import { IconButton } from "./IconButton";
 import { Tooltip } from "./Tooltip";
+import { SegmentedToggle } from "./SegmentedToggle";
 import { RoadmapStatusCircle } from "./RoadmapStatusCircle";
 import { ipcClient } from "../ipc/client";
 import type {
@@ -99,7 +100,7 @@ export function RoadmapCanvas({ projectId }: { projectId: ProjectId }) {
       <section className="roadmap-canvas" data-component="RoadmapCanvas">
         <RoadmapParseErrorSlab
           error={view.parse_error}
-          onOpenInEditor={() => void openRoadmapInEditor(projectId)}
+          onOpenInEditor={() => void openRoadmapInEditor(view.roadmap_path)}
         />
       </section>
     );
@@ -180,14 +181,15 @@ function RoadmapPhaseStrip({
       <header className="roadmap-phase-strip__header">
         <h3 className="roadmap-phase-strip__title">Roadmap</h3>
         <div className="roadmap-phase-strip__filter">
-          <label className="roadmap-phase-strip__hide-completed">
-            <input
-              type="checkbox"
-              checked={hideCompleted}
-              onChange={(e) => setHideCompleted(e.target.checked)}
-            />
-            <span>Hide completed</span>
-          </label>
+          <SegmentedToggle<"all" | "active">
+            ariaLabel="Filter completed phases"
+            value={hideCompleted ? "active" : "all"}
+            onChange={(v) => setHideCompleted(v === "active")}
+            options={[
+              { value: "all", label: "All" },
+              { value: "active", label: "Active" },
+            ]}
+          />
         </div>
       </header>
       <ul className="roadmap-phase-strip__list">
@@ -304,10 +306,8 @@ function RoadmapNodeRow({
               <ChevronRight
                 size={12}
                 aria-hidden
-                style={{
-                  transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
-                  transition: "transform var(--motion-standard, 200ms) ease",
-                }}
+                className="roadmap-node-row__chevron-glyph"
+                data-expanded={expanded}
               />
             </IconButton>
           ) : (
@@ -336,7 +336,7 @@ function RoadmapNodeRow({
           <IconButton
             label="Open in editor"
             size="sm"
-            onClick={() => void openRoadmapInEditor(projectId)}
+            onClick={() => void openRoadmapInEditor(view.roadmap_path)}
           >
             <ExternalLink size={12} aria-hidden />
           </IconButton>
@@ -374,16 +374,20 @@ function countDone(nodes: NodeView[]): number {
 // ---------------------------------------------------------------------------
 
 function DoneShippedHint({ headline }: { headline: string }) {
+  // One label, one story: the tooltip is the label. The wrapping span is
+  // tabbable so keyboard users can reach the tooltip via focus, and the
+  // role is "img" so AT announces the icon's meaning rather than treating
+  // it as an empty interactive element.
   return (
     <Tooltip
-      label={`Ships when the PR for ${headline} merges`}
+      label={`Authored Done is suppressed until shipment — ships when the PR for "${headline}" merges`}
       side="top"
     >
       <span
         className="roadmap-done-shipped-hint"
         data-component="DoneShippedHint"
         tabIndex={0}
-        aria-label="Authored Done is suppressed until a shipment is recorded"
+        role="img"
       >
         <Info size={12} aria-hidden />
       </span>
@@ -607,7 +611,7 @@ function RoadmapEmptyDialog({
 
   return (
     <div
-      className="app-dialog-scrim"
+      className="roadmap-empty-dialog-scrim"
       data-component="RoadmapEmptyDialog"
       role="presentation"
       onMouseDown={(e) => {
@@ -615,7 +619,7 @@ function RoadmapEmptyDialog({
       }}
     >
       <div
-        className="app-dialog roadmap-empty-dialog"
+        className="roadmap-empty-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="roadmap-empty-dialog-title"
@@ -656,26 +660,23 @@ function RoadmapEmptyDialog({
 // Side effects shared with the host
 // ---------------------------------------------------------------------------
 
-async function openRoadmapInEditor(projectId: ProjectId): Promise<void> {
-  // Host wiring placeholder — `commands::reveal_in_finder` exists; the
-  // canvas reveals roadmap.md so the user can open it in their editor of
-  // choice. A future "open with $EDITOR" command can replace this once
-  // we add it.
+async function openRoadmapInEditor(roadmapPath: string): Promise<void> {
+  // The IPC reveals the absolute path resolved server-side, so the user's
+  // Finder lands on the right file regardless of where the app was
+  // launched from. A future "open with $EDITOR" command can replace this.
   try {
-    // Resolve roadmap path via a fresh getRoadmap call would surface it,
-    // but we don't have a path field on the view today. v1 reveal-in-Finder
-    // is sufficient — the user knows where roadmap.md is.
-    await ipcClient().revealInFinder(`core-docs/roadmap.md`);
+    await ipcClient().revealInFinder(roadmapPath);
   } catch {
     /* swallow — non-Tauri / non-mac paths log a warning host-side */
   }
-  void projectId;
 }
 
-async function writeRoadmapDraft(projectId: ProjectId, text: string): Promise<void> {
-  // Phase 22.A reserves this hook; 22.C wires the actual IPC. For now
-  // we surface a clear no-op trace so dogfood signals it's missing.
-  void text;
-  console.warn("writeRoadmapDraft: 22.C will wire this; no-op for 22.A");
-  void projectId;
+async function writeRoadmapDraft(
+  projectId: ProjectId,
+  text: string,
+): Promise<void> {
+  // Persists `text` verbatim to core-docs/roadmap.md. Phase 22.C will
+  // add the silent-commit step (per Decision 18); for v1 the file
+  // lands on disk and the user git-adds manually.
+  await ipcClient().writeRoadmapDraft(projectId, text);
 }

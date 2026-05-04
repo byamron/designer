@@ -275,6 +275,31 @@ mod tests {
         );
     }
 
+    /// Spec scenario: parallel work where one track has shipped and one
+    /// is still active. The all-must-ship Done gate must demote to
+    /// InReview even though the max-rank across claims is Done.
+    #[test]
+    fn multi_claim_mixed_active_and_merged_with_ship_projects_in_review() {
+        let t1 = TrackId::new();
+        let t2 = TrackId::new();
+        let claims = vec![
+            ClaimWithTrackState {
+                claim: claim("n", t1),
+                track_state: TrackState::Active,
+            },
+            ClaimWithTrackState {
+                claim: claim("n", t2),
+                track_state: TrackState::Merged,
+            },
+        ];
+        let ships = vec![shipment("n", t2)];
+        assert_eq!(
+            derive_node_status(&claims, &ships, NodeStatus::Backlog),
+            NodeStatus::InReview,
+            "one unshipped claim demotes the node to InReview even when the merged claim shipped"
+        );
+    }
+
     #[test]
     fn order_of_claims_does_not_affect_result() {
         let t1 = TrackId::new();

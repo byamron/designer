@@ -146,6 +146,7 @@ export interface IpcClient {
     nodeId: NodeId,
     status: NodeStatus,
   ): Promise<void>;
+  writeRoadmapDraft(projectId: ProjectId, content: string): Promise<void>;
 }
 
 // ---- Phase 22.A roadmap canvas DTOs ---------------------------------------
@@ -232,6 +233,8 @@ export interface RoadmapView {
   claims: NodeClaimsForView[];
   shipments: NodeShipmentsForView[];
   source_hash: RoadmapHash | null;
+  /** Absolute path to core-docs/roadmap.md, resolved server-side. */
+  roadmap_path: string;
 }
 
 // ---- Phase 13.G safety DTOs -----------------------------------------------
@@ -453,6 +456,9 @@ class TauriIpcClient implements IpcClient {
       status,
     });
   }
+  writeRoadmapDraft(projectId: ProjectId, content: string) {
+    return invoke<void>("cmd_write_roadmap_draft", { projectId, content });
+  }
 }
 
 class MockIpcClient implements IpcClient {
@@ -667,9 +673,13 @@ class MockIpcClient implements IpcClient {
       claims: [],
       shipments: [],
       source_hash: null,
+      roadmap_path: "core-docs/roadmap.md",
     });
   }
   setNodeStatus(_p: ProjectId, _n: NodeId, _s: NodeStatus) {
+    return Promise.resolve();
+  }
+  writeRoadmapDraft(_p: ProjectId, _c: string) {
     return Promise.resolve();
   }
 }

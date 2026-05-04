@@ -29,3 +29,14 @@ pub async fn cmd_set_node_status(
         .await
         .map_err(IpcError::from)
 }
+
+#[tauri::command]
+pub async fn cmd_write_roadmap_draft(
+    core: State<'_, Arc<AppCore>>,
+    project_id: ProjectId,
+    content: String,
+) -> Result<(), IpcError> {
+    core.write_roadmap_draft(project_id, content)
+        .await
+        .map_err(IpcError::from)
+}

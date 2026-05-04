@@ -193,6 +193,7 @@ fn main() {
             commands_local::cmd_recap_workspace,
             commands_roadmap::cmd_get_roadmap,
             commands_roadmap::cmd_set_node_status,
+            commands_roadmap::cmd_write_roadmap_draft,
             commands_safety::cmd_get_cost_chip_preference,
             commands_safety::cmd_get_cost_status,
             commands_safety::cmd_get_feature_flags,

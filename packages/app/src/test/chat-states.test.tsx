@@ -95,8 +95,9 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
-  getRoadmap: () => Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null }),
+  getRoadmap: () => Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null, roadmap_path: "core-docs/roadmap.md" }),
   setNodeStatus: () => Promise.resolve(),
+    writeRoadmapDraft: () => Promise.resolve(),
   };
 }
 

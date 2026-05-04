@@ -75,8 +75,13 @@ pub struct RoadmapView {
     /// Shipping history keyed by node id. Empty in 22.A; populated by 22.I.
     pub shipments: Vec<NodeShipmentsForView>,
     /// Hash of the source the view was built from. The frontend uses
-    /// this as a cheap "did anything change?" signal.
+    /// this as a cheap "did anything change?" signal. Content-derived;
+    /// the same content always yields the same hash regardless of mtime.
     pub source_hash: Option<RoadmapHash>,
+    /// Absolute path to `core-docs/roadmap.md`. Resolved server-side so
+    /// `revealInFinder` can target the correct file regardless of the
+    /// frontend's notion of the project root.
+    pub roadmap_path: String,
 }
 
 /// One node + its derived status. Embeds the same `RoadmapNode` shape
@@ -142,6 +147,7 @@ impl AppCore {
                     claims: Vec::new(),
                     shipments: Vec::new(),
                     source_hash: None,
+                    roadmap_path: path.to_string_lossy().into_owned(),
                 });
             }
             Err(err) => {
@@ -159,7 +165,13 @@ impl AppCore {
             let read = cache.inner.read();
             if let Some(cached) = read.get(&project_id) {
                 if cached.hash == hash {
-                    return Ok(self.assemble_view(project_id, &cached.tree, &cached.parse_error));
+                    return Ok(self.assemble_view(
+                        project_id,
+                        &cached.tree,
+                        &cached.parse_error,
+                        &path,
+                        Some(&cached.hash),
+                    ));
                 }
             }
         }
@@ -196,6 +208,7 @@ impl AppCore {
                         if let Ok((new_tree, _)) = parse_roadmap(&new_source) {
                             let new_hash = RoadmapHash::from_source(new_mtime, &new_source);
                             let arc_tree = Arc::new(new_tree);
+                            let new_hash_for_view = new_hash.clone();
                             cache.inner.write().insert(
                                 project_id,
                                 Cached {
@@ -204,7 +217,13 @@ impl AppCore {
                                     parse_error: None,
                                 },
                             );
-                            return Ok(self.assemble_view(project_id, &arc_tree, &None));
+                            return Ok(self.assemble_view(
+                                project_id,
+                                &arc_tree,
+                                &None,
+                                &path,
+                                Some(&new_hash_for_view),
+                            ));
                         }
                     }
                 }
@@ -220,6 +239,7 @@ impl AppCore {
         }
 
         let arc_tree = Arc::new(tree);
+        let hash_for_view = hash.clone();
         cache.inner.write().insert(
             project_id,
             Cached {
@@ -228,7 +248,13 @@ impl AppCore {
                 parse_error: parse_error.clone(),
             },
         );
-        Ok(self.assemble_view(project_id, &arc_tree, &parse_error))
+        Ok(self.assemble_view(
+            project_id,
+            &arc_tree,
+            &parse_error,
+            &path,
+            Some(&hash_for_view),
+        ))
     }
 
     fn assemble_view(
@@ -236,7 +262,10 @@ impl AppCore {
         _project_id: ProjectId,
         tree: &RoadmapTree,
         parse_error: &Option<ParseError>,
+        path: &std::path::Path,
+        source_hash: Option<&RoadmapHash>,
     ) -> RoadmapView {
+        let roadmap_path = path.to_string_lossy().into_owned();
         if parse_error.is_some() {
             // Suppress claims + shipments per the spec's parse-error rule:
             // pills, claims, side attention all suppress until parse succeeds.
@@ -245,7 +274,8 @@ impl AppCore {
                 parse_error: parse_error.clone(),
                 claims: Vec::new(),
                 shipments: Vec::new(),
-                source_hash: None,
+                source_hash: source_hash.cloned(),
+                roadmap_path,
             };
         }
 
@@ -295,11 +325,59 @@ impl AppCore {
                 .into_iter()
                 .map(|(node_id, shipments)| NodeShipmentsForView { node_id, shipments })
                 .collect(),
-            source_hash: Some(RoadmapHash::from_source(
-                SystemTime::UNIX_EPOCH, // hash already includes mtime; re-derive from cache below
-                tree.source(),
-            )),
+            source_hash: source_hash.cloned(),
+            roadmap_path,
         }
+    }
+
+    /// Empty-state draft write. Persists `content` verbatim to
+    /// `core-docs/roadmap.md`, creating `core-docs/` if it doesn't exist.
+    /// Atomic (tmp file + rename) so a partial write never truncates the
+    /// file. Refuses to overwrite a non-empty file — the empty-state slab
+    /// only fires when the canvas saw no markdown, so this should never
+    /// race a real file. Phase 22.C will wire the silent-commit step
+    /// (per Decision 18); for v1 the write lands on disk and the user
+    /// can git-add manually.
+    pub async fn write_roadmap_draft(
+        &self,
+        project_id: ProjectId,
+        content: String,
+    ) -> Result<(), CoreError> {
+        let path = self
+            .roadmap_path(project_id)
+            .ok_or_else(|| CoreError::NotFound(project_id.to_string()))?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| CoreError::Invariant(format!("create dir: {e}")))?;
+        }
+        // Refuse to overwrite a non-empty file. The empty-state surface
+        // only triggers when no roadmap.md exists; if one slipped in
+        // between the empty render and the save click, the safer move is
+        // to abort with a clear error.
+        if let Ok(existing) = std::fs::read_to_string(&path) {
+            if !existing.trim().is_empty() {
+                return Err(CoreError::Invariant(format!(
+                    "{} already has content — refusing to overwrite",
+                    path.display()
+                )));
+            }
+        }
+        let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let mut tmp = tempfile::Builder::new()
+            .prefix(".roadmap-draft-")
+            .suffix(".tmp")
+            .tempfile_in(dir)
+            .map_err(|e| CoreError::Invariant(format!("tmp file: {e}")))?;
+        use std::io::Write;
+        tmp.write_all(content.as_bytes())
+            .map_err(|e| CoreError::Invariant(format!("write tmp: {e}")))?;
+        tmp.flush()
+            .map_err(|e| CoreError::Invariant(format!("flush tmp: {e}")))?;
+        tmp.persist(&path)
+            .map_err(|e| CoreError::Invariant(format!("rename tmp: {e}")))?;
+        // Invalidate the cache so the next cmd_get_roadmap re-parses.
+        self.roadmap_cache().inner.write().remove(&project_id);
+        Ok(())
     }
 
     /// Manual status write. Phase 22.A enforces the Done = shipped

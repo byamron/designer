@@ -103,8 +103,9 @@ function makeClient() {
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
   getRoadmap: () =>
-    Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null }),
+    Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null, roadmap_path: "core-docs/roadmap.md" }),
   setNodeStatus: () => Promise.resolve(),
+    writeRoadmapDraft: () => Promise.resolve(),
   });
   const project = core.listProjects()[0];
   const workspace = core.listWorkspaces(project.project.id)[0];

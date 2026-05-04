@@ -1,10 +1,18 @@
 /* Phase 22.A — Roadmap canvas styles.
  *
- * Token-only values. No arbitrary px / hex / ms.
+ * Token references use Mini's canonical names:
+ *   - color roles: --color-foreground, --color-muted, --color-border-soft,
+ *     --color-surface-raised, --color-surface-overlay
+ *   - semantic: --success-9 (Done), --danger-9 (errors)
+ *   - typography: --type-caption-size / --type-body-size / --type-h3-size
+ *     and --type-family-mono; weights via --weight-*
+ *   - motion: --motion-standard composed with --ease-out-enter for arc
+ *     transitions; --motion-pulse for the team-dot pulse keyframe
  *
  * Reduced motion: every transition is gated by a `@media
- * (prefers-reduced-motion: reduce)` block at the bottom of this file.
- * Pulses are opacity + transform (GPU-composited, never box-shadow).
+ * (prefers-reduced-motion: reduce)` block at the bottom. Pulses are
+ * opacity + transform on a pseudo-element (GPU-composited; never
+ * box-shadow, which is paint-only and janks under N concurrent dots).
  */
 
 .roadmap-canvas {
@@ -14,8 +22,8 @@
 }
 
 .roadmap-canvas--loading .roadmap-canvas__loading {
-  color: var(--color-text-meta);
-  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
 }
 
 .roadmap-phase-strip {
@@ -32,18 +40,14 @@
 }
 
 .roadmap-phase-strip__title {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-strong);
+  font-size: var(--type-h3-size);
+  font-weight: var(--weight-semibold);
   margin: 0;
 }
 
-.roadmap-phase-strip__hide-completed {
+.roadmap-phase-strip__filter {
+  /* Wraps a SegmentedToggle. */
   display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-text-meta);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
 }
 
 .roadmap-phase-strip__list {
@@ -53,9 +57,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  /* Section-level virtual-scroll readiness — browsers that support
-   * Containment 2 remember last-rendered height per element so off-screen
-   * sections don't cause scrollbar jump on first paint. */
   /* CSS Containment 2: the browser remembers the actual rendered height per
    * element after first paint, so this is a transient first-render guess —
    * not a magic number that locks the surface to 800. Sized off the breakpoint
@@ -65,14 +66,13 @@
 }
 
 .roadmap-node-row {
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-2, 6px);
   padding: var(--space-1) 0;
   outline: none;
 }
 
 .roadmap-node-row:focus-visible {
-  outline: var(--focus-outline-width, 2px) solid
-    var(--focus-outline-color, var(--accent-8, currentColor));
+  outline: var(--focus-outline-width, 2px) solid var(--focus-outline-color);
   outline-offset: var(--border-thin);
 }
 
@@ -83,7 +83,7 @@
 }
 
 .roadmap-node-row__chevron {
-  width: var(--target-sm, 24px);
+  width: var(--target-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -91,7 +91,15 @@
 
 .roadmap-node-row__chevron-spacer {
   display: inline-block;
-  width: var(--target-sm, 24px);
+  width: var(--target-sm);
+}
+
+.roadmap-node-row__chevron-glyph {
+  transition: transform var(--motion-standard) var(--ease-out-enter);
+}
+
+.roadmap-node-row__chevron-glyph[data-expanded="true"] {
+  transform: rotate(90deg);
 }
 
 .roadmap-node-row__headline {
@@ -102,39 +110,45 @@
   padding: 0;
   cursor: pointer;
   font: inherit;
-  color: var(--color-text);
+  color: var(--color-foreground);
 }
 
 .roadmap-node-row__ratio {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-meta);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
 }
 
 .roadmap-node-row__children {
   list-style: none;
   margin: 0 0 0 var(--space-4);
   padding: 0;
-  border-left: var(--border-thin) solid var(--color-border-subtle);
-
+  border-left: var(--border-thin) solid var(--color-border-soft);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-/* Sub-row team tint — stub until Phase 22.G ships --team-tint-light/dark. */
-.roadmap-node-row[data-status="in-progress"] > .roadmap-node-row__children > .roadmap-node-row {
-  background: var(--gray-a3, transparent);
+/* Sub-row team tint — stub until 22.G's --team-tint-light/dark tokens are
+ * available on this branch (22.G shipped on main but this branch was forked
+ * before the merge; the stub uses --gray-a3 / --gray-a4 to convey "claimed"
+ * without a chromatic identity). Swap to the team-color tokens after rebase
+ * onto main; tracked in Follow-ups in the PR body. */
+.roadmap-node-row[data-status="in-progress"]
+  > .roadmap-node-row__children
+  > .roadmap-node-row {
+  background: var(--gray-a3);
 }
 
 .roadmap-node-row__body {
-  margin: var(--space-2) 0 var(--space-2) calc(var(--space-4) + var(--target-sm, 24px));
-  font-size: var(--font-size-sm);
-  color: var(--color-text);
+  margin: var(--space-2) 0 var(--space-2)
+    calc(var(--space-4) + var(--target-sm));
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
 }
 
 .roadmap-node-row__body--error pre {
-  color: var(--color-danger, currentColor);
+  color: var(--danger-9);
   white-space: pre-wrap;
 }
 
@@ -145,11 +159,11 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  color: var(--color-text);
+  color: var(--color-foreground);
 }
 
 .roadmap-status-circle[data-status="done"] {
-  color: var(--color-success, currentColor);
+  color: var(--success-9);
 }
 
 .roadmap-status-circle__svg {
@@ -157,7 +171,7 @@
 }
 
 .roadmap-status-circle__arc {
-  transition: stroke-dasharray var(--motion-standard, 250ms) ease;
+  transition: stroke-dasharray var(--motion-standard) var(--ease-out-enter);
 }
 
 /* ---- Team label + multi-claim stack ---- */
@@ -172,8 +186,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-meta);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
 }
 
 .roadmap-team-label__dot {
@@ -182,8 +196,6 @@
   border-radius: 50%;
   background: currentColor;
   position: relative;
-  /* Pulse via opacity + transform on a pseudo — GPU composited.
-   * Never box-shadow (paint-only, jank under N concurrent dots). */
 }
 
 .roadmap-team-label__dot::after {
@@ -204,10 +216,10 @@
 }
 
 .roadmap-multi-claim-stack__overflow {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-meta);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
   padding: 0 var(--space-1);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-2, 6px);
   cursor: default;
 }
 
@@ -217,9 +229,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--target-sm, 24px);
-  height: var(--target-sm, 24px);
-  color: var(--color-text-meta);
+  width: var(--target-sm);
+  height: var(--target-sm);
+  color: var(--color-muted);
   cursor: help;
 }
 
@@ -230,30 +242,30 @@
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
-  border: var(--border-thin) solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-2, transparent);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-card, 12px);
+  background: var(--color-surface-raised);
 }
 
 .roadmap-parse-error__title {
   margin: 0;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-strong);
+  font-size: var(--type-h3-size);
+  font-weight: var(--weight-semibold);
 }
 
 .roadmap-parse-error__hint {
   margin: 0;
-  color: var(--color-text-meta);
-  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  font-size: var(--type-body-size);
 }
 
 .roadmap-parse-error__snippet {
   margin: 0;
   padding: var(--space-2);
-  background: var(--color-surface-3, transparent);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  background: var(--color-surface-overlay);
+  border-radius: var(--radius-2, 6px);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
   white-space: pre-wrap;
   overflow-x: auto;
 }
@@ -269,14 +281,28 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
-  border: var(--border-thin) dashed var(--color-border-subtle);
-  border-radius: var(--radius-md);
+  border: var(--border-thin) dashed var(--color-border-soft);
+  border-radius: var(--radius-card, 12px);
   text-align: center;
 }
 
 .roadmap-empty__copy {
   margin: 0;
-  color: var(--color-text);
+  color: var(--color-foreground);
+}
+
+/* Empty-state dialog uses its own scrim class so it never collides with the
+ * singleton AppDialog (Help). Both render via createPortal-style absolute
+ * scrims; sharing the class would let two dialogs stack on top of each other
+ * with shared focus-trap state. */
+.roadmap-empty-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--color-scrim, rgba(0, 0, 0, 0.4));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--layer-modal);
 }
 
 .roadmap-empty-dialog {
@@ -284,18 +310,35 @@
   flex-direction: column;
   gap: var(--space-3);
   min-width: var(--breakpoint-sm, 30rem);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-card, 12px);
+  box-shadow: var(--shadow-overlay, 0 16px 48px rgba(0, 0, 0, 0.2));
+}
+
+.roadmap-empty-dialog__title {
+  margin: 0;
+  font-size: var(--type-h3-size);
+  font-weight: var(--weight-semibold);
+}
+
+.roadmap-empty-dialog__copy {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--type-body-size);
 }
 
 .roadmap-empty-dialog__textarea {
   /* Six body rows at the locked rhythm — no arbitrary `rows` attr. */
-  min-height: calc(var(--space-5, 24px) * 6);
+  min-height: calc(var(--space-5) * 6);
   padding: var(--space-2);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  border: var(--border-thin) solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2, transparent);
-  color: var(--color-text);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-2, 6px);
+  background: var(--color-surface-overlay);
+  color: var(--color-foreground);
 }
 
 .roadmap-empty-dialog__actions {
@@ -307,16 +350,12 @@
 /* ---- Reduced motion ---- */
 
 @media (prefers-reduced-motion: reduce) {
-  .roadmap-status-circle__arc {
+  .roadmap-status-circle__arc,
+  .roadmap-node-row__chevron-glyph {
     transition: none;
   }
   .roadmap-team-label__dot::after {
     animation: none;
     opacity: 0;
-  }
-  .roadmap-node-row__body {
-    /* Body insertion is also instant — no fade/slide on worker→DOM swap. */
-    animation: none;
-    transition: none;
   }
 }
