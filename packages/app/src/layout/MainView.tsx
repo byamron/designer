@@ -392,14 +392,17 @@ function TabButton({
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
+  // Throws on failure so RenameInput can keep the input open and paint
+  // an inline error register. Without that, an IPC failure silently
+  // reverts to the old name with no signal — cf. UX review.
   const commitRename = async (next: string) => {
-    setRenaming(false);
     try {
       await ipcClient().renameTab(workspaceId, id, next);
-      await refreshWorkspaces(projectId);
     } catch (err) {
-      console.error("rename_tab failed", err);
+      throw err instanceof Error ? err : new Error(String(err));
     }
+    setRenaming(false);
+    await refreshWorkspaces(projectId);
   };
 
   const items: ContextMenuItem[] = [
@@ -458,6 +461,21 @@ function TabButton({
           }}
           onKeyDown={(e) => {
             if (renaming) return;
+            // Keyboard parity with the right-click + double-click paths
+            // — F2 is the macOS / Finder convention; Enter on a focused
+            // tab matches Linear's row-action convention. Modifier keys
+            // are reserved for ⌘W / arrow nav, so don't shadow them.
+            if (
+              (e.key === "F2" || e.key === "Enter") &&
+              !e.metaKey &&
+              !e.ctrlKey &&
+              !e.altKey &&
+              !e.shiftKey
+            ) {
+              e.preventDefault();
+              setRenaming(true);
+              return;
+            }
             if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
               e.preventDefault();
               const parent = (e.currentTarget.parentElement?.parentElement as HTMLElement) || null;

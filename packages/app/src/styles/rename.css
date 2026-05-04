@@ -7,6 +7,13 @@
  * transition between read-mode and edit-mode is invisible apart from
  * the focus ring. The input is `all: unset` to neutralize browser
  * chrome before we set our own knobs. */
+.rename-input-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: 1;
+  min-width: 0;
+}
+
 .tab-button__rename,
 .workspace-row__rename {
   all: unset;
@@ -28,6 +35,43 @@
 .workspace-row__rename:focus {
   outline: var(--focus-outline-width) solid var(--focus-outline-color);
   outline-offset: var(--space-1);
+}
+
+/* Error register: paints when the IPC commit failed. Borrows the
+ * danger-9 fill via the existing --color-danger semantic alias (set
+ * in blocks.css from --danger-9) so the cue tracks the rest of the
+ * destructive register in the app. */
+.tab-button__rename[data-error="true"],
+.workspace-row__rename[data-error="true"],
+.tab-button__rename[data-error="true"]:focus,
+.workspace-row__rename[data-error="true"]:focus {
+  outline-color: var(--color-danger);
+}
+
+/* Inline error message floats below the input so it doesn't push the
+ * row layout — sidebar rows + tab buttons are intentionally short. The
+ * `role="alert"` on the span itself drives the screen-reader
+ * announcement; no aria-live wrapper needed. */
+.rename-input__error {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: var(--layer-floating);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-content-surface);
+  border: var(--border-thin) solid var(--color-danger);
+  border-radius: var(--radius-button);
+  color: var(--color-danger);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  font-weight: var(--weight-regular);
+  box-shadow: var(--surface-shadow);
+  max-width: calc(var(--space-8) * 4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 /* While the row is in rename mode, swap the cursor + suppress hover
@@ -78,7 +122,7 @@
 }
 
 .row-context-menu__item[data-destructive="true"] {
-  color: var(--color-danger, var(--color-foreground));
+  color: var(--color-danger);
 }
 
 .row-context-menu__item:disabled {
@@ -98,5 +142,6 @@
   color: var(--color-muted);
   font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
+  font-weight: var(--weight-regular);
   flex-shrink: 0;
 }

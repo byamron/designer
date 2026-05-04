@@ -350,14 +350,17 @@ function WorkspaceRow({
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
+  // Throws on failure so RenameInput keeps the input open + paints an
+  // inline error register — cf. UX review. The setRenaming(false) only
+  // fires on success.
   const commitRename = async (next: string) => {
-    setRenaming(false);
     try {
       await ipcClient().renameWorkspace(workspace.id, next);
-      if (projectId) await refreshWorkspaces(projectId);
     } catch (err) {
-      console.error("rename_workspace failed", err);
+      throw err instanceof Error ? err : new Error(String(err));
     }
+    setRenaming(false);
+    if (projectId) await refreshWorkspaces(projectId);
   };
   // frc_019dea6b — opening a workspace must always land the user on a
   // tab. If the workspace has zero open tabs (e.g. the user closed the
@@ -461,6 +464,22 @@ function WorkspaceRow({
           e.preventDefault();
           e.stopPropagation();
           setMenu({ x: e.clientX, y: e.clientY });
+        }}
+        onKeyDown={(e) => {
+          if (renaming) return;
+          // F2 / Enter parity with the right-click + double-click
+          // paths so a keyboard-only user can rename without a mouse.
+          // Modifier keys are reserved for the global ⌘⇧N etc.
+          if (
+            (e.key === "F2" || e.key === "Enter") &&
+            !e.metaKey &&
+            !e.ctrlKey &&
+            !e.altKey &&
+            !e.shiftKey
+          ) {
+            e.preventDefault();
+            setRenaming(true);
+          }
         }}
       >
         {workspace.status ? (
