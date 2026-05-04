@@ -79,6 +79,10 @@ pub enum EventPayload {
         name: String,
         base_branch: String,
     },
+    WorkspaceRenamed {
+        workspace_id: WorkspaceId,
+        name: String,
+    },
     WorkspaceStateChanged {
         workspace_id: WorkspaceId,
         state: WorkspaceState,
@@ -501,6 +505,7 @@ pub enum EventKind {
     ProjectAutonomyChanged,
     ProjectArchived,
     WorkspaceCreated,
+    WorkspaceRenamed,
     WorkspaceStateChanged,
     WorkspaceWorktreeAttached,
     WorkspaceWorktreeDetached,
@@ -555,6 +560,7 @@ impl EventPayload {
             EventPayload::ProjectAutonomyChanged { .. } => EventKind::ProjectAutonomyChanged,
             EventPayload::ProjectArchived { .. } => EventKind::ProjectArchived,
             EventPayload::WorkspaceCreated { .. } => EventKind::WorkspaceCreated,
+            EventPayload::WorkspaceRenamed { .. } => EventKind::WorkspaceRenamed,
             EventPayload::WorkspaceStateChanged { .. } => EventKind::WorkspaceStateChanged,
             EventPayload::WorkspaceWorktreeAttached { .. } => EventKind::WorkspaceWorktreeAttached,
             EventPayload::WorkspaceWorktreeDetached { .. } => EventKind::WorkspaceWorktreeDetached,

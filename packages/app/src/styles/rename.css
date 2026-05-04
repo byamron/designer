@@ -1,0 +1,102 @@
+/* Inline rename inputs + right-click context menu shared by the tab
+ * strip and the workspace sidebar rows. Tokenized — no arbitrary
+ * px / hex / ms values, per the Mini procedure in CLAUDE.md. */
+
+/* ---- inline rename input ------------------------------------------- */
+/* Inherit type + color from the label span it replaces so the
+ * transition between read-mode and edit-mode is invisible apart from
+ * the focus ring. The input is `all: unset` to neutralize browser
+ * chrome before we set our own knobs. */
+.tab-button__rename,
+.workspace-row__rename {
+  all: unset;
+  display: inline-block;
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  /* Caret-only register: a soft outline frames the editable area
+   * without competing with the row's own focus ring. */
+  outline: var(--border-thin) solid var(--color-border);
+  outline-offset: var(--space-1);
+  border-radius: var(--radius-button);
+  cursor: text;
+}
+
+.tab-button__rename:focus,
+.workspace-row__rename:focus {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--space-1);
+}
+
+/* While the row is in rename mode, swap the cursor + suppress hover
+ * affordances on the row container so the input read as the live
+ * target. */
+.tab-button[data-renaming="true"],
+.workspace-row[data-renaming="true"] {
+  cursor: text;
+}
+
+/* ---- right-click context menu -------------------------------------- */
+
+.row-context-menu {
+  position: fixed;
+  z-index: var(--layer-floating);
+  min-width: calc(var(--space-8) * 2);
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--color-content-surface);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--surface-shadow);
+  /* Outline-none — the menu wrapper is focusable for keyboard nav,
+   * but the visible focus register lives on the active item. */
+  outline: none;
+}
+
+.row-context-menu__item {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-foreground);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  font-family: var(--type-family-sans);
+  border-radius: var(--radius-button);
+  cursor: pointer;
+  transition: background var(--motion-interactive), color var(--motion-interactive);
+}
+
+.row-context-menu__item[data-active="true"] {
+  background: var(--color-surface-overlay);
+}
+
+.row-context-menu__item[data-destructive="true"] {
+  color: var(--color-danger, var(--color-foreground));
+}
+
+.row-context-menu__item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.row-context-menu__label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-context-menu__shortcut {
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  flex-shrink: 0;
+}

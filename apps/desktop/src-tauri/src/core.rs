@@ -774,6 +774,82 @@ impl AppCore {
             .ok_or_else(|| designer_core::CoreError::NotFound(id.to_string()))
     }
 
+    /// Rename a workspace. Idempotent against the same name (still appends
+    /// — the projector replays the same string, no behavioral diff). The
+    /// caller is expected to trim the name; we trim defensively here too.
+    pub async fn rename_workspace(
+        &self,
+        workspace_id: WorkspaceId,
+        name: String,
+    ) -> designer_core::Result<Workspace> {
+        let trimmed = name.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(designer_core::CoreError::Invariant(
+                "name must not be empty".into(),
+            ));
+        }
+        // Verify the workspace exists so a stale id surfaces as NotFound
+        // instead of silently appending an unanchored event.
+        self.projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceRenamed {
+                    workspace_id,
+                    name: trimmed,
+                },
+            )
+            .await?;
+        self.projector.apply(&env);
+        self.projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))
+    }
+
+    /// Rename a tab. Title is trimmed; an empty trimmed title is rejected.
+    pub async fn rename_tab(
+        &self,
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        title: String,
+    ) -> designer_core::Result<Tab> {
+        let trimmed = title.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(designer_core::CoreError::Invariant(
+                "title must not be empty".into(),
+            ));
+        }
+        let workspace = self
+            .projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        if !workspace.tabs.iter().any(|t| t.id == tab_id) {
+            return Err(designer_core::CoreError::NotFound(tab_id.to_string()));
+        }
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabRenamed {
+                    tab_id,
+                    title: trimmed,
+                },
+            )
+            .await?;
+        self.projector.apply(&env);
+        self.projector
+            .workspace(workspace_id)
+            .and_then(|w| w.tabs.into_iter().find(|t| t.id == tab_id))
+            .ok_or_else(|| designer_core::CoreError::NotFound(tab_id.to_string()))
+    }
+
     pub async fn list_projects(&self) -> Vec<designer_core::Project> {
         self.projector.projects()
     }

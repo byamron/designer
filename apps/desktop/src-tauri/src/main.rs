@@ -162,6 +162,8 @@ fn main() {
             commands::list_spine_artifacts,
             commands::list_workspaces,
             commands::open_tab,
+            commands::rename_tab,
+            commands::rename_workspace,
             commands::request_approval,
             commands::resolve_approval,
             commands::restore_workspace,

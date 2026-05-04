@@ -152,6 +152,18 @@
   color: var(--color-foreground);
 }
 
+/* --- sidebar footer (pinned to bottom) --------------------------------
+ * Hosts low-frequency destinations (Archived) that should stay reachable
+ * but never compete with Home + Workspaces for attention. `margin-top:
+ * auto` pushes the block to the bottom of the flex column regardless of
+ * how many workspaces sit above. Visual treatment matches `.sidebar-home`
+ * exactly — only position changes, not register. */
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+}
+
 /* --- main empty state ---- */
 
 .main-empty {

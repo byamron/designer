@@ -489,6 +489,11 @@ impl Projection for Projector {
                     },
                 );
             }
+            EventPayload::WorkspaceRenamed { workspace_id, name } => {
+                if let Some(w) = state.workspaces.get_mut(workspace_id) {
+                    w.name = name.clone();
+                }
+            }
             EventPayload::WorkspaceStateChanged {
                 workspace_id,
                 state: new_state,

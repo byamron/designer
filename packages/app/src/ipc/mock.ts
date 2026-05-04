@@ -50,6 +50,8 @@ export interface MockCore {
   createProject(req: CreateProjectRequest): ProjectSummary;
   listWorkspaces(id: ProjectId): WorkspaceSummary[];
   createWorkspace(req: CreateWorkspaceRequest): WorkspaceSummary;
+  renameWorkspace(workspaceId: WorkspaceId, name: string): WorkspaceSummary;
+  renameTab(workspaceId: WorkspaceId, tabId: TabId, title: string): Tab;
   archiveWorkspace(workspaceId: WorkspaceId): void;
   restoreWorkspace(workspaceId: WorkspaceId): void;
   deleteWorkspace(workspaceId: WorkspaceId): void;
@@ -350,6 +352,40 @@ export function createMockCore(): MockCore {
         summary: `Workspace '${workspace.name}' created`,
       });
       return { workspace, state: workspace.state, agent_count: 0 };
+    },
+    renameWorkspace(workspaceId, name) {
+      const trimmed = name.trim();
+      if (!trimmed) {
+        throw new Error("name must not be empty");
+      }
+      const w = workspaces.find((w) => w.id === workspaceId);
+      if (!w) throw new Error(`workspace ${workspaceId} not found`);
+      w.name = trimmed;
+      emit({
+        kind: "workspace_renamed",
+        stream_id: `workspace:${workspaceId}`,
+        timestamp: now(),
+        summary: `Workspace renamed to '${trimmed}'`,
+      });
+      return { workspace: w, state: w.state, agent_count: 0 };
+    },
+    renameTab(workspaceId, tabId, title) {
+      const trimmed = title.trim();
+      if (!trimmed) {
+        throw new Error("title must not be empty");
+      }
+      const w = workspaces.find((w) => w.id === workspaceId);
+      if (!w) throw new Error(`workspace ${workspaceId} not found`);
+      const t = w.tabs.find((t) => t.id === tabId);
+      if (!t) throw new Error(`tab ${tabId} not found`);
+      t.title = trimmed;
+      emit({
+        kind: "tab_renamed",
+        stream_id: `workspace:${workspaceId}`,
+        timestamp: now(),
+        summary: `Tab renamed to '${trimmed}'`,
+      });
+      return t;
     },
     archiveWorkspace(workspaceId) {
       const w = workspaces.find((w) => w.id === workspaceId);

@@ -135,6 +135,34 @@ pub async fn cmd_list_workspaces(
         .collect())
 }
 
+pub async fn cmd_rename_workspace(
+    core: &Arc<AppCore>,
+    req: RenameWorkspaceRequest,
+) -> Result<WorkspaceSummary, IpcError> {
+    if req.name.trim().is_empty() {
+        return Err(IpcError::invalid_request("name must not be empty"));
+    }
+    let workspace = core
+        .rename_workspace(req.workspace_id, req.name)
+        .await
+        .map_err(IpcError::from)?;
+    let state = workspace.state;
+    Ok(WorkspaceSummary {
+        workspace,
+        state,
+        agent_count: 0,
+    })
+}
+
+pub async fn cmd_rename_tab(core: &Arc<AppCore>, req: RenameTabRequest) -> Result<Tab, IpcError> {
+    if req.title.trim().is_empty() {
+        return Err(IpcError::invalid_request("title must not be empty"));
+    }
+    core.rename_tab(req.workspace_id, req.tab_id, req.title)
+        .await
+        .map_err(IpcError::from)
+}
+
 pub async fn cmd_archive_workspace(
     core: &Arc<AppCore>,
     workspace_id: WorkspaceId,
