@@ -373,6 +373,8 @@ export function createVisualIpcClient(
     createProject: () => Promise.reject(new Error("not in fixture")),
     listWorkspaces: () => Promise.resolve(fixtureWorkspaceSummaries),
     createWorkspace: () => Promise.reject(new Error("not in fixture")),
+    renameWorkspace: () => Promise.reject(new Error("not in fixture")),
+    renameTab: () => Promise.reject(new Error("not in fixture")),
     archiveWorkspace: () => Promise.resolve(),
     restoreWorkspace: () => Promise.resolve(),
     deleteWorkspace: () => Promise.resolve(),

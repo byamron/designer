@@ -787,6 +787,82 @@ impl AppCore {
             .ok_or_else(|| designer_core::CoreError::NotFound(id.to_string()))
     }
 
+    /// Rename a workspace. Idempotent against the same name (still appends
+    /// — the projector replays the same string, no behavioral diff). The
+    /// caller is expected to trim the name; we trim defensively here too.
+    pub async fn rename_workspace(
+        &self,
+        workspace_id: WorkspaceId,
+        name: String,
+    ) -> designer_core::Result<Workspace> {
+        let trimmed = name.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(designer_core::CoreError::Invariant(
+                "name must not be empty".into(),
+            ));
+        }
+        // Verify the workspace exists so a stale id surfaces as NotFound
+        // instead of silently appending an unanchored event.
+        self.projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::WorkspaceRenamed {
+                    workspace_id,
+                    name: trimmed,
+                },
+            )
+            .await?;
+        self.projector.apply(&env);
+        self.projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))
+    }
+
+    /// Rename a tab. Title is trimmed; an empty trimmed title is rejected.
+    pub async fn rename_tab(
+        &self,
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        title: String,
+    ) -> designer_core::Result<Tab> {
+        let trimmed = title.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(designer_core::CoreError::Invariant(
+                "title must not be empty".into(),
+            ));
+        }
+        let workspace = self
+            .projector
+            .workspace(workspace_id)
+            .ok_or_else(|| designer_core::CoreError::NotFound(workspace_id.to_string()))?;
+        if !workspace.tabs.iter().any(|t| t.id == tab_id) {
+            return Err(designer_core::CoreError::NotFound(tab_id.to_string()));
+        }
+        let env = self
+            .store
+            .append(
+                StreamId::Workspace(workspace_id),
+                None,
+                Actor::user(),
+                EventPayload::TabRenamed {
+                    tab_id,
+                    title: trimmed,
+                },
+            )
+            .await?;
+        self.projector.apply(&env);
+        self.projector
+            .workspace(workspace_id)
+            .and_then(|w| w.tabs.into_iter().find(|t| t.id == tab_id))
+            .ok_or_else(|| designer_core::CoreError::NotFound(tab_id.to_string()))
+    }
+
     pub async fn list_projects(&self) -> Vec<designer_core::Project> {
         self.projector.projects()
     }
@@ -1325,6 +1401,109 @@ mod tests {
         let refreshed = core.projector.workspace(ws.id).unwrap();
         assert_eq!(refreshed.tabs.len(), 1);
         assert_eq!(refreshed.tabs[0].id, tab.id);
+    }
+
+    #[tokio::test]
+    async fn rename_workspace_updates_projection() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "Workspace 1".into(), "main".into())
+            .await
+            .unwrap();
+        let renamed = core
+            .rename_workspace(ws.id, "  Auth refactor  ".into())
+            .await
+            .unwrap();
+        // Trim is applied by the core method.
+        assert_eq!(renamed.name, "Auth refactor");
+        let projected = core.projector.workspace(ws.id).unwrap();
+        assert_eq!(projected.name, "Auth refactor");
+    }
+
+    #[tokio::test]
+    async fn rename_workspace_rejects_empty() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "Workspace 1".into(), "main".into())
+            .await
+            .unwrap();
+        let err = core
+            .rename_workspace(ws.id, "   ".into())
+            .await
+            .expect_err("whitespace-only name must be rejected");
+        assert!(matches!(err, designer_core::CoreError::Invariant(_)));
+        // Original name preserved on the projection — no event was appended.
+        assert_eq!(core.projector.workspace(ws.id).unwrap().name, "Workspace 1");
+    }
+
+    #[tokio::test]
+    async fn rename_workspace_unknown_id_is_not_found() {
+        let core = boot_test_core().await;
+        let bogus = WorkspaceId::new();
+        let err = core
+            .rename_workspace(bogus, "anything".into())
+            .await
+            .expect_err("unknown workspace id");
+        assert!(matches!(err, designer_core::CoreError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn rename_tab_updates_projection() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab = core
+            .open_tab(ws.id, "Tab 1".into(), TabTemplate::Thread)
+            .await
+            .unwrap();
+        let renamed = core
+            .rename_tab(ws.id, tab.id, "  My plan  ".into())
+            .await
+            .unwrap();
+        assert_eq!(renamed.title, "My plan");
+        let projected = core.projector.workspace(ws.id).unwrap();
+        let updated = projected
+            .tabs
+            .iter()
+            .find(|t| t.id == tab.id)
+            .expect("tab still in projection");
+        assert_eq!(updated.title, "My plan");
+    }
+
+    #[tokio::test]
+    async fn rename_tab_rejects_empty() {
+        let core = boot_test_core().await;
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        let tab = core
+            .open_tab(ws.id, "Tab 1".into(), TabTemplate::Thread)
+            .await
+            .unwrap();
+        let err = core
+            .rename_tab(ws.id, tab.id, "".into())
+            .await
+            .expect_err("empty title must be rejected");
+        assert!(matches!(err, designer_core::CoreError::Invariant(_)));
     }
 
     /// frc_019dea6b — closing the only open tab in a workspace is a

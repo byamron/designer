@@ -80,6 +80,15 @@ pub enum EventPayload {
         name: String,
         base_branch: String,
     },
+    /// User renamed a workspace via the sidebar right-click menu or
+    /// double-click inline edit. Additive event variant — pre-rename
+    /// records replay unchanged, with the projector preserving the
+    /// `WorkspaceCreated.name` until a `WorkspaceRenamed` lands. Mirrors
+    /// `ProjectRenamed` (project-level peer).
+    WorkspaceRenamed {
+        workspace_id: WorkspaceId,
+        name: String,
+    },
     WorkspaceStateChanged {
         workspace_id: WorkspaceId,
         state: WorkspaceState,
@@ -596,6 +605,7 @@ pub enum EventKind {
     ProjectAutonomyChanged,
     ProjectArchived,
     WorkspaceCreated,
+    WorkspaceRenamed,
     WorkspaceStateChanged,
     WorkspaceWorktreeAttached,
     WorkspaceWorktreeDetached,
@@ -657,6 +667,7 @@ impl EventPayload {
             EventPayload::ProjectAutonomyChanged { .. } => EventKind::ProjectAutonomyChanged,
             EventPayload::ProjectArchived { .. } => EventKind::ProjectArchived,
             EventPayload::WorkspaceCreated { .. } => EventKind::WorkspaceCreated,
+            EventPayload::WorkspaceRenamed { .. } => EventKind::WorkspaceRenamed,
             EventPayload::WorkspaceStateChanged { .. } => EventKind::WorkspaceStateChanged,
             EventPayload::WorkspaceWorktreeAttached { .. } => EventKind::WorkspaceWorktreeAttached,
             EventPayload::WorkspaceWorktreeDetached { .. } => EventKind::WorkspaceWorktreeDetached,

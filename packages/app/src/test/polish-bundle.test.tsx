@@ -21,6 +21,8 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     createProject: noop,
     listWorkspaces: () => Promise.resolve([]),
     createWorkspace: noop,
+    renameWorkspace: noop,
+    renameTab: noop,
     archiveWorkspace: () => Promise.resolve(),
     restoreWorkspace: () => Promise.resolve(),
     deleteWorkspace: () => Promise.resolve(),

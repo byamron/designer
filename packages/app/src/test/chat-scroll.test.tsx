@@ -24,6 +24,9 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     createProject: (req) => Promise.resolve(mock.createProject(req)),
     listWorkspaces: (id) => Promise.resolve(mock.listWorkspaces(id)),
     createWorkspace: (req) => Promise.resolve(mock.createWorkspace(req)),
+    renameWorkspace: (id, name) =>
+      Promise.resolve(mock.renameWorkspace(id, name)),
+    renameTab: (w, t, title) => Promise.resolve(mock.renameTab(w, t, title)),
     archiveWorkspace: (id) => Promise.resolve(mock.archiveWorkspace(id)),
     restoreWorkspace: (id) => Promise.resolve(mock.restoreWorkspace(id)),
     deleteWorkspace: (id) => Promise.resolve(mock.deleteWorkspace(id)),

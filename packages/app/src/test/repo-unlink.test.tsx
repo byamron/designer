@@ -12,6 +12,9 @@ function makeClient() {
     createProject: (req) => Promise.resolve(core.createProject(req)),
     listWorkspaces: (id) => Promise.resolve(core.listWorkspaces(id)),
     createWorkspace: (req) => Promise.resolve(core.createWorkspace(req)),
+    renameWorkspace: (id, name) =>
+      Promise.resolve(core.renameWorkspace(id, name)),
+    renameTab: (w, t, title) => Promise.resolve(core.renameTab(w, t, title)),
     archiveWorkspace: (id) => Promise.resolve(core.archiveWorkspace(id)),
     restoreWorkspace: (id) => Promise.resolve(core.restoreWorkspace(id)),
     deleteWorkspace: (id) => Promise.resolve(core.deleteWorkspace(id)),

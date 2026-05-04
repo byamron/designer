@@ -48,6 +48,14 @@ export interface IpcClient {
   createProject(req: CreateProjectRequest): Promise<ProjectSummary>;
   listWorkspaces(id: ProjectId): Promise<WorkspaceSummary[]>;
   createWorkspace(req: CreateWorkspaceRequest): Promise<WorkspaceSummary>;
+  /** Rename a workspace. Trims; rejects empty. */
+  renameWorkspace(workspaceId: WorkspaceId, name: string): Promise<WorkspaceSummary>;
+  /** Rename a tab. Trims; rejects empty. */
+  renameTab(
+    workspaceId: WorkspaceId,
+    tabId: TabId,
+    title: string,
+  ): Promise<Tab>;
   /** Soft-archive a workspace. Idempotent. */
   archiveWorkspace(workspaceId: WorkspaceId): Promise<void>;
   /** Move an archived workspace back to active. Idempotent. */
@@ -323,6 +331,16 @@ class TauriIpcClient implements IpcClient {
   createWorkspace(req: CreateWorkspaceRequest) {
     return invoke<WorkspaceSummary>("create_workspace", { req });
   }
+  renameWorkspace(workspaceId: WorkspaceId, name: string) {
+    return invoke<WorkspaceSummary>("rename_workspace", {
+      req: { workspace_id: workspaceId, name },
+    });
+  }
+  renameTab(workspaceId: WorkspaceId, tabId: TabId, title: string) {
+    return invoke<Tab>("rename_tab", {
+      req: { workspace_id: workspaceId, tab_id: tabId, title },
+    });
+  }
   archiveWorkspace(workspaceId: WorkspaceId) {
     return invoke<void>("archive_workspace", { workspaceId });
   }
@@ -518,6 +536,12 @@ class MockIpcClient implements IpcClient {
   }
   createWorkspace(req: CreateWorkspaceRequest) {
     return Promise.resolve(this.core.createWorkspace(req));
+  }
+  renameWorkspace(workspaceId: WorkspaceId, name: string) {
+    return Promise.resolve(this.core.renameWorkspace(workspaceId, name));
+  }
+  renameTab(workspaceId: WorkspaceId, tabId: TabId, title: string) {
+    return Promise.resolve(this.core.renameTab(workspaceId, tabId, title));
   }
   archiveWorkspace(workspaceId: WorkspaceId) {
     this.core.archiveWorkspace(workspaceId);
