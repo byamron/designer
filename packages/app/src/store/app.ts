@@ -13,6 +13,13 @@ import {
 export type PaletteDensity = "bounded" | "open";
 export type AppDialog = "settings" | "help" | "create-project" | null;
 
+/**
+ * Which "no workspace" surface to render in the main pane. Mirrors the
+ * top-level sidebar tabs (Home, Archived). When `activeWorkspace` is
+ * non-null this is ignored — the workspace owns the main pane.
+ */
+export type ProjectView = "home" | "archived";
+
 // Track 13.M — Friction trivial-by-default UX. The state machine flips so
 // "composing" (the typed-sentence path) is the default surface. Selection
 // mode demotes to opt-in.
@@ -72,6 +79,11 @@ const spineWidthStore = persisted<number>(
 export interface AppState {
   activeProject: ProjectId | null;
   activeWorkspace: WorkspaceId | null;
+  /**
+   * Which project-level view to render when no workspace is selected.
+   * Driven by the sidebar's Home / Archived tabs.
+   */
+  activeView: ProjectView;
   activeTabByWorkspace: Record<WorkspaceId, TabId>;
   /**
    * Per-tab composer draft. Keyed by tab id so leaving a tab and
@@ -128,6 +140,7 @@ export interface AppState {
 export const appStore = createStore<AppState>({
   activeProject: null,
   activeWorkspace: null,
+  activeView: "home",
   activeTabByWorkspace: {},
   composerDraftByTab: {},
   tabStartedById: {},
@@ -154,13 +167,38 @@ export const useAppState = <U,>(selector: (s: AppState) => U) =>
 
 export const selectProject = (id: ProjectId | null) =>
   appStore.set((s) =>
-    s.activeProject === id && s.activeWorkspace === null
+    s.activeProject === id && s.activeWorkspace === null && s.activeView === "home"
       ? s
-      : { ...s, activeProject: id, activeWorkspace: null },
+      : { ...s, activeProject: id, activeWorkspace: null, activeView: "home" },
   );
 
 export const selectWorkspace = (id: WorkspaceId | null) =>
-  appStore.set((s) => (s.activeWorkspace === id ? s : { ...s, activeWorkspace: id }));
+  appStore.set((s) => {
+    // Selecting a workspace doesn't change activeView, but clearing the
+    // selection (id === null) snaps back to Home so that returning to the
+    // project-root state always lands the user on the canonical view.
+    if (id === null) {
+      if (s.activeWorkspace === null && s.activeView === "home") return s;
+      return { ...s, activeWorkspace: null, activeView: "home" };
+    }
+    return s.activeWorkspace === id ? s : { ...s, activeWorkspace: id };
+  });
+
+/** Switch the project-level view to Home, dropping any workspace selection. */
+export const selectHomeView = () =>
+  appStore.set((s) =>
+    s.activeWorkspace === null && s.activeView === "home"
+      ? s
+      : { ...s, activeWorkspace: null, activeView: "home" },
+  );
+
+/** Switch the project-level view to Archived, dropping any workspace selection. */
+export const selectArchivedView = () =>
+  appStore.set((s) =>
+    s.activeWorkspace === null && s.activeView === "archived"
+      ? s
+      : { ...s, activeWorkspace: null, activeView: "archived" },
+  );
 
 export const selectTab = (workspaceId: WorkspaceId, tabId: TabId) =>
   appStore.set((s) =>
