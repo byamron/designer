@@ -1695,7 +1695,13 @@ mod tests {
         );
 
         // Reset the call_order log so the model-swap assertion below
-        // only sees the swap-driven calls.
+        // only sees the swap-driven calls. Safe because `post_message`
+        // dispatch is synchronous in this test path: by the time we
+        // reach this line, every spawn/post/kill from the first phase
+        // has already been recorded. The model-swap phase below adds
+        // its own entries to a now-empty log, and the `kill_idx <
+        // spawn_idx` assertion can only be satisfied by entries from
+        // the swap itself — no race with stale phase-1 entries.
         flaky.call_order.lock().clear();
 
         // Same-model repost: no kill, no new spawn.

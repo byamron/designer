@@ -568,8 +568,17 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         let Some(mut handle) = handle else {
             return Ok(());
         };
-        let _ = handle.child.start_kill();
-        let _ = handle.child.wait().await;
+        // start_kill / wait may legitimately fail if the child has
+        // already exited (e.g. crashed, killed externally) — those
+        // failures are not actionable here, but we log at debug so
+        // the failure path stays visible if a future change makes
+        // the kill flow load-bearing for cleanup correctness.
+        if let Err(e) = handle.child.start_kill() {
+            debug!(workspace = %workspace_id, tab = %tab_id, error = %e, "claude start_kill failed (likely already exited)");
+        }
+        if let Err(e) = handle.child.wait().await {
+            debug!(workspace = %workspace_id, tab = %tab_id, error = %e, "claude wait after start_kill failed");
+        }
         handle.reader_task.abort();
         handle.writer_task.abort();
         handle.stderr_task.abort();

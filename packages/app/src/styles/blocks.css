@@ -500,8 +500,15 @@
 @media (prefers-reduced-motion: reduce) {
   .thread__activity-spinner::before {
     animation: none;
-    /* All-dots braille — static "thinking" glyph. */
-    content: "⠿";
+    /* Horizontal ellipsis (U+2026) — universally read as "in
+     * progress / thinking". Picked over the all-dots braille `⠿`
+     * after a UX review flagged that the static braille block was
+     * indistinguishable from the spinner's individual rotation
+     * frames at a glance, leaving reduced-motion users unable to
+     * tell "thinking" from a frozen frame. The ellipsis is
+     * unambiguously a progress indicator regardless of motion
+     * state and is rendered at 1ch by every monospace family. */
+    content: "…";
   }
 }
 
