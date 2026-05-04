@@ -65,7 +65,8 @@
   font-size: var(--type-caption-size);
 }
 
-.home-a__count[data-variant="warning"] {
+.home-a__count[data-variant="warning"],
+.home-a__section-trailing[data-variant="warning"] {
   color: var(--warning-11);
 }
 

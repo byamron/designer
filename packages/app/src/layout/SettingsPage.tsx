@@ -273,7 +273,7 @@ function PreferencesSection() {
       </SettingsRow>
       <SettingsRow
         label="Show Recent Reports on Home"
-        description="Phase 22.B preview — curated highlights of shipped work, in manager voice. Two-step disclosure with classification chip + workspace label + PR link. Off by default; flip on while the on-device summary hook is still warming up."
+        description="Adds a curated highlights surface to the project Home tab — recent shipped work in plain language, with a chip for the kind of change and a link to the PR. Off by default during initial rollout."
       >
         <RecentReportsToggle />
       </SettingsRow>

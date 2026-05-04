@@ -18,12 +18,21 @@
 use crate::core::AppCore;
 use crate::settings::Settings;
 use designer_core::{
-    Artifact, ArtifactKind, PayloadRef, ProjectId, ReportClassification, Timestamp, WorkspaceId,
+    Artifact, PayloadRef, ProjectId, ReportClassification, Timestamp, WorkspaceId,
 };
 use designer_ipc::IpcError;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
+
+/// Process-wide lock guarding the read-modify-write of the Settings
+/// sidecar from `cmd_mark_reports_read`. Two tabs marking concurrently
+/// would otherwise race: A reads sidecar, B reads sidecar, A writes,
+/// B clobbers A. The lock is local to this command (other settings
+/// writers go through their own IPC commands and don't share this
+/// path); a broader Settings-wide mutex is a separate cleanup.
+static SETTINGS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// One Recent Reports row. Lean DTO — the Home tab only needs to render
 /// the inline summary + classification chip; full bodies are fetched on
@@ -103,7 +112,6 @@ pub async fn cmd_list_recent_reports(
             .unwrap_or_else(|| "workspace".into());
         out.push(RecentReportRow::from_artifact(&a, ws_name));
     }
-    let _ = ArtifactKind::Report; // silence the unused-import lint at this seam
     Ok(out)
 }
 
@@ -138,11 +146,16 @@ pub fn cmd_mark_reports_read(
         return Ok(0);
     };
     core.projector.mark_reports_read(project_id, at);
-    // Persist sidecar.
-    let mut settings = Settings::load(&core.config.data_dir);
-    settings.report_read_at_by_project.insert(project_id, at);
-    settings
-        .save(&core.config.data_dir)
-        .map_err(|e| IpcError::unknown(format!("settings write failed: {e}")))?;
+    // Persist sidecar under the process-wide lock so a concurrent call
+    // for the same (or another) project can't read a stale snapshot
+    // and clobber our write.
+    {
+        let _guard = SETTINGS_WRITE_LOCK.lock();
+        let mut settings = Settings::load(&core.config.data_dir);
+        settings.report_read_at_by_project.insert(project_id, at);
+        settings
+            .save(&core.config.data_dir)
+            .map_err(|e| IpcError::unknown(format!("settings write failed: {e}")))?;
+    }
     Ok(core.projector.unread_report_count(project_id) as u32)
 }

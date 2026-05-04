@@ -55,7 +55,11 @@ export function RecentReportsSection({ projectId }: { projectId: ProjectId }) {
       setReports(list);
       setUnread(count);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Raw IPC error strings ("ChannelClosed", "InvalidRequest") aren't
+      // useful to the manager-grade reader; log the detail for triage
+      // and surface a friendly line. The next refetch will recover.
+      console.warn("Recent Reports load failed", err);
+      setError("Couldn't load recent reports — try refreshing.");
       setReports([]);
     }
   }, [projectId]);
@@ -239,10 +243,12 @@ function RecentReportRowView({
       await onOpenedTab();
       // Mirror the activity-spine click affordance: dispatch the
       // focus-artifact event so the workspace tab lands centred on the
-      // report instead of the bottom of the thread.
+      // report instead of the bottom of the thread. Detail key is `id`
+      // (not `artifactId`) — that matches `ArtifactReferenceBlock`'s
+      // dispatch and the ActivitySpine listener contract.
       window.dispatchEvent(
         new CustomEvent("designer:focus-artifact", {
-          detail: { artifactId: row.artifact_id },
+          detail: { id: row.artifact_id },
         }),
       );
     } catch {
@@ -268,7 +274,6 @@ function RecentReportRowView({
         <span
           className="recent-reports__chip"
           data-classification={row.classification}
-          aria-label={`Classification: ${CLASSIFICATION_LABELS[row.classification]}`}
         >
           {CLASSIFICATION_LABELS[row.classification]}
         </span>
