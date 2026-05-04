@@ -857,11 +857,13 @@ dependencies = [
 name = "designer-claude"
 version = "0.1.2"
 dependencies = [
+ "anyhow",
  "async-trait",
  "dashmap",
  "designer-audit",
  "designer-core",
  "futures",
+ "libc",
  "notify",
  "notify-debouncer-mini",
  "parking_lot",
