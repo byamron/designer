@@ -178,6 +178,7 @@ fn main() {
             commands_friction::cmd_reopen_friction,
             commands_friction::cmd_report_friction,
             commands_friction::cmd_resolve_friction,
+            commands_git::cmd_complete_track,
             commands_git::cmd_get_track,
             commands_git::cmd_link_repo,
             commands_git::cmd_list_tracks,

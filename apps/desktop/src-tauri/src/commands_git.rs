@@ -7,8 +7,8 @@ use crate::core::AppCore;
 use crate::ipc;
 use designer_core::{TrackId, WorkspaceId};
 use designer_ipc::{
-    IpcError, LinkRepoRequest, RequestMergeRequest, StartTrackRequest, TrackSummary,
-    UnlinkRepoRequest,
+    CompleteTrackRequest, IpcError, LinkRepoRequest, RequestMergeRequest, StartTrackRequest,
+    TrackSummary, UnlinkRepoRequest,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -43,6 +43,14 @@ pub async fn cmd_request_merge(
     req: RequestMergeRequest,
 ) -> Result<u64, IpcError> {
     ipc::cmd_request_merge(&core, req).await
+}
+
+#[tauri::command]
+pub async fn cmd_complete_track(
+    core: State<'_, Arc<AppCore>>,
+    req: CompleteTrackRequest,
+) -> Result<(), IpcError> {
+    ipc::cmd_complete_track(&core, req).await
 }
 
 #[tauri::command]

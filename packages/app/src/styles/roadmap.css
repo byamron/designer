@@ -143,6 +143,19 @@
   background: var(--team-1-tint);
 }
 
+/* Phase 22.I — secondary line that holds the persistent shipping
+ * history (and any future per-node post-headline metadata). Indented
+ * to align under the headline (chevron + status-circle gutter), so the
+ * pill reads as belonging to the node it sits below rather than to a
+ * sibling row. */
+.roadmap-node-row__shipments {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0
+    calc(var(--target-sm) + var(--space-2) + var(--target-sm));
+}
+
 .roadmap-node-row__body {
   margin: var(--space-2) 0 var(--space-2)
     calc(var(--space-4) + var(--target-sm));
@@ -174,7 +187,28 @@
 }
 
 .roadmap-status-circle__arc {
-  transition: stroke-dasharray var(--motion-standard) var(--ease-out-enter);
+  transition: stroke-dasharray var(--motion-standard) var(--ease-out-enter),
+    opacity var(--motion-emphasized) var(--ease-out-enter);
+}
+
+/* Phase 22.I — PrOpen → Merged crossfade. The Done overlay (filled green
+ * circle + checkmark) is always present in the DOM so opacity can
+ * transition continuously. The arc fades out as the green fades in over
+ * the same 400 ms emphasized window, creating a single smooth swap on
+ * merge. The conic-gradient transition bug forced the SVG approach (see
+ * RoadmapStatusCircle.tsx); the opacity layering is the corollary. */
+.roadmap-status-circle__done-overlay {
+  opacity: 0;
+  transition: opacity var(--motion-emphasized) var(--ease-out-enter);
+}
+
+.roadmap-status-circle[data-status="done"] .roadmap-status-circle__done-overlay {
+  opacity: 1;
+}
+
+/* When done, the arc fades out underneath the green overlay. */
+.roadmap-status-circle[data-status="done"] .roadmap-status-circle__arc {
+  opacity: 0;
 }
 
 /* ---- Team label + multi-claim stack ---- */
@@ -224,6 +258,53 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-2, 6px);
   cursor: default;
+}
+
+/* ---- Shipped here badge (Phase 22.I) ---- */
+
+.roadmap-shipped-here-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  /* Sits below the headline as a sibling on the row's secondary line.
+   * Kept inline so it can stack horizontally for multi-shipment nodes
+   * (mirrors the multi-claim stack pattern). */
+}
+
+.roadmap-shipped-here-badge__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-semibold);
+  color: var(--color-muted);
+  background: var(--color-surface-overlay);
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-2, 6px);
+  cursor: default;
+  /* Tooltip primitive needs a focus target — match the team-label dot
+   * height so the badge aligns with the multi-claim stack on the same
+   * row. */
+  line-height: var(--target-sm);
+}
+
+.roadmap-shipped-here-badge__pill:focus-visible {
+  outline: var(--focus-outline-width, 2px) solid var(--focus-outline-color);
+  outline-offset: var(--border-thin);
+}
+
+.roadmap-shipped-here-badge__overflow {
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-2, 6px);
+  cursor: default;
+}
+
+.roadmap-shipped-here-badge__overflow:focus-visible {
+  outline: var(--focus-outline-width, 2px) solid var(--focus-outline-color);
+  outline-offset: var(--border-thin);
 }
 
 /* ---- Done = shipped hint ---- */
@@ -354,6 +435,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .roadmap-status-circle__arc,
+  .roadmap-status-circle__done-overlay,
   .roadmap-node-row__chevron-glyph {
     transition: none;
   }

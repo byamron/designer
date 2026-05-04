@@ -469,6 +469,7 @@ impl AppCore {
                 EventPayload::PullRequestOpened {
                     track_id,
                     pr_number: pr.number,
+                    pr_url: pr.url.clone(),
                 },
             )
             .await?;
@@ -500,6 +501,78 @@ impl AppCore {
             .await?;
         self.projector.apply(&env);
         Ok(pr.number)
+    }
+
+    /// Phase 22.I — mark a track as merged. Emits `TrackCompleted`; if the
+    /// track is anchored to a roadmap node and has a PR url on file, also
+    /// emits `NodeShipmentRecorded` so the canvas atomically gains a
+    /// shipment record and drops the live claim. The two events land
+    /// back-to-back via the same projector instance — the projector's
+    /// `last_applied` guard makes the synchronous post-append apply
+    /// idempotent against the broadcast subscriber that reapplies them.
+    ///
+    /// `pr_url`: optional override. When `None`, falls back to
+    /// `Track.pr_url` populated by `PullRequestOpened`. When the track
+    /// has neither, the shipment event is skipped (the track still
+    /// completes, but the canvas never lights up — this is the right
+    /// fallback for tracks that merged without going through `gh`).
+    pub async fn complete_track(
+        &self,
+        track_id: TrackId,
+        pr_url: Option<String>,
+    ) -> Result<(), CoreError> {
+        let track = self
+            .projector
+            .track(track_id)
+            .ok_or_else(|| CoreError::NotFound(track_id.to_string()))?;
+        if matches!(track.state, TrackState::Merged | TrackState::Archived) {
+            // Idempotent: already merged.
+            return Ok(());
+        }
+        let stream = StreamId::Workspace(track.workspace_id);
+
+        // Emit TrackCompleted first so Track.state visibly transitions to
+        // Merged before the shipment record lands. The projector apply is
+        // synchronous, so any reader between the two appends sees a
+        // consistent intermediate state ("merged but not yet recorded")
+        // rather than the inverse ("recorded but track still PrOpen").
+        let completed = self
+            .store
+            .append(
+                stream.clone(),
+                None,
+                Actor::system(),
+                EventPayload::TrackCompleted { track_id },
+            )
+            .await?;
+        let shipped_at = completed.timestamp;
+        self.projector.apply(&completed);
+
+        // Look up the roadmap claim. If the track has a claim AND a PR
+        // url is available, emit the shipment event. Otherwise the track
+        // completes without a canvas badge.
+        let node_id = self.projector.node_for_track(track_id);
+        let url = pr_url.or(track.pr_url.clone());
+        if let (Some(node_id), Some(url)) = (node_id, url) {
+            let shipment = self
+                .store
+                .append(
+                    stream,
+                    None,
+                    Actor::system(),
+                    EventPayload::NodeShipmentRecorded {
+                        node_id,
+                        workspace_id: track.workspace_id,
+                        track_id,
+                        pr_url: url,
+                        shipped_at,
+                    },
+                )
+                .await?;
+            self.projector.apply(&shipment);
+        }
+        forget_track(track_id);
+        Ok(())
     }
 
     /// All tracks for a workspace, oldest first. Replay-derived.
@@ -1269,6 +1342,139 @@ mod tests {
         assert_eq!(removed.len(), 1, "rollback removed exactly one worktree");
         // No TrackStarted event was projected.
         assert!(core.list_tracks(ws).await.is_empty());
+    }
+
+    /// Phase 22.I — `complete_track` emits `TrackCompleted` and a paired
+    /// `NodeShipmentRecorded` when the track has a roadmap claim and a
+    /// PR url. The projection-visible state after the call: track is
+    /// Merged, claim is gone, shipment is recorded — all from one core
+    /// method call that the canvas reads atomically.
+    #[tokio::test]
+    async fn complete_track_emits_shipment_when_anchored() {
+        let _g = test_lock().lock().await;
+        let core = boot_test_core().await;
+        let fake = FakeGitOps::new();
+        set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
+        let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
+        set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
+        let node = designer_core::roadmap::NodeId::new("phase22.i.complete");
+        let track_id = core
+            .start_track(ws, "feature/ship".into(), None, Some(node.clone()))
+            .await
+            .unwrap();
+        // Claim is live.
+        assert_eq!(core.projector.node_claimants(&node).len(), 1);
+        // PR opens — populates Track.pr_url via the projection.
+        let _pr = core.request_merge(track_id).await.unwrap();
+        let track_after_pr = core.get_track(track_id).await.unwrap();
+        assert!(
+            track_after_pr.pr_url.is_some(),
+            "pr_url populated by PullRequestOpened"
+        );
+
+        // Complete: emits TrackCompleted + NodeShipmentRecorded.
+        core.complete_track(track_id, None).await.unwrap();
+
+        let track_after = core.get_track(track_id).await.unwrap();
+        assert_eq!(track_after.state, TrackState::Merged);
+        let shipments = core.projector.node_shipments(&node);
+        assert_eq!(shipments.len(), 1, "exactly one shipment recorded");
+        assert_eq!(shipments[0].track_id, track_id);
+        assert_eq!(
+            shipments[0].pr_url, "https://example.com/pr/7",
+            "shipment carries the PR URL"
+        );
+        assert!(
+            core.projector.node_claimants(&node).is_empty(),
+            "live claim cleaned up atomically with the shipment"
+        );
+    }
+
+    /// Phase 22.I — completing an unanchored track emits `TrackCompleted`
+    /// only. No shipment; no projection write to `node_to_shipments`.
+    /// This is the right behavior for tracks that were never claimed
+    /// against a roadmap node.
+    #[tokio::test]
+    async fn complete_track_skips_shipment_when_unanchored() {
+        let _g = test_lock().lock().await;
+        let core = boot_test_core().await;
+        let fake = FakeGitOps::new();
+        set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
+        let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
+        set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
+        let track_id = core
+            .start_track(ws, "feature/no-anchor".into(), None, None)
+            .await
+            .unwrap();
+        let _pr = core.request_merge(track_id).await.unwrap();
+        core.complete_track(track_id, None).await.unwrap();
+        let track_after = core.get_track(track_id).await.unwrap();
+        assert_eq!(track_after.state, TrackState::Merged);
+        // No shipment for any node.
+        let stored = core
+            .store
+            .read_all(designer_core::StreamOptions::default())
+            .await
+            .unwrap();
+        let shipment_events: usize = stored
+            .iter()
+            .filter(|env| {
+                matches!(
+                    env.payload,
+                    designer_core::EventPayload::NodeShipmentRecorded { .. }
+                )
+            })
+            .count();
+        assert_eq!(shipment_events, 0, "no shipment when track is unanchored");
+    }
+
+    /// Phase 22.I — second call is a no-op. `complete_track` is idempotent
+    /// against a re-entry from a watcher that double-fires on a flapping
+    /// gh state, so the projection never gains a duplicate shipment.
+    #[tokio::test]
+    async fn complete_track_is_idempotent() {
+        let _g = test_lock().lock().await;
+        let core = boot_test_core().await;
+        let fake = FakeGitOps::new();
+        set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
+        let (_pid, ws, _repo) = seed_workspace_with_repo(&core).await;
+        set_git_ops_for_tests(fake.clone() as Arc<dyn GitOps>);
+        let node = designer_core::roadmap::NodeId::new("phase22.i.idem");
+        let track_id = core
+            .start_track(ws, "feature/idem".into(), None, Some(node.clone()))
+            .await
+            .unwrap();
+        let _pr = core.request_merge(track_id).await.unwrap();
+        core.complete_track(track_id, None).await.unwrap();
+        // Second call — must not emit a second TrackCompleted or shipment.
+        core.complete_track(track_id, None).await.unwrap();
+
+        let stored = core
+            .store
+            .read_all(designer_core::StreamOptions::default())
+            .await
+            .unwrap();
+        let completions = stored
+            .iter()
+            .filter(|env| {
+                matches!(
+                    env.payload,
+                    designer_core::EventPayload::TrackCompleted { .. }
+                )
+            })
+            .count();
+        let shipments = stored
+            .iter()
+            .filter(|env| {
+                matches!(
+                    env.payload,
+                    designer_core::EventPayload::NodeShipmentRecorded { .. }
+                )
+            })
+            .count();
+        assert_eq!(completions, 1, "exactly one TrackCompleted emitted");
+        assert_eq!(shipments, 1, "exactly one NodeShipmentRecorded emitted");
+        assert_eq!(core.projector.node_shipments(&node).len(), 1);
     }
 
     #[tokio::test]

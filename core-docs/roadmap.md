@@ -1975,6 +1975,27 @@ Token namespacing for 22.G: new tokens are `--team-1`..`--team-16` (light + dark
 
 **Gates on:** Phase 22.A; Phase 13.E (`Track::Merged` event already in place).
 
+**Status (2026-05-03):** Projection contract + canvas badge + PrOpen → Merged crossfade shipped. The `Track::Merged` event was *not* "already in place" — Phase 13.E reserved the variant but never wired a producer. 22.I added an `AppCore::complete_track(track_id, pr_url?)` seam in `core_git.rs` and a `cmd_complete_track` IPC for manual / future-watcher invocation. Real-merge dogfood validation is gated on **Phase 22.M** (below) shipping a watcher.
+
+---
+
+### Phase 22.M — `Track::Merged` watcher *(carved out of 22.I)*
+
+**Goal:** detect when a Designer-opened PR merges (or closes without merging) on GitHub and fire the `Track::Merged` projection path so the roadmap canvas's "demonstrably alive" moment fires from real activity, not a manual IPC.
+
+**Why a separate phase:** 22.I scoped the projection contract + UI; the watcher is its own design surface (poll cadence vs. event-driven, squash vs. merge-commit detection, behaviour when the user closes a PR without merging, retry/idempotency under flapping `gh` state, what happens when the PR's branch is force-pushed). Folding it into 22.I would have doubled the diff and pulled in concerns that don't share dependencies with the badge work. The IPC seam (`cmd_complete_track`) lets dogfood validate the visual progression manually until 22.M lands.
+
+**Deliverables:**
+- A poller (or `gh` event subscriber if available) that watches Designer-opened PRs and fires `core.complete_track(track_id, pr_url)` on merge.
+- Idempotency: a flapping `gh pr view` state must not produce duplicate shipment records. The projection already guards on `(node_id, track_id)`; the watcher must guard at its own layer too so we don't burn `gh` rate limits.
+- Cleanup on close-without-merge: the watcher emits `TrackArchived` (the existing path) so the live claim drops without a shipment record.
+- Squash and rebase merges count as merges; the watcher detects via `state == MERGED`, not via merge-commit shape.
+- Manual override stays: the `cmd_complete_track` IPC still works for a user/agent that wants to mark a track shipped without a real PR (e.g., for tracks merged outside Designer).
+
+**Done when:** a real track lifecycle (Active → PrOpen → Merged on GitHub) produces the visual progression on the canvas with **no manual IPC call** — the watcher is the producer. Closing a PR without merging cleans up the live claim and leaves no badge.
+
+**Gates on:** Phase 22.I (this PR — the projection + IPC seam); Phase 13.E (`gh` integration in `core_git.rs`).
+
 ---
 
 ### Phase 22.D — Edit & proposal flow
