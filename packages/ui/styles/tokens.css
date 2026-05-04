@@ -191,6 +191,7 @@
 
   --motion-pulse:    1200ms;   /* subtle "active" state pulse */
   --motion-blink:    700ms;    /* streaming cursor blink */
+  --motion-spin:     800ms;    /* full cycle for compact unicode spinners */
 
   /* Floating content surface — the raised Tier-2 rectangle that holds
      tab bodies (axiom #8). 24px reads as a contemporary card register
