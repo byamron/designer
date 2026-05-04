@@ -20,6 +20,7 @@ import { TabLayout } from "../layout/TabLayout";
 import { SegmentedToggle } from "../components/SegmentedToggle";
 import { WorkspaceStatusIcon } from "../components/WorkspaceStatusIcon";
 import { DesignerNoticedHome } from "../components/DesignerNoticed";
+import { RecentReportsSection } from "../components/RecentReports";
 import { RepoUnlinkModal } from "../components/RepoUnlinkModal";
 import { RepoLinkModal } from "../components/RepoLinkModal";
 import { RoadmapCanvas } from "../components/RoadmapCanvas";
@@ -69,6 +70,23 @@ export function HomeTabA({ project }: { project: Project }) {
   useEffect(() => {
     markNoticedViewed();
   }, [project.id]);
+
+  // Phase 22.B — feature-flagged Recent Reports surface. Old report
+  // rendering on this tab stays unchanged when the flag is off so
+  // dogfood installs that haven't opted in keep the existing
+  // experience.
+  const [showRecentReports, setShowRecentReports] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void ipcClient()
+      .getFeatureFlags()
+      .then((f) => {
+        if (!cancelled) setShowRecentReports(f.show_recent_reports_v2);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const projectWorkspaces: WorkspaceSummary[] =
     workspaces[project.id] ?? emptyArray();
@@ -164,6 +182,12 @@ export function HomeTabA({ project }: { project: Project }) {
             ]}
           />
         </Section>
+
+        {/* Phase 22.B — Recent Reports sits ABOVE Designer noticed.
+            Phase 22.A's Roadmap section, when it lands, slots between
+            the two (final order: Recent Reports → Roadmap → Designer
+            noticed). */}
+        {showRecentReports && <RecentReportsSection projectId={project.id} />}
 
         <DesignerNoticedHome projectId={project.id} />
       </div>

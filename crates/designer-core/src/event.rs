@@ -3,7 +3,9 @@
 //! schema without breaking old events; projections match on `(kind, version)`.
 
 use crate::anchor::Anchor;
-use crate::domain::{Actor, ArtifactKind, Autonomy, PayloadRef, TabTemplate, WorkspaceState};
+use crate::domain::{
+    Actor, ArtifactKind, Autonomy, PayloadRef, ReportClassification, TabTemplate, WorkspaceState,
+};
 use crate::finding::{Finding, ThumbSignal};
 use crate::ids::{
     AgentId, ApprovalId, ArtifactId, EventId, FindingId, FrictionId, ProjectId, ProposalId,
@@ -270,12 +272,27 @@ pub enum EventPayload {
         /// message.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tab_id: Option<TabId>,
+        /// Phase 22.B — manager-voice summary for `Report` artifacts.
+        /// Optional and additive; pre-22.B replay decodes to `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary_high: Option<String>,
+        /// Phase 22.B — Source classification for `Report` artifacts.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        classification: Option<ReportClassification>,
     },
     ArtifactUpdated {
         artifact_id: ArtifactId,
         summary: String,
         payload: PayloadRef,
         parent_version: u32,
+        /// Phase 22.B — late-return manager-voice summary. Emitted when
+        /// the local-model hook returns after the 500ms append deadline.
+        /// Optional and additive; pre-22.B replay decodes to `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary_high: Option<String>,
+        /// Phase 22.B — late-return classification update.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        classification: Option<ReportClassification>,
     },
     ArtifactPinned {
         artifact_id: ArtifactId,

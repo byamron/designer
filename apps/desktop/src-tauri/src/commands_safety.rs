@@ -37,6 +37,7 @@ pub struct FeatureFlagsResponse {
     pub show_models_section: bool,
     pub show_all_artifacts_in_spine: bool,
     pub show_roadmap_canvas: bool,
+    pub show_recent_reports_v2: bool,
 }
 
 impl From<&FeatureFlags> for FeatureFlagsResponse {
@@ -45,6 +46,7 @@ impl From<&FeatureFlags> for FeatureFlagsResponse {
             show_models_section: f.show_models_section,
             show_all_artifacts_in_spine: f.show_all_artifacts_in_spine,
             show_roadmap_canvas: f.show_roadmap_canvas,
+            show_recent_reports_v2: f.show_recent_reports_v2,
         }
     }
 }
@@ -121,6 +123,7 @@ pub fn cmd_set_feature_flag(
             settings.feature_flags.show_all_artifacts_in_spine = enabled
         }
         "show_roadmap_canvas" => settings.feature_flags.show_roadmap_canvas = enabled,
+        "show_recent_reports_v2" => settings.feature_flags.show_recent_reports_v2 = enabled,
         other => {
             return Err(IpcError::invalid_request(format!(
                 "unknown feature flag: {other}"

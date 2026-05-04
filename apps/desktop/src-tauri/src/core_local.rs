@@ -45,8 +45,8 @@
 
 use crate::core::{AppCore, HelperStatusKind};
 use designer_core::{
-    author_roles, Actor, ArtifactId, ArtifactKind, CoreError, EventEnvelope, EventPayload,
-    EventStore, PayloadRef, Projection, StreamId, WorkspaceId,
+    author_roles, classify_from_title, Actor, ArtifactId, ArtifactKind, CoreError, EventEnvelope,
+    EventPayload, EventStore, PayloadRef, Projection, ReportClassification, StreamId, WorkspaceId,
 };
 use designer_local_models::{AuditClaim, AuditVerdict, RecapInput, RowSummarizeInput};
 use parking_lot::Mutex;
@@ -248,6 +248,39 @@ pub struct ArtifactDraft {
     pub summary: String,
     pub payload: PayloadRef,
     pub author_role: Option<String>,
+    /// Phase 22.B — manager-voice summary for `Report` artifacts. `None`
+    /// for non-report kinds (and for legacy emitters that haven't been
+    /// updated). The Recent Reports surface falls back to `summary`.
+    pub summary_high: Option<String>,
+    /// Phase 22.B — Source classification for `Report` artifacts.
+    pub classification: Option<ReportClassification>,
+}
+
+impl ArtifactDraft {
+    /// Convenience constructor for the legacy 13.D/E/F call sites that
+    /// don't produce manager-voice copy or classification. Keeps the
+    /// surface area at those call sites unchanged.
+    pub fn legacy(
+        workspace_id: WorkspaceId,
+        artifact_id: ArtifactId,
+        kind: ArtifactKind,
+        title: String,
+        summary: String,
+        payload: PayloadRef,
+        author_role: Option<String>,
+    ) -> Self {
+        Self {
+            workspace_id,
+            artifact_id,
+            kind,
+            title,
+            summary,
+            payload,
+            author_role,
+            summary_high: None,
+            classification: None,
+        }
+    }
 }
 
 #[allow(dead_code, reason = "13.F surface — not all entry points wired yet")]
@@ -443,6 +476,8 @@ impl AppCore {
                     // Local-helper artifacts (recap / audit comments) are
                     // workspace-scoped, not bound to a single tab.
                     tab_id: None,
+                    summary_high: draft.summary_high,
+                    classification: draft.classification,
                 },
             )
             .await?;
@@ -477,6 +512,8 @@ impl AppCore {
                     summary,
                     payload,
                     parent_version: current.version,
+                    summary_high: None,
+                    classification: None,
                 },
             )
             .await?;
@@ -544,6 +581,16 @@ impl AppCore {
         let body = format_recap_markdown(&headline, &bullets, &entries);
         let title = format!("{} recap", weekday_label());
         let summary = fallback_truncate(&headline, FALLBACK_SUMMARY_LIMIT);
+        // Phase 22.B — extend the recap path to populate manager-voice
+        // copy and classification so the Recent Reports surface has a
+        // first-class read of every shipped recap. The recap helper's
+        // `headline` is already the manager-voice line; reuse it
+        // verbatim (no extra Foundation Models call). Classification
+        // is heuristic on the title for v1; the local model can
+        // supersede via a late-return ArtifactUpdated as the hook
+        // matures (per roadmap §22.B).
+        let summary_high = Some(headline.clone());
+        let classification = Some(classify_from_title(&title));
         self.append_artifact_inner(ArtifactDraft {
             workspace_id,
             artifact_id: ArtifactId::new(),
@@ -552,6 +599,8 @@ impl AppCore {
             summary,
             payload: PayloadRef::inline(body),
             author_role: Some(author_roles::RECAP.into()),
+            summary_high,
+            classification,
         })
         .await
     }
@@ -614,6 +663,8 @@ impl AppCore {
             summary,
             payload: PayloadRef::inline(rationale),
             author_role: Some(author_roles::AUDITOR.into()),
+            summary_high: None,
+            classification: None,
         })
         .await
     }
@@ -893,6 +944,8 @@ pub(crate) mod tests {
             summary: summary.into(),
             payload: PayloadRef::inline("body\n"),
             author_role: author_role.map(|s| s.into()),
+            summary_high: None,
+            classification: None,
         }
     }
 

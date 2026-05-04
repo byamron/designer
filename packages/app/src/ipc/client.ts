@@ -21,6 +21,7 @@ import type {
   ProjectId,
   ProjectSummary,
   ProposalDto,
+  RecentReportRow,
   ReportFrictionRequest,
   ReportFrictionResponse,
   RequestMergeRequest,
@@ -112,6 +113,10 @@ export interface IpcClient {
   // Feature flags (DP-C reliability audit)
   getFeatureFlags(): Promise<FeatureFlags>;
   setFeatureFlag(name: keyof FeatureFlags, enabled: boolean): Promise<FeatureFlags>;
+  // Recent Reports (Phase 22.B)
+  listRecentReports(projectId: ProjectId, limit?: number): Promise<RecentReportRow[]>;
+  getReportsUnreadCount(projectId: ProjectId): Promise<number>;
+  markReportsRead(projectId: ProjectId): Promise<number>;
   // Friction (Tracks 13.K + 13.L + 13.M)
   reportFriction(req: ReportFrictionRequest): Promise<ReportFrictionResponse>;
   listFriction(): Promise<FrictionEntry[]>;
@@ -277,6 +282,8 @@ export interface FeatureFlags {
   show_all_artifacts_in_spine: boolean;
   /** Phase 22.A — render the Roadmap canvas as the lead Home-tab surface. */
   show_roadmap_canvas: boolean;
+  /** Phase 22.B — show the new Recent Reports surface on Home. */
+  show_recent_reports_v2: boolean;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -395,6 +402,18 @@ class TauriIpcClient implements IpcClient {
   }
   setFeatureFlag(name: keyof FeatureFlags, enabled: boolean) {
     return invoke<FeatureFlags>("cmd_set_feature_flag", { name, enabled });
+  }
+  listRecentReports(projectId: ProjectId, limit?: number) {
+    return invoke<RecentReportRow[]>("cmd_list_recent_reports", {
+      projectId,
+      limit: limit ?? null,
+    });
+  }
+  getReportsUnreadCount(projectId: ProjectId) {
+    return invoke<number>("cmd_get_reports_unread_count", { projectId });
+  }
+  markReportsRead(projectId: ProjectId) {
+    return invoke<number>("cmd_mark_reports_read", { projectId });
   }
   reportFriction(req: ReportFrictionRequest) {
     return invoke<ReportFrictionResponse>("cmd_report_friction", { req });
@@ -599,13 +618,27 @@ class MockIpcClient implements IpcClient {
     show_models_section: false,
     show_all_artifacts_in_spine: false,
     show_roadmap_canvas: false,
+    show_recent_reports_v2: false,
   };
+  private mockReportReadAt: Map<ProjectId, string> = new Map();
   getFeatureFlags() {
     return Promise.resolve<FeatureFlags>({ ...this.mockFlags });
   }
   setFeatureFlag(name: keyof FeatureFlags, enabled: boolean) {
     this.mockFlags = { ...this.mockFlags, [name]: enabled };
     return Promise.resolve<FeatureFlags>({ ...this.mockFlags });
+  }
+  listRecentReports(_projectId: ProjectId, _limit?: number) {
+    // Dev mode: empty list keeps the surface honest about not having
+    // shipped reports yet. Tests seed via __setIpcClient.
+    return Promise.resolve<RecentReportRow[]>([]);
+  }
+  getReportsUnreadCount(_projectId: ProjectId) {
+    return Promise.resolve(0);
+  }
+  markReportsRead(projectId: ProjectId) {
+    this.mockReportReadAt.set(projectId, new Date().toISOString());
+    return Promise.resolve(0);
   }
   reportFriction(_req: ReportFrictionRequest) {
     // Mock keeps an in-memory record so dev mode + tests can render the

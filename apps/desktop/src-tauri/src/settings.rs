@@ -8,7 +8,9 @@
 //! The load path is synchronous (no tokio) so the boot sequence can read theme
 //! before the window opens, eliminating the cold-boot flash.
 
+use designer_core::{ProjectId, Timestamp};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -83,6 +85,13 @@ pub struct FeatureFlags {
     /// the dogfood-readiness bar.
     #[serde(default)]
     pub show_roadmap_canvas: bool,
+    /// Phase 22.B — show the new "Recent Reports" surface on the Home
+    /// tab (curated highlights of shipped work in manager voice). Off
+    /// by default until the on-device summary hook reliably produces
+    /// `summary_high`. When off, HomeTabA renders the legacy report
+    /// rendering only.
+    #[serde(default)]
+    pub show_recent_reports_v2: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +117,13 @@ pub struct Settings {
     /// default-on dogfood. See `FeatureFlags`.
     #[serde(default)]
     pub feature_flags: FeatureFlags,
+    /// Phase 22.B — last-seen mark per project for the Recent Reports
+    /// surface. Persisted in the Settings sidecar (NOT in the event log
+    /// — see roadmap §22.B "projection, not events"). The in-memory
+    /// projection mirrors this on boot via
+    /// `Projector::hydrate_report_read_marks`.
+    #[serde(default)]
+    pub report_read_at_by_project: BTreeMap<ProjectId, Timestamp>,
 }
 
 fn default_version() -> u32 {
@@ -126,6 +142,7 @@ impl Default for Settings {
             cost_chip_enabled: true,
             use_mock_orchestrator: None,
             feature_flags: FeatureFlags::default(),
+            report_read_at_by_project: BTreeMap::new(),
         }
     }
 }

@@ -15,6 +15,7 @@ use designer_desktop::commands_friction;
 use designer_desktop::commands_git;
 use designer_desktop::commands_learn;
 use designer_desktop::commands_local;
+use designer_desktop::commands_reports;
 use designer_desktop::commands_roadmap;
 use designer_desktop::commands_safety;
 use designer_desktop::core::AppCoreBoot;
@@ -191,6 +192,9 @@ fn main() {
             commands_learn::cmd_signal_proposal,
             commands_local::cmd_audit_artifact,
             commands_local::cmd_recap_workspace,
+            commands_reports::cmd_get_reports_unread_count,
+            commands_reports::cmd_list_recent_reports,
+            commands_reports::cmd_mark_reports_read,
             commands_roadmap::cmd_get_roadmap,
             commands_roadmap::cmd_set_node_status,
             commands_roadmap::cmd_write_roadmap_draft,

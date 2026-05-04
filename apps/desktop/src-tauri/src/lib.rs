@@ -12,6 +12,7 @@ pub mod commands_friction;
 pub mod commands_git;
 pub mod commands_learn;
 pub mod commands_local;
+pub mod commands_reports;
 pub mod commands_roadmap;
 pub mod commands_safety;
 pub mod core;

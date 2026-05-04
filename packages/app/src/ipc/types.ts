@@ -65,6 +65,26 @@ export interface ArtifactSummary {
   tab_id?: TabId | null;
 }
 
+// Phase 22.B — Recent Reports surface.
+export type ReportClassification =
+  | "feature"
+  | "fix"
+  | "improvement"
+  | "reverted";
+
+export interface RecentReportRow {
+  artifact_id: ArtifactId;
+  workspace_id: WorkspaceId;
+  workspace_name: string;
+  title: string;
+  /** Manager-voice summary; falls back to the legacy `summary` field
+   *  when the report was emitted before Phase 22.B. */
+  summary_high: string;
+  classification: ReportClassification;
+  pr_url: string | null;
+  created_at: string;
+}
+
 export interface ArtifactDetail {
   summary: ArtifactSummary;
   payload: PayloadRef;

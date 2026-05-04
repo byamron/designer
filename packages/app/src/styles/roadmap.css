@@ -129,15 +129,18 @@
   gap: var(--space-1);
 }
 
-/* Sub-row team tint — stub until 22.G's --team-tint-light/dark tokens are
- * available on this branch (22.G shipped on main but this branch was forked
- * before the merge; the stub uses --gray-a3 / --gray-a4 to convey "claimed"
- * without a chromatic identity). Swap to the team-color tokens after rebase
- * onto main; tracked in Follow-ups in the PR body. */
+/* Sub-row team tint — uses 22.G's `--team-N-tint` family (color-mix of
+ * `--team-N` with `--team-tint-light` / `--team-tint-dark` alphas). Until
+ * the IPC threads `team_id` through `NodeClaim` (follow-up to 22.G), every
+ * claimed parent renders the team-1 tint as a placeholder identity; once
+ * the team metadata lands, swap the constant for `var(--team-${team_id}-tint)`
+ * derived per row. Stub still beats the bare `--gray-a3` neutral by
+ * conveying chromatic identity, which is the point of axiom #3's
+ * amendment. */
 .roadmap-node-row[data-status="in-progress"]
   > .roadmap-node-row__children
   > .roadmap-node-row {
-  background: var(--gray-a3);
+  background: var(--team-1-tint);
 }
 
 .roadmap-node-row__body {

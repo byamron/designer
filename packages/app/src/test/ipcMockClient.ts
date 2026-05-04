@@ -116,7 +116,9 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
     getFeatureFlags: () =>
       Promise.resolve<FeatureFlags>({
         show_models_section: false,
-        show_all_artifacts_in_spine: false, show_roadmap_canvas: false,
+        show_all_artifacts_in_spine: false,
+        show_roadmap_canvas: false,
+        show_recent_reports_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve<FeatureFlags>({
@@ -124,7 +126,12 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
         show_all_artifacts_in_spine:
           name === "show_all_artifacts_in_spine" ? enabled : false,
         show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
+        show_recent_reports_v2:
+          name === "show_recent_reports_v2" ? enabled : false,
       }),
+    listRecentReports: () => Promise.resolve([]),
+    getReportsUnreadCount: () => Promise.resolve(0),
+    markReportsRead: () => Promise.resolve(0),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
     listFriction: () => Promise.resolve<FrictionEntry[]>([]),

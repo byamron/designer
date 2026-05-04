@@ -110,6 +110,8 @@ mod fixture_data {
                 payload: PayloadRef::inline(""),
                 author_role: Some(author_roles::AGENT.into()),
                 tab_id: None,
+                summary_high: None,
+                classification: None,
             },
         )
     }
