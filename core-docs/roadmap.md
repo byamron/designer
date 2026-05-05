@@ -2561,6 +2561,8 @@ No new features. Closes out Phase 24 to a trustworthy-shipping state per ADR 000
 - **Friction closure.** Triage every chat-related friction report against chat-v2; resolve or park. Gate: no critical chat friction blocks Phase 25.
 - **First-run audit.** Walk the onboarding flow from PR #24 against any subtractions in the v0.1.2 release (stub renderers, hidden detectors, model selector behind flag). Update onboarding before the cull lands.
 - **In-app "What's new" card for v0.1.2.** One-time, dismissible, auto-shown on first launch. Copy is manager-voiced — strategic narrowing, not defensive listing. Draft: *"We've focused the cockpit on what's essential. The model selector and additional analysis signals will return as they're polished. Less surface, more trust."* Final copy proofread before Phase 24H ships.
+- **Golden-path timing measurement.** While recording the screencast, time the path. If >5 min, trim it (skip artifact approval if redundant with Phase 26H Playwright coverage). Log the recorded length in `pattern-log.md` so future releases have a baseline. (Filed from PR #122 staff-perspective review FOLLOW-UP.)
+- **Active-roadmap parallelism check.** Phase 24 + 24H + 24I overlap during this cycle (24I lands solo mid-Harden). Confirm at Phase 24 kickoff that cognitive load stays manageable for a single dogfood user; if it spikes, serialize 24H and 24I instead. (Filed from PR #122 staff-perspective review FOLLOW-UP.)
 - **Demo gatekeeping.** Record golden-path screencast: open Designer → create project → start workspace → post message → see streamed response → see artifact → approve a tool use → ship a track. Save to `core-docs/screencasts/v0.1.2.mov`. (Playwright binding lands in 26H; the screencast convention starts now.)
 
 Estimate: ~1 week.
@@ -2611,6 +2613,9 @@ Ship ONE Designer-Noticed detector with full end-to-end polish on local models, 
 
 **Done when:** the detector has fired ≥3 times in dogfood with proposals the user accepted, and the accept-action visibly closes the loop (the noticed pattern stops recurring or the corresponding rule is in place).
 
+**Sub-deliverables (filed from PR #122 staff-perspective review FOLLOW-UPs):**
+- **Pattern-log entry: hidden-but-emitting events vs. axiom #5 motion personality.** Codifies why detectors that fire without UI are an intentional staging pattern (events mature before the surface) — not dead code, not an axiom-#5 violation (no motion when the surface isn't visible is correct).
+
 Estimate: ~1–2 weeks.
 
 ## Phase 26H — Harden: demo gate automation
@@ -2619,8 +2624,8 @@ No new features. Implements the verification mechanism that ADR 0009 §1.D promi
 
 - **Playwright golden-path test** in `apps/desktop/tests/golden-path.spec.ts`. Exercises the same path the screencast records (create project → workspace → message → response → artifact → approval → ship). Runs against a Linux build (existing CI infra; no new macOS-runner cost).
 - **Binding test ↔ screencast.** Test failure blocks the release tag; screencast is updated whenever the test changes.
-- **Manual macOS spot-check process.** Maintainer runs the path locally on macOS before publishing the release; findings flow to friction inbox. macOS Playwright CI runner is parked (see `parking-lot.md`).
-- **Visual-regression decision.** Linux Playwright covers layout/structure regressions; macOS-only rendering bugs (font, antialiasing, shadows) are caught by spot-check. Documented in `pattern-log.md`.
+- **Manual macOS spot-check process — formalized in `pattern-log.md`** (filed from PR #122 staff-perspective review FOLLOW-UP). Spec: priority surfaces (canvas, chat renderer, home tab — skip lab pages), what counts as a regression (missing glyphs, broken antialiasing, shadow absence — *not* subpixel font differences), verification (side-by-side screenshots before/after; manual eye for color drift; diff tool for layout). Maintainer runs the path locally on macOS before publishing the release; findings flow to friction inbox. macOS Playwright CI runner is parked (see `parking-lot.md`).
+- **Visual-regression decision.** Linux Playwright covers layout/structure regressions; macOS-only rendering bugs caught by the spot-check spec above. Documented in `pattern-log.md`.
 
 Estimate: ~3–5 days.
 

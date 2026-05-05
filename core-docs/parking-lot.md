@@ -118,6 +118,17 @@ See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract 
 
 ---
 
+### Hidden-detector decommission convention (future ADR)
+
+- **Deferred:** 2026-05-05
+- **Reason:** ADR 0009 §3 codifies hidden-but-emitting events (Designer-Noticed detectors continue to emit `FindingRecorded`/`ProposalEmitted` while UI is hidden, per the additive-only rule from ADR 0002). It does not yet codify how a detector is *fully* decommissioned (Rust emitter removed, event variant retired). The 13.L envelope-version-bump precedent (`FrictionLinked → FrictionAddressed`) is the model. Not load-bearing until a detector is genuinely sunset.
+- **Primary trigger:** A Designer-Noticed detector is being permanently removed from the codebase (not just hidden) — e.g. Forge subsumes its functionality and Designer's copy provides no marginal value.
+- **Time fallback:** Reassess after Phase 28 ships.
+- **Source:** PR #122 staff-perspective review (engineer FOLLOW-UP).
+- **Unhide path:** Author the ADR when the trigger fires; cite ADR 0002, ADR 0008, and ADR 0009 §3 as the contract chain.
+
+---
+
 ## Closed-out entries
 
 *(None yet. When a parking-lot entry is closed — either by re-activation or formal decommission — log the close-out reason and date here for institutional memory.)*
