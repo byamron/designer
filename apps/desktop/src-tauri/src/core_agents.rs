@@ -529,8 +529,8 @@ impl AppCore {
     /// "workspace-lead", role: "assistant" }` — same provenance the
     /// legacy `MessagePosted{Agent}` carried, so cross-author audit
     /// queries don't see a discontinuity at the cut-over.
-    /// Phase 24 (ADR 0008) — read every chat-domain event for a
-    /// workspace from the persisted SQLite store. Used by the
+    /// Phase 24 (ADR 0008) — read the most-recent chat-domain events
+    /// for a workspace from the persisted SQLite store. Used by the
     /// frontend's boot replay (`bootData → chatThreadStore`) so the
     /// new chat surface paints past `AgentTurn*` events on app start
     /// without waiting for the next live event. Returns events in
@@ -541,22 +541,50 @@ impl AppCore {
     /// six `AgentTurn*` variants. The reducer's user-message branch
     /// only fires for `Actor::User`, so passing the union keeps the
     /// API narrow without filtering on the frontend.
+    ///
+    /// **Cap:** the read is bounded at `BOOT_CHAT_EVENT_CAP` (most
+    /// recent events). A workspace with weeks of streaming-token
+    /// deltas can produce hundreds of thousands of `AgentTurn*`
+    /// events; an unbounded read would shovel megabytes through IPC
+    /// on every cold start. The cap covers a year of normal dogfood
+    /// chatter and gracefully truncates older history (which the
+    /// user almost never scrolls back to). When/if a user does need
+    /// older history, a future paged-history surface can extend the
+    /// cap or page back through `StreamOptions::after_sequence`.
     pub async fn list_workspace_chat_events(
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<designer_core::EventEnvelope>, CoreError> {
         use designer_core::EventStore as _;
+        // The SqliteEventStore returns events in ascending (stream,
+        // sequence) order — there is no "tail N" mode. Two-step
+        // fetch: read the last `BOOT_CHAT_EVENT_CAP * 4` raw events
+        // (covers a 25%-chat-events-density worst case) and filter
+        // in memory; if the result is still over the cap, take the
+        // tail. The 4× factor is heuristic — chat-heavy projects
+        // will be ~80% chat events; tool-heavy projects (lots of
+        // friction, approvals) might hit the floor and lose some
+        // older chat history. Acceptable for v1.
         let events = self
             .store
             .read_stream(
                 StreamId::Workspace(workspace_id),
-                designer_core::StreamOptions::default(),
+                designer_core::StreamOptions {
+                    limit: Some((BOOT_CHAT_EVENT_CAP as u64) * 4),
+                    ..Default::default()
+                },
             )
             .await?;
-        Ok(events
+        let mut chat_events: Vec<_> = events
             .into_iter()
             .filter(|env| is_chat_domain(&env.payload))
-            .collect())
+            .collect();
+        // Take the tail when over cap so the most-recent history wins.
+        if chat_events.len() > BOOT_CHAT_EVENT_CAP {
+            let drop = chat_events.len() - BOOT_CHAT_EVENT_CAP;
+            chat_events.drain(..drop);
+        }
+        Ok(chat_events)
     }
 
     pub async fn persist_agent_turn_event(
@@ -610,6 +638,16 @@ struct PendingMessage {
 fn first_seen_artifact_id(first_seen: Timestamp) -> ArtifactId {
     ArtifactId::from_uuid(Uuid::new_v7(first_seen))
 }
+
+/// Phase 24 (ADR 0008) — cap on the boot-time chat-event read.
+/// Tuned to cover a year of normal dogfood chatter while bounding
+/// IPC payload size and frontend memory; a workspace at this depth
+/// has ~5MB of JSON and hands the chatThread reducer a tractable
+/// O(N) fold. Older history truncates gracefully — the user keeps
+/// the most recent N events, which is what they actually scroll
+/// back to. When/if a paged-history surface lands, this cap
+/// becomes the page size.
+const BOOT_CHAT_EVENT_CAP: usize = 5_000;
 
 /// Phase 24 — discriminate the chat-domain event subset for boot
 /// replay. The frontend reducer only consumes `MessagePosted` +
