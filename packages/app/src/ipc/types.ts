@@ -276,6 +276,128 @@ export interface ActivityChanged {
   since_ms: number;
 }
 
+// ---- Phase 24 — chat-domain events (ADR 0008) ----
+
+/** Claude Code's own `message_id` from a `message_start` envelope.
+ *  Designer does not mint these — Claude's id flows verbatim. */
+export type ClaudeMessageId = string;
+/** Claude Code's own `session_id` from a `system/init` envelope.
+ *  Used with `--resume <id>` to continue across subprocess respawns. */
+export type ClaudeSessionId = string;
+/** Generic event id (`evt_…`); matches the Rust `EventId` newtype's
+ *  serde-transparent string serialization. */
+export type EventId = string;
+
+/** Block kind discriminant on `AgentContentBlockStarted`. The Rust
+ *  side uses `#[serde(tag = "kind")]` on the enum so the on-wire JSON
+ *  is `{"kind": "text"}` etc. */
+export type AgentContentBlockKind =
+  | { kind: "text" }
+  | { kind: "tool_use"; name: string; tool_use_id: string }
+  | { kind: "thinking" };
+
+export type AgentStopReason =
+  | "end_turn"
+  | "tool_use"
+  | "max_tokens"
+  | "interrupted"
+  | "error";
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_creation: number;
+}
+
+/**
+ * Discriminated union of the six new chat-domain payloads that flow on
+ * the persisted event-stream channel (`designer://event-stream`) when
+ * `show_chat_v2` is on. The `kind` matches the snake_case wire tag
+ * (and `StreamEvent.kind`). Use `asAgentTurnPayload(streamEvent)` to
+ * narrow safely.
+ *
+ * Field name `block_kind` (not `kind`) on `AgentContentBlockStarted`
+ * mirrors the Rust serde-collision dodge — same precedent as
+ * `artifact_kind` on `ArtifactCreated`.
+ */
+export type AgentTurnPayload =
+  | {
+      kind: "agent_turn_started";
+      workspace_id: WorkspaceId;
+      tab_id: TabId;
+      turn_id: ClaudeMessageId;
+      model: string;
+      parent_user_event_id: EventId;
+      session_id: ClaudeSessionId;
+    }
+  | {
+      kind: "agent_content_block_started";
+      workspace_id: WorkspaceId;
+      tab_id: TabId;
+      turn_id: ClaudeMessageId;
+      block_index: number;
+      block_kind: AgentContentBlockKind;
+    }
+  | {
+      kind: "agent_content_block_delta";
+      workspace_id: WorkspaceId;
+      tab_id: TabId;
+      turn_id: ClaudeMessageId;
+      block_index: number;
+      delta: string;
+    }
+  | {
+      kind: "agent_content_block_ended";
+      workspace_id: WorkspaceId;
+      tab_id: TabId;
+      turn_id: ClaudeMessageId;
+      block_index: number;
+    }
+  | {
+      kind: "agent_tool_result";
+      workspace_id: WorkspaceId;
+      tab_id: TabId;
+      turn_id: ClaudeMessageId;
+      tool_use_id: string;
+      content: string;
+      is_error: boolean;
+    }
+  | {
+      kind: "agent_turn_ended";
+      workspace_id: WorkspaceId;
+      tab_id: TabId;
+      turn_id: ClaudeMessageId;
+      stop_reason: AgentStopReason;
+      usage: TokenUsage;
+    };
+
+export const AGENT_TURN_KINDS = new Set<string>([
+  "agent_turn_started",
+  "agent_content_block_started",
+  "agent_content_block_delta",
+  "agent_content_block_ended",
+  "agent_tool_result",
+  "agent_turn_ended",
+]);
+
+/** Narrow a `StreamEvent` to its `AgentTurnPayload` (or `null` if it
+ *  isn't a chat-domain event). Cheap runtime check; the payload itself
+ *  is asserted by the discriminated union's `kind` field. */
+export function asAgentTurnPayload(
+  event: StreamEvent,
+): AgentTurnPayload | null {
+  if (!AGENT_TURN_KINDS.has(event.kind)) return null;
+  return event.payload as AgentTurnPayload;
+}
+
+/** Wire DTO for `OrchestratorEvent::TeamReady` / `TeamExited`. Pumped
+ *  on `designer://team-lifecycle`. The render-time activity indicator
+ *  (spec §5.2) keys `subprocess_running(tab)` off these two edges. */
+export type TeamLifecycle =
+  | { kind: "ready"; workspace_id: WorkspaceId; tab_id: TabId }
+  | { kind: "exited"; workspace_id: WorkspaceId; tab_id: TabId };
+
 /**
  * Event-kind string constants. The Rust side serializes
  * `EventKind` as snake_case via serde; these names mirror that
@@ -293,6 +415,13 @@ export const EVENT_KIND = {
   PROPOSAL_RESOLVED: "proposal_resolved",
   PROPOSAL_SIGNALED: "proposal_signaled",
   FRICTION_REPORTED: "friction_reported",
+  // Phase 24 — chat-domain events (ADR 0008).
+  AGENT_TURN_STARTED: "agent_turn_started",
+  AGENT_CONTENT_BLOCK_STARTED: "agent_content_block_started",
+  AGENT_CONTENT_BLOCK_DELTA: "agent_content_block_delta",
+  AGENT_CONTENT_BLOCK_ENDED: "agent_content_block_ended",
+  AGENT_TOOL_RESULT: "agent_tool_result",
+  AGENT_TURN_ENDED: "agent_turn_ended",
 } as const;
 
 // ---- Friction (Tracks 13.K + 13.L) ----

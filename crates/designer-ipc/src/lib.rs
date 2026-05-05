@@ -650,6 +650,31 @@ pub struct ActivityChanged {
     pub since_ms: u64,
 }
 
+// ---- Per-tab subprocess lifecycle (Phase 24, ADR 0008) ------------------
+
+/// Wire DTO for `OrchestratorEvent::TeamReady` / `TeamExited`. Pumped on
+/// `designer://team-lifecycle`. The frontend's render-time activity
+/// indicator (spec §5.2) maintains a `Set<(workspace, tab)>` of live
+/// subprocesses keyed off these two edges — `subprocess_running(tab)`
+/// is membership in that set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TeamLifecycle {
+    /// Reader loop is armed; the subprocess can accept input. Emitted
+    /// once per spawn.
+    Ready {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+    },
+    /// Reader loop dropped (EOF, kill, or panic). Emitted once per
+    /// teardown. After this fires, no `AgentTurn*` will arrive for the
+    /// pair until the next `Ready`.
+    Exited {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+    },
+}
+
 // ---- Local-model helper status ------------------------------------------
 
 /// Flat DTO for the helper-status IPC. Combines boot-time selection (kind,

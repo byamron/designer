@@ -714,7 +714,9 @@ fn event_to_payload(
         | OrchestratorEvent::AgentContentBlockDelta { .. }
         | OrchestratorEvent::AgentContentBlockEnded { .. }
         | OrchestratorEvent::AgentToolResult { .. }
-        | OrchestratorEvent::AgentTurnEnded { .. } => None,
+        | OrchestratorEvent::AgentTurnEnded { .. }
+        | OrchestratorEvent::TeamReady { .. }
+        | OrchestratorEvent::TeamExited { .. } => None,
     }
 }
 
@@ -776,6 +778,13 @@ where
     } else {
         ClaudeStreamTranslator::new(workspace_id, tab_id, team_name.clone())
     };
+    // Phase 24 — signal the reader loop is armed so the frontend's
+    // render-time activity indicator can compute
+    // `subprocess_running(tab)`. Broadcast-only; no persistence.
+    let _ = tx.send(OrchestratorEvent::TeamReady {
+        workspace_id,
+        tab_id,
+    });
     let mut buf = String::new();
     loop {
         buf.clear();
@@ -861,6 +870,14 @@ where
     if let Some(idle) = translator.flush_idle() {
         let _ = tx.send(idle);
     }
+    // Phase 24 — reader-loop exit (EOF, kill, or panic-bubble). The
+    // render-time activity indicator's `subprocess_running` flips false
+    // here so the chip hides as soon as the subprocess is gone, not on
+    // a wall-clock timeout. Broadcast-only.
+    let _ = tx.send(OrchestratorEvent::TeamExited {
+        workspace_id,
+        tab_id,
+    });
 }
 
 /// Wrap a natural-language prompt in the stream-json user-message envelope

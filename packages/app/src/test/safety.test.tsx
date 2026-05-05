@@ -110,6 +110,7 @@ describe("ApprovalBlock", () => {
         resolveApproval,
         stream: () => () => {},
         activityStream: () => () => {},
+        teamLifecycleStream: () => () => {},
       }),
     );
 
@@ -147,6 +148,7 @@ describe("ApprovalBlock", () => {
         resolveApproval,
         stream: () => () => {},
         activityStream: () => () => {},
+        teamLifecycleStream: () => () => {},
       }),
     );
 
@@ -188,6 +190,7 @@ describe("ApprovalBlock", () => {
           };
         },
         activityStream: () => () => {},
+        teamLifecycleStream: () => () => {},
       }),
     );
 

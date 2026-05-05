@@ -31,6 +31,7 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     spine: () => Promise.resolve([]),
     stream: () => () => {},
     activityStream: () => () => {},
+    teamLifecycleStream: () => () => {},
     requestApproval: () => Promise.resolve(""),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve([]),

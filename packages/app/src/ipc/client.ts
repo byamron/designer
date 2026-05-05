@@ -39,6 +39,7 @@ import type {
   WorkspaceId,
   WorkspaceSummary,
   StreamEvent,
+  TeamLifecycle,
 } from "./types";
 import { createMockCore, type MockCore } from "./mock";
 import { invoke, isTauri, listen } from "./tauri";
@@ -73,6 +74,10 @@ export interface IpcClient {
    *  emitted by the orchestrator (broadcast-only, off the persisted
    *  event stream). Returns an unsubscribe fn. */
   activityStream(handler: (event: ActivityChanged) => void): () => void;
+  /** Phase 24 (ADR 0008) — subscribe to per-tab subprocess lifecycle
+   *  edges (`ready` / `exited`). Used to derive `subprocess_running`
+   *  for the render-time activity indicator. Returns an unsubscribe fn. */
+  teamLifecycleStream(handler: (event: TeamLifecycle) => void): () => void;
   requestApproval(
     workspaceId: WorkspaceId,
     gate: string,
@@ -317,6 +322,11 @@ export interface FeatureFlags {
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
 export const STORE_CHANGED_CHANNEL = "designer://store-changed";
 export const ACTIVITY_CHANNEL = "designer://activity-changed";
+/** Phase 24 — per-tab subprocess lifecycle (ready / exited). The
+ *  render-time activity indicator (spec §5.2) keys
+ *  `subprocess_running(tab)` off membership in a `Set<(workspace, tab)>`
+ *  driven by these edges. */
+export const TEAM_LIFECYCLE_CHANNEL = "designer://team-lifecycle";
 
 class TauriIpcClient implements IpcClient {
   listProjects() {
@@ -364,6 +374,9 @@ class TauriIpcClient implements IpcClient {
   }
   activityStream(handler: (event: ActivityChanged) => void) {
     return listen<ActivityChanged>(ACTIVITY_CHANNEL, handler);
+  }
+  teamLifecycleStream(handler: (event: TeamLifecycle) => void) {
+    return listen<TeamLifecycle>(TEAM_LIFECYCLE_CHANNEL, handler);
   }
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
     return invoke<string>("request_approval", { workspaceId, gate, summary });
@@ -570,6 +583,12 @@ class MockIpcClient implements IpcClient {
   }
   activityStream(handler: (event: ActivityChanged) => void) {
     return this.core.subscribeActivity(handler);
+  }
+  teamLifecycleStream(_handler: (event: TeamLifecycle) => void) {
+    // No mock subprocess, no lifecycle events. Return a no-op
+    // unsubscribe so dev / test consumers can wire the handler without
+    // branching.
+    return () => {};
   }
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
     return Promise.resolve(

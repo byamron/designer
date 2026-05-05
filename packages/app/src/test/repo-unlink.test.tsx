@@ -26,6 +26,7 @@ function makeClient() {
     spine: (id) => Promise.resolve(core.spine(id)),
     stream: (h) => core.subscribe(h),
     activityStream: () => () => {},
+    teamLifecycleStream: () => () => {},
     requestApproval: (ws, gate, summary) =>
       Promise.resolve(core.requestApproval(ws, gate, summary)),
     resolveApproval: (id, granted, reason) => {
