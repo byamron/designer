@@ -2560,7 +2560,7 @@ No new features. Closes out Phase 24 to a trustworthy-shipping state per ADR 000
 
 - **Friction closure.** Triage every chat-related friction report against chat-v2; resolve or park. Gate: no critical chat friction blocks Phase 25.
 - **First-run audit.** Walk the onboarding flow from PR #24 against any subtractions in the v0.1.2 release (stub renderers, hidden detectors, model selector behind flag). Update onboarding before the cull lands.
-- **In-app "What's new" card for v0.1.2.** One-time, dismissible, auto-shown on first launch. Copy explains hidden surfaces and why ("model selector returns when per-message respawn is robust"; "additional Designer-Noticed signals return as they hit the trust bar"; etc.).
+- **In-app "What's new" card for v0.1.2.** One-time, dismissible, auto-shown on first launch. Copy is manager-voiced — strategic narrowing, not defensive listing. Draft: *"We've focused the cockpit on what's essential. The model selector and additional analysis signals will return as they're polished. Less surface, more trust."* Final copy proofread before Phase 24H ships.
 - **Demo gatekeeping.** Record golden-path screencast: open Designer → create project → start workspace → post message → see streamed response → see artifact → approve a tool use → ship a track. Save to `core-docs/screencasts/v0.1.2.mov`. (Playwright binding lands in 26H; the screencast convention starts now.)
 
 Estimate: ~1 week.
@@ -2595,9 +2595,9 @@ Estimate: ~1–2 weeks.
 No new features. Closes the design-language drift accumulated through Phase 13–24 and the settings sprawl from the same period.
 
 - **Custom ESLint rule** banning `style={{ ...var(--…) }}` in app code. Land in `tools/eslint-rules/no-inline-token-styles.js` (or equivalent). ~1 day.
-- **Migrate 9 holdout files** (HomeTabA, QuickSwitcher, lab files, etc.) to compose Mini primitives (Box / Stack / Cluster) instead of inline styles. Visual baselines screenshotted before/after each holdout; deviations logged in `pattern-log.md`. ~2–3 days.
+- **Migrate 11 holdout files** to compose Mini primitives (Box / Stack / Cluster) instead of inline styles. Verified via `grep -rln "style={{" packages/app/src --include="*.tsx" | xargs grep -l "var(--"`: HomeTabA, QuickSwitcher, RepoUnlinkModal, RepoLinkModal, CreateProjectModal, Onboarding, lab/AnnotationLayer, lab/ComponentCatalog, lab/PrototypePreview, lab/TeamColorCatalog, lab/VariantExplorer. Visual baselines screenshotted before/after each holdout; deviations logged in `pattern-log.md`. ~3–4 days.
 - **Cull Settings.** Audit each setting against three buckets: (a) demo-needed → keep, (b) dev escape hatch → move to ⌥-click Advanced pane, (c) toggle users shouldn't think about → remove. Estimated reduction: ~600 LOC. ~1 day.
-- **Component manifest down to ~20.** Derived target: 13 cockpit-required + ~4 optional + ~3 hidden-behind-flag. Lab pages demoted out of the manifest (kept in code, removed from the catalog). Generation-log entry per Mini procedure.
+- **Component manifest down to ~20.** Current manifest: 59 entries (52 managed + 7 retired). Derived target: 13 cockpit-required + ~4 optional + ~3 hidden-behind-flag = ~20. Lab pages demoted out of the manifest (kept in code, removed from the catalog). Generation-log entry per Mini procedure.
 
 Estimate: ~1 week.
 

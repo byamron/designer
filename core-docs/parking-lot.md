@@ -30,7 +30,7 @@ See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract 
 - **Deferred:** 2026-05-04
 - **Already shipped (NOT parked):** 22.G team identity color tokens (PR #108), 22.B Recent Reports Home-tab surface (PR #109, behind `show_recent_reports_v2` flag), 22.A roadmap canvas foundation (PR #112, behind `show_roadmap_canvas` flag), 22.I track shipping history + PrOpen→Merged crossfade (PR #114). These remain in the codebase as the Phase 22 foundation; the parking lot does not touch them.
 - **Reason for parking the rest:** the four shipped sub-phases provide the structural foundation; the remaining sub-phases (22.C / 22.D / 22.E / 22.H / 22.M / 22.N / 22.N.1) expand the surface count when the active priority is shrinking it. Defer until dogfood signal demonstrates the foundation is being used and the missing affordances are felt.
-- **Primary trigger:** User files ≥3 friction reports flagging the canvas / Recent Reports / shipped surfaces feeling incomplete OR an explicit ask for one of the parked sub-phases (Edit & proposal flow, attention column, click-into-agent, merge queue). Or: the four shipped 22 sub-phases all flip out of feature-flag default-off and the user asks for the next layer.
+- **Primary trigger:** User files ≥3 friction reports (via the Friction widget) naming one of: canvas density / completeness, Recent Reports completeness, missing edit / proposal flow on canvas, missing attention column, missing click-into-agent, or missing merge queue. OR: an explicit feature request in Settings → Friction or chat for any of those affordances. OR: the four shipped 22 sub-phases (22.A / 22.B / 22.G / 22.I) all flip their feature flags to default-on and the user asks for the next layer.
 - **Time fallback:** Reassess after Phase 27 ships.
 - **Source:** `roadmap.md` §"Phase 22 — Project Home redesign" sub-phases 22.C / 22.D / 22.E / 22.H / 22.M / 22.N / 22.N.1.
 - **Unhide path:** Promote individual unshipped sub-phases back to active sequence in roadmap.md. Each is independently shippable per the original Phase 22 spec; no architectural rework needed.
@@ -39,7 +39,7 @@ See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract 
 
 - **Deferred:** 2026-05-04
 - **Reason:** All 8 detectors in `crates/designer-learn/src/detectors/` are shipped at the foundation layer (events emit, fixtures pass), but only ONE has a polished end-to-end loop. Surfacing 8 simultaneously dilutes the trust signal — the user can't tell which detector is reliable. Pick the friction-driven leader; defer the rest until proven.
-- **Primary trigger:** Active detector has ≥3 dogfood-accepted proposals AND user explicitly asks for the next signal (friction report, in-app ask, conversation).
+- **Primary trigger:** User accepts ≥3 proposals from the active detector (visible as `ProposalAccepted` artifacts in the event log) AND files a friction report or in-chat ask requesting a second detector by name (e.g., "I want Designer to also notice cost spikes" / "watch for scope creep").
 - **Time fallback:** Reassess after Phase 28 ships.
 - **Source:** `roadmap.md` §"Phase 21.A2 — Detector squad" — detector list and per-detector specs preserved verbatim.
 - **Unhide path:** In-app Settings toggle per detector. Detectors continue to emit `FindingRecorded`/`ProposalEmitted` events while UI is hidden (per ADR 0009 §3 frozen-contract pattern).
@@ -110,7 +110,7 @@ See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract 
 ### macOS Playwright CI runner
 
 - **Deferred:** 2026-05-04
-- **Reason:** Phase 26H ships Linux Playwright + manual macOS spot-check. A macOS GitHub Actions runner is ~$28–42/month minimum plus setup friction. Not justified until the Linux/spot-check combo misses a release-blocking bug.
+- **Reason:** Phase 26H ships Linux Playwright + manual macOS spot-check. A macOS GitHub Actions runner has a per-minute price multiplier vs. Linux (~10×) plus toolchain setup friction. Not justified until the Linux/spot-check combo misses a release-blocking bug. Cost re-evaluated when this trigger fires.
 - **Primary trigger:** Linux baseline + manual macOS spot-check fails to catch a regression that ships to dogfood AND the cost of catching it earlier is clearly worth the runner spend.
 - **Time fallback:** Reassess after Phase 28 ships.
 - **Source:** `roadmap.md` §"Phase 26H — Demo gate automation" + ADR 0009 §1.D.

@@ -79,7 +79,7 @@ Triggers are user-perceptible by construction. *"≥2 daily users with ≥3 acti
 
 Per release tag (`v*`):
 
-1. The maintainer records a golden-path screencast — opens Designer, performs the cockpit's primary path (create project → start workspace → post message → see response → see artifact → approve a tool use → ship a track), narrates briefly. Saves to `core-docs/screencasts/v<version>.mov` (or `.webm`) and references it from `history.md`.
+1. The maintainer records a golden-path screencast — opens Designer, performs the cockpit's primary path (create project → start workspace → post message → see response → see artifact → approve a tool use → ship a track), narrates briefly. Target length: 2–3 min; if the path runs longer, trim it. Saves to `core-docs/screencasts/v<version>.webm` (preferred over `.mov` for size; H.264 + 1080p + 30fps) and references it from `history.md`. Per-release file budget: 50 MB. If a release would exceed budget, switch to git-LFS before tagging — Phase 24H sets up `.gitignore` exception (`!core-docs/screencasts/v*.webm`) and a pre-commit size-check hook.
 2. A Playwright test in `apps/desktop/tests/golden-path.spec.ts` exercises the same path against a Linux build (existing CI infra; no new macOS-runner cost).
 3. Release tag CI runs the Playwright test. Failure blocks the tag.
 4. The maintainer manually spot-checks the macOS build before publishing the release. Findings flow to the friction inbox.

@@ -25,7 +25,7 @@ These are filters. A feature that does not serve a principle does not ship.
 - **Context lives in the repo.** Project docs are `.md` files in the codebase. Agents pick them up natively. No DB-shadowed state that drifts from source.
 - **Summarize by default, drill on demand.** Too many agents to watch individually; the user's attention is the scarcest resource.
 - **Suggest, do not act (by default).** Trust is earned. Autonomy is per-project configurable.
-- **Shipped state is trustworthy.** Every shipped surface works end-to-end without seams, stubs, or false affordances. Unfinished features hide entirely (feature flags, not visible stubs) until they're flawless. When we simplify or hide work, we say why in release notes — never silent removals. Verification: a human-recorded golden-path screencast per release tag, checked into the repo and bound to a Playwright test that fails the release on regression. See `core-docs/adr/0009-trustworthy-shipping.md`.
+- **Shipped state is trustworthy.** Every shipped surface works end-to-end without seams, stubs, or false affordances. Unfinished features hide entirely (feature flags, not visible stubs) until they're flawless. When we simplify or hide work, we say why in release notes — never silent removals. See `core-docs/adr/0009-trustworthy-shipping.md` for the verification approach.
 
 ## Core Documents
 
@@ -55,7 +55,7 @@ Agents live in `.claude/agents/` (not yet populated — scaffolded in Phase 1 pe
 2. **Keep docs and code in sync.** When a decision changes, update the spec and log a feedback entry.
 3. **Respect the compliance invariants** in `core-docs/spec.md` §5. Never touch Claude OAuth tokens; never run Claude Code anywhere but the user's machine.
 4. **Build / Harden alternation (per ADR 0009).** The active roadmap alternates Build phases (one feature, one track) with Harden phases (no new features — only test coverage, friction closure, design-language enforcement, demo gatekeeping). A Harden phase ships when no critical friction blocks the next Build — a human judgement, not a count of zero. Bug fixes that cross feature boundaries are allowed under friction closure; new feature tracks are not.
-5. **Defer, don't delete.** Work that isn't load-bearing for the current Build/Harden cycle moves to `core-docs/parking-lot.md` with a friction-driven primary trigger and a time-based fallback. Phases live there until a trigger fires; they do not live in the active roadmap.
+5. **Defer, don't delete.** Before adding a phase to the active roadmap, ask: does the current Build cycle already have an open feature? If yes, the new work is the *next* Build, not a parallel track — and only after the Harden phase that follows. Work that isn't load-bearing for the current cycle moves to `core-docs/parking-lot.md` with a friction-driven primary trigger and a time-based fallback. Phases live there until a trigger fires; they do not live in the active roadmap.
 
 ## Parallel track conventions
 
@@ -76,7 +76,7 @@ Code does not ship unless it meets all five simultaneously:
 - **Safe.** Approval gates enforced in Rust core, not frontend. Sandboxed previews. No unsigned code paths.
 - **Performant.** UI stays responsive while many agents stream; <100ms interaction latency; <200MB idle memory on a typical project.
 - **Crafted.** Feels intentional. Mini-design-system-compliant. No placeholder UI in shipped builds.
-- **Trustworthy.** Demoable end-to-end without seams, stubs, or false affordances. Unfinished features hide entirely (feature flags, not visible stubs) until they're ready. Subtractions are explained in release notes, never silent. Verified per release tag by a checked-in golden-path screencast bound to a Playwright test that gates the release. See `core-docs/adr/0009-trustworthy-shipping.md`.
+- **Trustworthy.** Demoable end-to-end without seams. Unfinished features hide entirely (feature flags, not visible stubs) until they're ready — never half-baked surfaces shipped behind partial copy. Subtractions are explained in release notes, never silent. Verification mechanism: see `core-docs/adr/0009-trustworthy-shipping.md` §1.D.
 
 <!-- mini:start -->
 ## Mini Design System
