@@ -14,6 +14,11 @@ import type {
   WorkspaceId,
   WorkspaceSummary,
 } from "../ipc/types";
+import {
+  applyStreamEvent,
+  applyTeamLifecycle,
+  chatThreadStore,
+} from "./chatThread";
 
 export interface DataState {
   projects: ProjectSummary[];
@@ -115,6 +120,14 @@ export async function bootData() {
       events: [...s.events, event].slice(-500),
       recentActivityTs: { ...s.recentActivityTs, [event.stream_id]: ts },
     }));
+    // Phase 24 (ADR 0008) — fold chat-domain events (user
+    // MessagePosted + AgentTurn*) into the per-tab thread reducer.
+    // The fold is mode-independent: when show_chat_v2 is OFF, no
+    // AgentTurn* events ever arrive, the user-message branch is the
+    // only one that fires, and the legacy renderer reads
+    // `dataStore.events` exactly as before. When show_chat_v2 flips
+    // ON, the new renderer reads from `chatThreadStore` instead.
+    chatThreadStore.set((s) => applyStreamEvent(s, event));
   });
 
   // Phase 23.B: per-tab activity slice. `idle` transitions drop the
@@ -131,6 +144,14 @@ export async function bootData() {
       }
       return { ...s, activity: next };
     });
+  });
+
+  // Phase 24 — per-tab subprocess lifecycle stream. The render-time
+  // activity indicator (spec §5.2) keys `subprocess_running(tab)`
+  // off membership in `runningSubprocesses`. Only ever a `ready`
+  // (insert) or `exited` (delete) edge — no state to drop.
+  client.teamLifecycleStream((event) => {
+    chatThreadStore.set((s) => applyTeamLifecycle(s, event));
   });
 }
 
