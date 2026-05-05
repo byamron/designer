@@ -28,6 +28,7 @@ apps/desktop/src-tauri/gen/
 
 # Claude Code runtime scratch
 .claude/scheduled_tasks.lock
+.claude/forge/
 
 # Supply-chain CI scratch (cargo cyclonedx / cargo audit / npm audit emit
 # these next to each Cargo.toml or at repo root during local verification;

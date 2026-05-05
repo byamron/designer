@@ -105,3 +105,7 @@ The sync script needs to know where Mini is checked out. It reads the `Source:` 
 MINI_PATH=/path/to/mini-design-system ./scripts/sync-mini.sh
 ```
 <!-- mini:end -->
+
+## Subtraction is welcome
+
+Removing or simplifying shipped code is encouraged when it yields cleaner architecture or better UX. Do not treat shipped work as untouchable — propose deletions, consolidations, and undos as readily as additions.
