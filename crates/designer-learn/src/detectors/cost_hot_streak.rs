@@ -367,6 +367,8 @@ mod tests {
                 tokens_input: 1000,
                 tokens_output: 500,
                 dollars_cents: cents,
+                tab_id: None,
+                turn_id: None,
             },
             ws,
         )

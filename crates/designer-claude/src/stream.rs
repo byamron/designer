@@ -12,7 +12,10 @@
 //! `tests/fixtures/stream_json/` cover every variant this module translates.
 
 use crate::orchestrator::{ActivityState, OrchestratorEvent};
-use designer_core::{author_roles, AgentId, ArtifactId, ArtifactKind, TabId, TaskId, WorkspaceId};
+use designer_core::{
+    author_roles, AgentContentBlockKind, AgentId, AgentStopReason, ArtifactId, ArtifactKind,
+    ClaudeMessageId, ClaudeSessionId, TabId, TaskId, TokenUsage, WorkspaceId,
+};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
@@ -64,19 +67,66 @@ pub struct ClaudeStreamTranslator {
     /// instance, so the tab id is fixed for the translator's lifetime.
     tab_id: TabId,
     team_name: String,
+    /// Phase 24 — when `true`, emit the `AgentTurn*` family from the
+    /// stream-json projection and suppress the legacy
+    /// `MessagePosted` / `ArtifactProduced` / `ActivityChanged` chat
+    /// events. The legacy path is preserved for users who haven't
+    /// flipped `show_chat_v2` yet so dogfood machines aren't disrupted
+    /// before the renderer-side rewrite ships. Cost extraction,
+    /// permission prompts, and `system/task_*` handling are mode-
+    /// independent — they fire identically in both modes.
+    phase24: bool,
     /// Phase 23.B — last activity state we emitted, used to suppress
     /// no-op transitions (we only broadcast on edges so the frontend
-    /// counter doesn't reset on every stream-json line).
+    /// counter doesn't reset on every stream-json line). Always
+    /// tracked, but Phase 24 mode does not broadcast transitions.
     activity: ActivityState,
+    /// Phase 24 — Claude's own `session_id` from the most recent
+    /// `system/init`. Held until an `AgentTurnStarted` is emitted, then
+    /// stamped onto the event so the frontend can drive `--resume`
+    /// across model switches. Survives across turns.
+    session_id: Option<ClaudeSessionId>,
+    /// Phase 24 — open-turn state. Created on `message_start`,
+    /// finalized on `message_stop` / `result/error_during_execution`,
+    /// cleared on `AgentTurnEnded`. Holds the per-turn transient
+    /// tool-use → block-index map that replaces the legacy bounded LRU.
+    turn: Option<TurnState>,
     tasks: BoundedMap<String, TaskId>,
     agents: BoundedMap<String, AgentId>,
-    /// Maps an assistant `tool_use` block's `id` to the deterministic
-    /// `ArtifactId` we minted when emitting its `ArtifactProduced`. The
-    /// matching `tool_result` content block (in a later user-typed message)
-    /// looks the id up here and emits `ArtifactUpdated` against the same
-    /// artifact, so the rail's "Read CLAUDE.md" card gains a result summary
-    /// in place rather than spawning a sibling artifact.
+    /// Legacy mode only. Maps an assistant `tool_use` block's `id` to
+    /// the deterministic `ArtifactId` we minted when emitting its
+    /// `ArtifactProduced`. The matching `tool_result` content block (in
+    /// a later user-typed message) looks the id up here and emits
+    /// `ArtifactUpdated` against the same artifact, so the rail's
+    /// "Read CLAUDE.md" card gains a result summary in place rather
+    /// than spawning a sibling artifact. Phase 24 mode replaces this
+    /// with the per-turn transient map on [`TurnState`].
     tool_uses: BoundedMap<String, ArtifactId>,
+}
+
+/// Phase 24 — open-turn correlation. Lives only while a turn is open;
+/// dropped on `AgentTurnEnded`. The bounded LRU on the legacy path was
+/// a workaround for tool_results arriving across turn boundaries; in
+/// the post-Phase-24 stream-json projection, tool_results land within
+/// the same turn so we can scope the map and avoid the LRU cost.
+struct TurnState {
+    turn_id: ClaudeMessageId,
+    /// Stop reason captured from `message_delta`; finalized at
+    /// `message_stop` to emit `AgentTurnEnded`. `None` until
+    /// `message_delta` arrives.
+    pending_stop_reason: Option<AgentStopReason>,
+    /// Cumulative usage from `message_delta.usage` and `result/success`
+    /// envelopes. `result/success` is the canonical source for the
+    /// final-turn token totals; `message_delta` is the per-stream
+    /// hint we accumulate while waiting.
+    pending_usage: TokenUsage,
+    /// Set true after `message_stop` (or any other terminal envelope)
+    /// so a subsequent `result/success` line attributes its cost to
+    /// this turn but doesn't double-emit `AgentTurnEnded`.
+    ended: bool,
+    /// Tool-use ids opened within this turn, mapped to the block index
+    /// the renderer uses to address them. Cleared with the turn.
+    tool_use_blocks: HashMap<String, u32>,
 }
 
 impl ClaudeStreamTranslator {
@@ -84,17 +134,50 @@ impl ClaudeStreamTranslator {
     /// `spawn_team`. Required at construction so agent-id derivation is
     /// unambiguous even for events that arrive before any `config.json` read.
     /// `tab_id` (Phase 23.B / 23.E) keys the per-tab `ActivityChanged`
-    /// broadcasts the translator emits.
+    /// broadcasts the translator emits. `phase24` selects the chat-domain
+    /// emission family per ADR 0008 — defaults to `false` (legacy path)
+    /// via [`Self::new`]; opt in via [`Self::new_phase24`] or
+    /// [`Self::with_phase24`].
     pub fn new(workspace_id: WorkspaceId, tab_id: TabId, team_name: impl Into<String>) -> Self {
+        Self::with_phase24(workspace_id, tab_id, team_name, false)
+    }
+
+    /// Phase 24 — construct a translator that emits `AgentTurn*` events
+    /// instead of the legacy chat-domain split. Cost / permission-prompt
+    /// / task lifecycle outputs are unchanged in either mode.
+    pub fn new_phase24(
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        team_name: impl Into<String>,
+    ) -> Self {
+        Self::with_phase24(workspace_id, tab_id, team_name, true)
+    }
+
+    fn with_phase24(
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        team_name: impl Into<String>,
+        phase24: bool,
+    ) -> Self {
         Self {
             workspace_id,
             tab_id,
             team_name: team_name.into(),
+            phase24,
             activity: ActivityState::Idle,
+            session_id: None,
+            turn: None,
             tasks: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
             agents: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
             tool_uses: BoundedMap::with_capacity(TRANSLATOR_STATE_MAX_ENTRIES),
         }
+    }
+
+    /// Phase 24 — true when the translator emits the new `AgentTurn*`
+    /// vocabulary. Used by `claude_code.rs` to decide which
+    /// `OrchestratorEvent` variants its bridge needs to handle.
+    pub fn is_phase24(&self) -> bool {
+        self.phase24
     }
 
     /// Phase 23.B — emit an [`OrchestratorEvent::ActivityChanged`] only
@@ -148,6 +231,19 @@ impl ClaudeStreamTranslator {
     fn translate_value(&mut self, v: &Value) -> Vec<TranslatorOutput> {
         let ty = v.get("type").and_then(Value::as_str).unwrap_or("");
 
+        // Phase 24 (ADR 0008) — capture Claude's own session id from the
+        // `system/init` envelope before it gets dropped by the system
+        // routing below. Held until the next `AgentTurnStarted` so the
+        // frontend can drive `--resume` across model switches. Captured
+        // in either mode: the legacy path doesn't read it, but capturing
+        // unconditionally keeps the field load-bearing for the moment a
+        // user flips `show_chat_v2`.
+        if ty == "system" && v.get("subtype").and_then(Value::as_str) == Some("init") {
+            if let Some(sid) = v.get("session_id").and_then(Value::as_str) {
+                self.session_id = Some(ClaudeSessionId::new(sid));
+            }
+        }
+
         // Phase 23.B — activity transitions, computed before the per-type
         // translation so the `Working` edge lands at the head of the
         // returned vector (frontend reducers see the state change before
@@ -157,40 +253,51 @@ impl ClaudeStreamTranslator {
         // dock doesn't flash "Working… 0:01" before the user has typed
         // anything (init arrives once at subprocess spawn, before any
         // turn).
-        let mut activity_edge: Option<TranslatorOutput> = match ty {
-            // `assistant` carries text + tool_use blocks; `user` carries
-            // tool_result echoes mid-turn; `stream_event` is the partial
-            // delta stream. Any of the three is unambiguous evidence that
-            // a turn is in flight, and re-arms `Working` after an
-            // `AwaitingApproval` round-trip.
-            "assistant" | "user" | "stream_event" => self.transition(ActivityState::Working),
-            // `system/task_started` / `task_updated` / `task_notification`
-            // signal in-process teammate lifecycle and also imply the
-            // agent is working; init / status are excluded above.
-            "system" => match v.get("subtype").and_then(Value::as_str) {
-                Some("task_started" | "task_updated" | "task_notification") => {
-                    self.transition(ActivityState::Working)
+        //
+        // Phase 24 mode: the activity indicator becomes a render-time
+        // observable (subprocess_running && turn_open) computed from
+        // `AgentTurnStarted` / `AgentTurnEnded` boundaries. Suppressing
+        // emission here keeps the legacy frontend behavior intact when
+        // the flag is off and lets the new renderer ignore the dock
+        // state machine entirely when it's on.
+        let mut activity_edge: Option<TranslatorOutput> = if self.phase24 {
+            None
+        } else {
+            match ty {
+                // `assistant` carries text + tool_use blocks; `user` carries
+                // tool_result echoes mid-turn; `stream_event` is the partial
+                // delta stream. Any of the three is unambiguous evidence that
+                // a turn is in flight, and re-arms `Working` after an
+                // `AwaitingApproval` round-trip.
+                "assistant" | "user" | "stream_event" => self.transition(ActivityState::Working),
+                // `system/task_started` / `task_updated` / `task_notification`
+                // signal in-process teammate lifecycle and also imply the
+                // agent is working; init / status are excluded above.
+                "system" => match v.get("subtype").and_then(Value::as_str) {
+                    Some("task_started" | "task_updated" | "task_notification") => {
+                        self.transition(ActivityState::Working)
+                    }
+                    _ => None,
+                },
+                // Per-turn `result/success` or `result/error` ends the turn.
+                // The translator only inspects `subtype == "success"` for cost,
+                // but any `result` line means Claude is done — `Idle` regardless.
+                "result" => self.transition(ActivityState::Idle),
+                // Permission-prompt `control_request` parks the agent on the
+                // user (or inbox). `translate_control_request` filters for
+                // `subtype == "can_use_tool"`; mirror that filter here so a
+                // future `interrupt` request doesn't false-positive into
+                // AwaitingApproval.
+                "control_request"
+                    if v.get("request")
+                        .and_then(|r| r.get("subtype"))
+                        .and_then(Value::as_str)
+                        == Some("can_use_tool") =>
+                {
+                    self.transition(ActivityState::AwaitingApproval)
                 }
                 _ => None,
-            },
-            // Per-turn `result/success` or `result/error` ends the turn.
-            // The translator only inspects `subtype == "success"` for cost,
-            // but any `result` line means Claude is done — `Idle` regardless.
-            "result" => self.transition(ActivityState::Idle),
-            // Permission-prompt `control_request` parks the agent on the
-            // user (or inbox). `translate_control_request` filters for
-            // `subtype == "can_use_tool"`; mirror that filter here so a
-            // future `interrupt` request doesn't false-positive into
-            // AwaitingApproval.
-            "control_request"
-                if v.get("request")
-                    .and_then(|r| r.get("subtype"))
-                    .and_then(Value::as_str)
-                    == Some("can_use_tool") =>
-            {
-                self.transition(ActivityState::AwaitingApproval)
             }
-            _ => None,
         };
 
         let mut outputs = match ty {
@@ -204,7 +311,9 @@ impl ClaudeStreamTranslator {
                 .unwrap_or_default(),
             "control_request" => translate_control_request(v),
             // stream_event / unknown: drop (partials broadcast is a separate
-            // concern; see 120ms coalesce in ADR 0001).
+            // concern; see 120ms coalesce in ADR 0001). Phase 24's
+            // per-token streaming consumes `stream_event` — to be added
+            // in a follow-up step.
             _ => Vec::new(),
         };
         if let Some(edge) = activity_edge.take() {
@@ -293,6 +402,13 @@ impl ClaudeStreamTranslator {
     }
 
     fn translate_assistant(&mut self, v: &Value) -> Vec<TranslatorOutput> {
+        if self.phase24 {
+            return self.translate_assistant_phase24(v);
+        }
+        self.translate_assistant_legacy(v)
+    }
+
+    fn translate_assistant_legacy(&mut self, v: &Value) -> Vec<TranslatorOutput> {
         let Some(content) = v
             .get("message")
             .and_then(|m| m.get("content"))
@@ -352,12 +468,175 @@ impl ClaudeStreamTranslator {
         outputs
     }
 
+    /// Phase 24 — project a coarse `assistant` envelope onto
+    /// `AgentTurnStarted` (if a turn isn't already open with the same
+    /// `message_id`) plus per-block `AgentContentBlockStarted` /
+    /// `Delta` / `Ended` for each content block. The envelope's
+    /// `tool_use` block ids land in the per-turn correlation map so
+    /// the matching `tool_result` (carried by the next `user` envelope)
+    /// can address the same `block_index`.
+    ///
+    /// This is the turn-level projection: each block's full body is
+    /// emitted as a single `Delta`. Per-token streaming via
+    /// `stream_event` lines is a separate consumer added in a follow-up
+    /// step; the renderer's per-block accumulator is shape-compatible
+    /// with both forms.
+    fn translate_assistant_phase24(&mut self, v: &Value) -> Vec<TranslatorOutput> {
+        let Some(message) = v.get("message") else {
+            return Vec::new();
+        };
+        let Some(content) = message.get("content").and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        let Some(turn_id_str) = message.get("id").and_then(Value::as_str) else {
+            // No `message.id` — Anthropic always populates it; if it's
+            // missing the envelope is malformed. Drop rather than mint
+            // a turn id we'd never reconcile against the matching
+            // `result` line.
+            debug!("phase24: assistant envelope missing message.id; dropping");
+            return Vec::new();
+        };
+        let model = message
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let turn_id = ClaudeMessageId::new(turn_id_str);
+
+        let mut outputs = Vec::new();
+
+        // Open the turn if this is the first envelope with this id. A
+        // mid-turn re-emission of the same id (rare but seen with
+        // --verbose stream-json) reuses the open turn.
+        let is_new_turn = match &self.turn {
+            Some(t) => t.turn_id != turn_id,
+            None => true,
+        };
+        if is_new_turn {
+            // Close any stranded prior turn before opening a fresh one.
+            // Defensive — Claude shouldn't emit overlapping ids, but
+            // ending the prior turn cleanly avoids a leak in the
+            // renderer's per-turn accumulator if it does.
+            if let Some(prior) = self.turn.take() {
+                outputs.push(turn_ended_output(
+                    self.workspace_id,
+                    self.tab_id,
+                    prior.turn_id,
+                    prior
+                        .pending_stop_reason
+                        .unwrap_or(AgentStopReason::EndTurn),
+                    prior.pending_usage,
+                ));
+            }
+            // session_id is captured from `system/init`. The
+            // fresh-UUID fallback only fires if `system/init` was
+            // dropped — shouldn't occur with stream-json discipline,
+            // but keeps the turn unblocked if it does. The synthesized
+            // id never matches a real Claude session id, so a
+            // `--resume` against it would mint a new session — correct
+            // fail-open behavior for a runtime invariant we can't
+            // enforce.
+            let session_id = self
+                .session_id
+                .clone()
+                .unwrap_or_else(|| ClaudeSessionId::new(Uuid::new_v4().to_string()));
+            outputs.push(TranslatorOutput::Event(
+                OrchestratorEvent::AgentTurnStarted {
+                    workspace_id: self.workspace_id,
+                    tab_id: self.tab_id,
+                    turn_id: turn_id.clone(),
+                    model,
+                    session_id,
+                },
+            ));
+            self.turn = Some(TurnState {
+                turn_id: turn_id.clone(),
+                pending_stop_reason: None,
+                pending_usage: TokenUsage::default(),
+                ended: false,
+                tool_use_blocks: HashMap::new(),
+            });
+        }
+
+        // Emit one block-trio per content entry. The block_index is
+        // the array position; same shape the Messages API carries for
+        // `content_block_start.index`.
+        for (idx, block) in content.iter().enumerate() {
+            let block_index = idx as u32;
+            let Some(block_kind) = block_kind_from_value(block) else {
+                continue; // unknown block type — drop, don't synthesize.
+            };
+            // Track tool_use ids in the per-turn correlation map.
+            if let AgentContentBlockKind::ToolUse { tool_use_id, .. } = &block_kind {
+                if let Some(turn) = self.turn.as_mut() {
+                    turn.tool_use_blocks
+                        .insert(tool_use_id.clone(), block_index);
+                }
+            }
+            let delta = block_delta_text(block).unwrap_or_default();
+
+            outputs.push(TranslatorOutput::Event(
+                OrchestratorEvent::AgentContentBlockStarted {
+                    workspace_id: self.workspace_id,
+                    tab_id: self.tab_id,
+                    turn_id: turn_id.clone(),
+                    block_index,
+                    block_kind,
+                },
+            ));
+            if !delta.is_empty() {
+                outputs.push(TranslatorOutput::Event(
+                    OrchestratorEvent::AgentContentBlockDelta {
+                        workspace_id: self.workspace_id,
+                        tab_id: self.tab_id,
+                        turn_id: turn_id.clone(),
+                        block_index,
+                        delta,
+                    },
+                ));
+            }
+            outputs.push(TranslatorOutput::Event(
+                OrchestratorEvent::AgentContentBlockEnded {
+                    workspace_id: self.workspace_id,
+                    tab_id: self.tab_id,
+                    turn_id: turn_id.clone(),
+                    block_index,
+                },
+            ));
+        }
+
+        // Capture stop_reason from message.stop_reason (when present
+        // on the coarse envelope — Claude includes it on the final
+        // assistant payload). Held until `result/success` lands so
+        // both events emit in the right order.
+        if let Some(reason_str) = message.get("stop_reason").and_then(Value::as_str) {
+            if let Some(turn) = self.turn.as_mut() {
+                turn.pending_stop_reason = Some(stop_reason_from_str(reason_str));
+            }
+        }
+        if let Some(usage) = message.get("usage") {
+            if let Some(turn) = self.turn.as_mut() {
+                turn.pending_usage = merge_usage(turn.pending_usage, usage);
+            }
+        }
+
+        outputs
+    }
+
     /// Translate a `user` typed envelope. The `user` line carries the
     /// turn-result echoes that complete the assistant's `tool_use` blocks
-    /// (`tool_result` content blocks). Per F5+1 we match those back to the
-    /// originating `ArtifactProduced` and emit `ArtifactUpdated` with the
-    /// result summary.
+    /// (`tool_result` content blocks). Per F5+1 (legacy mode) we match
+    /// those back to the originating `ArtifactProduced` and emit
+    /// `ArtifactUpdated` with the result summary; per Phase 24 (mode on)
+    /// we emit `AgentToolResult` against the per-turn correlation map.
     fn translate_user(&mut self, v: &Value) -> Vec<TranslatorOutput> {
+        if self.phase24 {
+            return self.translate_user_phase24(v);
+        }
+        self.translate_user_legacy(v)
+    }
+
+    fn translate_user_legacy(&mut self, v: &Value) -> Vec<TranslatorOutput> {
         let Some(content) = v
             .get("message")
             .and_then(|m| m.get("content"))
@@ -413,15 +692,116 @@ impl ClaudeStreamTranslator {
         outputs
     }
 
+    /// Phase 24 — emit `AgentToolResult` for each `tool_result` block in
+    /// the user envelope, correlating against the open turn's
+    /// `tool_use_blocks` map. Tool results that arrive after the turn
+    /// closed (or for an unknown id) are dropped with a debug log; the
+    /// per-turn map deliberately doesn't outlive the turn.
+    fn translate_user_phase24(&mut self, v: &Value) -> Vec<TranslatorOutput> {
+        let Some(content) = v
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(Value::as_array)
+        else {
+            return Vec::new();
+        };
+        let Some(turn) = self.turn.as_ref() else {
+            // No open turn means no in-flight tool calls to correlate
+            // against. Drop rather than fabricate a turn boundary.
+            return Vec::new();
+        };
+        let turn_id = turn.turn_id.clone();
+
+        let mut outputs = Vec::new();
+        for block in content {
+            if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+                continue;
+            }
+            let Some(tool_use_id) = block.get("tool_use_id").and_then(Value::as_str) else {
+                continue;
+            };
+            // Phase 24 §3.1: out-of-turn results are discarded with a
+            // logged warning. With stream-json discipline this should
+            // not happen — tool results land within the turn that
+            // emitted them.
+            if !turn.tool_use_blocks.contains_key(tool_use_id) {
+                debug!(
+                    ?tool_use_id,
+                    "phase24: tool_result for unknown tool_use_id; dropping"
+                );
+                continue;
+            }
+            let content_text = tool_result_content_string(block.get("content"));
+            let is_error = block
+                .get("is_error")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            outputs.push(TranslatorOutput::Event(
+                OrchestratorEvent::AgentToolResult {
+                    workspace_id: self.workspace_id,
+                    tab_id: self.tab_id,
+                    turn_id: turn_id.clone(),
+                    tool_use_id: tool_use_id.to_string(),
+                    content: content_text,
+                    is_error,
+                },
+            ));
+        }
+        outputs
+    }
+
     fn translate_result(&mut self, v: &Value) -> Vec<TranslatorOutput> {
         let subtype = v.get("subtype").and_then(Value::as_str).unwrap_or("");
-        if subtype != "success" {
-            return Vec::new();
+        let mut outputs = Vec::new();
+
+        // Cost extraction is mode-independent — the cost chip subscribes
+        // identically in both modes.
+        if subtype == "success" {
+            if let Some(cost) = v.get("total_cost_usd").and_then(Value::as_f64) {
+                outputs.push(TranslatorOutput::Cost(cost));
+            }
         }
-        v.get("total_cost_usd")
-            .and_then(Value::as_f64)
-            .map(|c| vec![TranslatorOutput::Cost(c)])
-            .unwrap_or_default()
+
+        if !self.phase24 {
+            return outputs;
+        }
+
+        // Phase 24 §11.0 P2 spike: SIGINT-interrupted turns surface as
+        // `result/error_during_execution` with `stop_reason: null`. We
+        // synthesize `AgentTurnEnded { Interrupted }` for that subtype
+        // — the legacy `translate_result` early-returned and the event
+        // was lost.
+        let stop_reason_for_close = match subtype {
+            "success" => Some(AgentStopReason::EndTurn),
+            "error_during_execution" => Some(AgentStopReason::Interrupted),
+            "error_max_turns" => Some(AgentStopReason::MaxTokens),
+            "error" => Some(AgentStopReason::Error),
+            _ => None,
+        };
+
+        if let Some(default_reason) = stop_reason_for_close {
+            // Pull the open turn out, finalize, and emit. If a
+            // `message.stop_reason` already landed (more authoritative
+            // than the result envelope's coarse subtype), prefer it.
+            if let Some(turn) = self.turn.take() {
+                if turn.ended {
+                    // Already closed — this is a stray result echo.
+                    self.turn = Some(turn);
+                } else {
+                    let stop_reason = turn.pending_stop_reason.unwrap_or(default_reason);
+                    let usage = result_usage(v).unwrap_or(turn.pending_usage);
+                    outputs.push(turn_ended_output(
+                        self.workspace_id,
+                        self.tab_id,
+                        turn.turn_id,
+                        stop_reason,
+                        usage,
+                    ));
+                }
+            }
+        }
+
+        outputs
     }
 
     fn agent_id_for(&mut self, name: &str) -> AgentId {
@@ -522,6 +902,145 @@ impl<K: Clone + Eq + Hash, V: Copy> BoundedMap<K, V> {
     fn len(&self) -> usize {
         self.map.len()
     }
+}
+
+/// Phase 24 — extract a `tool_result.content` Value (string OR
+/// Anthropic content-block array) as a single string for
+/// `AgentToolResult.content`. Unlike [`tool_result_summary`] this does
+/// not truncate or discard non-text blocks; the renderer chooses how to
+/// surface the full body, so we hand it through verbatim.
+fn tool_result_content_string(content: Option<&Value>) -> String {
+    let Some(content) = content else {
+        return String::new();
+    };
+    if let Some(s) = content.as_str() {
+        return s.to_string();
+    }
+    if let Some(arr) = content.as_array() {
+        let parts: Vec<&str> = arr
+            .iter()
+            .filter_map(|b| {
+                if b.get("type").and_then(Value::as_str) == Some("text") {
+                    b.get("text").and_then(Value::as_str)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        return parts.join("\n");
+    }
+    String::new()
+}
+
+/// Phase 24 — read a content block's `type` field and project to
+/// [`AgentContentBlockKind`]. Returns `None` for unrecognised block
+/// types so the caller can skip rather than synthesize a phantom block.
+fn block_kind_from_value(block: &Value) -> Option<AgentContentBlockKind> {
+    match block.get("type").and_then(Value::as_str)? {
+        "text" => Some(AgentContentBlockKind::Text),
+        "thinking" => Some(AgentContentBlockKind::Thinking),
+        "tool_use" => {
+            let name = block
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_string();
+            let tool_use_id = block.get("id").and_then(Value::as_str)?.to_string();
+            Some(AgentContentBlockKind::ToolUse { name, tool_use_id })
+        }
+        _ => None,
+    }
+}
+
+/// Phase 24 — pull the deltable text out of a content block. For
+/// `text`, the `text` field; for `thinking`, the `thinking` field; for
+/// `tool_use`, a JSON-encoded `input` object. Empty string when the
+/// block carries no text body. Mirrors the per-block delta that
+/// per-token streaming would emit incrementally — turn-level mode
+/// emits the full body in one delta; the renderer's per-block
+/// accumulator is shape-compatible with both.
+fn block_delta_text(block: &Value) -> Option<String> {
+    match block.get("type").and_then(Value::as_str)? {
+        "text" => block
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        "thinking" => block
+            .get("thinking")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        "tool_use" => {
+            let input = block.get("input").cloned().unwrap_or(Value::Null);
+            Some(serde_json::to_string(&input).unwrap_or_default())
+        }
+        _ => None,
+    }
+}
+
+/// Phase 24 — string `stop_reason` (per Anthropic Messages API) →
+/// typed [`AgentStopReason`]. Unknown values fall back to `EndTurn`
+/// rather than `Error` because a model that emits a forward-compatible
+/// stop reason we don't recognise is closer to a clean turn end than
+/// to a failure.
+fn stop_reason_from_str(s: &str) -> AgentStopReason {
+    match s {
+        "end_turn" => AgentStopReason::EndTurn,
+        "tool_use" => AgentStopReason::ToolUse,
+        "max_tokens" => AgentStopReason::MaxTokens,
+        "stop_sequence" => AgentStopReason::EndTurn,
+        // Phase 24 §11.0 P2 — interrupted turns carry `null` here and
+        // are pinned by the `result.subtype: error_during_execution`
+        // envelope; this branch handles a future shape where the
+        // assistant envelope itself carries `interrupted`.
+        "interrupted" => AgentStopReason::Interrupted,
+        "error" => AgentStopReason::Error,
+        _ => AgentStopReason::EndTurn,
+    }
+}
+
+/// Phase 24 — accumulate per-turn usage across `message.usage` blocks
+/// from successive assistant envelopes. Each envelope carries the
+/// running cumulative total for the turn so far (Anthropic's Messages
+/// API never reports per-delta usage); taking the maximum on each
+/// field captures the final cumulative count without regressing on a
+/// stale earlier envelope.
+fn merge_usage(prev: TokenUsage, usage: &Value) -> TokenUsage {
+    let pick = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0) as u32;
+    TokenUsage {
+        input: prev.input.max(pick("input_tokens")),
+        output: prev.output.max(pick("output_tokens")),
+        cache_read: prev.cache_read.max(pick("cache_read_input_tokens")),
+        cache_creation: prev.cache_creation.max(pick("cache_creation_input_tokens")),
+    }
+}
+
+/// Phase 24 — pull the final-turn usage from a `result/success`
+/// envelope's `usage` block, when present. `result/error*` envelopes
+/// rarely carry a complete usage block; the caller falls back to the
+/// turn's accumulated `pending_usage`.
+fn result_usage(v: &Value) -> Option<TokenUsage> {
+    let usage = v.get("usage")?;
+    Some(merge_usage(TokenUsage::default(), usage))
+}
+
+/// Phase 24 — package a finalized turn into an `AgentTurnEnded`
+/// translator output. Inlined out of `translate_result` so the
+/// stranded-prior-turn cleanup branch in `translate_assistant_phase24`
+/// can reuse the same shape.
+fn turn_ended_output(
+    workspace_id: WorkspaceId,
+    tab_id: TabId,
+    turn_id: ClaudeMessageId,
+    stop_reason: AgentStopReason,
+    usage: TokenUsage,
+) -> TranslatorOutput {
+    TranslatorOutput::Event(OrchestratorEvent::AgentTurnEnded {
+        workspace_id,
+        tab_id,
+        turn_id,
+        stop_reason,
+        usage,
+    })
 }
 
 /// Reduce a `tool_result.content` Value (string OR Anthropic content-block
@@ -1402,6 +1921,309 @@ mod tests {
             }
             _ => None,
         })
+    }
+
+    // ---------- Phase 24 (ADR 0008) ---------------------------------
+    //
+    // Fixtures for the three §2.2 scenarios in
+    // `core-docs/phase-24-pass-through-chat.md`. Each asserts the
+    // `AgentTurn*` projection of a coarse stream-json envelope batch.
+    // Per-token streaming via `stream_event` lines is layered in by a
+    // follow-up consumer; the renderer's per-block accumulator is
+    // shape-compatible with both forms.
+    // ----------------------------------------------------------------
+
+    fn collect_phase24(
+        translator: &mut ClaudeStreamTranslator,
+        lines: &[&str],
+    ) -> Vec<OrchestratorEvent> {
+        let mut out = Vec::new();
+        for l in lines {
+            for o in translator.translate(l) {
+                if let TranslatorOutput::Event(e) = o {
+                    out.push(e);
+                }
+            }
+        }
+        out
+    }
+
+    fn phase24_translator() -> ClaudeStreamTranslator {
+        ClaudeStreamTranslator::new_phase24(ws(), tab(), "dir-recon")
+    }
+
+    /// Phase 24 §2.2 Scenario A — text-only turn. `system/init` →
+    /// `assistant{text}` → `result/success`. Asserts the projection
+    /// emits `AgentTurnStarted` (with the captured session id), one
+    /// content-block trio for the text, and `AgentTurnEnded{EndTurn}`.
+    #[test]
+    fn phase24_scenario_a_text_only_turn() {
+        let mut t = phase24_translator();
+        let lines = [
+            r#"{"type":"system","subtype":"init","session_id":"sess_01ABC","cwd":"/x"}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","id":"msg_01ABC","model":"claude-opus-4-7","content":[{"type":"text","text":"Hello, world."}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":4}}}"#,
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.01,"usage":{"input_tokens":12,"output_tokens":4}}"#,
+        ];
+        let events = collect_phase24(&mut t, &lines);
+
+        // Expected sequence: TurnStarted, BlockStarted{Text},
+        // BlockDelta{"Hello, world."}, BlockEnded, TurnEnded{EndTurn}.
+        assert!(matches!(
+            events[0],
+            OrchestratorEvent::AgentTurnStarted { ref turn_id, ref session_id, ref model, .. }
+                if turn_id.as_str() == "msg_01ABC"
+                    && session_id.as_str() == "sess_01ABC"
+                    && model == "claude-opus-4-7"
+        ));
+        match &events[1] {
+            OrchestratorEvent::AgentContentBlockStarted {
+                block_index,
+                block_kind,
+                ..
+            } => {
+                assert_eq!(*block_index, 0);
+                assert!(matches!(block_kind, AgentContentBlockKind::Text));
+            }
+            other => panic!("expected AgentContentBlockStarted, got {other:?}"),
+        }
+        match &events[2] {
+            OrchestratorEvent::AgentContentBlockDelta { delta, .. } => {
+                assert_eq!(delta, "Hello, world.");
+            }
+            other => panic!("expected AgentContentBlockDelta, got {other:?}"),
+        }
+        assert!(matches!(
+            events[3],
+            OrchestratorEvent::AgentContentBlockEnded { .. }
+        ));
+        assert!(matches!(
+            &events[4],
+            OrchestratorEvent::AgentTurnEnded {
+                stop_reason: AgentStopReason::EndTurn,
+                ..
+            }
+        ));
+    }
+
+    /// Phase 24 §2.2 Scenario B — tool-use turn with thinking. Mixed
+    /// thinking + text + tool_use blocks at distinct indices, then a
+    /// `tool_result` echo on the next user envelope. Asserts (a) per-
+    /// block trios at the right block_indices, (b) `AgentToolResult`
+    /// correlates against the open turn's tool_use_id.
+    #[test]
+    fn phase24_scenario_b_tool_use_with_thinking() {
+        let mut t = phase24_translator();
+        let lines = [
+            r#"{"type":"system","subtype":"init","session_id":"sess_01XYZ","cwd":"/x"}"#,
+            r##"{"type":"assistant","message":{"role":"assistant","id":"msg_01XYZ","model":"claude-opus-4-7","content":[
+                {"type":"thinking","thinking":"I should read the file..."},
+                {"type":"text","text":"Let me check that for you."},
+                {"type":"tool_use","id":"toolu_01","name":"Read","input":{"file_path":"plan.md"}}
+            ],"stop_reason":"tool_use","usage":{"input_tokens":50,"output_tokens":20}}}"##,
+            r##"{"type":"user","message":{"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"toolu_01","content":"# Plan\n\nNear-term focus..."}
+            ]}}"##,
+        ];
+        let events = collect_phase24(&mut t, &lines);
+
+        // Expected ordering: TurnStarted + 3 block trios (thinking,
+        // text, tool_use = 9 events) + AgentToolResult.
+        assert!(matches!(
+            events[0],
+            OrchestratorEvent::AgentTurnStarted { .. }
+        ));
+        // Block 0 = thinking
+        match &events[1] {
+            OrchestratorEvent::AgentContentBlockStarted {
+                block_index,
+                block_kind,
+                ..
+            } => {
+                assert_eq!(*block_index, 0);
+                assert!(matches!(block_kind, AgentContentBlockKind::Thinking));
+            }
+            other => panic!("expected thinking BlockStarted, got {other:?}"),
+        }
+        // Block 1 = text
+        match &events[4] {
+            OrchestratorEvent::AgentContentBlockStarted {
+                block_index,
+                block_kind,
+                ..
+            } => {
+                assert_eq!(*block_index, 1);
+                assert!(matches!(block_kind, AgentContentBlockKind::Text));
+            }
+            other => panic!("expected text BlockStarted, got {other:?}"),
+        }
+        // Block 2 = tool_use carrying the tool_use_id
+        match &events[7] {
+            OrchestratorEvent::AgentContentBlockStarted {
+                block_index,
+                block_kind,
+                ..
+            } => {
+                assert_eq!(*block_index, 2);
+                match block_kind {
+                    AgentContentBlockKind::ToolUse { name, tool_use_id } => {
+                        assert_eq!(name, "Read");
+                        assert_eq!(tool_use_id, "toolu_01");
+                    }
+                    other => panic!("expected ToolUse kind, got {other:?}"),
+                }
+            }
+            other => panic!("expected tool_use BlockStarted, got {other:?}"),
+        }
+        // Tool result correlates against the open turn.
+        match events.last().unwrap() {
+            OrchestratorEvent::AgentToolResult {
+                tool_use_id,
+                content,
+                is_error,
+                turn_id,
+                ..
+            } => {
+                assert_eq!(tool_use_id, "toolu_01");
+                assert!(content.contains("Plan"));
+                assert!(!*is_error);
+                assert_eq!(turn_id.as_str(), "msg_01XYZ");
+            }
+            other => panic!("expected AgentToolResult, got {other:?}"),
+        }
+    }
+
+    /// Phase 24 §2.2 Scenario C — parallel tool_use blocks. Multiple
+    /// `tool_use` blocks at distinct `index` values in one assistant
+    /// envelope; correlation is by `tool_use_id`, not by index.
+    #[test]
+    fn phase24_scenario_c_parallel_tool_use_blocks() {
+        let mut t = phase24_translator();
+        let lines = [
+            r#"{"type":"system","subtype":"init","session_id":"sess_01PAR","cwd":"/x"}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","id":"msg_01PAR","model":"claude-opus-4-7","content":[
+                {"type":"tool_use","id":"toolu_a","name":"Read","input":{"file_path":"a.md"}},
+                {"type":"tool_use","id":"toolu_b","name":"Read","input":{"file_path":"b.md"}}
+            ],"stop_reason":"tool_use","usage":{"input_tokens":40,"output_tokens":10}}}"#,
+            // Tool results arrive in reverse order — correlation must
+            // be by id, not array index.
+            r##"{"type":"user","message":{"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"toolu_b","content":"# B"},
+                {"type":"tool_result","tool_use_id":"toolu_a","content":"# A"}
+            ]}}"##,
+        ];
+        let events = collect_phase24(&mut t, &lines);
+        let results: Vec<&OrchestratorEvent> = events
+            .iter()
+            .filter(|e| matches!(e, OrchestratorEvent::AgentToolResult { .. }))
+            .collect();
+        assert_eq!(
+            results.len(),
+            2,
+            "expected one AgentToolResult per tool_use"
+        );
+        match results[0] {
+            OrchestratorEvent::AgentToolResult {
+                tool_use_id,
+                content,
+                ..
+            } => {
+                assert_eq!(tool_use_id, "toolu_b");
+                assert!(content.contains("B"));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+        match results[1] {
+            OrchestratorEvent::AgentToolResult {
+                tool_use_id,
+                content,
+                ..
+            } => {
+                assert_eq!(tool_use_id, "toolu_a");
+                assert!(content.contains("A"));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    /// Phase 24 §11.0 P2 spike — `result/error_during_execution` (the
+    /// SIGINT-interrupted-turn discriminator) closes the open turn with
+    /// `stop_reason: Interrupted`. The legacy translator dropped this
+    /// envelope on the floor (`translate_result` early-returned on
+    /// non-success); the spike found the gap and Phase 24 closes it.
+    #[test]
+    fn phase24_result_error_during_execution_emits_interrupted() {
+        let mut t = phase24_translator();
+        let lines = [
+            r#"{"type":"system","subtype":"init","session_id":"sess_01INT","cwd":"/x"}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","id":"msg_01INT","model":"claude-opus-4-7","content":[{"type":"text","text":"Streaming…"}]}}"#,
+            r#"{"type":"result","subtype":"error_during_execution","duration_ms":6778,"is_error":true,"num_turns":2,"stop_reason":null,"total_cost_usd":0}"#,
+        ];
+        let events = collect_phase24(&mut t, &lines);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                OrchestratorEvent::AgentTurnEnded {
+                    stop_reason: AgentStopReason::Interrupted,
+                    ..
+                }
+            )),
+            "interrupt envelope must close the turn with Interrupted; got {events:#?}"
+        );
+    }
+
+    /// Phase 24 mode does not emit `ActivityChanged`. The activity
+    /// indicator becomes a render-time observable
+    /// (subprocess_running && turn_open) computed from the
+    /// `AgentTurnStarted` / `AgentTurnEnded` boundaries.
+    #[test]
+    fn phase24_mode_does_not_emit_activity_changed() {
+        let mut t = phase24_translator();
+        let lines = [
+            r#"{"type":"system","subtype":"init","session_id":"sess_01","cwd":"/x"}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","id":"msg_01","model":"claude-opus-4-7","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn"}}"#,
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.0}"#,
+        ];
+        let events = collect_phase24(&mut t, &lines);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, OrchestratorEvent::ActivityChanged { .. })),
+            "phase24 mode must suppress ActivityChanged; got {events:#?}"
+        );
+    }
+
+    /// Phase 24 mode preserves cost extraction — the cost chip and
+    /// `CostTracker` keep working identically. Mode-independent.
+    #[test]
+    fn phase24_result_success_still_emits_cost() {
+        let mut t = phase24_translator();
+        let lines = [
+            r#"{"type":"system","subtype":"init","session_id":"sess_01"}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","id":"msg_01","content":[{"type":"text","text":"hi"}]}}"#,
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.36,"duration_ms":1000}"#,
+        ];
+        let mut saw_cost = false;
+        for l in lines {
+            for o in t.translate(l) {
+                if let TranslatorOutput::Cost(c) = o {
+                    assert!((c - 0.36).abs() < 1e-6);
+                    saw_cost = true;
+                }
+            }
+        }
+        assert!(saw_cost);
+    }
+
+    /// Permission prompts are mode-independent: `--permission-prompt-tool
+    /// stdio` is one of Phase 24's "must-intercept seams" (§3.1) and
+    /// fires identically whether `show_chat_v2` is on or off.
+    #[test]
+    fn phase24_control_request_emits_permission_prompt() {
+        let mut t = phase24_translator();
+        let line = r#"{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"/tmp/x.txt","content":"hi"},"tool_use_id":"toolu_x"}}"#;
+        let outs = t.translate(line);
+        assert_eq!(outs.len(), 1);
+        assert!(matches!(outs[0], TranslatorOutput::PermissionPrompt { .. }));
     }
 
     #[test]

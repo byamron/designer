@@ -104,13 +104,17 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
           show_all_artifacts_in_spine: false,
           show_roadmap_canvas: false,
           show_recent_reports_v2: false,
+          show_chat_v2: false,
         }),
       setFeatureFlag: (name, enabled) =>
         Promise.resolve({
           show_models_section: name === "show_models_section" ? enabled : false,
-          show_all_artifacts_in_spine: name === "show_all_artifacts_in_spine" ? enabled : false,
+          show_all_artifacts_in_spine:
+            name === "show_all_artifacts_in_spine" ? enabled : false,
           show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
-          show_recent_reports_v2: name === "show_recent_reports_v2" ? enabled : false,
+          show_recent_reports_v2:
+            name === "show_recent_reports_v2" ? enabled : false,
+          show_chat_v2: name === "show_chat_v2" ? enabled : false,
         }),
       reportFriction: () =>
         Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
@@ -126,13 +130,20 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       listProposals: () => Promise.resolve([]),
       resolveProposal: () => Promise.resolve(),
       signalProposal: () => Promise.resolve(),
-    getRoadmap: () =>
-      Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null, roadmap_path: "core-docs/roadmap.md" }),
-    setNodeStatus: () => Promise.resolve(),
-    writeRoadmapDraft: () => Promise.resolve(),
-    listRecentReports: () => Promise.resolve([]),
-    getReportsUnreadCount: () => Promise.resolve(0),
-    markReportsRead: () => Promise.resolve(0),
+      getRoadmap: () =>
+        Promise.resolve({
+          tree: null,
+          parse_error: null,
+          claims: [],
+          shipments: [],
+          source_hash: null,
+          roadmap_path: "core-docs/roadmap.md",
+        }),
+      setNodeStatus: () => Promise.resolve(),
+      writeRoadmapDraft: () => Promise.resolve(),
+      listRecentReports: () => Promise.resolve([]),
+      getReportsUnreadCount: () => Promise.resolve(0),
+      markReportsRead: () => Promise.resolve(0),
     });
   });
 
@@ -147,7 +158,9 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       document.querySelector<HTMLTextAreaElement>("textarea.compose__input"),
     );
     expect(textarea).not.toBeNull();
-    fireEvent.change(textarea!, { target: { value: "Build a sequence diagram" } });
+    fireEvent.change(textarea!, {
+      target: { value: "Build a sequence diagram" },
+    });
 
     const sendBtn = document.querySelector<HTMLButtonElement>(
       "button.btn-icon--primary",
@@ -311,7 +324,10 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
     fireEvent.click(sendBtn!);
 
     await waitFor(() =>
-      expect((slowMock.postMessage as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(1),
+      expect(
+        (slowMock.postMessage as unknown as { mock: { calls: unknown[] } }).mock
+          .calls.length,
+      ).toBe(1),
     );
 
     // Resolve to clean up.
@@ -348,7 +364,9 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
 
     // Wait for initial mount-time refresh so the call count starts known.
     await waitFor(() => expect(captured).not.toBeNull());
-    const initialCalls = (customMock.listArtifacts as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    const initialCalls = (
+      customMock.listArtifacts as unknown as { mock: { calls: unknown[] } }
+    ).mock.calls.length;
 
     // Dispatch a production-shape stream event for this workspace.
     act(() => {
@@ -361,7 +379,9 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
     });
 
     await waitFor(() => {
-      const after = (customMock.listArtifacts as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+      const after = (
+        customMock.listArtifacts as unknown as { mock: { calls: unknown[] } }
+      ).mock.calls.length;
       expect(after).toBeGreaterThan(initialCalls);
     });
   });
@@ -446,9 +466,7 @@ describe("WorkspaceThread per-tab thread isolation", () => {
     const b = render(<WorkspaceThread workspace={workspace} tabId={tabB.id} />);
     await waitFor(() => {
       // The thread region renders once `hasStarted` flips OR via initial paint.
-      expect(
-        b.container.querySelector(".workspace-thread"),
-      ).not.toBeNull();
+      expect(b.container.querySelector(".workspace-thread")).not.toBeNull();
     });
     // The thread DOM should not contain the body of the message we sent in A.
     expect(b.container.textContent ?? "").not.toContain("hello from A");
@@ -471,7 +489,9 @@ describe("WorkspaceThread per-tab thread isolation", () => {
       // The mock seeds a spec titled "Onboarding spec" in workspace 0,
       // a workspace whose first tab is tabA. We assert that the spec
       // shows up in both renders.
-      const inA = a.container.querySelector('[data-component="WorkspaceThread"]');
+      const inA = a.container.querySelector(
+        '[data-component="WorkspaceThread"]',
+      );
       expect(inA).not.toBeNull();
     });
     a.unmount();
@@ -483,9 +503,7 @@ describe("WorkspaceThread per-tab thread isolation", () => {
       // mode for an empty tab is the expected state — the spec is in
       // the underlying artifact list, the user just hasn't sent a
       // message in this tab yet).
-      expect(
-        b.container.querySelector(".workspace-thread"),
-      ).not.toBeNull();
+      expect(b.container.querySelector(".workspace-thread")).not.toBeNull();
     });
     b.unmount();
   });

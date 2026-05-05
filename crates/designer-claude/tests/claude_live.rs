@@ -78,6 +78,7 @@ async fn spawn_team_and_observe_lifecycle() {
         env: Default::default(),
         cwd: None,
         model: None,
+        phase24: false,
     };
 
     orch.spawn_team(spec)
@@ -191,6 +192,7 @@ async fn permission_prompt_round_trip() {
         env: Default::default(),
         cwd: Some(workdir.path().to_path_buf()),
         model: None,
+        phase24: false,
     };
     orch.spawn_team(spec)
         .await
@@ -278,5 +280,32 @@ fn event_kind(ev: &OrchestratorEvent) -> String {
         OrchestratorEvent::ArtifactProduced { title, .. } => format!("ArtifactProduced({title})"),
         OrchestratorEvent::ArtifactUpdated { .. } => "ArtifactUpdated".into(),
         OrchestratorEvent::ActivityChanged { state, .. } => format!("ActivityChanged({state:?})"),
+        // Phase 24 (ADR 0008) — chat-domain broadcasts. The
+        // `permission_prompt_round_trip` test runs with
+        // `phase24: false` so these arms are unreachable in practice;
+        // kept for exhaustiveness so a future flag-on live test
+        // doesn't fall off the match.
+        OrchestratorEvent::AgentTurnStarted { turn_id, .. } => {
+            format!("AgentTurnStarted({turn_id})")
+        }
+        OrchestratorEvent::AgentContentBlockStarted {
+            block_index,
+            block_kind,
+            ..
+        } => format!("AgentContentBlockStarted({block_index}: {block_kind:?})"),
+        OrchestratorEvent::AgentContentBlockDelta { block_index, .. } => {
+            format!("AgentContentBlockDelta({block_index})")
+        }
+        OrchestratorEvent::AgentContentBlockEnded { block_index, .. } => {
+            format!("AgentContentBlockEnded({block_index})")
+        }
+        OrchestratorEvent::AgentToolResult {
+            tool_use_id,
+            is_error,
+            ..
+        } => format!("AgentToolResult({tool_use_id}, error={is_error})"),
+        OrchestratorEvent::AgentTurnEnded { stop_reason, .. } => {
+            format!("AgentTurnEnded({stop_reason:?})")
+        }
     }
 }

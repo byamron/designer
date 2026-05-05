@@ -8,11 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComposeDock } from "../components/ComposeDock";
 import { FrictionWidget } from "../components/Friction/FrictionWidget";
-import {
-  ACTIVE_RECENCY_MS,
-  dataStore,
-  useRecentActivity,
-} from "../store/data";
+import { ACTIVE_RECENCY_MS, dataStore, useRecentActivity } from "../store/data";
 import { clearFriction, toggleFrictionComposer } from "../store/app";
 import { __setIpcClient } from "../ipc/client";
 import type { IpcClient } from "../ipc/client";
@@ -76,13 +72,17 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
         show_all_artifacts_in_spine: false,
         show_roadmap_canvas: false,
         show_recent_reports_v2: false,
+        show_chat_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve({
         show_models_section: name === "show_models_section" ? enabled : false,
-        show_all_artifacts_in_spine: name === "show_all_artifacts_in_spine" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
         show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
-        show_recent_reports_v2: name === "show_recent_reports_v2" ? enabled : false,
+        show_recent_reports_v2:
+          name === "show_recent_reports_v2" ? enabled : false,
+        show_chat_v2: name === "show_chat_v2" ? enabled : false,
       }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_polish_xyzxyz", local_path: "" }),
@@ -98,9 +98,16 @@ function stubClient(overrides: Partial<IpcClient> = {}): IpcClient {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
-  getRoadmap: () =>
-    Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null, roadmap_path: "core-docs/roadmap.md" }),
-  setNodeStatus: () => Promise.resolve(),
+    getRoadmap: () =>
+      Promise.resolve({
+        tree: null,
+        parse_error: null,
+        claims: [],
+        shipments: [],
+        source_hash: null,
+        roadmap_path: "core-docs/roadmap.md",
+      }),
+    setNodeStatus: () => Promise.resolve(),
     writeRoadmapDraft: () => Promise.resolve(),
     listRecentReports: () => Promise.resolve([]),
     getReportsUnreadCount: () => Promise.resolve(0),

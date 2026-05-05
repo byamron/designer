@@ -316,3 +316,85 @@ pub enum TrackState {
     Merged,
     Archived,
 }
+
+// ---------------------------------------------------------------------------
+// Phase 24 — chat pass-through (ADR 0008)
+// ---------------------------------------------------------------------------
+
+/// Claude Code's own `message_id` from a `message_start` envelope.
+/// Designer does not mint these; we carry the runtime's identifier
+/// verbatim so the read-side correlation matches what the CLI emits.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ClaudeMessageId(pub String);
+
+impl ClaudeMessageId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ClaudeMessageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Claude Code's own `session_id` from a `system/init` envelope.
+/// Used with `--resume <id>` to continue a conversation across subprocess
+/// respawns (e.g. on model switch — see Phase 24 spec D5).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ClaudeSessionId(pub String);
+
+impl ClaudeSessionId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ClaudeSessionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Type of a content block inside an agent turn. Mirrors the Anthropic
+/// Messages API content-block model (text, tool_use, thinking).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AgentContentBlockKind {
+    Text,
+    ToolUse { name: String, tool_use_id: String },
+    Thinking,
+}
+
+/// Why an agent turn ended. Mirrors `stop_reason` on the Messages API
+/// `message_delta` plus a synthesized `Interrupted` value the translator
+/// emits on `result/error_during_execution` (see Phase 24 §11.0 P2 spike).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStopReason {
+    EndTurn,
+    ToolUse,
+    MaxTokens,
+    Interrupted,
+    Error,
+}
+
+/// Token accounting on an `AgentTurnEnded`. Mirrors the `usage` object on
+/// Claude's `result/success` envelope. `cache_read` and `cache_creation`
+/// are zero when prompt caching wasn't engaged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenUsage {
+    pub input: u32,
+    pub output: u32,
+    pub cache_read: u32,
+    pub cache_creation: u32,
+}

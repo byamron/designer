@@ -274,6 +274,12 @@ impl AppCore {
                 },
             )
             .await?;
+        // Phase 24 (ADR 0008) — stash the user-event id so the
+        // AgentTurnStarted bridge can stamp `parent_user_event_id`. Set
+        // before `projector.apply` runs so a synchronous bridge would
+        // see the new value too; the projector itself doesn't read this
+        // map, so order doesn't change replay semantics.
+        self.set_last_user_event_id(workspace_id, env.id);
         self.projector.apply(&env);
 
         // 3. Append the ArtifactCreated for the user message.
@@ -334,6 +340,17 @@ impl AppCore {
         // event-store data still reads as "Designer" in the UI after this
         // switch. Multi-agent teams are out of scope for v1 and will land
         // behind a future opt-in `TeamSpec` variant.
+        // Phase 24 (ADR 0008) — read `show_chat_v2` once at spawn so
+        // the translator's emission family is fixed for the lifetime
+        // of this subprocess. Flipping the flag mid-session would
+        // cross emission paths in the same event log; the simpler rule
+        // is "the flag at spawn time wins until the next respawn."
+        // The respawn paths (model swap, dead-team recovery) re-read
+        // the flag so a flip surfaces after the next user message
+        // forces a respawn.
+        let phase24 = crate::settings::Settings::load(&self.config.data_dir)
+            .feature_flags
+            .show_chat_v2;
         let spec = TeamSpec {
             workspace_id,
             tab_id,
@@ -343,6 +360,7 @@ impl AppCore {
             env: Default::default(),
             cwd,
             model: model.clone(),
+            phase24,
         };
         match self.orchestrator.spawn_team(spec).await {
             Ok(()) => {
@@ -494,6 +512,32 @@ impl AppCore {
                     classification: None,
                 },
             )
+            .await?;
+        self.projector.apply(&env);
+        Ok(())
+    }
+
+    /// Phase 24 (ADR 0008) — persist an `AgentTurn*` event to the
+    /// workspace stream. Called by [`spawn_message_coalescer`]'s recv
+    /// loop on every `OrchestratorEvent::AgentTurn*` broadcast emitted
+    /// by the Phase 24 stream translator. The bridge stamps
+    /// `parent_user_event_id` from `last_user_event_id(workspace_id)`
+    /// so the renderer can thread agent turns back to the user message
+    /// that triggered them.
+    ///
+    /// Author for every `AgentTurn*` envelope is `Actor::Agent { team:
+    /// "workspace-lead", role: "assistant" }` — same provenance the
+    /// legacy `MessagePosted{Agent}` carried, so cross-author audit
+    /// queries don't see a discontinuity at the cut-over.
+    pub async fn persist_agent_turn_event(
+        &self,
+        payload: EventPayload,
+        workspace_id: WorkspaceId,
+    ) -> Result<(), CoreError> {
+        let actor = Actor::agent("workspace-lead", "assistant");
+        let env = self
+            .store
+            .append(StreamId::Workspace(workspace_id), None, actor, payload)
             .await?;
         self.projector.apply(&env);
         Ok(())
@@ -669,6 +713,147 @@ pub fn spawn_message_coalescer(core: Arc<AppCore>, window: Duration) {
                             .await
                         {
                             warn!(error = %e, "update_agent_artifact_summary failed");
+                        }
+                    }
+                    // Phase 24 (ADR 0008) — bridge new chat-domain
+                    // broadcasts into the persisted event log. The
+                    // translator only emits these in phase24 mode
+                    // (gated on `show_chat_v2`); legacy mode skips
+                    // these arms entirely. `parent_user_event_id` is
+                    // pulled from `last_user_event_id` — the user
+                    // message that triggered the turn — captured in
+                    // `post_message`. The `EventId::nil` fallback only
+                    // fires for an agent turn that arrives before any
+                    // user post on the workspace, which shouldn't
+                    // happen in practice.
+                    OrchestratorEvent::AgentTurnStarted {
+                        workspace_id,
+                        tab_id,
+                        turn_id,
+                        model,
+                        session_id,
+                    } => {
+                        let Some(core) = weak_for_recv.upgrade() else {
+                            break;
+                        };
+                        let parent_user_event_id = core
+                            .last_user_event_id(workspace_id)
+                            .unwrap_or_else(designer_core::EventId::default);
+                        let payload = EventPayload::AgentTurnStarted {
+                            workspace_id,
+                            tab_id,
+                            turn_id,
+                            model,
+                            parent_user_event_id,
+                            session_id,
+                        };
+                        if let Err(e) = core.persist_agent_turn_event(payload, workspace_id).await {
+                            warn!(error = %e, "persist AgentTurnStarted failed");
+                        }
+                    }
+                    OrchestratorEvent::AgentContentBlockStarted {
+                        workspace_id,
+                        tab_id,
+                        turn_id,
+                        block_index,
+                        block_kind,
+                    } => {
+                        let Some(core) = weak_for_recv.upgrade() else {
+                            break;
+                        };
+                        let payload = EventPayload::AgentContentBlockStarted {
+                            workspace_id,
+                            tab_id,
+                            turn_id,
+                            block_index,
+                            block_kind,
+                        };
+                        if let Err(e) = core.persist_agent_turn_event(payload, workspace_id).await {
+                            warn!(error = %e, "persist AgentContentBlockStarted failed");
+                        }
+                    }
+                    OrchestratorEvent::AgentContentBlockDelta {
+                        workspace_id,
+                        tab_id,
+                        turn_id,
+                        block_index,
+                        delta,
+                    } => {
+                        let Some(core) = weak_for_recv.upgrade() else {
+                            break;
+                        };
+                        let payload = EventPayload::AgentContentBlockDelta {
+                            workspace_id,
+                            tab_id,
+                            turn_id,
+                            block_index,
+                            delta,
+                        };
+                        if let Err(e) = core.persist_agent_turn_event(payload, workspace_id).await {
+                            warn!(error = %e, "persist AgentContentBlockDelta failed");
+                        }
+                    }
+                    OrchestratorEvent::AgentContentBlockEnded {
+                        workspace_id,
+                        tab_id,
+                        turn_id,
+                        block_index,
+                    } => {
+                        let Some(core) = weak_for_recv.upgrade() else {
+                            break;
+                        };
+                        let payload = EventPayload::AgentContentBlockEnded {
+                            workspace_id,
+                            tab_id,
+                            turn_id,
+                            block_index,
+                        };
+                        if let Err(e) = core.persist_agent_turn_event(payload, workspace_id).await {
+                            warn!(error = %e, "persist AgentContentBlockEnded failed");
+                        }
+                    }
+                    OrchestratorEvent::AgentToolResult {
+                        workspace_id,
+                        tab_id,
+                        turn_id,
+                        tool_use_id,
+                        content,
+                        is_error,
+                    } => {
+                        let Some(core) = weak_for_recv.upgrade() else {
+                            break;
+                        };
+                        let payload = EventPayload::AgentToolResult {
+                            workspace_id,
+                            tab_id,
+                            turn_id,
+                            tool_use_id,
+                            content,
+                            is_error,
+                        };
+                        if let Err(e) = core.persist_agent_turn_event(payload, workspace_id).await {
+                            warn!(error = %e, "persist AgentToolResult failed");
+                        }
+                    }
+                    OrchestratorEvent::AgentTurnEnded {
+                        workspace_id,
+                        tab_id,
+                        turn_id,
+                        stop_reason,
+                        usage,
+                    } => {
+                        let Some(core) = weak_for_recv.upgrade() else {
+                            break;
+                        };
+                        let payload = EventPayload::AgentTurnEnded {
+                            workspace_id,
+                            tab_id,
+                            turn_id,
+                            stop_reason,
+                            usage,
+                        };
+                        if let Err(e) = core.persist_agent_turn_event(payload, workspace_id).await {
+                            warn!(error = %e, "persist AgentTurnEnded failed");
                         }
                     }
                     _ => {}
@@ -859,6 +1044,7 @@ mod tests {
                 env: Default::default(),
                 cwd: None,
                 model: None,
+                phase24: false,
             })
             .await
             .unwrap();
@@ -1009,6 +1195,7 @@ mod tests {
                 env: Default::default(),
                 cwd: None,
                 model: None,
+                phase24: false,
             })
             .await
             .unwrap();
@@ -1118,6 +1305,7 @@ mod tests {
                 env: Default::default(),
                 cwd: None,
                 model: None,
+                phase24: false,
             })
             .await
             .unwrap();
@@ -1196,6 +1384,7 @@ mod tests {
                 env: Default::default(),
                 cwd: None,
                 model: None,
+                phase24: false,
             })
             .await
             .unwrap();
@@ -1285,6 +1474,7 @@ mod tests {
                 env: Default::default(),
                 cwd: None,
                 model: None,
+                phase24: false,
             })
             .await
             .unwrap();

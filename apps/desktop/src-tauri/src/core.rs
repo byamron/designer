@@ -332,6 +332,16 @@ pub struct AppCore {
     /// back to first-tab attribution.
     pub(crate) last_user_tab_by_workspace:
         Arc<parking_lot::RwLock<std::collections::HashMap<WorkspaceId, TabId>>>,
+    /// Phase 24 (ADR 0008) — per-workspace `EventId` of the user's most
+    /// recent `MessagePosted`. Stamped onto `AgentTurnStarted` as
+    /// `parent_user_event_id` so the renderer can thread agent turns
+    /// back to the user message that triggered them. The value is the
+    /// event id we got back from `EventStore::append` in
+    /// `post_message`; `None` until the workspace's first user post.
+    /// Companion to `last_user_tab_by_workspace` — the same map shape,
+    /// the same clear-lazily semantics, the same per-workspace key.
+    pub(crate) last_user_event_by_workspace:
+        Arc<parking_lot::RwLock<std::collections::HashMap<WorkspaceId, designer_core::EventId>>>,
     /// Per-(workspace, tab) record of the Claude CLI model the current
     /// team was spawned with (e.g. `claude-haiku-4-5`). Phase 23.E:
     /// each tab owns its own subprocess, so model selection is per-tab —
@@ -457,6 +467,9 @@ impl AppCore {
             finding_session_counts: parking_lot::Mutex::new(std::collections::HashMap::new()),
             proposal_state: crate::core_proposals::ProposalState::new(),
             last_user_tab_by_workspace: Arc::new(parking_lot::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
+            last_user_event_by_workspace: Arc::new(parking_lot::RwLock::new(
                 std::collections::HashMap::new(),
             )),
             team_model_by_tab: Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new())),
@@ -1203,6 +1216,34 @@ impl AppCore {
         self.last_user_tab_by_workspace
             .write()
             .insert(workspace_id, tab_id);
+    }
+
+    /// Phase 24 (ADR 0008) — read the `EventId` of the most recent
+    /// user `MessagePosted` on `workspace_id`. The bridge that converts
+    /// `OrchestratorEvent::AgentTurnStarted` into the persisted
+    /// `EventPayload::AgentTurnStarted` reads this for
+    /// `parent_user_event_id`. Returns `None` until the workspace's
+    /// first user post has landed.
+    pub fn last_user_event_id(&self, workspace_id: WorkspaceId) -> Option<designer_core::EventId> {
+        self.last_user_event_by_workspace
+            .read()
+            .get(&workspace_id)
+            .copied()
+    }
+
+    /// Phase 24 (ADR 0008) — companion to [`Self::set_last_user_tab`].
+    /// `core_agents::post_message` calls this immediately after the
+    /// user's `MessagePosted` is appended so subsequent
+    /// `AgentTurnStarted` events on the same workspace can stamp
+    /// `parent_user_event_id` without a store lookup.
+    pub fn set_last_user_event_id(
+        &self,
+        workspace_id: WorkspaceId,
+        event_id: designer_core::EventId,
+    ) {
+        self.last_user_event_by_workspace
+            .write()
+            .insert(workspace_id, event_id);
     }
 
     /// Read the Claude CLI model the `(workspace, tab)` team is currently

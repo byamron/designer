@@ -33,7 +33,8 @@ function makeClient() {
       return Promise.resolve();
     },
     listArtifacts: (ws) => Promise.resolve(core.listArtifacts(ws)),
-    listArtifactsInTab: (ws, t) => Promise.resolve(core.listArtifactsInTab(ws, t)),
+    listArtifactsInTab: (ws, t) =>
+      Promise.resolve(core.listArtifactsInTab(ws, t)),
     listSpineArtifacts: (ws) => Promise.resolve(core.listSpineArtifacts(ws)),
     listPinnedArtifacts: (ws) => Promise.resolve(core.listPinnedArtifacts(ws)),
     getArtifact: (id) => Promise.resolve(core.getArtifact(id)),
@@ -77,13 +78,17 @@ function makeClient() {
         show_all_artifacts_in_spine: false,
         show_roadmap_canvas: false,
         show_recent_reports_v2: false,
+        show_chat_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve({
         show_models_section: name === "show_models_section" ? enabled : false,
-        show_all_artifacts_in_spine: name === "show_all_artifacts_in_spine" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
         show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
-        show_recent_reports_v2: name === "show_recent_reports_v2" ? enabled : false,
+        show_recent_reports_v2:
+          name === "show_recent_reports_v2" ? enabled : false,
+        show_chat_v2: name === "show_chat_v2" ? enabled : false,
       }),
     reportFriction: () =>
       Promise.resolve({ friction_id: "frc_stub", local_path: "" }),
@@ -99,8 +104,16 @@ function makeClient() {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
-  getRoadmap: () => Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null, roadmap_path: "core-docs/roadmap.md" }),
-  setNodeStatus: () => Promise.resolve(),
+    getRoadmap: () =>
+      Promise.resolve({
+        tree: null,
+        parse_error: null,
+        claims: [],
+        shipments: [],
+        source_hash: null,
+        roadmap_path: "core-docs/roadmap.md",
+      }),
+    setNodeStatus: () => Promise.resolve(),
     writeRoadmapDraft: () => Promise.resolve(),
     listRecentReports: () => Promise.resolve([]),
     getReportsUnreadCount: () => Promise.resolve(0),
@@ -121,7 +134,9 @@ describe("CreateProjectModal", () => {
     openCreateProject();
     const onCreated = vi.fn();
     render(<CreateProjectModal onCreated={onCreated} />);
-    const pathInput = screen.getByLabelText("Project folder") as HTMLInputElement;
+    const pathInput = screen.getByLabelText(
+      "Project folder",
+    ) as HTMLInputElement;
     fireEvent.change(pathInput, {
       target: { value: "/Users/me/code/example" },
     });
@@ -139,7 +154,9 @@ describe("CreateProjectModal", () => {
     makeClient();
     openCreateProject();
     render(<CreateProjectModal />);
-    const pathInput = screen.getByLabelText("Project folder") as HTMLInputElement;
+    const pathInput = screen.getByLabelText(
+      "Project folder",
+    ) as HTMLInputElement;
     fireEvent.change(pathInput, { target: { value: "/Users/me/code/foo" } });
     const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "My Custom Name" } });
@@ -159,9 +176,9 @@ describe("CreateProjectModal", () => {
     fireEvent.change(screen.getByLabelText("Project folder"), {
       target: { value: "/x/y" },
     });
-    expect((screen.getByText("Create project") as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (screen.getByText("Create project") as HTMLButtonElement).disabled,
+    ).toBe(false);
     closeCreateProject();
   });
 

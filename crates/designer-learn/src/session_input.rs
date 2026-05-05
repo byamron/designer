@@ -284,6 +284,8 @@ mod tests {
                     tokens_input: 100,
                     tokens_output: 200,
                     dollars_cents: 42,
+                    tab_id: None,
+                    turn_id: None,
                 },
                 workspace_id,
             ),

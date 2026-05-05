@@ -125,9 +125,15 @@ export interface IpcClient {
   setCostChipPreference(enabled: boolean): Promise<CostChipPreferences>;
   // Feature flags (DP-C reliability audit)
   getFeatureFlags(): Promise<FeatureFlags>;
-  setFeatureFlag(name: keyof FeatureFlags, enabled: boolean): Promise<FeatureFlags>;
+  setFeatureFlag(
+    name: keyof FeatureFlags,
+    enabled: boolean,
+  ): Promise<FeatureFlags>;
   // Recent Reports (Phase 22.B)
-  listRecentReports(projectId: ProjectId, limit?: number): Promise<RecentReportRow[]>;
+  listRecentReports(
+    projectId: ProjectId,
+    limit?: number,
+  ): Promise<RecentReportRow[]>;
   getReportsUnreadCount(projectId: ProjectId): Promise<number>;
   markReportsRead(projectId: ProjectId): Promise<number>;
   // Friction (Tracks 13.K + 13.L + 13.M)
@@ -297,6 +303,15 @@ export interface FeatureFlags {
   show_roadmap_canvas: boolean;
   /** Phase 22.B — show the new Recent Reports surface on Home. */
   show_recent_reports_v2: boolean;
+  /**
+   * Phase 24 (ADR 0008) — emit and render the new `AgentTurn*`
+   * chat-domain event family. Off by default for the first dogfood
+   * week. The Settings → Preferences toggle for this flag intentionally
+   * lands with the renderer follow-up so the toggle can warn before the
+   * flip; until then, dogfood operators flip the flag by editing
+   * `settings.json` directly.
+   */
+  show_chat_v2: boolean;
 }
 
 export const EVENT_STREAM_CHANNEL = "designer://event-stream";
@@ -421,7 +436,9 @@ class TauriIpcClient implements IpcClient {
     return invoke<CostChipPreferences>("cmd_get_cost_chip_preference");
   }
   setCostChipPreference(enabled: boolean) {
-    return invoke<CostChipPreferences>("cmd_set_cost_chip_preference", { enabled });
+    return invoke<CostChipPreferences>("cmd_set_cost_chip_preference", {
+      enabled,
+    });
   }
   getFeatureFlags() {
     return invoke<FeatureFlags>("cmd_get_feature_flags");
@@ -555,7 +572,9 @@ class MockIpcClient implements IpcClient {
     return this.core.subscribeActivity(handler);
   }
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
-    return Promise.resolve(this.core.requestApproval(workspaceId, gate, summary));
+    return Promise.resolve(
+      this.core.requestApproval(workspaceId, gate, summary),
+    );
   }
   resolveApproval(id: string, granted: boolean, reason?: string) {
     this.core.resolveApproval(id, granted, reason);
@@ -638,7 +657,8 @@ class MockIpcClient implements IpcClient {
     return Promise.resolve<KeychainStatus>({
       state: "connected",
       last_verified: new Date().toISOString(),
-      message: "Connected via macOS Keychain — Designer never reads your token.",
+      message:
+        "Connected via macOS Keychain — Designer never reads your token.",
     });
   }
   getCostChipPreference() {
@@ -655,6 +675,7 @@ class MockIpcClient implements IpcClient {
     show_all_artifacts_in_spine: false,
     show_roadmap_canvas: false,
     show_recent_reports_v2: false,
+    show_chat_v2: false,
   };
   private mockReportReadAt: Map<ProjectId, string> = new Map();
   getFeatureFlags() {
@@ -756,7 +777,9 @@ class MockIpcClient implements IpcClient {
 let singleton: IpcClient | null = null;
 export function ipcClient(): IpcClient {
   if (singleton) return singleton;
-  singleton = isTauri() ? new TauriIpcClient() : new MockIpcClient(createMockCore());
+  singleton = isTauri()
+    ? new TauriIpcClient()
+    : new MockIpcClient(createMockCore());
   return singleton;
 }
 

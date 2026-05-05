@@ -373,10 +373,13 @@ impl EventStore for SqliteEventStore {
                 timestamp,
                 actor: actor.clone(),
                 // Bumped 1→2 in Track 13.L (FrictionLinked → FrictionAddressed
-                // rename). Old records written at version 1 still decode via
-                // the legacy `FrictionLinked` variant; new records emit
-                // `FrictionAddressed` directly.
-                version: 2,
+                // rename). Bumped 2→3 in Phase 24 (ADR 0008): chat-domain
+                // event vocabulary additively extended with `AgentTurn*`
+                // variants. Old records (v1, v2) continue to decode via
+                // their respective variants; new records emit `AgentTurn*`
+                // for agent output. The version is informational; decoding
+                // is variant-driven.
+                version: 3,
                 causation_id: None,
                 correlation_id: None,
                 payload,

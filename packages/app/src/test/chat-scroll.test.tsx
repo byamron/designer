@@ -4,11 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WorkspaceThread } from "../tabs/WorkspaceThread";
 import { __setIpcClient, ipcClient, type IpcClient } from "../ipc/client";
 import { createMockCore, type MockCore } from "../ipc/mock";
-import type {
-  ArtifactSummary,
-  StreamEvent,
-  Workspace,
-} from "../ipc/types";
+import type { ArtifactSummary, StreamEvent, Workspace } from "../ipc/types";
 
 /**
  * B6 — auto-scroll with stickiness. The thread should pin to the bottom
@@ -93,16 +89,19 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
         show_all_artifacts_in_spine: false,
         show_roadmap_canvas: false,
         show_recent_reports_v2: false,
+        show_chat_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve({
         show_models_section: name === "show_models_section" ? enabled : false,
-        show_all_artifacts_in_spine: name === "show_all_artifacts_in_spine" ? enabled : false,
+        show_all_artifacts_in_spine:
+          name === "show_all_artifacts_in_spine" ? enabled : false,
         show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
-        show_recent_reports_v2: name === "show_recent_reports_v2" ? enabled : false,
+        show_recent_reports_v2:
+          name === "show_recent_reports_v2" ? enabled : false,
+        show_chat_v2: name === "show_chat_v2" ? enabled : false,
       }),
-    reportFriction: () =>
-      Promise.resolve({ friction_id: "f", local_path: "" }),
+    reportFriction: () => Promise.resolve({ friction_id: "f", local_path: "" }),
     listFriction: () => Promise.resolve([]),
     resolveFriction: () => Promise.resolve(),
     addressFriction: () => Promise.resolve(),
@@ -115,8 +114,16 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
     listProposals: () => Promise.resolve([]),
     resolveProposal: () => Promise.resolve(),
     signalProposal: () => Promise.resolve(),
-  getRoadmap: () => Promise.resolve({ tree: null, parse_error: null, claims: [], shipments: [], source_hash: null, roadmap_path: "core-docs/roadmap.md" }),
-  setNodeStatus: () => Promise.resolve(),
+    getRoadmap: () =>
+      Promise.resolve({
+        tree: null,
+        parse_error: null,
+        claims: [],
+        shipments: [],
+        source_hash: null,
+        roadmap_path: "core-docs/roadmap.md",
+      }),
+    setNodeStatus: () => Promise.resolve(),
     writeRoadmapDraft: () => Promise.resolve(),
     listRecentReports: () => Promise.resolve([]),
     getReportsUnreadCount: () => Promise.resolve(0),
@@ -142,7 +149,11 @@ function makeArtifact(role: string, summary: string): ArtifactSummary {
 // Install a controllable scroll model on the thread element. jsdom
 // returns 0 for scrollHeight / clientHeight; we override with values
 // the test can drive.
-function installScrollShim(el: HTMLElement, scrollHeight: number, clientHeight: number) {
+function installScrollShim(
+  el: HTMLElement,
+  scrollHeight: number,
+  clientHeight: number,
+) {
   Object.defineProperty(el, "scrollHeight", {
     configurable: true,
     get: () => scrollHeight,
@@ -183,7 +194,10 @@ describe("Thread scroll stickiness (B6)", () => {
       document.querySelector<HTMLTextAreaElement>("textarea.compose__input"),
     );
     fireEvent.change(ta!, { target: { value: "go" } });
-    artifacts = [makeArtifact("user", "go"), makeArtifact("agent", "first reply")];
+    artifacts = [
+      makeArtifact("user", "go"),
+      makeArtifact("agent", "first reply"),
+    ];
     fireEvent.click(
       document.querySelector<HTMLButtonElement>(".btn-icon--primary")!,
     );

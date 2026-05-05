@@ -92,6 +92,31 @@ pub struct FeatureFlags {
     /// rendering only.
     #[serde(default)]
     pub show_recent_reports_v2: bool,
+    /// Phase 24 (ADR 0008) — emit the new `AgentTurn*` chat-domain
+    /// event family from the stream translator and route the renderer
+    /// through the Phase 24 chat surface. Off by default for the first
+    /// dogfood week so the existing chat plumbing stays the production
+    /// path until the new surface earns its way on. When the flag
+    /// flips on, the translator emits `AgentTurn*`, the bridge in
+    /// `core_agents::spawn_message_coalescer` persists them, the
+    /// activity indicator becomes a render-time observable, and the
+    /// renderer's per-block accumulator drives the chat thread. When
+    /// off, every code path stays on the legacy
+    /// `MessagePosted` / `ArtifactProduced` flow with the 120 ms
+    /// coalescer.
+    ///
+    /// **Transition behaviour:** the flag is read once at subprocess
+    /// spawn; flipping it only takes effect on the next respawn (next
+    /// user message after a model swap or tab re-open). Until the
+    /// Phase 24 renderer follow-up lands, flipping ON during dogfood
+    /// will leave the legacy renderer unable to display new
+    /// `AgentTurn*` events — chat will appear frozen mid-turn. The
+    /// Settings → Preferences toggle for this flag intentionally lives
+    /// in the renderer follow-up so the toggle can warn before the
+    /// flip; until then, dogfood operators flip the flag by editing
+    /// `settings.json` directly and respawning.
+    #[serde(default)]
+    pub show_chat_v2: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -4,7 +4,8 @@
 
 use crate::anchor::Anchor;
 use crate::domain::{
-    Actor, ArtifactKind, Autonomy, PayloadRef, ReportClassification, TabTemplate, WorkspaceState,
+    Actor, AgentContentBlockKind, AgentStopReason, ArtifactKind, Autonomy, ClaudeMessageId,
+    ClaudeSessionId, PayloadRef, ReportClassification, TabTemplate, TokenUsage, WorkspaceState,
 };
 use crate::finding::{Finding, ThumbSignal};
 use crate::ids::{
@@ -156,6 +157,12 @@ pub enum EventPayload {
     TaskCompleted {
         task_id: TaskId,
     },
+    /// User-authored thread message (or, on legacy logs, agent / team-lead
+    /// authored). Phase 24 (ADR 0008) reserves the `Actor::User` author
+    /// case as the only forward-emitted form; agent output flows through
+    /// `AgentTurn*` events. Old `Actor::Agent` records continue to decode
+    /// for replay safety; the renderer-side legacy projection translates
+    /// them into synthetic `AgentTurn*` shapes for display only.
     MessagePosted {
         workspace_id: WorkspaceId,
         author: Actor,
@@ -193,6 +200,19 @@ pub enum EventPayload {
         tokens_input: u64,
         tokens_output: u64,
         dollars_cents: u64,
+        /// Phase 24 (ADR 0008) — additive. Binds the cost row to a tab so
+        /// per-tab cost surfaces can attribute spend without joining
+        /// against the message stream. Pre-Phase-24 records decode to
+        /// `None`; the workspace-level `CostTracker` keeps working
+        /// against the existing fields.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tab_id: Option<TabId>,
+        /// Phase 24 (ADR 0008) — additive. Binds the cost row to the
+        /// agent turn (`message_id` from `system/init`). `None` for
+        /// pre-Phase-24 records and for cost lines that arrive before
+        /// any turn binding (rare but possible).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<ClaudeMessageId>,
     },
     ScopeDenied {
         workspace_id: WorkspaceId,
@@ -428,6 +448,81 @@ pub enum EventPayload {
         proposal_id: ProposalId,
         signal: ThumbSignal,
     },
+
+    // -----------------------------------------------------------------
+    // Phase 24 — chat pass-through (ADR 0008)
+    //
+    // Six variants form the typed projection of Claude Code's stream-json
+    // content-block model onto Designer's event log. The legacy
+    // `MessagePosted{author: Agent}` + `ArtifactProduced{kind: Report,
+    // author_role: agent|workspace-lead}` flow continues to decode for
+    // replay safety, but post-Phase-24 readers emit only these.
+    // -----------------------------------------------------------------
+    /// Beginning of an agent turn — emitted on Claude's `message_start`.
+    /// `turn_id` is Claude's own `message_id`; `session_id` is from the
+    /// preceding `system/init`. `parent_user_event_id` points back to
+    /// the user `MessagePosted` that triggered the turn.
+    AgentTurnStarted {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        model: String,
+        parent_user_event_id: EventId,
+        session_id: ClaudeSessionId,
+    },
+    /// A content block opened. `block_index` matches the Anthropic
+    /// Messages API content-array index; renderer uses it to keep
+    /// per-block accumulators. The field name `block_kind` (not `kind`)
+    /// avoids a serde collision with the outer `EventPayload`
+    /// `tag = "kind"` discriminator — same precedent as `artifact_kind`
+    /// on `ArtifactCreated`.
+    AgentContentBlockStarted {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        block_index: u32,
+        block_kind: AgentContentBlockKind,
+    },
+    /// One delta inside a content block. `delta` is the raw fragment
+    /// string per Claude's stream-json (text fragment for text blocks,
+    /// JSON-fragment string for tool_use input, text fragment for
+    /// thinking blocks). Renderer reassembles per `block_index`.
+    AgentContentBlockDelta {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        block_index: u32,
+        delta: String,
+    },
+    /// Content block ended. Triggers markdown re-render for text blocks
+    /// per Phase 24 §3.3.
+    AgentContentBlockEnded {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        block_index: u32,
+    },
+    /// Tool result returned to Claude (next `user`-typed envelope's
+    /// content). `tool_use_id` correlates with the `AgentContentBlockStarted`
+    /// that opened the tool_use block.
+    AgentToolResult {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        tool_use_id: String,
+        content: String,
+        is_error: bool,
+    },
+    /// End of an agent turn — emitted on `message_stop` (or `message_delta`
+    /// with a `stop_reason`, plus a synthesized `Interrupted` value on
+    /// `result/error_during_execution`; see Phase 24 §11.0 P2 spike).
+    AgentTurnEnded {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+        turn_id: ClaudeMessageId,
+        stop_reason: AgentStopReason,
+        usage: TokenUsage,
+    },
 }
 
 /// Where a friction record's screenshot lives. `Local` is the only state
@@ -555,6 +650,13 @@ pub enum EventKind {
     ProposalEmitted,
     ProposalResolved,
     ProposalSignaled,
+    // Phase 24 — chat pass-through (ADR 0008)
+    AgentTurnStarted,
+    AgentContentBlockStarted,
+    AgentContentBlockDelta,
+    AgentContentBlockEnded,
+    AgentToolResult,
+    AgentTurnEnded,
 }
 
 impl EventPayload {
@@ -612,6 +714,12 @@ impl EventPayload {
             EventPayload::ProposalEmitted { .. } => EventKind::ProposalEmitted,
             EventPayload::ProposalResolved { .. } => EventKind::ProposalResolved,
             EventPayload::ProposalSignaled { .. } => EventKind::ProposalSignaled,
+            EventPayload::AgentTurnStarted { .. } => EventKind::AgentTurnStarted,
+            EventPayload::AgentContentBlockStarted { .. } => EventKind::AgentContentBlockStarted,
+            EventPayload::AgentContentBlockDelta { .. } => EventKind::AgentContentBlockDelta,
+            EventPayload::AgentContentBlockEnded { .. } => EventKind::AgentContentBlockEnded,
+            EventPayload::AgentToolResult { .. } => EventKind::AgentToolResult,
+            EventPayload::AgentTurnEnded { .. } => EventKind::AgentTurnEnded,
         }
     }
 }
@@ -886,6 +994,146 @@ mod tests {
         }
         assert_eq!(recorded.kind(), EventKind::FindingRecorded);
         assert_eq!(signaled.kind(), EventKind::FindingSignaled);
+    }
+
+    /// Phase 24 — `AgentTurn*` events round-trip through serde and map to
+    /// the right `EventKind`. Mirrors the friction / proposal contract
+    /// tests for the chat-pass-through vocabulary added by ADR 0008.
+    #[test]
+    fn phase_24_chat_events_roundtrip_through_serde() {
+        use crate::domain::{
+            AgentContentBlockKind, AgentStopReason, ClaudeMessageId, ClaudeSessionId, TokenUsage,
+        };
+        use crate::ids::{EventId, TabId};
+        let ws = WorkspaceId::new();
+        let tab = TabId::new();
+        let parent = EventId::new();
+        let turn = ClaudeMessageId::new("msg_01ABC");
+        let session = ClaudeSessionId::new("sess_01XYZ");
+        let cases = [
+            EventPayload::AgentTurnStarted {
+                workspace_id: ws,
+                tab_id: tab,
+                turn_id: turn.clone(),
+                model: "claude-opus-4-7".into(),
+                parent_user_event_id: parent,
+                session_id: session,
+            },
+            EventPayload::AgentContentBlockStarted {
+                workspace_id: ws,
+                tab_id: tab,
+                turn_id: turn.clone(),
+                block_index: 0,
+                block_kind: AgentContentBlockKind::Text,
+            },
+            EventPayload::AgentContentBlockStarted {
+                workspace_id: ws,
+                tab_id: tab,
+                turn_id: turn.clone(),
+                block_index: 2,
+                block_kind: AgentContentBlockKind::ToolUse {
+                    name: "Read".into(),
+                    tool_use_id: "toolu_01...".into(),
+                },
+            },
+            EventPayload::AgentContentBlockStarted {
+                workspace_id: ws,
+                tab_id: tab,
+                turn_id: turn.clone(),
+                block_index: 1,
+                block_kind: AgentContentBlockKind::Thinking,
+            },
+            EventPayload::AgentContentBlockDelta {
+                workspace_id: ws,
+                tab_id: tab,
+                turn_id: turn.clone(),
+                block_index: 0,
+                delta: "Hello".into(),
+            },
+            EventPayload::AgentContentBlockEnded {
+                workspace_id: ws,
+                tab_id: tab,
+                turn_id: turn.clone(),
+                block_index: 0,
+            },
+            EventPayload::AgentToolResult {
+                workspace_id: ws,
+                tab_id: tab,
+                turn_id: turn.clone(),
+                tool_use_id: "toolu_01...".into(),
+                content: "ok".into(),
+                is_error: false,
+            },
+            EventPayload::AgentTurnEnded {
+                workspace_id: ws,
+                tab_id: tab,
+                turn_id: turn,
+                stop_reason: AgentStopReason::EndTurn,
+                usage: TokenUsage {
+                    input: 10,
+                    output: 5,
+                    cache_read: 0,
+                    cache_creation: 0,
+                },
+            },
+        ];
+
+        let kinds = [
+            EventKind::AgentTurnStarted,
+            EventKind::AgentContentBlockStarted,
+            EventKind::AgentContentBlockStarted,
+            EventKind::AgentContentBlockStarted,
+            EventKind::AgentContentBlockDelta,
+            EventKind::AgentContentBlockEnded,
+            EventKind::AgentToolResult,
+            EventKind::AgentTurnEnded,
+        ];
+        for (payload, expected_kind) in cases.iter().zip(kinds.iter()) {
+            assert_eq!(payload.kind(), *expected_kind);
+            let json = serde_json::to_string(payload).expect("serialize");
+            let back: EventPayload = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(payload, &back, "round-trip mismatch for {json}");
+        }
+    }
+
+    /// Phase 24 — `CostRecorded` gained additive `tab_id` / `turn_id`
+    /// fields. Pre-Phase-24 records (without the fields) must still
+    /// decode; new records (with the fields) round-trip.
+    #[test]
+    fn phase_24_cost_recorded_additive_fields() {
+        use crate::domain::ClaudeMessageId;
+        use crate::ids::TabId;
+        let ws = WorkspaceId::new();
+        let legacy_json = serde_json::json!({
+            "kind": "cost_recorded",
+            "workspace_id": ws,
+            "tokens_input": 100,
+            "tokens_output": 50,
+            "dollars_cents": 2,
+        });
+        let payload: EventPayload =
+            serde_json::from_value(legacy_json).expect("legacy cost_recorded should decode");
+        match payload {
+            EventPayload::CostRecorded {
+                tab_id, turn_id, ..
+            } => {
+                assert_eq!(tab_id, None);
+                assert_eq!(turn_id, None);
+            }
+            other => panic!("decoded to wrong variant: {other:?}"),
+        }
+
+        let new = EventPayload::CostRecorded {
+            workspace_id: ws,
+            tokens_input: 100,
+            tokens_output: 50,
+            dollars_cents: 2,
+            tab_id: Some(TabId::new()),
+            turn_id: Some(ClaudeMessageId::new("msg_01")),
+        };
+        let json = serde_json::to_string(&new).expect("serialize");
+        let back: EventPayload = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(new, back);
     }
 
     /// Phase 21.A1.2 — proposal events round-trip through serde and report

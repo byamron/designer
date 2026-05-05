@@ -362,6 +362,7 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
         let team_name = spec.team_name.clone();
         let lead_role = spec.lead_role.clone();
         let tab = spec.tab_id;
+        let phase24 = spec.phase24;
         let reader_task = tokio::spawn(async move {
             run_reader_loop(
                 BufReader::new(stdout),
@@ -375,6 +376,7 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
                     signal_tx,
                     permission_handler,
                     stdin_tx: stdin_tx_for_reader,
+                    phase24,
                 },
             )
             .await;
@@ -699,9 +701,20 @@ fn event_to_payload(
         // `EventPayload` here. Phase 23.B `ActivityChanged` is also
         // broadcast-only by design (no projector arm, no replay
         // invariant) — see pattern-log.md.
+        //
+        // Phase 24 (ADR 0008) — `AgentTurn*` likewise route through the
+        // AppCore bridge: it knows the active user-post `event_id` for
+        // stamping `parent_user_event_id` on `AgentTurnStarted` and is
+        // the single writer for the persisted chat-domain events.
         OrchestratorEvent::ArtifactProduced { .. }
         | OrchestratorEvent::ArtifactUpdated { .. }
-        | OrchestratorEvent::ActivityChanged { .. } => None,
+        | OrchestratorEvent::ActivityChanged { .. }
+        | OrchestratorEvent::AgentTurnStarted { .. }
+        | OrchestratorEvent::AgentContentBlockStarted { .. }
+        | OrchestratorEvent::AgentContentBlockDelta { .. }
+        | OrchestratorEvent::AgentContentBlockEnded { .. }
+        | OrchestratorEvent::AgentToolResult { .. }
+        | OrchestratorEvent::AgentTurnEnded { .. } => None,
     }
 }
 
@@ -726,6 +739,12 @@ where
     pub signal_tx: broadcast::Sender<ClaudeSignal>,
     pub permission_handler: Arc<dyn PermissionHandler>,
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
+    /// Phase 24 (ADR 0008) — when `true`, the translator emits the new
+    /// `AgentTurn*` chat-domain events; when `false`, the legacy
+    /// `MessagePosted` / `ArtifactProduced` flow stays in effect.
+    /// Threaded from `TeamSpec::phase24` (read from the
+    /// `show_chat_v2` feature flag at spawn time).
+    pub phase24: bool,
 }
 
 /// Drain a stream-json reader until EOF, persisting and broadcasting each
@@ -750,8 +769,13 @@ where
         signal_tx,
         permission_handler,
         stdin_tx,
+        phase24,
     } = ctx;
-    let mut translator = ClaudeStreamTranslator::new(workspace_id, tab_id, team_name.clone());
+    let mut translator = if phase24 {
+        ClaudeStreamTranslator::new_phase24(workspace_id, tab_id, team_name.clone())
+    } else {
+        ClaudeStreamTranslator::new(workspace_id, tab_id, team_name.clone())
+    };
     let mut buf = String::new();
     loop {
         buf.clear();
@@ -1118,6 +1142,7 @@ mod tests {
                 signal_tx,
                 permission_handler: h,
                 stdin_tx,
+                phase24: false,
             },
         )
         .await;
@@ -1181,6 +1206,7 @@ mod tests {
                 signal_tx,
                 permission_handler: h,
                 stdin_tx,
+                phase24: false,
             },
         )
         .await;
@@ -1242,6 +1268,7 @@ mod tests {
                     signal_tx,
                     permission_handler: h,
                     stdin_tx,
+                    phase24: false,
                 },
             )
             .await;

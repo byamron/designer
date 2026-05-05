@@ -124,6 +124,7 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
         show_all_artifacts_in_spine: false,
         show_roadmap_canvas: false,
         show_recent_reports_v2: false,
+        show_chat_v2: false,
       }),
     setFeatureFlag: (name, enabled) =>
       Promise.resolve<FeatureFlags>({
@@ -133,6 +134,7 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
         show_roadmap_canvas: name === "show_roadmap_canvas" ? enabled : false,
         show_recent_reports_v2:
           name === "show_recent_reports_v2" ? enabled : false,
+        show_chat_v2: name === "show_chat_v2" ? enabled : false,
       }),
     listRecentReports: () => Promise.resolve([]),
     getReportsUnreadCount: () => Promise.resolve(0),
