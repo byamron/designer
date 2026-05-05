@@ -265,6 +265,12 @@ function ToolUseBlock({
   toolResult: { content: string; is_error: boolean } | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // 40-line cap on tool result rendering — mirrors the legacy
+  // ToolUseLine behavior so a 1000-line grep doesn't blow up the
+  // thread. "Show full" disclosure drops the cap. Per-mount state;
+  // collapsing the panel re-arms the cap on next expand (consistent
+  // with the legacy DP-B trail).
+  const [showFull, setShowFull] = useState(false);
   const head = useMemo(
     () => parseToolHead(kind.name, block.delta),
     [kind.name, block.delta],
@@ -307,12 +313,12 @@ function ToolUseBlock({
             </div>
           )}
           {toolResult && (
-            <div className="tool-line__panel" data-panel="result">
-              <pre>
-                {isError ? `Tool ${kind.name} failed: ` : ""}
-                {toolResult.content || "(empty result)"}
-              </pre>
-            </div>
+            <ToolResultPanel
+              content={toolResult.content || "(empty result)"}
+              prefix={isError ? `Tool ${kind.name} failed: ` : ""}
+              showFull={showFull}
+              onShowFull={() => setShowFull(true)}
+            />
           )}
           {!toolResult && block.ended && (
             <div className="tool-line__panel" data-panel="result-pending">
@@ -322,6 +328,48 @@ function ToolUseBlock({
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** 40-line truncation matches the legacy ToolUseLine register. The
+ *  threshold is intentionally not a token — it's a line-count cap, not
+ *  a spatial value, so it lives in the renderer alongside the rest of
+ *  the per-block layout logic. */
+const TOOL_RESULT_TRUNCATE_LINES = 40;
+
+function ToolResultPanel({
+  content,
+  prefix,
+  showFull,
+  onShowFull,
+}: {
+  content: string;
+  prefix: string;
+  showFull: boolean;
+  onShowFull: () => void;
+}) {
+  const lines = content.split("\n");
+  const truncated = !showFull && lines.length > TOOL_RESULT_TRUNCATE_LINES;
+  const visible = truncated
+    ? lines.slice(0, TOOL_RESULT_TRUNCATE_LINES).join("\n")
+    : content;
+  const hidden = truncated ? lines.length - TOOL_RESULT_TRUNCATE_LINES : 0;
+  return (
+    <div className="tool-line__panel" data-panel="result">
+      <pre>
+        {prefix}
+        {visible}
+      </pre>
+      {truncated && (
+        <button
+          type="button"
+          className="tool-line__show-full"
+          onClick={onShowFull}
+        >
+          Show full ({hidden} more {hidden === 1 ? "line" : "lines"})
+        </button>
       )}
     </div>
   );

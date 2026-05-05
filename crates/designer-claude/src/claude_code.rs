@@ -1310,20 +1310,27 @@ mod tests {
         assert!(!reply.is_empty());
         // Phase 23.B: control_request and result lines now also emit
         // `OrchestratorEvent::ActivityChanged` (`AwaitingApproval`,
-        // then `Idle`). The test still asserts no *substantive*
-        // broadcast — the prompt routes through the side-channel
-        // PermissionPrompt, the cost routes through `signal_tx`.
+        // then `Idle`). Phase 24 (ADR 0008) adds `TeamReady` /
+        // `TeamExited` lifecycle broadcasts at reader-loop entry /
+        // exit. The test still asserts no *substantive* broadcast —
+        // the prompt routes through the side-channel PermissionPrompt,
+        // the cost routes through `signal_tx`.
         let mut activity_events = 0;
         while let Ok(ev) = rx.try_recv() {
             assert!(
-                matches!(ev, OrchestratorEvent::ActivityChanged { .. }),
-                "unexpected non-activity event: {ev:?}"
+                matches!(
+                    ev,
+                    OrchestratorEvent::ActivityChanged { .. }
+                        | OrchestratorEvent::TeamReady { .. }
+                        | OrchestratorEvent::TeamExited { .. }
+                ),
+                "unexpected non-activity / non-lifecycle event: {ev:?}"
             );
             activity_events += 1;
         }
         assert!(
-            (1..=2).contains(&activity_events),
-            "expected 1–2 ActivityChanged broadcasts (AwaitingApproval + Idle), got {activity_events}"
+            (1..=4).contains(&activity_events),
+            "expected 1–4 broadcast events (TeamReady + AwaitingApproval + Idle + TeamExited), got {activity_events}"
         );
         task.await.unwrap();
     }

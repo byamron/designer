@@ -1224,7 +1224,7 @@
  * AgentContentBlockEnded so the markdown re-render replaces in
  * place. */
 .block__message-body--streaming {
-  font-family: var(--type-body-family);
+  font-family: var(--type-family-sans);
   color: var(--color-foreground);
 }
 
@@ -1248,17 +1248,17 @@
   cursor: pointer;
 }
 .thinking__head:hover {
-  color: var(--color-foreground-muted);
+  color: var(--color-muted);
 }
 .thinking__head:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
   outline-offset: var(--space-1);
 }
 .thinking__dot {
   display: inline-block;
 }
 .thinking__chevron {
-  transition: transform var(--motion-fast, 120ms) ease-out;
+  transition: transform var(--motion-quick) ease-out;
 }
 .thinking__head[aria-expanded="true"] .thinking__chevron {
   transform: rotate(90deg);
@@ -1271,9 +1271,9 @@
   padding: var(--space-2) var(--space-3);
   background: var(--color-surface-sunken);
   border-radius: var(--radius-button);
-  font-family: var(--type-mono-family);
+  font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
-  color: var(--color-foreground-muted);
+  color: var(--color-muted);
 }
 .thinking__body pre {
   white-space: pre-wrap;
@@ -1284,12 +1284,12 @@
  * blocks.tsx; the new surface adds .tool-line__verb / __target
  * classes to keep the type consistent across the head's two parts. */
 .tool-line__verb {
-  font-weight: var(--type-body-weight);
+  font-weight: var(--weight-medium);
 }
 .tool-line__target {
   margin-left: var(--space-1);
-  color: var(--color-foreground-muted);
-  font-family: var(--type-mono-family);
+  color: var(--color-muted);
+  font-family: var(--type-family-mono);
   font-size: var(--type-caption-size);
 }
 .tool-line__panel {
@@ -1302,8 +1302,25 @@
   color: var(--color-muted);
   font-style: italic;
 }
+.tool-line__show-full {
+  margin-top: var(--space-2);
+  background: transparent;
+  border: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--type-caption-size);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.tool-line__show-full:hover {
+  color: var(--color-foreground);
+}
+.tool-line__show-full:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--space-1);
+}
 .tool-line[data-error="true"] .tool-line__region {
-  border-left: 2px solid var(--color-warning);
+  border-left: 2px solid var(--warning-9);
 }
 
 /* Inline marker at the end of a turn that ended via SIGINT
@@ -1312,7 +1329,7 @@
  * "discreet inline marker" register. */
 .thread__interrupted-marker {
   margin-top: var(--space-2);
-  color: var(--color-foreground-muted);
+  color: var(--color-muted);
   font-size: var(--type-caption-size);
 }
 
@@ -1325,10 +1342,10 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  background: var(--color-surface-muted);
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-button);
-  color: var(--color-foreground-muted);
+  color: var(--color-muted);
   font-size: var(--type-caption-size);
 }
 .thread__legacy-banner-text {
@@ -1336,8 +1353,8 @@
 }
 .thread__legacy-banner-dismiss {
   flex-shrink: 0;
-  width: var(--target-sm, 1.5rem);
-  height: var(--target-sm, 1.5rem);
+  width: var(--target-sm);
+  height: var(--target-sm);
   background: transparent;
   border: 0;
   color: var(--color-muted);
@@ -1349,7 +1366,7 @@
   color: var(--color-foreground);
 }
 .thread__legacy-banner-dismiss:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
   outline-offset: var(--space-1);
 }
 

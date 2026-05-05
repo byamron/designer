@@ -112,6 +112,15 @@ export async function bootData() {
     loaded: true,
   });
 
+  // Phase 24 (ADR 0008) — boot replay of historical AgentTurn*
+  // events into chatThreadStore needs a new IPC (`listChatEvents` or
+  // similar) to read from SQLite past the 500-event live-stream
+  // window. Out of scope for this PR; the live `client.stream`
+  // subscriber below folds events from boot onwards. A tab whose
+  // last persisted event was an open `AgentTurnStarted` will appear
+  // empty until the next live event lands. `applyOrphanTurnGuard`
+  // is exported and tested; the boot-replay PR will wire it after
+  // populating byTab from the new IPC.
   client.stream((event) => {
     const eventTs = Date.parse(event.timestamp);
     const ts = Number.isFinite(eventTs) ? eventTs : Date.now();
