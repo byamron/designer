@@ -18,6 +18,8 @@ import type { ArtifactDetail, ArtifactId, ArtifactSummary, PayloadRef } from "..
 import { ipcClient } from "../ipc/client";
 import { describeIpcError } from "../ipc/error";
 import { appStore, markTabStarted, setTabDraft } from "../store/app";
+import { useFlag, useEnsureFlagsLoaded } from "../store/flags";
+import { ChatStreamRenderer } from "../blocks/ChatStreamRenderer";
 import "../blocks";
 
 /**
@@ -83,6 +85,13 @@ export function WorkspaceThread({
   tabId?: TabId;
 }) {
   const stateKey: TabId = (tabId ?? `__default__:${workspace.id}`) as TabId;
+  // Phase 24 (ADR 0008) — flag-gated branch into the new chat surface.
+  // Hooks fire unconditionally regardless of the flag's value to keep
+  // React's hooks-order invariant. The decision to render
+  // ChatStreamRenderer vs. the legacy artifact list happens at render
+  // time below; both branches share the surrounding ComposeDock.
+  useEnsureFlagsLoaded();
+  const showChatV2 = useFlag("show_chat_v2");
   const [artifacts, setArtifacts] = useState<ArtifactSummary[] | null>(null);
   const [payloads, setPayloads] = useState<Record<ArtifactId, PayloadRef>>({});
   const [expanded, setExpanded] = useState<Record<ArtifactId, boolean>>({});
@@ -489,7 +498,25 @@ export function WorkspaceThread({
       data-component="WorkspaceThread"
       data-activity={activity}
     >
-      {showSuggestions ? (
+      {showChatV2 ? (
+        // Phase 24 chat surface. The new renderer subscribes to the
+        // per-tab chatThreadStore directly; the artifact-list scroll
+        // affordances above are intentionally not threaded through
+        // here — the new surface owns its own layout. ComposeDock
+        // remains shared between modes (rendered below).
+        <div
+          className="thread thread--phase24"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions"
+          aria-label="Workspace thread"
+        >
+          <ChatStreamRenderer
+            workspaceId={workspace.id}
+            tabId={(tabId ?? stateKey) as TabId}
+          />
+        </div>
+      ) : showSuggestions ? (
         <div className="thread thread--suggestions" aria-label="Starter suggestions">
           <ul className="suggestion-list" role="list">
             {suggestions.map((s) => (

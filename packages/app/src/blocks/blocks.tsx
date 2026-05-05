@@ -134,7 +134,7 @@ export function MessageBlock({ artifact }: BlockProps) {
 const INLINE_PATTERN =
   /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|https?:\/\/[^\s)]+)/g;
 
-function MessageProse({ text }: { text: string }) {
+export function MessageProse({ text }: { text: string }) {
   if (!text) return null;
   const lines = text.split("\n");
   return (
