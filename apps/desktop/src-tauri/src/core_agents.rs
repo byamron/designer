@@ -529,6 +529,36 @@ impl AppCore {
     /// "workspace-lead", role: "assistant" }` — same provenance the
     /// legacy `MessagePosted{Agent}` carried, so cross-author audit
     /// queries don't see a discontinuity at the cut-over.
+    /// Phase 24 (ADR 0008) — read every chat-domain event for a
+    /// workspace from the persisted SQLite store. Used by the
+    /// frontend's boot replay (`bootData → chatThreadStore`) so the
+    /// new chat surface paints past `AgentTurn*` events on app start
+    /// without waiting for the next live event. Returns events in
+    /// (stream, sequence) order; the caller folds them through the
+    /// chatThread reducer.
+    ///
+    /// "Chat-domain" here is `MessagePosted` (any author) plus the
+    /// six `AgentTurn*` variants. The reducer's user-message branch
+    /// only fires for `Actor::User`, so passing the union keeps the
+    /// API narrow without filtering on the frontend.
+    pub async fn list_workspace_chat_events(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<designer_core::EventEnvelope>, CoreError> {
+        use designer_core::EventStore as _;
+        let events = self
+            .store
+            .read_stream(
+                StreamId::Workspace(workspace_id),
+                designer_core::StreamOptions::default(),
+            )
+            .await?;
+        Ok(events
+            .into_iter()
+            .filter(|env| is_chat_domain(&env.payload))
+            .collect())
+    }
+
     pub async fn persist_agent_turn_event(
         &self,
         payload: EventPayload,
@@ -579,6 +609,24 @@ struct PendingMessage {
 /// same millisecond stay unique.
 fn first_seen_artifact_id(first_seen: Timestamp) -> ArtifactId {
     ArtifactId::from_uuid(Uuid::new_v7(first_seen))
+}
+
+/// Phase 24 — discriminate the chat-domain event subset for boot
+/// replay. The frontend reducer only consumes `MessagePosted` +
+/// `AgentTurn*`; everything else (artifacts, approvals, friction,
+/// findings, proposals, etc.) flows through other surfaces and would
+/// only inflate the boot fetch.
+fn is_chat_domain(payload: &EventPayload) -> bool {
+    matches!(
+        payload,
+        EventPayload::MessagePosted { .. }
+            | EventPayload::AgentTurnStarted { .. }
+            | EventPayload::AgentContentBlockStarted { .. }
+            | EventPayload::AgentContentBlockDelta { .. }
+            | EventPayload::AgentContentBlockEnded { .. }
+            | EventPayload::AgentToolResult { .. }
+            | EventPayload::AgentTurnEnded { .. }
+    )
 }
 
 /// Capture wall-clock now as a `uuid::Timestamp` suitable for

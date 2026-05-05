@@ -111,6 +111,7 @@ describe("ApprovalBlock", () => {
         stream: () => () => {},
         activityStream: () => () => {},
         teamLifecycleStream: () => () => {},
+        listWorkspaceChatEvents: () => Promise.resolve([]),
       }),
     );
 
@@ -149,6 +150,7 @@ describe("ApprovalBlock", () => {
         stream: () => () => {},
         activityStream: () => () => {},
         teamLifecycleStream: () => () => {},
+        listWorkspaceChatEvents: () => Promise.resolve([]),
       }),
     );
 
@@ -191,6 +193,7 @@ describe("ApprovalBlock", () => {
         },
         activityStream: () => () => {},
         teamLifecycleStream: () => () => {},
+        listWorkspaceChatEvents: () => Promise.resolve([]),
       }),
     );
 

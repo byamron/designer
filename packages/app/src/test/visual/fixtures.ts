@@ -394,6 +394,7 @@ export function createVisualIpcClient(
       return () => {};
     },
     teamLifecycleStream: () => () => {},
+    listWorkspaceChatEvents: () => Promise.resolve([]),
     requestApproval: () => Promise.resolve("appr_stub"),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve(artifacts),

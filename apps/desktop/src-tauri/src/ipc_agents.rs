@@ -3,7 +3,10 @@
 //! wrappers live in `commands_agents.rs`.
 
 use crate::core::AppCore;
-use designer_ipc::{InterruptTurnRequest, IpcError, PostMessageRequest, PostMessageResponse};
+use designer_core::WorkspaceId;
+use designer_ipc::{
+    InterruptTurnRequest, IpcError, PostMessageRequest, PostMessageResponse, StreamEvent,
+};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -80,6 +83,24 @@ pub async fn cmd_interrupt_turn(
         }
     }
     result
+}
+
+/// Phase 24 (ADR 0008) — boot-replay handler. Returns the chat-domain
+/// event subset for one workspace (`MessagePosted` + `AgentTurn*`) in
+/// (stream, sequence) order. Frontend's `bootData()` calls this once
+/// per workspace at start so the new chat surface paints past
+/// AgentTurn* events without waiting for the next live event. Past
+/// the dataStore.events live-stream window which is intentionally
+/// capped at 500 entries.
+pub async fn cmd_list_workspace_chat_events(
+    core: &Arc<AppCore>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<StreamEvent>, IpcError> {
+    let events = core
+        .list_workspace_chat_events(workspace_id)
+        .await
+        .map_err(IpcError::from)?;
+    Ok(events.into_iter().map(StreamEvent::from).collect())
 }
 
 /// Reject prompts above this byte length at the IPC boundary. Generous

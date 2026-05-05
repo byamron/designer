@@ -46,6 +46,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       stream: (handler) => mock.subscribe(handler),
       activityStream: () => () => {},
       teamLifecycleStream: () => () => {},
+      listWorkspaceChatEvents: () => Promise.resolve([]),
       requestApproval: (ws, gate, summary) =>
         Promise.resolve(mock.requestApproval(ws, gate, summary)),
       resolveApproval: (id, granted, reason) =>
@@ -253,6 +254,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       stream: (handler) => mock.subscribe(handler),
       activityStream: () => () => {},
       teamLifecycleStream: () => () => {},
+      listWorkspaceChatEvents: () => Promise.resolve([]),
       listArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -302,6 +304,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       stream: (handler) => mock.subscribe(handler),
       activityStream: () => () => {},
       teamLifecycleStream: () => () => {},
+      listWorkspaceChatEvents: () => Promise.resolve([]),
       listArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -356,6 +359,7 @@ describe("WorkspaceThread → ipcClient.postMessage", () => {
       },
       activityStream: () => () => {},
       teamLifecycleStream: () => () => {},
+      listWorkspaceChatEvents: () => Promise.resolve([]),
       listArtifacts: vi.fn(() => Promise.resolve([] as ArtifactSummary[])),
       listPinnedArtifacts: () => Promise.resolve([] as ArtifactSummary[]),
       getArtifact: (id) => Promise.resolve(mock.getArtifact(id)),
@@ -415,6 +419,7 @@ describe("WorkspaceThread per-tab thread isolation", () => {
         stream: (h) => mock.subscribe(h),
         activityStream: () => () => {},
         teamLifecycleStream: () => () => {},
+        listWorkspaceChatEvents: () => Promise.resolve([]),
         listArtifacts: (ws) => Promise.resolve(mock.listArtifacts(ws)),
         listArtifactsInTab: (ws, t) =>
           Promise.resolve(mock.listArtifactsInTab(ws, t)),

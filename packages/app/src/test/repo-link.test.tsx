@@ -27,6 +27,7 @@ function makeClient() {
     stream: (h) => core.subscribe(h),
     activityStream: () => () => {},
     teamLifecycleStream: () => () => {},
+    listWorkspaceChatEvents: () => Promise.resolve([]),
     requestApproval: (ws, gate, summary) =>
       Promise.resolve(core.requestApproval(ws, gate, summary)),
     resolveApproval: (id, granted, reason) => {

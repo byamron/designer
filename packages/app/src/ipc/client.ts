@@ -78,6 +78,12 @@ export interface IpcClient {
    *  edges (`ready` / `exited`). Used to derive `subprocess_running`
    *  for the render-time activity indicator. Returns an unsubscribe fn. */
   teamLifecycleStream(handler: (event: TeamLifecycle) => void): () => void;
+  /** Phase 24 (ADR 0008) — boot-replay reader. Returns the workspace's
+   *  full chat-domain event history (`MessagePosted` + `AgentTurn*`)
+   *  in stream-sequence order. Used by `bootData()` to fold past
+   *  events into `chatThreadStore` so the new chat surface paints
+   *  immediately on app start, past the 500-event live-stream window. */
+  listWorkspaceChatEvents(workspaceId: WorkspaceId): Promise<StreamEvent[]>;
   requestApproval(
     workspaceId: WorkspaceId,
     gate: string,
@@ -378,6 +384,11 @@ class TauriIpcClient implements IpcClient {
   teamLifecycleStream(handler: (event: TeamLifecycle) => void) {
     return listen<TeamLifecycle>(TEAM_LIFECYCLE_CHANNEL, handler);
   }
+  listWorkspaceChatEvents(workspaceId: WorkspaceId) {
+    return invoke<StreamEvent[]>("list_workspace_chat_events", {
+      workspaceId,
+    });
+  }
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
     return invoke<string>("request_approval", { workspaceId, gate, summary });
   }
@@ -589,6 +600,12 @@ class MockIpcClient implements IpcClient {
     // unsubscribe so dev / test consumers can wire the handler without
     // branching.
     return () => {};
+  }
+  listWorkspaceChatEvents(_workspaceId: WorkspaceId) {
+    // The mock core doesn't persist past chat events — the live mock
+    // emits via stream() only. Return empty so bootData's fold is a
+    // no-op against the mock.
+    return Promise.resolve<StreamEvent[]>([]);
   }
   requestApproval(workspaceId: WorkspaceId, gate: string, summary: string) {
     return Promise.resolve(

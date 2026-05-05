@@ -173,6 +173,7 @@ fn main() {
             commands::toggle_pin_artifact,
             commands::validate_project_path,
             commands_agents::interrupt_turn,
+            commands_agents::list_workspace_chat_events,
             commands_agents::post_message,
             commands_friction::cmd_address_friction,
             commands_friction::cmd_capture_viewport,

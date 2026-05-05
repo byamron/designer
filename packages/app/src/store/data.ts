@@ -15,8 +15,10 @@ import type {
   WorkspaceSummary,
 } from "../ipc/types";
 import {
+  applyOrphanTurnGuard,
   applyStreamEvent,
   applyTeamLifecycle,
+  buildChatThreadFromEvents,
   chatThreadStore,
 } from "./chatThread";
 
@@ -112,15 +114,56 @@ export async function bootData() {
     loaded: true,
   });
 
-  // Phase 24 (ADR 0008) — boot replay of historical AgentTurn*
-  // events into chatThreadStore needs a new IPC (`listChatEvents` or
-  // similar) to read from SQLite past the 500-event live-stream
-  // window. Out of scope for this PR; the live `client.stream`
-  // subscriber below folds events from boot onwards. A tab whose
-  // last persisted event was an open `AgentTurnStarted` will appear
-  // empty until the next live event lands. `applyOrphanTurnGuard`
-  // is exported and tested; the boot-replay PR will wire it after
-  // populating byTab from the new IPC.
+  // Phase 24 (ADR 0008) — boot replay of historical chat-domain
+  // events. Fetches every workspace's chat history (`MessagePosted`
+  // user-authored + the six `AgentTurn*` variants) past the 500-
+  // event live-stream window cap. Folds them through the same
+  // reducer the live subscriber below uses, so a tab whose last
+  // persisted event was an open `AgentTurnStarted` paints from the
+  // first frame instead of waiting for the next live event.
+  //
+  // Failures here are non-fatal — the live path still works; we
+  // just lose history for the unfetched workspace. The Settings
+  // path doesn't depend on chat history, so a partial-fetch boot
+  // is recoverable.
+  await Promise.all(
+    flatWorkspaces.map(async (ws) => {
+      try {
+        const chatEvents = await client.listWorkspaceChatEvents(
+          ws.workspace.id,
+        );
+        if (chatEvents.length === 0) return;
+        const folded = buildChatThreadFromEvents(chatEvents);
+        chatThreadStore.set((s) => {
+          // Merge per-tab slices into the live store (idempotent on
+          // turn_id; replay safe). User runningSubprocesses stays
+          // empty here — the orphan guard runs after, marking any
+          // open turn from a prior session as `Interrupted` so the
+          // renderer doesn't show a phantom working chip.
+          const next = { ...s.byTab };
+          for (const [tabId, tabSlice] of Object.entries(folded.byTab)) {
+            next[tabId] = tabSlice;
+          }
+          return { ...s, byTab: next };
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `bootData: chat-event replay failed for ${ws.workspace.id}`,
+          err,
+        );
+      }
+    }),
+  );
+  // Spec §4.2 + A2 — synthesize `Interrupted` on any open turn whose
+  // subprocess wasn't running at boot. No subprocesses are running
+  // at this point (lifecycle stream hasn't fired any `ready` yet),
+  // so every open turn from a prior session gets the synthetic
+  // close. Live `team_ready` edges arrive shortly after via
+  // `teamLifecycleStream` below — they don't unwind the synthesis
+  // (a closed turn stays closed; the user sends a new message to
+  // start a new turn).
+  chatThreadStore.set((s) => applyOrphanTurnGuard(s));
   client.stream((event) => {
     const eventTs = Date.parse(event.timestamp);
     const ts = Number.isFinite(eventTs) ? eventTs : Date.now();
