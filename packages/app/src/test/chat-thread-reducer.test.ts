@@ -11,6 +11,7 @@ import {
   applyStreamEvent,
   applyTeamLifecycle,
   buildChatThreadFromEvents,
+  chatThreadStore,
   currentOpenTurn,
   isCurrentTurnOpen,
   emptyChatThread,
@@ -406,5 +407,18 @@ describe("chat-thread reducer — user message interleaving", () => {
       "turn",
     ]);
     expect(ts.user_messages["evt_user_2"]?.body).toBe("follow-up question");
+  });
+});
+
+describe("chat-thread store — boot replay loading state", () => {
+  test("default `bootReplaying` is true so the renderer shows LoadingState (not EmptyState) before bootData() finishes", () => {
+    // Locks the BLOCKER fix from PR #120's pre-merge review pass:
+    // ChatStreamRenderer renders `<LoadingState />` when the slice is
+    // empty AND `bootReplaying` is true; falls through to
+    // `<EmptyState />` only after `bootData()` flips the flag false.
+    // A regression that defaults bootReplaying to false would surface
+    // "Start by asking something." during the boot fetch window — the
+    // exact UX failure this state was added to fix.
+    expect(chatThreadStore.get().bootReplaying).toBe(true);
   });
 });
