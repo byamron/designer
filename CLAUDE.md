@@ -25,6 +25,7 @@ These are filters. A feature that does not serve a principle does not ship.
 - **Context lives in the repo.** Project docs are `.md` files in the codebase. Agents pick them up natively. No DB-shadowed state that drifts from source.
 - **Summarize by default, drill on demand.** Too many agents to watch individually; the user's attention is the scarcest resource.
 - **Suggest, do not act (by default).** Trust is earned. Autonomy is per-project configurable.
+- **Shipped state is trustworthy.** Every shipped surface works end-to-end without seams, stubs, or false affordances. Unfinished features hide entirely (feature flags, not visible stubs) until they're flawless. When we simplify or hide work, we say why in release notes — never silent removals. See `core-docs/adr/0009-trustworthy-shipping.md` for the verification approach.
 
 ## Core Documents
 
@@ -42,6 +43,7 @@ All project documentation lives in `core-docs/`. Review and update these as part
 | Component Manifest | `core-docs/component-manifest.json` | Catalog of UI components Designer ships |
 | Pattern Log | `core-docs/pattern-log.md` | Rationale for non-obvious design-language or component decisions |
 | Generation Log | `core-docs/generation-log.md` | Append-only record of Mini skill firings that produced UI |
+| Parking Lot | `core-docs/parking-lot.md` | Deferred phases with friction-driven triggers + time fallbacks (per ADR 0009) |
 
 ## Agents
 
@@ -52,6 +54,9 @@ Agents live in `.claude/agents/` (not yet populated — scaffolded in Phase 1 pe
 1. **Read before writing.** Check `core-docs/plan.md` for current focus and `core-docs/feedback.md` for past direction.
 2. **Keep docs and code in sync.** When a decision changes, update the spec and log a feedback entry.
 3. **Respect the compliance invariants** in `core-docs/spec.md` §5. Never touch Claude OAuth tokens; never run Claude Code anywhere but the user's machine.
+4. **Build / Harden alternation (per ADR 0009).** The active roadmap alternates Build phases (one feature, one track) with Harden phases (no new features — only test coverage, friction closure, design-language enforcement, demo gatekeeping). A Harden phase ships when no critical friction blocks the next Build — a human judgement, not a count of zero. Bug fixes that cross feature boundaries are allowed under friction closure; new feature tracks are not.
+5. **Defer, don't delete.** Before adding a phase to the active roadmap, ask: does the current Build cycle already have an open feature? If yes, the new work is the *next* Build, not a parallel track — and only after the Harden phase that follows. Work that isn't load-bearing for the current cycle moves to `core-docs/parking-lot.md` with a friction-driven primary trigger and a time-based fallback. Phases live there until a trigger fires; they do not live in the active roadmap.
+6. **Review findings: do them or file them, never lose them.** BLOCKERs and cheap NITs from a structured review (`/staff-review`, `/security-review`, ad-hoc) MUST be fixed in the branch before the review closes. **For FOLLOW-UPs, prefer doing over filing** — if it's small enough to land in the same PR without meaningfully expanding scope, just do it now; deferring trivial work creates a docs entry someone has to come back to for no reason. Only what genuinely doesn't fit the current PR gets filed, and filed FOLLOW-UPs MUST land in `core-docs/roadmap.md` (active section if it gates a current Build/Harden phase) or `core-docs/parking-lot.md` (with a friction-driven primary trigger + time-based fallback per ADR 0009) before the review closes. Closed PR bodies aren't searchable; "Follow-ups" sections rot. The PR body MAY cross-reference filed entries — it must not be the only home.
 
 ## Parallel track conventions
 
@@ -66,12 +71,13 @@ Designer's Phase 13 is built by four parallel agents (13.D / E / F / G). The Pha
 
 ## Quality Bar
 
-Code does not ship unless it meets all four simultaneously:
+Code does not ship unless it meets all five simultaneously:
 
 - **Functional.** Does what it's supposed to; edge cases handled.
 - **Safe.** Approval gates enforced in Rust core, not frontend. Sandboxed previews. No unsigned code paths.
 - **Performant.** UI stays responsive while many agents stream; <100ms interaction latency; <200MB idle memory on a typical project.
 - **Crafted.** Feels intentional. Mini-design-system-compliant. No placeholder UI in shipped builds.
+- **Trustworthy.** Demoable end-to-end without seams. Unfinished features hide entirely (feature flags, not visible stubs) until they're ready — never half-baked surfaces shipped behind partial copy. Subtractions are explained in release notes, never silent. Verification mechanism: see `core-docs/adr/0009-trustworthy-shipping.md` §1.D.
 
 <!-- mini:start -->
 ## Mini Design System
