@@ -4,7 +4,32 @@ Backend-first phasing. Infrastructure, safety, orchestration, and local-model op
 
 This document sequences the work described in `spec.md`. It is the single source of truth for "what's next"; `plan.md` tracks near-term focus; `history.md` records what shipped. Security-specific work — threat model, invariants, and the 13.H / 16.S / 17.T tranches — lives in `security.md` and is referenced from the phase sections below.
 
-> **Current top priority (2026-04-30): Dogfood Push.** Three parallel lanes (DP-A distribution + auto-updater, DP-B chat pass-through, DP-C reliability audit + flag/hide) converge into a `v0.1.0` dogfood build, followed by a sequential UI bug sweep + Friction reliability check (DP-D). Detail and lane assignments live in `plan.md` § Dogfood Push. The phase sequence below resumes after the push lands.
+> **Active sequence (2026-05-04 onward): Build / Harden alternation per ADR 0009.** The roadmap restructured around a single active sequence — Phase 24 → 24H → 24I → 25 → 25H → 26 → 26H — that alternates one-feature-one-track Build phases with Harden phases that contain only test coverage, friction closure, design-language enforcement, and demo gatekeeping. Every release tag ships with a checked-in golden-path screencast bound to a Playwright test. Phases not load-bearing for the current cycle are deferred to `core-docs/parking-lot.md` with friction-driven triggers; they do not live in the active roadmap. The phase entries below remain in this file as the source of truth for content; parked entries carry a **Parked** callout at the top.
+
+> **What shipped before the restructure (preserved for context).** Phases 0–11 landed as the preliminary build; Phase 12 validated real integrations; Phase 13 wired the runtime in five parallel tracks (D/E/F/G/H/I); the Dogfood Push (2026-04-30 → 2026-05-02) shipped v0.1.0 with auto-updater, pass-through chat, and the feature-readiness audit; Phase 23 hardened chat UX (waves 1+2+3 including 23.A/B/C/D/E/F + follow-ups, all merged); Phase 21.A1 (Designer-Noticed foundation + first detector) shipped 2026-04-27. **Phase 22 advance slice shipped:** 22.G team identity tokens (#108), 22.B Recent Reports Home-tab surface (#109, behind `show_recent_reports_v2`), 22.A roadmap canvas foundation (#112, behind `show_roadmap_canvas`), 22.I track shipping history (#114) — these stay in the codebase as the Phase 22 foundation. Phase 24 foundation shipped (#119, steps 1–3: event vocabulary + dual-mode translator + activity bridge); the rest of Phase 24's 14-step sequence continues on `phase-24-chat-pass-through` behind `show_chat_v2`. The unshipped Phase 22 sub-phases (22.C / 22.D / 22.E / 22.H / 22.M / 22.N / 22.N.1) move to the parking lot — see `parking-lot.md`.
+
+---
+
+## Active sequence
+
+```
+Phase 24    Build:  chat pass-through (steps 2–14, finish what's started under ADR 0008)
+Phase 24H   Harden: first-run audit, "What's new" card, chat polish, screencast v0.1.2
+Phase 24I   Harden: AppCore integration test harness (lands solo)
+Phase 25    Build:  approvals inline in chat (replace the inbox modal)
+Phase 25H   Harden: ESLint rule for inline var(--…) styles + 9 holdout migrations;
+                    Settings cull; component-manifest 47 → ~20
+Phase 26    Build:  Designer-Noticed — ONE detector (friction-driven choice),
+                    end-to-end on local models with proposal accept/reject loop
+Phase 26H   Harden: Playwright golden-path on Linux; macOS spot-check process;
+                    binding test ↔ checked-in screencast
+Phase 27    Build:  next single feature pulled by dogfood signal
+…
+```
+
+Each Build phase: one feature, one track, ~1–2 weeks. Each Harden phase: ~½–1 week. A Harden phase ships when no critical friction blocks the next Build — a human judgement, not a friction-count of zero.
+
+Cadence note: this is the *external release* cadence (~3 weeks/cycle, ~1 demo build per cycle). Internal iteration velocity stays at daily/weekly micro-checkpoints; the user's friction-loop pivots feed into the next phase's scope, they don't block mid-phase work.
 
 ---
 
@@ -1038,6 +1063,8 @@ The user can hit ⌘⇧F, type a sentence, hit ⌘↵, and have a friction recor
 
 ### Phase 15.H — Inline commenting & element annotation *(detail)*
 
+> **Parked 2026-05-04 — see `core-docs/parking-lot.md`.** Speculative until dogfood signal motivates text-on-design feedback. Friction widget already covers the "this affordance feels wrong" loop.
+
 **Why:** agent responses are often long, multi-claim messages. Forcing the user to reply with one long paragraph is slow and loses the "which part" context. The same primitive unlocks Figma/Agentation-style element comments in the Design tab. Unifying both under one anchor + comment model keeps the agent-context format consistent.
 
 **Scope:**
@@ -1195,6 +1222,8 @@ Splits into two sub-tracks. Both must land before the first signed DMG leaves th
 
 ## Phase 17 — Team-tier trust *(gates team pricing; detail in `security.md`)*
 
+> **Parked 2026-05-04 — see `core-docs/parking-lot.md`.** Post-v1; trigger is the first paying team customer.
+
 **Goal:** cross the trust bar a buyer in procurement actually looks for — encryption at rest, fleet policy, SIEM export, revocable credentials, bug bounty — without reneging on the zero-data-collection promise.
 
 **Why a dedicated phase:** the individual-user launch (Phase 16) stands on its own — signed, tamper-evident, no egress. Team tier adds controls that individuals don't need (MDM, SIEM, GitHub App, encrypted event fields) and which, if shipped earlier, would bloat the individual experience. Gating team pricing on these avoids inviting sensitive-data teams before the controls they rely on exist.
@@ -1217,6 +1246,8 @@ Splits into two sub-tracks. Both must land before the first signed DMG leaves th
 
 ## Phase 18 — Mobile *(formerly Phase 12; renumbered for clarity)* (originally spec §Mobile Strategy)
 
+> **Parked 2026-05-04 — see `core-docs/parking-lot.md`.** Post-v1; gates on a v1.0 desktop tag plus mobile becoming a strategic priority.
+
 Deferred until Phase 16 ships and Phase 17 establishes team-tier trust. Planned deliverables:
 
 - iOS client (read-only reports + approve/reject gates first).
@@ -1234,6 +1265,8 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 ---
 
 ## Phase 19 — Workspace scales up *(multi-track UX, forking, reconciliation)*
+
+> **Parked 2026-05-04 — see `core-docs/parking-lot.md`.** Trigger is a workspace genuinely running >5 concurrent tracks plus user-reported friction managing them.
 
 **Goal:** deliver the full workspace/track model to the user. The primitive landed in Phase 13.E; this phase unlocks what it enables.
 
@@ -1257,6 +1290,8 @@ Mobile never cloud-hosts Claude. The user's desktop is always the runtime.
 ---
 
 ## Phase 20 — Parallel-work coordination layer
+
+> **Parked 2026-05-04 — see `core-docs/parking-lot.md`.** Same trigger as Phase 19. The manual scaffolding approach (Phase 13.0 PR) remains documented below for the cases where it's needed.
 
 **Goal:** automate what Phase 13.0 did by hand. When a project intends to run N parallel workspaces / tracks toward a shared goal, Designer analyzes file contention across the intended splits, proposes a pre-integration scaffold, freezes shared contracts, assigns per-agent file ownership, and plans merge order.
 
@@ -1356,7 +1391,7 @@ FindingSignaled { finding_id: FindingId, signal: ThumbSignal }   // Up | Down �
      - A worked example: `example_detector.rs` with full structure + fixture, that 21.A2 agents copy-rename
    - **Forge co-installation rule**: if `~/.claude/plugins/forge/` exists, detectors with name overlap (`repeated_correction`, `repeated_prompt_opening`, `multi_step_tool_sequence`, `config_gap`, `domain_specific_in_claude_md`, `memory_promotion`) downweight to `enabled: false` by default with a Settings toggle: "Forge is also installed — show overlapping findings? [off]". Designer-unique detectors (`approval_always_granted`, `scope_false_positive`, `cost_hot_streak`, `compaction_pressure`) always run.
 2. **Phase 21.A1.1 — Workspace-home placement + architectural fixes** *(post-21.A1 polish; ~1 day, one agent; Lane 1.5 Wave 1; lands before 21.A2)*. The four-perspective review of #33 surfaced three issues: (1) "Designer noticed" sits two levels deep but its product value is *catching the user's attention* — placement undermines the proposition; (2) thumbing produces no visible state change so the calibration loop feels broken from the user's seat; (3) no detector budget or write-time dedup means a noisy A2 detector can flood the feed. Land before A2 ships ten detectors on top of these gaps. Detail in §"Phase 21.A1.1" below.
-3. **Phase 21.A2 — Detector squad** *(parallel; one agent per detector; each ~half-day)*. Each detector is `crates/designer-learn/src/detectors/<name>.rs` + `tests/fixtures/<name>/`. Recommended order by signal value:
+3. **Phase 21.A2 — Detector squad** *(parallel; one agent per detector; each ~half-day)*. Each detector is `crates/designer-learn/src/detectors/<name>.rs` + `tests/fixtures/<name>/`. **Parked 2026-05-04 past the active detector — see `core-docs/parking-lot.md`.** Phase 26 ships ONE friction-driven detector end-to-end on local models with proposal accept/reject loop; remaining detectors keep emitting events behind a hidden UI (per ADR 0009 §3) and re-activate one-by-one when the active detector earns ≥3 dogfood-accepted proposals AND the user asks for the next signal. Recommended order by signal value (load when re-activating):
    - `repeated_correction` (fastest signal — corrections are loud)
    - `approval_always_granted` *(Designer-unique — uses `ApprovalRequested` events)*
    - `scope_false_positive` *(Designer-unique — uses `ScopeDenied` events)*
@@ -1800,6 +1835,8 @@ Every event carries an explicit `schema_version` discriminator. Proposal diffs a
 ---
 
 ## Phase 22 — Project Home redesign *(Recent Reports / Roadmap / Designer Noticed)*
+
+> **Partially shipped; remainder parked 2026-05-04 — see `core-docs/parking-lot.md`.** Shipped (NOT parked): 22.G team identity tokens (PR #108), 22.B Recent Reports Home-tab surface (PR #109, behind `show_recent_reports_v2`), 22.A roadmap canvas foundation (PR #112, behind `show_roadmap_canvas`), 22.I track shipping history + PrOpen→Merged crossfade (PR #114). Parked (unshipped): 22.C / 22.D / 22.E / 22.H / 22.M / 22.N / 22.N.1. Triggers for the parked sub-phases: ≥3 friction reports flagging the shipped surfaces feeling incomplete, OR an explicit ask for one of the parked affordances (Edit & proposal flow, attention column, click-into-agent, merge queue).
 
 **Goal:** reshape the project Home tab into three surfaces, top to bottom — **Recent Reports** (curated digest of shipped work), **Roadmap** (live plan-anchored canvas with team presence), **Designer Noticed** (already in flight as Phase 21). Together they answer the manager's three opening questions: *what's new since I last looked, where are we in the plan, what should we standardize.*
 
@@ -2506,6 +2543,95 @@ PR #104 bundled three cosmetic friction fixes (focus-visible compose, dark-mode 
 - ~~**104.f1 — Regenerate `workspace-thread--dark.png` visual baseline.**~~ ✅ Covered by PR #103 (Approval drill-down + resolved-state copy fix, merged after PR #104), which regenerated all dark-mode visual baselines against a base that already included PR #104's dark-mode `.tab-button` token swap. No separate action needed.
 
 - **104.f2 — Friction-widget exit gesture: add `transform: translateY(var(--space-3))`.** PR #104 ships an opacity-only fade on `.friction-widget[data-closing="true"]`, which reads as "fading in place" rather than "leaving the screen." Pairing the opacity with a small downward translate would communicate "this surface is done with its job and exiting." One-line CSS change (extend the `transition` shorthand on `.friction-widget` to include `transform`, add `transform: translateY(var(--space-3))` to the closing state). Pure craft polish; not blocking dogfood. Bundle into the next friction-widget polish pass or pick up opportunistically. Owner: any frontend agent on a Friction-touching PR. ~10 min.
+
+---
+
+## Phase 24 — Chat pass-through (Build, in flight)
+
+Architectural rewrite of the chat plumbing per ADR 0008. Replaces the bespoke `MessagePosted{author:Agent}` + `ArtifactProduced{kind:Report}` + synthesized `ActivityChanged` triple with a 1:1 typed projection of Claude's stream-json (`AgentTurnStarted` + per-content-block `Started/Delta/Ended` + `AgentToolResult` + `AgentTurnEnded`). Step 1 of 14 landed 2026-05-04 (additive event vocabulary). Steps 2–14 follow behind `show_chat_v2` flag default OFF: translator rewrite, coalescer deletion, renderer rewrite, queue UX, ESC + SIGINT, detector updates, error copy, A1–A12 tests, Mini docs.
+
+Detail: `core-docs/phase-24-pass-through-chat.md`. ADR: `core-docs/adr/0008-phase-24-event-vocabulary.md`.
+
+**Done when:** every chat regression in the friction inbox routed to chat-v2 closes; `show_chat_v2` defaults ON; coalescer deleted; demoable end-to-end without seams.
+
+## Phase 24H — Harden: chat polish + first-run audit
+
+No new features. Closes out Phase 24 to a trustworthy-shipping state per ADR 0009.
+
+- **Friction closure.** Triage every chat-related friction report against chat-v2; resolve or park. Gate: no critical chat friction blocks Phase 25.
+- **First-run audit.** Walk the onboarding flow from PR #24 against any subtractions in the v0.1.2 release (stub renderers, hidden detectors, model selector behind flag). Update onboarding before the cull lands.
+- **In-app "What's new" card for v0.1.2.** One-time, dismissible, auto-shown on first launch. Copy is manager-voiced — strategic narrowing, not defensive listing. Draft: *"We've focused the cockpit on what's essential. The model selector and additional analysis signals will return as they're polished. Less surface, more trust."* Final copy proofread before Phase 24H ships.
+- **Golden-path timing measurement.** While recording the screencast, time the path. If >5 min, trim it (skip artifact approval if redundant with Phase 26H Playwright coverage). Log the recorded length in `pattern-log.md` so future releases have a baseline. (Filed from PR #122 staff-perspective review FOLLOW-UP.)
+- **Active-roadmap parallelism check.** Phase 24 + 24H + 24I overlap during this cycle (24I lands solo mid-Harden). Confirm at Phase 24 kickoff that cognitive load stays manageable for a single dogfood user; if it spikes, serialize 24H and 24I instead. (Filed from PR #122 staff-perspective review FOLLOW-UP.)
+- **Demo gatekeeping.** Record golden-path screencast: open Designer → create project → start workspace → post message → see streamed response → see artifact → approve a tool use → ship a track. Save to `core-docs/screencasts/v0.1.2.mov`. (Playwright binding lands in 26H; the screencast convention starts now.)
+
+Estimate: ~1 week.
+
+## Phase 24I — Harden: AppCore integration test harness (lands solo)
+
+Fills the gap surfaced repeatedly in dogfood: per-tab subprocess regressions in 23.E and tool-use ordering in 24 surfaced in user dogfood, not in tests, because there's no AppCore-level integration test. Phase 24I ships that harness.
+
+- Boot a real `AppCore` in a test, drive it via the IPC layer, assert on the event log.
+- Extend `apps/desktop/src-tauri/src/test_support.rs` (existing mock orchestrator foundation) into a reusable harness exposed to `tests/`.
+- Round-trip fidelity: message posted → agent artifact emitted → approval gate invoked → approval granted → code-change emitted.
+- Wire to CI as a required check.
+
+Estimate: ~3–5 days. Lands solo (no other work in this phase) because the harness is foundational — every subsequent Build/Harden cycle depends on it.
+
+## Phase 25 — Inline approvals (Build)
+
+Replaces the inbox modal with an inline approval card under the agent message that requested the tool. Approvals show context (the message, the proposed action, the cost estimate, the scope) without forcing the user to switch surfaces.
+
+- Frontend: `ApprovalBlock` renderer (already in component manifest) gains an inline-actionable variant. Approve / Deny buttons live on the card, not in a modal.
+- Backend: `InboxPermissionHandler::decide` keeps its 5-min timeout; the inline card subscribes to its state.
+- Migration: existing inbox modal stays available behind a flag for fallback during the Harden phase, then retires.
+
+**Why this feature next:** it's the highest-leverage user-facing trust improvement (per UX review of v1 plan). One feature, one track, file-disjoint from chat-v2.
+
+**Done when:** every approval request renders inline; modal is retired; demo screencast at v0.1.3 shows approval-in-context.
+
+Estimate: ~1–2 weeks.
+
+## Phase 25H — Harden: token enforcement + Settings cull
+
+No new features. Closes the design-language drift accumulated through Phase 13–24 and the settings sprawl from the same period.
+
+- **Custom ESLint rule** banning `style={{ ...var(--…) }}` in app code. Land in `tools/eslint-rules/no-inline-token-styles.js` (or equivalent). ~1 day.
+- **Migrate 11 holdout files** to compose Mini primitives (Box / Stack / Cluster) instead of inline styles. Verified via `grep -rln "style={{" packages/app/src --include="*.tsx" | xargs grep -l "var(--"`: HomeTabA, QuickSwitcher, RepoUnlinkModal, RepoLinkModal, CreateProjectModal, Onboarding, lab/AnnotationLayer, lab/ComponentCatalog, lab/PrototypePreview, lab/TeamColorCatalog, lab/VariantExplorer. Visual baselines screenshotted before/after each holdout; deviations logged in `pattern-log.md`. ~3–4 days.
+- **Cull Settings.** Audit each setting against three buckets: (a) demo-needed → keep, (b) dev escape hatch → move to ⌥-click Advanced pane, (c) toggle users shouldn't think about → remove. Estimated reduction: ~600 LOC. ~1 day.
+- **Component manifest down to ~20.** Current manifest: 59 entries (52 managed + 7 retired). Derived target: 13 cockpit-required + ~4 optional + ~3 hidden-behind-flag = ~20. Lab pages demoted out of the manifest (kept in code, removed from the catalog). Generation-log entry per Mini procedure.
+
+Estimate: ~1 week.
+
+## Phase 26 — Designer Noticed: one detector end-to-end (Build)
+
+Ship ONE Designer-Noticed detector with full end-to-end polish on local models, with a proposal accept/reject loop the user can engage with from the Home tab. The other 7 detectors keep emitting events behind a hidden UI (per ADR 0009 §3); they re-activate one-by-one as the user signals readiness.
+
+- **Detector pick:** default candidate is `repeated_correction` ("you keep fixing this same thing"). Final pick at phase start, gated on dogfood evidence — the friction log will name the pattern hitting the user repeatedly. Not the engineering "highest confidence" pick.
+- **End-to-end loop:** `Detector` fires → `FindingRecorded` event → local-model summary via `LocalOps::summarize_row` → `ProposalEmitted` → Home-tab card with Dismiss / Accept primary → user accepts → corresponding configuration change applied (e.g. CLAUDE.md rule, settings tweak) → `ProposalAccepted` artifact recorded.
+- **Settings toggle:** `core-docs/parking-lot.md` documents the in-app toggle pattern; this phase implements it for the active detector.
+
+**Done when:** the detector has fired ≥3 times in dogfood with proposals the user accepted, and the accept-action visibly closes the loop (the noticed pattern stops recurring or the corresponding rule is in place).
+
+**Sub-deliverables (filed from PR #122 staff-perspective review FOLLOW-UPs):**
+- **Pattern-log entry: hidden-but-emitting events vs. axiom #5 motion personality.** Codifies why detectors that fire without UI are an intentional staging pattern (events mature before the surface) — not dead code, not an axiom-#5 violation (no motion when the surface isn't visible is correct).
+
+Estimate: ~1–2 weeks.
+
+## Phase 26H — Harden: demo gate automation
+
+No new features. Implements the verification mechanism that ADR 0009 §1.D promised.
+
+- **Playwright golden-path test** in `apps/desktop/tests/golden-path.spec.ts`. Exercises the same path the screencast records (create project → workspace → message → response → artifact → approval → ship). Runs against a Linux build (existing CI infra; no new macOS-runner cost).
+- **Binding test ↔ screencast.** Test failure blocks the release tag; screencast is updated whenever the test changes.
+- **Manual macOS spot-check process — formalized in `pattern-log.md`** (filed from PR #122 staff-perspective review FOLLOW-UP). Spec: priority surfaces (canvas, chat renderer, home tab — skip lab pages), what counts as a regression (missing glyphs, broken antialiasing, shadow absence — *not* subpixel font differences), verification (side-by-side screenshots before/after; manual eye for color drift; diff tool for layout). Maintainer runs the path locally on macOS before publishing the release; findings flow to friction inbox. macOS Playwright CI runner is parked (see `parking-lot.md`).
+- **Visual-regression decision.** Linux Playwright covers layout/structure regressions; macOS-only rendering bugs caught by the spot-check spec above. Documented in `pattern-log.md`.
+
+Estimate: ~3–5 days.
+
+## Phase 27+ — Next features pulled by dogfood signal
+
+After 26H ships, the next Build phase is whichever feature the friction log + parked-phase triggers most clearly identify. Candidates that may pull forward: Phase 22 sub-phases if Home density friction lands, Phase 21.A2 next detector if proposal acceptance crosses the threshold, Phase 19 if a workspace genuinely runs >5 tracks. Don't pre-commit; let the friction loop decide.
 
 ---
 

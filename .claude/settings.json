@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_TOOL_INPUT_FILE_PATH\" in *.rs) rustfmt \"$CLAUDE_TOOL_INPUT_FILE_PATH\" 2>/dev/null || true ;; esac",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -37,6 +37,437 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 24 Steps 2–3 — dual-mode stream-json translator + activity bridge
+**Date:** 2026-05-04
+**Branch:** phase-24-chat-pass-through
+**Commit:** PR #119 (54bae6a5) — same PR as Step 1 above; this entry covers the subsequent commits on the branch (translator + bridge) that the original Step 1 entry did not document.
+
+> _Backfilled 2026-05-05 from PR #119 commit history. Source-of-truth for the design is `core-docs/phase-24-pass-through-chat.md` + ADR 0008._
+
+**What was done:**
+
+Step 2 added a `phase24` mode to `ClaudeStreamTranslator` that emits the `AgentTurn*` family from coarse stream-json envelopes. `system/init` captures Claude's `session_id` (stamped onto the next `AgentTurnStarted`; load-bearing in either mode so the field doesn't go stale when `show_chat_v2` flips on). `assistant{message.id, content[]}` projects to `AgentTurnStarted` plus per-block `AgentContentBlockStarted`/`Delta`/`Ended` trios — `block_index` is the content-array index per the Anthropic Messages API. `user{tool_result blocks}` correlates against a per-turn `tool_use_blocks` map (replaces the legacy bounded-LRU; the map drops on `AgentTurnEnded` so out-of-turn results no longer pin state). `result/success` emits Cost (mode-independent) plus `AgentTurnEnded{EndTurn}`. `result/error_during_execution` emits `AgentTurnEnded{Interrupted}` per the §11.0 P2 SIGINT spike — the legacy translator early-returned and dropped this subtype. `ActivityChanged` emission is suppressed in `phase24` mode; the renderer computes from observable `subprocess_running && turn_open`.
+
+Step 3 introduced the activity bridge wiring so the per-tab activity DTO surfaces over the IPC seam.
+
+**Why:**
+
+Phase 24's load-bearing structural shift: stop synthesizing chat state, start projecting Claude's stream-json verbatim. Step 1 added the event vocabulary; Steps 2–3 light it up by feeding it from the translator so subsequent renderer-rewrite work can assume the events exist. Behind `show_chat_v2` (default OFF) until the renderer + queue UX + ESC + tests catch up.
+
+---
+
+### Rename tabs and workspaces; pin Archived to sidebar bottom
+**Date:** 2026-05-04
+**Branch:** rename-tabs-workspaces
+**Commit:** PR #118 (5b7c7b87)
+
+> _Backfilled 2026-05-05 from PR #118 commit message + post-review fix commit._
+
+**What was done:**
+
+Right-click on tab/workspace row opens a context menu with Rename (and Close tab / Archive). Double-click enters inline-edit mode; Enter commits, Escape cancels, blur commits, empty/unchanged values cancel. Backend adds `WorkspaceRenamed` event + projector arm, exposes `rename_tab` / `rename_workspace` AppCore methods, wires `cmd_rename_workspace` / `cmd_rename_tab` IPC + Tauri handlers (`TabRenamed` was already in the event vocabulary). Archived moved from prime real estate next to Home down to a sidebar-footer block pinned to the bottom of the workspace pane, matching Home's exact register (same icon, type, hover/active).
+
+**Design decisions:**
+
+Staff-perspective review caught two issues fixed in a follow-up commit on the same branch: (1) F2 / Enter keyboard shortcut on focused tab + workspace rows so rename is reachable without a mouse — the right-click + double-click paths were both mouse-only (UX blocker). (2) Inline rename failure surfaces on the input itself with `--color-danger` border + `role="alert"` message; previous behaviour only `console.error`'d, leaving the user with no signal a rename was rejected.
+
+---
+
+### Phase 24 D7 spike — SIGINT-on-piped-stdio behaviour
+**Date:** 2026-05-04
+**Branch:** phase-24-d7-sigint-spike
+**Commit:** PR #117 (622be0fc)
+
+> _Backfilled 2026-05-05 from PR #117 commit message._
+
+**What was done:**
+
+Verifies §11.0 P2 of `phase-24-pass-through-chat.md`: SIGINT to a piped-stdio claude subprocess does cleanly interrupt a streaming turn, emits a `[Request interrupted by user]` envelope and a `result` envelope with `subtype=error_during_execution`, and exits with code 0. D7 mechanism in the spec stands as written. Spike binary feature-gated to `claude_live` so workspace builds skip it. Findings + reproduction steps land at `crates/designer-claude/SIGINT-SPIKE.md`.
+
+**Lessons learned:**
+
+Staff-engineer review caught that the findings doc's "Implementation sketch" claimed the existing translator already handles `result/error_during_execution`. It does not — `translate_result` at `stream.rs:416-425` early-returns on any non-success subtype, and the `AgentTurnEnded { stop_reason: Interrupted }` variant is itself part of the Phase 24 vocabulary (ADR 0008) that hasn't landed in `designer-core/src/event.rs` yet. Updated both the inline note and the implementation sketch to be honest about the work D7 will need.
+
+---
+
+### Phase 24 spec + ADR 0008: chat pass-through (architectural)
+**Date:** 2026-05-03
+**Branch:** phase-24-pass-through-chat
+**Commit:** PR #116 (6b5f4ae3)
+
+> _Backfilled 2026-05-05 from PR #116 commit message._
+
+**What was done:**
+
+Diagnoses the chat plumbing as fighting Claude Code's runtime and proposes a structural subtraction pass: drop the 120 ms coalescer, the `MessagePosted`/`ArtifactProduced` split, synthesized activity state, and custom session-id minting. Aligns chat-domain events 1:1 with Anthropic Messages API content-block model. Keeps approvals, cost extraction, file-system artifact extraction. Send-while-streaming becomes a queue, not an interleave. ESC interrupts. Spec landed at `core-docs/phase-24-pass-through-chat.md`; ADR 0008 captures the contract resolution.
+
+**Why:**
+
+Three classes of dogfood failure traced back to the chat plumbing: ordering bugs (tool-use cards sort below later user messages because they stamp on wall-clock time), half-answer freeze (120 ms coalescer drops state on subprocess crash mid-stream), and activity-indicator flicker (synthesized state resets on subprocess respawn; observable signal would not). Phase 24 replaces the three bespoke event flows with a single typed projection of stream-json content blocks.
+
+**Design decisions:**
+
+Three-perspective staff review surfaced 19 findings; 16 folded back into the spec. Major revisions: reframed event-vocabulary changes as additive (not deletion) to satisfy frozen-contract rule from CLAUDE.md / ADR 0002 — old variants stay in schema with `#[deprecated]`; renderer-side projection handles legacy logs indefinitely (no deadline). Activity indicator no longer uses 5 s wall-clock recency; instead the renderer computes from observable `subprocess_running && turn_open`.
+
+---
+
+### fix(chat): render full message body when summary is truncated
+**Date:** 2026-05-03
+**Branch:** fix-chat-truncated-summary
+**Commit:** PR #115 (9e374d6a)
+
+> _Backfilled 2026-05-05 from PR #115 commit message._
+
+**What was done:**
+
+The Rust backend caps the artifact summary field at 140 chars via `first_line_truncate()`, appending U+2026 on overflow. The chat renderer was displaying summary verbatim, so any agent reply over 140 chars showed up clipped with a literal "…" — most visibly as "Mini design system wired i…" in the dogfood report. `MessageBlock` now detects the trailing "…" marker, fetches the artifact's inline payload body, and renders the full content. Falls back to summary on fetch failure.
+
+**Why:**
+
+Interim fix. Phase 24 removes the artifact-transform pipeline for chat entirely; once `AgentTurn*` events stream content blocks directly, summary derivation goes away and this fetch is unnecessary. Worth the patch in the meantime because the dogfood-visible regression is high-attention.
+
+---
+
+### Phase 22.I — Track shipping history + PrOpen→Merged crossfade
+**Date:** 2026-05-03
+**Branch:** phase-22i-shipping-history
+**Commit:** PR #114 (d9f6f518)
+
+> _Backfilled 2026-05-05 from PR #114 commit message + the existing `core-docs/generation-log.md` entry for 22.I (which captures the design-engineering detail)._
+
+**What was done:**
+
+Backend: new `NodeShipmentRecorded` event whose projection arm appends to `node_to_shipments` AND atomically drops the live claim — one event, both side effects, so the canvas never reads an intermediate state. `PullRequestOpened` gains an additive `pr_url` field (`serde(default)` for legacy decode) so `Track.pr_url` is populated end-to-end. New `core.complete_track(track_id, pr_url?)` emits `TrackCompleted` then the shipment event when the track is anchored; idempotent against double-fire from a future merge-watcher. New `cmd_complete_track` IPC seam.
+
+Frontend: `ShippedHereBadge` component renders a persistent "Shipped" pill below the headline, with hover audit-trail "Shipped by team {team} via PR #{n} on {YYYY-MM-DD}". Multi-shipment nodes stack horizontally and collapse to `+N` past three, mirroring the multi-claim-stack grammar so live and historical surfaces read as parallel artifacts. Status circle gains a 400 ms ease-out crossfade on the PrOpen → Merged transition: the Done overlay (green fill + checkmark) is always rendered with `opacity: 0` by default and `1` when `data-status="done"`, so the conic-arc fades out underneath the green-fill fading in. Reduced-motion drops the transition entirely.
+
+**Tests:** 5 new Rust tests (lifecycle persistence across archive, replay idempotency on `(node_id, track_id)`, `complete_track` anchored + unanchored + idempotent), 6 new frontend tests for the badge, status-circle crossfade fixtures, and updated visual baselines.
+
+---
+
+### Phase 22.A — Roadmap canvas foundation
+**Date:** 2026-05-03
+**Branch:** phase-22a-roadmap-canvas
+**Commit:** PR #112 (58019d41)
+
+> _Backfilled 2026-05-05 from PR #112 commit message._
+
+**What was done:**
+
+Parses `core-docs/roadmap.md` into a structural cache rendered as a live tree of nodes with stable HTML-comment anchors, overlays workspace and track presence, and gates Done on shipment evidence at both projection and IPC paths. Read-only canvas behind the `show_roadmap_canvas` flag; direct edits open the markdown in a tab.
+
+Backend: line-scanner parser (3.5 ms on the live 301 KB roadmap.md), three projections (`node_to_claimants` / `claimants_to_node` / `node_to_shipments`) with deterministic multi-claim ordering, additive `TrackStarted.anchor_node_id` field per the Lane 0 ADR, atomic anchor write-back gated on focus + 5 s mtime quiesce + source-drift abort, new `ArtifactKind` variants `Roadmap` / `RoadmapEditProposal` / `CompletionClaim` auto-excluded from the activity spine.
+
+Frontend: forked `RoadmapStatusCircle` with conic-arc states via SVG `stroke-dasharray` (CSS `conic-gradient` cannot transition between stops), microtask-coalescing `RoadmapStore` with per-node `useSyncExternalStore`, Web Worker for body markdown render via `marked`, ARIA tree role with keyboard nav, parse-error slab with line + snippet + Open in editor, empty-state Paste-a-draft dialog, `HomeTabA` flagged variant deletes Active Workspaces / Autonomy / Needs-your-attention sections.
+
+**Design decisions:**
+
+22.D registry slots reserved as `GenericBlock` fallthrough stubs. Status-circle conic-arc transitions intentionally re-implemented via SVG; CSS `conic-gradient` cannot transition between stop positions so the obvious-looking implementation doesn't work for the desired animation.
+
+---
+
+### Bulletproof basic chat — kill-before-respawn + random session ids + orphan-tab fallback
+**Date:** 2026-05-03
+**Branch:** bulletproof-basic-chat
+**Commit:** PR #113 (0b4b91ac)
+
+> _Backfilled 2026-05-05 from PR #113 commit message. Distinct from the earlier "Bulletproof basic chat + workspace archiving" entry below (PR #87, 2026-05-02) — same headline, different fix. PR #113 chases the per-tab subprocess regressions surfaced in dogfood after Phase 23.E shipped._
+
+**What was done:**
+
+Three reliability fixes for basic chat that all trace back to per-tab subprocess plumbing introduced in Phase 23.E:
+
+1. **Model-swap chat hang.** The respawn path called `spawn_tab_team` while the old subprocess still held the deterministic per-tab session id; the new claude died with `Error: Session ID … is already in use`. Added `Orchestrator::kill` (fast SIGKILL + wait + abort, ~ms vs the 60 s graceful `shutdown`), called from the model-change branch before respawn. Default trait impl delegates to `shutdown` so mock orchestrators behave identically.
+
+2. **Random per-spawn session ids (Cut 1).** Even with kill-before-spawn, SIGKILL doesn't release Claude's session-id file lock fast enough — the second post-fix attempt still collided. Dropped `derive_session_id` and the `SESSION_NAMESPACE` const entirely; every spawn now gets a fresh `Uuid::new_v4()`. Lose: Claude's *internal* short-term memory across respawn / restart. Keep: the user-facing transcript persists in events.db unchanged. This is how 99 % of chat apps work.
+
+3. **History blanks on tab switch / app reopen.** The projection's strict `Message.tab_id == Some(tab)` filter hid orphan messages whose `tab_id == None` — a class that includes legacy events and any message emitted before the workspace's first `TabOpened` event in some boot orderings. Loosened the filter to fall back to the workspace's first tab when the message has no `tab_id`.
+
+**Tradeoffs discussed:**
+
+Lose Claude's internal short-term memory across respawn (Cut 1) versus keep deterministic per-tab session ids and live with collisions. The collision was hitting users in dogfood; Claude's short-term memory across respawn was speculative value. The transcript in events.db is the authoritative chat record.
+
+---
+
+### Phase 22.B — Recent Reports Home-tab surface
+**Date:** 2026-05-03
+**Branch:** phase-22b-recent-reports
+**Commit:** PR #109 (111b8c2d)
+
+> _Backfilled 2026-05-05 from PR #109 commit message._
+
+**What was done:**
+
+Adds a curated, manager-voice highlights surface to the Home tab — `summary_high` field on the report artifact, classification chip, two-step inline disclosure (no project-level Reports tab — Decision 56), and an O(1) read-state projection keyed by project. Behind the `show_recent_reports_v2` feature flag (off by default).
+
+- Artifact + `ArtifactCreated/Updated` gain optional `summary_high` and `classification: ReportClassification` fields (additive, serde-default).
+- Projector tracks `read_at_by_project` plus `recent_reports` / `unread_report_count` / `mark_reports_read` queries; persisted in the Settings sidecar (not the event log) per roadmap §22.B.
+- New IPC: `cmd_list_recent_reports`, `cmd_get_reports_unread_count`, `cmd_mark_reports_read`.
+- `HomeTabA` renders the new section above Designer Noticed when the flag is on; Settings → Preferences toggles the flag.
+- `recap_workspace` populates `summary_high` from the recap headline + heuristic classification so the surface has data immediately.
+
+**Design decisions:**
+
+Six findings from staff-perspective review folded back: focus-artifact key, unread badge color, settings race, manager-voice copy. Read-state lives in Settings sidecar (not event log) so the projection stays O(1) — `ReportRead` events would have bloated the event log linearly with reports × users.
+
+---
+
+### Promote Archived to a sidebar tab + page
+**Date:** 2026-05-03
+**Branch:** archived-sidebar-tab
+**Commit:** PR #111 (81d3a63d)
+
+> _Backfilled 2026-05-05 from PR #111 commit message._
+
+**What was done:**
+
+Replaces the bottom collapsible Archived section in the workspace sidebar with a top-level tab next to Home (archive icon + count badge). Selecting it routes the main pane to a new `ArchivedView` page that lists archived workspaces with Restore / Delete actions. Store adds `activeView` (`"home" | "archived"`) with `selectHomeView` / `selectArchivedView`; `selectWorkspace(null)` and `selectProject` snap back to Home. Sidebar removes the collapsible archived section + dead CSS for it; reuses `.sidebar-home` styling for the new tab. Main view branches `HomeTabA` vs `ArchivedView` on `activeView` when no workspace is selected.
+
+**Design decisions:**
+
+Staff review pass: archive icon in `ArchivedView` header was `size=20` (off the canonical 12/14/16 step set defined by `--icon-sm/md/lg`); shrunk to 16 so it matches the sidebar Archived button and stays inside the scale. Empty-state copy reframed from engineer-y "Nothing archived yet — archived workspaces will appear here." to a manager-voiced "Archive workspaces from the …" line. (Note: this placement is later partially superseded by PR #118, which moves Archived back to the sidebar bottom. User memory FB "Archived sidebar placement" is the source of truth: bottom of workspace sidebar, never beside Home.)
+
+---
+
+### Friction triage — agent-driven loop + per-row collapse
+**Date:** 2026-05-03
+**Branch:** friction-triage-agent-loop
+**Commit:** PR #110 (16314a09)
+
+> _Backfilled 2026-05-05 from PR #110 commit message._
+
+**What was done:**
+
+Per-row chrome collapses to title + state + ⋯ menu. Filter chips drop "Addressed" — addressed rows fold under "Open" with an inline `agent · …` marker carrying the trust signal. Rows cluster by humanized anchor when 2+ share one. Section primary CTA is "Triage with agent" — the retuned prompt instructs the agent to cluster, ship one PR per cluster, mark addressed on PR open, then resolved on merge. The manual Mark-addressed dialog is gone — that transition is now exclusively the agent's job via `designer friction address`.
+
+**Design decisions:**
+
+Three-perspective code review caught: (a) `FrictionTriageSection` manifest listed `radius-badge` and `type-caption-leading` tokens that aren't actually used in `friction.css`, (b) the manifest's purpose paragraph still claimed "context-aware empty-state copy" after that branch was removed as unreachable, (c) `lib/modal.ts` header comment still referenced the deleted `AddressFrictionDialog` as a consumer. Manifest + comment fixes landed in a follow-up commit; no code change.
+
+---
+
+### Phase 22.G — Team identity color tokens (axiom #3 amendment)
+**Date:** 2026-05-03
+**Branch:** phase-22g-team-color-tokens
+**Commit:** PR #108 (c477bd37)
+
+> _Backfilled 2026-05-05 from PR #108 commit message._
+
+**What was done:**
+
+Adds a 16-hue OKLCH palette for team identity, layered on top of the existing monochrome chrome. Tokens-only — no consumer UI references the new variables yet; canvas surfaces wire them in 22.A.
+
+- `tokens.css`: `--team-1`..`--team-16` (light + dark anchors via `.dark-theme`), `--team-N-tint` derivations using `--team-tint-light` (7 %) / `--team-tint-dark` (10 %) alphas, and `--team-pulse-rate-1`..`-16` baked at 1.413–1.991 s with no simple rational ratios so dots drift in/out of phase.
+- `packages/ui/styles/team-pulse.css` (new): 16 named `@keyframes` + `.team-dot` utility classes; honors `prefers-reduced-motion` with a static fallback.
+- `packages/app/src/lab/TeamColorCatalog.tsx` (new): dev-only review page rendering all 16 hues with light + dark variants side-by-side.
+- `design-language.md` axiom #3 amended; change-log + Color tokens section updated. `pattern-log.md` entry codifies the orthogonality of accent (monochrome), identity (team), and semantic (signal) color axes.
+
+Workspace color picker is reserved for 22.A; out of scope here. Follow-up commit registered `TeamColorCatalog` in component manifest (CI design-system job failed because the new lab page was missing from it).
+
+---
+
+### docs(roadmap): park PR #104 follow-ups so they don't rot
+**Date:** 2026-05-03
+**Branch:** roadmap-park-104-followups
+**Commit:** PR #107 (26e5bab0)
+
+> _Backfilled 2026-05-05 from PR #107 commit message. Docs-only._
+
+**What was done:**
+
+Two follow-ups called out in PR #104's body but with no home in docs once the PR closed. Added a "Polish-bundle follow-ups" section to `roadmap.md` alongside the existing Phase 23.C / 23.E follow-up parking lots: 104.f1 (workspace-thread--dark.png baseline regen) — already covered by PR #103, which regenerated dark-mode baselines against a base that included PR #104's dark-mode `.tab-button` token swap; logged as ✅ closed. 104.f2 (friction-widget exit translate) — open; ~10 min CSS, next friction-widget-touching PR can pick it up.
+
+---
+
+### Approval drill-down + resolved-state copy fix
+**Date:** 2026-05-03
+**Branch:** approval-drill-down
+**Commit:** PR #103 (210e9a4c)
+
+> _Backfilled 2026-05-05 from PR #103 commit message._
+
+**What was done:**
+
+Manager-grade rewrite of the inline `ApprovalBlock` so first-time write/edit/bash approvals read as a decision rather than a developer prompt.
+
+- `inbox_permission.rs`: `compute_title` produces a tool+target headline ("Claude wants to write to `src/main.rs`"), `strip_worktree_prefix` returns repo-relative paths (basename fallback for unknown layouts — never leaks absolute paths), and the inline payload carries the stripped path so the frontend doesn't re-derive it.
+- `ApprovalBlock`: drops the kind badge, renders the path/command on its own row, mounts a Write content / Edit ±diff preview capped at 10 lines with Show full disclosure, surfaces a scope-reassurance line ("in this track's isolated workspace · your main checkout is untouched"), renames Grant→Allow, replaces "Approved/Denied" stubs with "Allowed by you · {time-ago}" / "Denied by you · {time-ago}" / "Denied — you didn't respond in 5 min" (timeout differentiated via `ApprovalDenied.reason`), and pulls a Working… affordance via the activity stream after a grant.
+- `blocks.css`: replaces `opacity:0.5` on denied with a left-border accent (`--color-danger` for user-deny, `--color-muted` for timeout-deny).
+
+**Tests:** 9 new `ApprovalBlock` cases in `chat-rendering.test.tsx` + refreshed `safety.test.tsx` for the Allow rename. Backend unit tests for `strip_worktree_prefix`, `truncate_middle`, `compute_title`. Dark-mode visual baselines regenerated as a side effect, which closed PR #104.f1.
+
+---
+
+### Phase 23.B v2 — bridge integration test + activity visual baselines
+**Date:** 2026-05-03
+**Branch:** phase-23b-bridge-test
+**Commit:** PR #106 (d1a2c05f)
+
+> _Backfilled 2026-05-05 from PR #106 commit message._
+
+**What was done:**
+
+Two stranded follow-ups from PR #99 (Phase 23.B activity indicator) captured in code:
+
+1. End-to-end integration test for `spawn_activity_bridge`. Boots `AppCore` against an injected `MockOrchestrator`, constructs a real `tauri::test::mock_app()` `AppHandle`, spawns the bridge, broadcasts a synthetic `ActivityChanged{Working}` on the orchestrator channel, and asserts the matching `ActivityChanged` DTO lands on `designer://activity-changed` within 100 ms. Also asserts non-`ActivityChanged` variants (e.g. `TeamSpawned`) do NOT cross the bridge — guards against a regression where the bridge starts forwarding the whole event stream. To make this testable: generified `spawn_activity_bridge` (and `spawn_event_bridge`) over `R: Runtime`, added `[dev-dependencies] tauri = { features = ["test"] }`, exposed a `#[doc(hidden)] pub fn event_sender()` accessor on `MockOrchestrator`.
+
+2. Activity visual baselines for the dock + tab-strip activity surfaces.
+
+---
+
+### Phase 23.E.f1 — reframe migration banner to universal tutorial
+**Date:** 2026-05-03
+**Branch:** phase-23ef1-banner-reframe
+**Commit:** PR #105 (6e6d4d20)
+
+> _Backfilled 2026-05-05 from PR #105 commit message._
+
+**What was done:**
+
+The original 23.E migration copy ("your existing chats start fresh on the next message") was inaccurate for fresh-install users who created their first workspace post-23.E — they had no existing chats to reset. Tightening the detection signal would have required a new IPC for "any pre-23.E `MessagePosted` exists," disproportionate to the false-positive's blast radius (small, one-time, dismissible). Reframed the copy instead so the banner is true for everyone:
+
+- Title: "Each tab is its own conversation" (was "Tabs are now parallel agents")
+- Body: "Tabs run independent claude agents — open more from + to work on parallel things side by side." (was migration-specific)
+
+Migration-specific context (session memory was reset by the `SESSION_NAMESPACE` rotation) lives in release notes — most upgraders never observe it in practice because claude sessions are rarely long-lived across days. Test `pretab-banner.test.tsx > "uses universal tutorial copy that doesn't claim 'existing chats' for fresh installs"` locks the reframe against regression. Roadmap entry for 23.E.f1 marked closed; f2 (banner trigger refinement) deferred.
+
+---
+
+### Phase 23.F — Stop turn interrupt
+**Date:** 2026-05-02
+**Branch:** phase-23f-stop-turn
+**Commit:** PR #102 (b0043d5c)
+
+> _Backfilled 2026-05-05 from PR #102 commit message._
+
+**What was done:**
+
+Adds an `interrupt` `control_request` through the orchestrator so users can abort a turn that's gone off the rails without killing the tab. The session stays alive — a follow-up `post_message` continues the conversation.
+
+- `Orchestrator` trait gains `interrupt(workspace_id, tab_id)`; required on every impl so a missing interrupt is a compile error rather than a silent no-op.
+- Real impl writes `{"type":"control_request","request_id":"<uuid>","request":{"subtype":"interrupt"}}` through the per-tab `stdin_tx`; mock impl emits a synthetic `ActivityChanged{Idle}` so the dock + coalescer behave as if a turn ended.
+- `AppCore::interrupt_turn` translates `TeamNotFound` / `ChannelClosed` into `Ok(())` — racing the turn-end is silent.
+- IPC: `cmd_interrupt_turn` registered alphabetically; `ipcClient` gains `interruptTurn(workspaceId, tabId)`.
+- Frontend: `ComposeDockActivityRow` renders a `StopCircle` button only when `state === 'working'`. Click dispatches `interruptTurn` and optimistically hides the row; the orchestrator's authoritative Idle clears the slice. Tab-order: composer → Stop. `aria-label="Stop turn"`.
+
+Tests: interrupt envelope shape, mock interrupt → Idle + `post_message` still works (no `ChannelClosed`), Stop-only-when-Working, click fires.
+
+---
+
+### docs: provenance notes on PR #96 backfilled history entries
+**Date:** 2026-05-02
+**Branch:** docs-pr96-provenance
+**Commit:** PR #100 (400b881c)
+
+> _Backfilled 2026-05-05 from PR #100 commit message. Docs-only._
+
+**What was done:**
+
+Added provenance notes to history entries that were backfilled in PR #96 (the bulk backfill for PRs #84–#94). Each backfilled entry now carries an explicit "Backfilled YYYY-MM-DD from {source}" preamble so future readers can distinguish first-person rationale from agent-reconstructed framing. Sets the convention that the present 2026-05-05 backfill (this entry's siblings above) follows.
+
+---
+
+### Polish: focus-visible compose + dark-mode tab + friction confirm
+**Date:** 2026-05-02
+**Branch:** polish-bundle-104
+**Commit:** PR #104 (cdb45990)
+
+> _Backfilled 2026-05-05 from PR #104 commit message._
+
+**What was done:**
+
+Bundle of three cosmetic friction fixes plus seven verified-already-shipped items closed:
+
+1. Focus-visible ring on the compose textarea (was missing — keyboard users had no visible focus).
+2. Dark-mode `.tab-button` token swap (active tab in dark mode read as the same colour as inactive due to a stale token reference).
+3. Friction-widget submit confirmation (button click had no acknowledgement; added a brief `data-state="confirming"` pulse).
+
+Three-perspective review caught four review items in-flight (exit-curve token, success-token icon, transitionend guard, aria-hidden on closing) — all folded into the same PR. Two follow-ups deferred (parked in roadmap.md by PR #107): 104.f1 (workspace-thread--dark.png visual baseline regen — closed by PR #103) and 104.f2 (friction-widget exit `translate(0, var(--space-3))` — open).
+
+---
+
+### Workspace tab guards — 1-tab minimum + auto-blank on open
+**Date:** 2026-05-02
+**Branch:** workspace-tab-guards
+**Commit:** PR #101 (79170951)
+
+> _Backfilled 2026-05-05 from PR #101 commit message._
+
+**What was done:**
+
+Closes friction `frc_019dea6b` — closing the last tab in a workspace left the user in an empty pane. Three sides:
+
+- Backend (`core::close_tab`) silently no-ops when the workspace would be left with zero open tabs. Defense-in-depth; the frontend hides the affordance.
+- Frontend (`MainView::TabButton`) hides the close-X with `opacity:0` + `pointer-events:none` on the only tab, with an updated `aria-label` so a screen-reader user knows the disabled state. The frontend `closeTab` handler short-circuits at `<= 1` visible tabs so ⌘W on the only tab is also a no-op.
+- Workspace-open (`WorkspaceSidebar::WorkspaceRow`) lazy-creates "Tab 1" when a workspace with zero open tabs is selected, mirroring the existing `onCreate` flow. Idempotent via an opening-tab ref guard.
+
+Backend tests cover both the last-tab no-op and the multi-tab close path. Frontend tests assert the close-X visibility/aria-label states and the lazy-create behaviour. Two existing per-tab subprocess tests were updated to open a sibling tab so the close path actually exercises shutdown under the new guard.
+
+---
+
+### Phase 23.B — Activity indicator + tab badge
+**Date:** 2026-05-02
+**Branch:** phase-23b-activity-indicator
+**Commit:** PR #99 (20ab171d)
+
+> _Backfilled 2026-05-05 from PR #99 commit message._
+
+**What was done:**
+
+Per-tab activity surface so a quiet chat tab no longer reads as "stopped responding." The orchestrator emits a coarse `ActivityChanged { Idle | Working | AwaitingApproval, since }` keyed by `(workspace_id, tab_id)`; the dock pins a status row above the textarea (pulse + elapsed counter or "Approve to continue"), and non-active tabs in the strip show a small dot in the same color split.
+
+Backend (designer-claude):
+- New `ActivityState` enum + additive `OrchestratorEvent::ActivityChanged` variant. Broadcast-only — no projector arm, no replay invariant — so it's not subject to ADR 0002's `EventPayload` freeze. Documented in `pattern-log.md` as the precedent.
+- Translator emits `Working` on first stream / assistant / user line, `AwaitingApproval` on `control_request can_use_tool`, `Idle` on `result/{success,error}`. No-op transitions are suppressed so the frontend counter doesn't reset on bursty stream events.
+- Reader EOF / subprocess death calls `flush_idle()` so a crashed subprocess doesn't leave a phantom "Working… 47:00" forever.
+- Mock orchestrator emits matching `Working`/`Idle` around its synthetic reply.
+
+IPC + Tauri bridge:
+- `designer_ipc::ActivityChanged` DTO mirrors the Rust shape; spawn_activity_bridge forwards onto `designer://activity-changed`.
+
+(PR #106 above adds the integration test that PR #99's review flagged as missing.)
+
+---
+
+### Phase 23.E follow-ups — migration banner + ChannelClosed copy
+**Date:** 2026-05-02
+**Branch:** phase-23e-followups
+**Commit:** PR #98 (29c0136e)
+
+> _Backfilled 2026-05-05 from PR #98 commit message._
+
+**What was done:**
+
+Two follow-ups from PR #95's reviewer notes:
+
+1. **`PreTabSessionBanner`** — one-time, dismissible top-center notice that fires on first launch after the `SESSION_NAMESPACE` rotation for users who already had Designer installed. Detection: any project already carries a workspace (proxy for "had Designer before"; fresh installs land on the empty Home and never see this). Dismissal persists in `localStorage`, mirroring `Onboarding`'s pattern. Copy: "Tabs are now parallel agents — each tab gets its own conversation. Your existing chats start fresh on the next message." Four tests cover render-on-upgrade, dismiss-and-persist, stays-hidden-after-dismissal, and stays-hidden-on-fresh-install. (PR #105 above later reframed this banner to be universal.)
+
+2. **`humanize_dispatch_error` helper** — when `post_message` recovery fails after `ChannelClosed`, the wrapped `CoreError::Invariant` used to embed `OrchestratorError`'s Display string ("stdin channel closed for workspace 0192f… / tab 0192f…"), which after 23.E exposes raw UUIDs to the user-facing alert. Pattern-matched suffix now reads "Claude's connection dropped and reconnecting didn't help. Try again in a moment." Tracing logs at the call site still carry the full structured error via `warn!(error = %e, …)` so operator-side diagnostics are unchanged. Tightened `channel_closed_then_respawn_fails_returns_clean_error` to assert the new copy.
+
+---
+
+### Phase 23.E — Per-tab Claude subprocess
+**Date:** 2026-05-02
+**Branch:** phase-23e-per-tab-subprocess
+**Commit:** PR #95 (82494806)
+
+> _Backfilled 2026-05-05 from PR #95 commit message. Foundational — subsequent dogfood iterations (PRs #98, #105, #113, #98 banner reframe, kill-before-respawn) all trace back to this PR's per-tab subprocess split._
+
+**What was done:**
+
+Re-key the orchestrator's teams map and session-id derivation by `(workspace_id, tab_id)` so each tab in a workspace owns its own claude subprocess, session memory, and context window. Tabs become true parallel agents instead of projection-filtered views of one shared conversation.
+
+- `TeamSpec.tab_id: TabId` required; trait methods take `tab_id`.
+- `SESSION_NAMESPACE` rotated to a new UUIDv4: pre-23.E sessions are invalidated by design (they had cross-tab framing baked into saved memory). Documented in `pattern-log.md`.
+- `core::archive_workspace` and `core::delete_workspace` fan shutdown out across every tab in the workspace.
+- `core::close_tab` calls `orchestrator.shutdown((workspace_id, tab_id))` before `TabClosed` so a closed tab can't leak its subprocess.
+- `team_model` is now per-tab so a model switch on tab A doesn't respawn tab B.
+- T-23E-1..6 acceptance tests cover distinct session ids, parallel-tab dispatch, close-tab cleanup, archive fan-out, per-tab model isolation, and no-tabs back-compat.
+
+**Migration:** existing chats start fresh on the first post after upgrade. `SESSION_NAMESPACE` will not rotate again — that would be cruel; subsequent shifts use additive event-vocabulary changes only. (Note: PR #113 later replaced derived session ids with random UUIDv4 per spawn after dogfood surfaced session-id-collision symptoms even with kill-before-respawn.)
+
+---
+
 ### Phase 24 Step 1 — chat-domain event vocabulary (foundation)
 **Date:** 2026-05-04
 **Branch:** phase-24-chat-pass-through

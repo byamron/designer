@@ -1,9 +1,9 @@
 ---
-name: staff-perspective-review
-description: Reviews Designer changes from three parallel staff-level perspectives — staff engineer, staff UX designer, staff design engineer — to catch bugs, regressions, accessibility gaps, Mini-token violations, and craft issues before human review. Reviews an open PR if one exists, otherwise reviews the current branch (or a custom diff range like `<tag>..HEAD` for release-staging). Triages findings into blockers, nits, and follow-ups; fixes blockers and cheap nits in the branch; if no PR exists and reviews conclude the branch is ready, opens one. Never merges. Use whenever a workstream's implementation is complete, whenever the user asks for a "multi-perspective" or "staff" review, before requesting human review on any non-trivial change, or as a release-prep pass against a tag. Do not use for security audits (defer to security-review) or for already-merged PRs.
+name: staff-review
+description: Reviews Designer changes from three parallel staff-level perspectives — staff engineer, staff UX designer, staff design engineer — to catch bugs, regressions, accessibility gaps, Mini-token violations, and craft issues before human review. Reviews an open PR if one exists, otherwise reviews the current branch (or a custom diff range like `<tag>..HEAD` for release-staging). Triages findings into blockers, nits, and follow-ups; fixes blockers, cheap nits, and trivial follow-ups in the branch; files non-trivial follow-ups into `core-docs/roadmap.md` (active section) or `core-docs/parking-lot.md` (with friction-driven trigger + time fallback) before closing, per CLAUDE.md §How-to-Work item 6. If no PR exists and reviews conclude the branch is ready, opens one. Never merges. Use whenever a workstream's implementation is complete, whenever the user asks for a "multi-perspective" or "staff" review, before requesting human review on any non-trivial change, or as a release-prep pass against a tag. Do not use for security audits (defer to security-review) or for already-merged PRs.
 ---
 
-# Staff-perspective review
+# Staff review
 
 Designer changes are ready for review. Run three independent reviews **in parallel**, each from a distinct staff-level lens, then triage and fix the findings before human review. The skill works in three modes depending on git state:
 
@@ -108,7 +108,7 @@ A single tool message with three `Agent` calls, each `subagent_type: Explore`. E
 A finding is:
 - **BLOCKER** if it would cause a user-visible regression, a panic / data loss, an accessibility violation, a compliance invariant breach (`spec.md` §5), a contract break (frozen IPC DTO / event vocab / trait), or a Mini token rule violation that would ship to dogfood. Fix in the branch.
 - **NIT** if it's a real improvement that's cheap (single-file, no architectural change, no new tests). Fix in the branch.
-- **FOLLOW-UP** if it's a real issue but expanding scope here is wrong — the right fix belongs to a different workstream / lane, requires a separate ADR, or needs design input. Capture it; do not fix here.
+- **FOLLOW-UP** if it's a real issue but expanding scope here is wrong — the right fix belongs to a different workstream / lane, requires a separate ADR, or needs design input. **Prefer doing over filing**: if a follow-up is small enough to land in the same PR without meaningfully expanding scope, just fix it now. Only what genuinely doesn't fit gets filed — and per CLAUDE.md §How-to-Work item 6, filed follow-ups MUST land in `core-docs/roadmap.md` (active section if it gates a current Build/Harden phase) or `core-docs/parking-lot.md` (with a friction-driven primary trigger + time-based fallback per ADR 0009) before the review closes. The PR body cross-references the filed entries; it must not be the only home.
 
 Some reviewer claims will be wrong on closer inspection. Spot-check the highest-impact items against the actual code before fixing or filing — reviewers can be confidently incorrect about subtle code paths.
 
@@ -130,17 +130,19 @@ Stage only the files you touched; commit with a message naming what the review c
 
 ### 7. Hand off based on mode
 
+**Before either mode hands off:** verify every filed FOLLOW-UP has a home in `core-docs/roadmap.md` or `core-docs/parking-lot.md` per CLAUDE.md §How-to-Work item 6. The skill is not done until every non-trivial FOLLOW-UP either has a roadmap/parking-lot entry committed OR was inlined into the current PR. "I'll file it later" is not allowed — closed PR bodies aren't searchable.
+
 **PR mode:**
 1. `git push` to the PR's branch.
-2. Update the PR body — append (or replace existing) "Reviewer notes" + "Follow-ups" sections (templates below).
+2. Update the PR body — append (or replace existing) "Reviewer notes" section (template below). The body cross-references filed entry locations; it does not list FOLLOW-UPs as the only home.
 3. Tell the user the PR is ready for their review; include the PR URL.
 4. **Stop.** Do not merge. Do not approve. Do not request review from a human (the user owns that step).
 
 **Branch mode:**
 1. Decide whether the branch is ready for a PR:
-   - **Ready** — all blockers fixed, gates green, no FOLLOW-UPs that should block opening (i.e. nothing the human reviewer would immediately bounce back).
-   - **Not ready** — unresolved blockers, gates red, or the change still feels half-baked. Stop and report what's missing; do not open a PR.
-2. If ready: `git push -u origin <branch>`, then `gh pr create --base <base> --title "<short title>" --body "$(cat <<'EOF' ... EOF)"`. The body must include a Summary section (drawn from the commits / diff), a Test plan, the "Reviewer notes" section, and a "Follow-ups" section if there are any.
+   - **Ready** — all blockers fixed, gates green, every non-trivial FOLLOW-UP filed in `roadmap.md` or `parking-lot.md`, nothing the human reviewer would immediately bounce back.
+   - **Not ready** — unresolved blockers, gates red, FOLLOW-UPs unfiled, or the change still feels half-baked. Stop and report what's missing; do not open a PR.
+2. If ready: `git push -u origin <branch>`, then `gh pr create --base <base> --title "<short title>" --body "$(cat <<'EOF' ... EOF)"`. The body must include a Summary section (drawn from the commits / diff), a Test plan, and the "Reviewer notes" section. No standalone "Follow-ups" list — filed entries live in `roadmap.md` / `parking-lot.md` and are cross-referenced inside Reviewer notes.
 3. Tell the user the PR has been opened; include the PR URL.
 4. **Stop.** Do not merge.
 
@@ -160,17 +162,21 @@ Append (or replace an existing) section like this in the PR body:
 Three parallel reviews ran before this opened for human review.
 
 **Staff engineer.** _Findings:_ [one-line summary].
-_Acted on:_ [what was fixed in commit X]. _Deferred:_ [FOLLOW-UPs +
-which workstream / lane owns them].
+_Acted on:_ [what was fixed in commit X — including any trivial
+follow-ups inlined per the "do it now if quick" preference].
+_Filed:_ [non-trivial FOLLOW-UPs that didn't fit this PR — name
+the entry locations in `core-docs/roadmap.md` or
+`core-docs/parking-lot.md`, e.g. "roadmap.md § Phase 26H —
+macOS spot-check spec"].
 
-**Staff UX designer.** _Findings:_ ... _Acted on:_ ... _Deferred:_ ...
+**Staff UX designer.** _Findings:_ ... _Acted on:_ ... _Filed:_ ...
 
-**Staff design engineer.** _Findings:_ ... _Acted on:_ ... _Deferred:_ ...
+**Staff design engineer.** _Findings:_ ... _Acted on:_ ... _Filed:_ ...
 
 Quality gates re-run after fixes; results [link or one-liner].
 ```
 
-The bar is honesty over polish — if a review found nothing of consequence, say so. If you disagreed with a reviewer's finding and didn't fix it, say so and why.
+The bar is honesty over polish — if a review found nothing of consequence, say so. If you disagreed with a reviewer's finding and didn't fix it, say so and why. Per CLAUDE.md §How-to-Work item 6, no FOLLOW-UP is filed *only* in the PR body — every entry on the `_Filed:_` line cross-references a roadmap or parking-lot entry that lives in the docs.
 
 ## "Branch mode" PR template
 
@@ -186,13 +192,12 @@ When opening a fresh PR (branch mode), the body needs more than just Reviewer no
 - [ ] npm --workspace @designer/app run test
 
 ## Reviewer notes
-[same template as above]
-
-## Follow-ups
-- [bulleted FOLLOW-UPs deferred to other lanes / future PRs]
+[same template as above — _Filed:_ lines cross-reference roadmap.md / parking-lot.md entries]
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
+
+No standalone "## Follow-ups" section — filed entries live in `core-docs/roadmap.md` / `core-docs/parking-lot.md` and are cross-referenced inside the Reviewer notes.
 
 Title: short (under 70 chars), no prefix, concrete (e.g. "Settings split + project unlink", not "Update settings"). Mirror the style of recent merged PRs in `git log --oneline origin/main`.
 
@@ -230,3 +235,5 @@ If the user explicitly asks to merge after the reviews, that's a separate decisi
 - **Range mode: don't push fixes without explicit instruction.** Range mode is often run on a local branch the user created for the review (e.g. `release-review`). Pushing or opening a PR there is rarely what they want. Apply fixes, report them, and let the user decide whether to push, cherry-pick, or discard.
 
 - **The skill ends with the PR open or a written summary.** No merge, no approval, no comment-with-LGTM. The user reviews next.
+
+- **Follow-ups must land in docs before the review closes.** Per CLAUDE.md §How-to-Work item 6, every filed FOLLOW-UP belongs in `core-docs/roadmap.md` (active section, if it gates a current Build/Harden phase) or `core-docs/parking-lot.md` (with a friction-driven primary trigger + time-based fallback per ADR 0009). The skill is not done until the filing is committed and the PR body's Reviewer-notes `_Filed:_` lines cross-reference the entry locations. **Prefer doing over filing**: if a follow-up is small enough to land in the same PR without expanding scope meaningfully, just do it now and report it on the `_Acted on:_` line. Don't accept "I'll file it later" — closed PR bodies aren't searchable.

@@ -517,18 +517,6 @@ impl AppCore {
         Ok(())
     }
 
-    /// Phase 24 (ADR 0008) — persist an `AgentTurn*` event to the
-    /// workspace stream. Called by [`spawn_message_coalescer`]'s recv
-    /// loop on every `OrchestratorEvent::AgentTurn*` broadcast emitted
-    /// by the Phase 24 stream translator. The bridge stamps
-    /// `parent_user_event_id` from `last_user_event_id(workspace_id)`
-    /// so the renderer can thread agent turns back to the user message
-    /// that triggered them.
-    ///
-    /// Author for every `AgentTurn*` envelope is `Actor::Agent { team:
-    /// "workspace-lead", role: "assistant" }` — same provenance the
-    /// legacy `MessagePosted{Agent}` carried, so cross-author audit
-    /// queries don't see a discontinuity at the cut-over.
     /// Phase 24 (ADR 0008) — read the most-recent chat-domain events
     /// for a workspace from the persisted SQLite store. Used by the
     /// frontend's boot replay (`bootData → chatThreadStore`) so the
@@ -587,6 +575,18 @@ impl AppCore {
         Ok(chat_events)
     }
 
+    /// Phase 24 (ADR 0008) — persist an `AgentTurn*` event to the
+    /// workspace stream. Called by [`spawn_message_coalescer`]'s recv
+    /// loop on every `OrchestratorEvent::AgentTurn*` broadcast emitted
+    /// by the Phase 24 stream translator. The bridge stamps
+    /// `parent_user_event_id` from `last_user_event_id(workspace_id)`
+    /// so the renderer can thread agent turns back to the user message
+    /// that triggered them.
+    ///
+    /// Author for every `AgentTurn*` envelope is `Actor::Agent { team:
+    /// "workspace-lead", role: "assistant" }` — same provenance the
+    /// legacy `MessagePosted{Agent}` carried, so cross-author audit
+    /// queries don't see a discontinuity at the cut-over.
     pub async fn persist_agent_turn_event(
         &self,
         payload: EventPayload,
