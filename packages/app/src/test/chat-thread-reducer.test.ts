@@ -36,7 +36,11 @@ function streamEvent(
 }
 
 function emptyStore() {
-  return { byTab: {} as Record<TabId, ReturnType<typeof emptyChatThread>>, runningSubprocesses: new Set<string>() };
+  return {
+    byTab: {} as Record<TabId, ReturnType<typeof emptyChatThread>>,
+    runningSubprocesses: new Set<string>(),
+    bootReplaying: false,
+  };
 }
 
 describe("chat-thread reducer — Phase 24 §2.2 scenarios", () => {

@@ -164,6 +164,10 @@ export async function bootData() {
   // (a closed turn stays closed; the user sends a new message to
   // start a new turn).
   chatThreadStore.set((s) => applyOrphanTurnGuard(s));
+  // Boot replay finished — the renderer now distinguishes a
+  // genuinely empty tab (EmptyState) from one whose history was
+  // still in flight (loading affordance).
+  chatThreadStore.set((s) => ({ ...s, bootReplaying: false }));
   client.stream((event) => {
     const eventTs = Date.parse(event.timestamp);
     const ts = Number.isFinite(eventTs) ? eventTs : Date.now();

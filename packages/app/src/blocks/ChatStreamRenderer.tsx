@@ -81,9 +81,10 @@ export function ChatStreamRenderer({
 
   const display = tabState ?? projected ?? null;
   const showBanner = useLegacyBannerVisibility(workspaceId, tabId, events);
+  const bootReplaying = useChatThreadState((s) => s.bootReplaying);
 
   if (!display || display.row_order.length === 0) {
-    return <EmptyState />;
+    return bootReplaying ? <LoadingState /> : <EmptyState />;
   }
 
   return (
@@ -506,7 +507,7 @@ function LegacyChatBanner({ workspaceId, tabId }: LegacyChatBannerProps) {
       role="status"
     >
       <span className="thread__legacy-banner-text">
-        Imported from earlier version — turn boundaries may be approximate.
+        This conversation was imported from an earlier version. Behavior matches the current Claude Code terminal exactly going forward.
       </span>
       <button
         type="button"
@@ -544,6 +545,19 @@ function EmptyState() {
   );
 }
 
+function LoadingState() {
+  return (
+    <div
+      className="thread__empty"
+      role="status"
+      aria-live="polite"
+      data-component="LoadingState"
+    >
+      <span className="thread__empty-text">Loading conversation…</span>
+    </div>
+  );
+}
+
 function IdlePrompt() {
   return (
     <div className="thread__idle" role="status" data-component="IdlePrompt">
@@ -567,9 +581,11 @@ function foldEventsIntoTab(
   let temp: {
     byTab: Record<TabId, ChatThreadState>;
     runningSubprocesses: Set<string>;
+    bootReplaying: boolean;
   } = {
     byTab: {},
     runningSubprocesses: new Set(),
+    bootReplaying: false,
   };
   for (const event of events) {
     temp = applyStreamEvent(temp, event);

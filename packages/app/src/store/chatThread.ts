@@ -124,11 +124,18 @@ interface ChatThreadStore {
    *  `subprocess_running(tab) && !turn_ended(tab)` reads membership
    *  here. */
   runningSubprocesses: Set<string>;
+  /** True between app start and the moment `bootData()` finishes
+   *  replaying every workspace's chat history. The renderer reads
+   *  this to distinguish "tab is genuinely empty" from "tab is empty
+   *  because we haven't fetched its history yet" — the former shows
+   *  EmptyState, the latter shows a loading affordance. */
+  bootReplaying: boolean;
 }
 
 export const chatThreadStore = createStore<ChatThreadStore>({
   byTab: {},
   runningSubprocesses: new Set(),
+  bootReplaying: true,
 });
 
 export const useChatThreadState = <U,>(selector: (s: ChatThreadStore) => U) =>
@@ -446,6 +453,7 @@ export function buildChatThreadFromEvents(
   let store: ChatThreadStore = {
     byTab: {},
     runningSubprocesses: new Set(),
+    bootReplaying: false,
   };
   for (const event of events) {
     if (
