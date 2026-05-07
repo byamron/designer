@@ -14,6 +14,13 @@ import type {
   WorkspaceId,
   WorkspaceSummary,
 } from "../ipc/types";
+import {
+  applyOrphanTurnGuard,
+  applyStreamEvent,
+  applyTeamLifecycle,
+  buildChatThreadFromEvents,
+  chatThreadStore,
+} from "./chatThread";
 
 export interface DataState {
   projects: ProjectSummary[];
@@ -53,7 +60,10 @@ export interface DataState {
  * workspace-wide events still find a slot, mirroring the Rust
  * default-tab fallback in `core_agents`.
  */
-export function activityKey(workspaceId: WorkspaceId, tabId: TabId | null | undefined): string {
+export function activityKey(
+  workspaceId: WorkspaceId,
+  tabId: TabId | null | undefined,
+): string {
   return `${workspaceId}:${tabId ?? "*"}`;
 }
 
@@ -73,65 +83,143 @@ export const dataStore = createStore<DataState>({
   loaded: false,
 });
 
-export const useDataState = <U,>(selector: (s: DataState) => U) =>
+export const useDataState = <U>(selector: (s: DataState) => U) =>
   useStore(dataStore, selector);
 
 export async function bootData() {
   const client = ipcClient();
-  const [projects, projectSpine] = await Promise.all([
-    client.listProjects(),
-    client.spine(null),
-  ]);
-  const workspaceLists = await Promise.all(
-    projects.map((p) => client.listWorkspaces(p.project.id)),
-  );
-  const workspaces: Record<ProjectId, WorkspaceSummary[]> = {};
-  projects.forEach((p, i) => {
-    workspaces[p.project.id] = workspaceLists[i];
-  });
-  const flatWorkspaces = workspaceLists.flat();
-  const workspaceSpines = await Promise.all(
-    flatWorkspaces.map((w) => client.spine(w.workspace.id)),
-  );
-  const spines: Record<string, SpineRow[]> = { "project:*": projectSpine };
-  flatWorkspaces.forEach((w, i) => {
-    spines[`workspace:${w.workspace.id}`] = workspaceSpines[i];
-  });
-  dataStore.set({
-    projects,
-    workspaces,
-    spines,
-    events: [],
-    recentActivityTs: {},
-    activity: {},
-    loaded: true,
-  });
-
-  client.stream((event) => {
-    const eventTs = Date.parse(event.timestamp);
-    const ts = Number.isFinite(eventTs) ? eventTs : Date.now();
-    dataStore.set((s) => ({
-      ...s,
-      events: [...s.events, event].slice(-500),
-      recentActivityTs: { ...s.recentActivityTs, [event.stream_id]: ts },
-    }));
-  });
-
-  // Phase 23.B: per-tab activity slice. `idle` transitions drop the
-  // entry so a one-shot membership check on the activity map answers
-  // "is anything happening for this tab?" without iterating values.
-  client.activityStream((event) => {
-    const key = activityKey(event.workspace_id, event.tab_id);
-    dataStore.set((s) => {
-      const next = { ...s.activity };
-      if (event.state === "idle") {
-        delete next[key];
-      } else {
-        next[key] = { state: event.state, since_ms: event.since_ms };
-      }
-      return { ...s, activity: next };
+  try {
+    const [projects, projectSpine] = await Promise.all([
+      client.listProjects(),
+      client.spine(null),
+    ]);
+    const workspaceLists = await Promise.all(
+      projects.map((p) => client.listWorkspaces(p.project.id)),
+    );
+    const workspaces: Record<ProjectId, WorkspaceSummary[]> = {};
+    projects.forEach((p, i) => {
+      workspaces[p.project.id] = workspaceLists[i];
     });
-  });
+    const flatWorkspaces = workspaceLists.flat();
+    const workspaceSpines = await Promise.all(
+      flatWorkspaces.map((w) => client.spine(w.workspace.id)),
+    );
+    const spines: Record<string, SpineRow[]> = { "project:*": projectSpine };
+    flatWorkspaces.forEach((w, i) => {
+      spines[`workspace:${w.workspace.id}`] = workspaceSpines[i];
+    });
+    dataStore.set({
+      projects,
+      workspaces,
+      spines,
+      events: [],
+      recentActivityTs: {},
+      activity: {},
+      loaded: true,
+    });
+
+    // Phase 24 (ADR 0008) — boot replay of historical chat-domain
+    // events. Fetches every workspace's chat history (`MessagePosted`
+    // user-authored + the six `AgentTurn*` variants) past the 500-
+    // event live-stream window cap. Folds them through the same
+    // reducer the live subscriber below uses, so a tab whose last
+    // persisted event was an open `AgentTurnStarted` paints from the
+    // first frame instead of waiting for the next live event.
+    //
+    // Failures here are non-fatal — the live path still works; we
+    // just lose history for the unfetched workspace. The Settings
+    // path doesn't depend on chat history, so a partial-fetch boot
+    // is recoverable.
+    await Promise.all(
+      flatWorkspaces.map(async (ws) => {
+        try {
+          const chatEvents = await client.listWorkspaceChatEvents(
+            ws.workspace.id,
+          );
+          if (chatEvents.length === 0) return;
+          const folded = buildChatThreadFromEvents(chatEvents);
+          chatThreadStore.set((s) => {
+            // Merge per-tab slices into the live store (idempotent on
+            // turn_id; replay safe). User runningSubprocesses stays
+            // empty here — the orphan guard runs after, marking any
+            // open turn from a prior session as `Interrupted` so the
+            // renderer doesn't show a phantom working chip.
+            const next = { ...s.byTab };
+            for (const [tabId, tabSlice] of Object.entries(folded.byTab)) {
+              next[tabId] = tabSlice;
+            }
+            return { ...s, byTab: next };
+          });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `bootData: chat-event replay failed for ${ws.workspace.id}`,
+            err,
+          );
+        }
+      }),
+    );
+    // Spec §4.2 + A2 — synthesize `Interrupted` on any open turn whose
+    // subprocess wasn't running at boot. No subprocesses are running
+    // at this point (lifecycle stream hasn't fired any `ready` yet),
+    // so every open turn from a prior session gets the synthetic
+    // close. Live `team_ready` edges arrive shortly after via
+    // `teamLifecycleStream` below — they don't unwind the synthesis
+    // (a closed turn stays closed; the user sends a new message to
+    // start a new turn).
+    chatThreadStore.set((s) => applyOrphanTurnGuard(s));
+    client.stream((event) => {
+      const eventTs = Date.parse(event.timestamp);
+      const ts = Number.isFinite(eventTs) ? eventTs : Date.now();
+      dataStore.set((s) => ({
+        ...s,
+        events: [...s.events, event].slice(-500),
+        recentActivityTs: { ...s.recentActivityTs, [event.stream_id]: ts },
+      }));
+      // Phase 24 (ADR 0008) — fold chat-domain events (user
+      // MessagePosted + AgentTurn*) into the per-tab thread reducer.
+      // The fold is mode-independent: when show_chat_v2 is OFF, no
+      // AgentTurn* events ever arrive, the user-message branch is the
+      // only one that fires, and the legacy renderer reads
+      // `dataStore.events` exactly as before. When show_chat_v2 flips
+      // ON, the new renderer reads from `chatThreadStore` instead.
+      chatThreadStore.set((s) => applyStreamEvent(s, event));
+    });
+
+    // Phase 23.B: per-tab activity slice. `idle` transitions drop the
+    // entry so a one-shot membership check on the activity map answers
+    // "is anything happening for this tab?" without iterating values.
+    client.activityStream((event) => {
+      const key = activityKey(event.workspace_id, event.tab_id);
+      dataStore.set((s) => {
+        const next = { ...s.activity };
+        if (event.state === "idle") {
+          delete next[key];
+        } else {
+          next[key] = { state: event.state, since_ms: event.since_ms };
+        }
+        return { ...s, activity: next };
+      });
+    });
+
+    // Phase 24 — per-tab subprocess lifecycle stream. The render-time
+    // activity indicator (spec §5.2) keys `subprocess_running(tab)`
+    // off membership in `runningSubprocesses`. Only ever a `ready`
+    // (insert) or `exited` (delete) edge — no state to drop.
+    client.teamLifecycleStream((event) => {
+      chatThreadStore.set((s) => applyTeamLifecycle(s, event));
+    });
+  } finally {
+    // Boot replay finished (or aborted) — the renderer can now
+    // distinguish a genuinely empty tab (EmptyState) from one whose
+    // history was still in flight (LoadingState). The flip lives in
+    // `finally` so an early throw above (listProjects rejection,
+    // workspace-spine fetch failure) doesn't leave the user staring
+    // at "Loading conversation…" forever — they get the empty state
+    // and can recover via reload or whatever surface raised the
+    // upstream failure.
+    chatThreadStore.set((s) => ({ ...s, bootReplaying: false }));
+  }
 }
 
 /**

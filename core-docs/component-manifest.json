@@ -167,6 +167,17 @@
       "last_updated": "2026-05-03"
     },
     {
+      "name": "ChatStreamRenderer",
+      "path": "packages/app/src/blocks/ChatStreamRenderer.tsx",
+      "purpose": "Phase 24 (ADR 0008) chat surface. Replaces the BlockRenderers MessageBlock/Report split for the new stream-json projection: consumes the per-tab `chatThreadStore` reducer and renders `UserMessageRow`, `AgentTurnRow` (per-block dispatch to `TextBlock` for streaming text, `ToolUseBlock` for tool_use + tool_result correlation, `ThinkingBlock` for thinking content, `InterruptedMarker` for orphan-turn synthesis or user-triggered SIGINT). Mounts under `WorkspaceThread` only when the `show_chat_v2` flag is on; legacy chat path is unchanged. Boot-replay loading state (`LoadingState` with `aria-live=\"polite\"`) shown when `chatThreadStore.bootReplaying` is true and the tab slice is empty — distinguishes a genuinely empty tab from one whose history is mid-fetch. `LegacyChatBanner` dismissible per tab when projection-built rows from old `MessagePosted{Agent}` + `ArtifactProduced{kind:Report}` events surface in the new renderer. `ToolUseBlock` reuses the existing `.tool-line__region` chrome from `BlockRenderers` so legacy and phase24 surfaces read as parallel artifacts; 40-line truncation + 'Show full (N more lines)' disclosure mirrors Phase 23.C. `ThinkingBlock` is collapsed by default; chevron rotation respects `prefers-reduced-motion`. Token-only CSS in `blocks.css` (Phase 24 section); border literals replaced with `--border-thin` / `--border-strong` per the staff-review pass.",
+      "status": "managed",
+      "native_wrapped": false,
+      "primitives_used": [],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "type-body-size", "type-body-leading", "type-caption-size", "type-caption-leading", "type-family-mono", "type-family-sans", "weight-medium", "color-foreground", "color-muted", "color-surface-raised", "color-surface-sunken", "color-border", "color-border-soft", "border-thin", "border-strong", "radius-button", "motion-quick", "warning-9", "focus-outline-width", "focus-outline-color"],
+      "css_prefix": "thread__ thinking__ tool-line__",
+      "last_updated": "2026-05-06"
+    },
+    {
       "name": "ComposeDock",
       "path": "packages/app/src/components/ComposeDock.tsx",
       "purpose": "Shared compose surface for WorkspaceThread (and any future tab variants). Owns its own draft, attachments, model/effort/plan-mode controls, and drag-and-drop target. Imperative handle (`setDraft`, `focus`) lets the parent seed prompts and restore drafts on send failure (used by WorkspaceThread.onSend's catch handler — the dock clears its draft synchronously after `onSend` returns, so failure recovery has to re-seed via the handle). 13.D wired `onSend` through to `Orchestrator::post_message` via `cmd_post_message`; the parent is responsible for in-flight gating and error display. tab-ui-bugs (2026-05-02) added `initialDraft` (seeds the draft on mount from a parent-managed cache) and `onDraftChange` (fires on every keystroke, paste, programmatic setDraft, and post-send clear) so callers can persist per-tab drafts in the app store and survive tab switches. Phase 23.B (2026-05-03) added optional `workspaceId` + `tabId` props that pin a `ComposeDockActivityRow` above the textarea — the row reads the per-tab activity slice and renders pulse + elapsed counter (Working) or 'Approve to continue' (AwaitingApproval).",

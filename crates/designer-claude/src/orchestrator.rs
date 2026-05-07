@@ -237,6 +237,27 @@ pub enum OrchestratorEvent {
         stop_reason: AgentStopReason,
         usage: TokenUsage,
     },
+
+    // -----------------------------------------------------------------
+    // Phase 24 — subprocess lifecycle (broadcast-only)
+    //
+    // The render-time activity indicator (spec §5.2) computes its
+    // visibility as `subprocess_running(tab) && !turn_ended(tab)`.
+    // `subprocess_running` derives from these two edges: `TeamReady`
+    // fires once the per-tab reader loop is armed (the subprocess can
+    // accept input); `TeamExited` fires when the reader loop drops
+    // (EOF, kill, or panic). Both are broadcast-only — they don't
+    // persist. Renderer consumers maintain a `Set<(workspace, tab)>`
+    // of running subprocesses keyed off these edges.
+    // -----------------------------------------------------------------
+    TeamReady {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+    },
+    TeamExited {
+        workspace_id: WorkspaceId,
+        tab_id: TabId,
+    },
 }
 
 /// Phase 23.B — three-state activity surface for a single

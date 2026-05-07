@@ -307,5 +307,20 @@ fn event_kind(ev: &OrchestratorEvent) -> String {
         OrchestratorEvent::AgentTurnEnded { stop_reason, .. } => {
             format!("AgentTurnEnded({stop_reason:?})")
         }
+        // Phase 24 — broadcast-only subprocess lifecycle edges.
+        // Render-time activity indicator derives `subprocess_running`
+        // from these.
+        OrchestratorEvent::TeamReady {
+            workspace_id,
+            tab_id,
+        } => {
+            format!("TeamReady({workspace_id}, {tab_id})")
+        }
+        OrchestratorEvent::TeamExited {
+            workspace_id,
+            tab_id,
+        } => {
+            format!("TeamExited({workspace_id}, {tab_id})")
+        }
     }
 }

@@ -40,6 +40,8 @@ function makeClient(mock: MockCore, ws: Workspace): IpcClient {
       };
     },
     activityStream: () => () => {},
+    teamLifecycleStream: () => () => {},
+    listWorkspaceChatEvents: () => Promise.resolve([]),
     requestApproval: (w, g, s) =>
       Promise.resolve(mock.requestApproval(w, g, s)),
     resolveApproval: (id, granted, reason) =>

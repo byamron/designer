@@ -393,6 +393,8 @@ export function createVisualIpcClient(
       handler(fixtureActivityEvent);
       return () => {};
     },
+    teamLifecycleStream: () => () => {},
+    listWorkspaceChatEvents: () => Promise.resolve([]),
     requestApproval: () => Promise.resolve("appr_stub"),
     resolveApproval: () => Promise.resolve(),
     listArtifacts: () => Promise.resolve(artifacts),

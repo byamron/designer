@@ -70,6 +70,8 @@ export function mockIpcClient(overrides: Partial<IpcClient> = {}): IpcClient {
     spine: () => Promise.resolve([]),
     stream: () => () => {},
     activityStream: () => () => {},
+    teamLifecycleStream: () => () => {},
+    listWorkspaceChatEvents: () => Promise.resolve([]),
     requestApproval: () =>
       Promise.reject(new Error("mockIpcClient: requestApproval not stubbed")),
     resolveApproval: () => Promise.resolve(),

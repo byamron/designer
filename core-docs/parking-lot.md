@@ -118,6 +118,17 @@ See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract 
 
 ---
 
+### `InterruptedMarker` — distinguish synthesis from user-triggered interrupt
+
+- **Deferred:** 2026-05-06
+- **Reason:** `applyOrphanTurnGuard` synthesizes `Interrupted` at the renderer level for any open turn whose subprocess wasn't running at boot (spec §4.2 / A2). Phase 23.F's user-triggered SIGINT also produces `Interrupted`. The renderer currently shows the same one-word marker ("Interrupted") for both. They're different stories: synthesis = "Connection dropped" (passive, the world acted), user SIGINT = "Stopped by you" (active, you acted). UX review on PR #120 flagged this; the fix needs a `synthesized: bool` field threaded through `TurnAccumulator` so the renderer can pick the right copy. Not a blocker for Phase 24 ship — the marker is honest in both cases, just less precise than it could be.
+- **Primary trigger:** A user reports confusion about why a turn is marked Interrupted, OR ≥2 friction reports requesting clearer explanation of the marker.
+- **Time fallback:** Reassess after Phase 27 ships.
+- **Source:** PR #120 staff-review Round 2 (UX FOLLOW-UP).
+- **Unhide path:** Promote to active sequence; thread `synthesized: bool` through `TurnAccumulator` (`applyOrphanTurnGuard` sets true; user-SIGINT path sets false). Renderer chooses copy — `synthesized` → "Connection dropped"; otherwise → "Stopped by you".
+
+---
+
 ### Hidden-detector decommission convention (future ADR)
 
 - **Deferred:** 2026-05-05

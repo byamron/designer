@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, StopCircle } from "lucide-react";
 import { activityKey, useDataState } from "../store/data";
+import {
+  currentOpenTurn,
+  subprocessKey,
+  useChatThreadState,
+} from "../store/chatThread";
+import { useFlag } from "../store/flags";
 import { ipcClient } from "../ipc/client";
 import type { TabId, WorkspaceId } from "../ipc/types";
 
@@ -51,6 +57,28 @@ export function ComposeDockActivityRow({
   workspaceId: WorkspaceId;
   tabId: TabId | null | undefined;
 }) {
+  const showChatV2 = useFlag("show_chat_v2");
+
+  // Phase 24 (ADR 0008) — render-time observable. The indicator is
+  // shown when `subprocess_running(tab) && !turn_ended_for_current_turn(tab)`
+  // (spec §5.2). `subprocess_running` derives from
+  // chatThreadStore.runningSubprocesses (driven by team-lifecycle
+  // edges); turn_open derives from currentOpenTurn(tabState). The
+  // elapsed chip reads `started_at` from the open turn (envelope
+  // timestamp captured by the reducer).
+  const phase24Open = useChatThreadState((s) => {
+    if (!showChatV2 || !tabId) return null;
+    const tabState = s.byTab[tabId];
+    const open = currentOpenTurn(tabState);
+    if (!open) return null;
+    if (!s.runningSubprocesses.has(subprocessKey(workspaceId, tabId)))
+      return null;
+    return { started_at: open.started_at };
+  });
+
+  // Legacy data source. When show_chat_v2 is OFF, this is the only
+  // signal. When ON, we ignore it (phase24Open carries the truth)
+  // since the translator suppresses ActivityChanged emission.
   const slice = useDataState((s) => s.activity[activityKey(workspaceId, tabId)]);
 
   const [now, setNow] = useState(() => Date.now());
@@ -66,24 +94,35 @@ export function ComposeDockActivityRow({
   }, [slice?.state, slice?.since_ms]);
 
   useEffect(() => {
-    if (!slice || slice.state !== "working") {
-      // The elapsed counter only ticks while the working state is
-      // visible. `awaiting_approval` shows static copy with no
-      // counter, so we don't burn a setInterval there either.
-      return;
-    }
+    // Tick the elapsed counter while either the legacy `working`
+    // state is showing or the phase24 indicator is on. One interval
+    // covers both modes.
+    const ticking =
+      (showChatV2 && phase24Open !== null) ||
+      (!showChatV2 && slice?.state === "working");
+    if (!ticking) return;
     const handle = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(handle);
-  }, [slice?.state, slice?.since_ms]);
+  }, [
+    showChatV2,
+    phase24Open,
+    slice?.state,
+    slice?.since_ms,
+  ]);
 
-  if (!slice) {
-    return null;
+  // Optimistic hide always wins.
+  if (stoppedAt !== null) return null;
+
+  // Phase 24 path. Read from chatThreadStore-derived phase24Open;
+  // ignore the legacy slice. AwaitingApproval is dropped per spec —
+  // the inline ApprovalBlock carries the signal in phase24 mode.
+  if (showChatV2) {
+    if (phase24Open === null) return null;
+    const elapsedMs = Math.max(0, now - phase24Open.started_at);
+    return renderWorkingChip(workspaceId, tabId, elapsedMs, setStoppedAt);
   }
 
-  // Optimistic hide: the user clicked Stop and we're waiting for the
-  // backend's `Idle` to land. Render nothing in the meantime so the
-  // dock visibly responds to the click.
-  if (stoppedAt !== null) {
+  if (!slice) {
     return null;
   }
 
@@ -109,23 +148,26 @@ export function ComposeDockActivityRow({
     );
   }
 
-  // Working: render the pulsing dot + elapsed counter + Stop button.
+  // Legacy working: render the same chip as phase24 — share via helper.
   const elapsedMs = Math.max(0, now - slice.since_ms);
+  return renderWorkingChip(workspaceId, tabId, elapsedMs, setStoppedAt);
+}
+
+/** Shared "working" chip render — used by both legacy
+ *  `slice.state === "working"` and phase24 `phase24Open !== null`
+ *  branches. Body is identical (pulse + label + elapsed + stop). */
+function renderWorkingChip(
+  workspaceId: WorkspaceId,
+  tabId: TabId | null | undefined,
+  elapsedMs: number,
+  setStoppedAt: (n: number | null) => void,
+) {
   const onStop = () => {
-    if (!tabId) {
-      // The activity row only renders when the slice exists, and the
-      // slice is keyed by `(workspace, tab)` — a missing tabId here
-      // means the caller mounted us against the legacy
-      // workspace-wide path; nothing to interrupt.
-      return;
-    }
+    if (!tabId) return;
     setStoppedAt(Date.now());
     void ipcClient()
       .interruptTurn(workspaceId, tabId)
       .catch((err) => {
-        // If the IPC fails, drop the optimistic hide so the row
-        // re-appears and the user can try again. We intentionally
-        // don't surface a toast — the row reappearing is the signal.
         console.warn("interruptTurn failed", err);
         setStoppedAt(null);
       });

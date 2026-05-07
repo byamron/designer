@@ -21,7 +21,7 @@
 use crate::core::AppCore;
 use designer_claude::{ActivityState as CoreActivityState, OrchestratorEvent};
 use designer_core::EventStore;
-use designer_ipc::{ActivityChanged, ActivityState, StreamEvent};
+use designer_ipc::{ActivityChanged, ActivityState, StreamEvent, TeamLifecycle};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Runtime};
@@ -34,6 +34,11 @@ pub const EVENT_STREAM_CHANNEL: &str = "designer://event-stream";
 /// channel; the dock + tab-strip badge update from the resulting
 /// `ActivityChanged` DTOs.
 pub const ACTIVITY_CHANNEL: &str = "designer://activity-changed";
+
+/// Phase 24 (ADR 0008) — Tauri channel for `OrchestratorEvent::TeamReady`
+/// / `TeamExited` fan-out. The render-time activity indicator (spec §5.2)
+/// derives `subprocess_running(tab)` from these two edges.
+pub const TEAM_LIFECYCLE_CHANNEL: &str = "designer://team-lifecycle";
 
 /// Spawn the forwarder. Call once in `.setup()`; the task outlives it via the
 /// cloned `AppHandle`.
@@ -90,6 +95,35 @@ pub fn spawn_activity_bridge<R: Runtime>(app: AppHandle<R>, core: Arc<AppCore>) 
                     };
                     if let Err(err) = app.emit(ACTIVITY_CHANNEL, &payload) {
                         tracing::warn!(error = %err, "failed to emit activity to frontend");
+                    }
+                }
+                // Phase 24 — subprocess lifecycle on a sibling channel.
+                // Same task subscribes once to the orchestrator broadcast;
+                // splitting into a separate spawn would just duplicate
+                // the recv-loop boilerplate and double the lag-warning
+                // surface.
+                Ok(OrchestratorEvent::TeamReady {
+                    workspace_id,
+                    tab_id,
+                }) => {
+                    let payload = TeamLifecycle::Ready {
+                        workspace_id,
+                        tab_id,
+                    };
+                    if let Err(err) = app.emit(TEAM_LIFECYCLE_CHANNEL, &payload) {
+                        tracing::warn!(error = %err, "failed to emit team lifecycle to frontend");
+                    }
+                }
+                Ok(OrchestratorEvent::TeamExited {
+                    workspace_id,
+                    tab_id,
+                }) => {
+                    let payload = TeamLifecycle::Exited {
+                        workspace_id,
+                        tab_id,
+                    };
+                    if let Err(err) = app.emit(TEAM_LIFECYCLE_CHANNEL, &payload) {
+                        tracing::warn!(error = %err, "failed to emit team lifecycle to frontend");
                     }
                 }
                 Ok(_) => {} // other variants belong to the message coalescer
