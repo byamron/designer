@@ -406,6 +406,14 @@ export function WorkspaceThread({
     tabId ? s.queuedMessageByTab[tabId] : undefined,
   );
   const prevSubprocessActiveRef = useRef(false);
+  // Phase 24 §5.4 — transient SR announcement on queue dispatch. Rendered
+  // into a sr-only `role="status" aria-live="polite"` region so screen
+  // readers hear the dispatch event (the chip removal alone is silent).
+  // Cleared after 1.5 s so the same string doesn't linger and re-announce
+  // on unrelated re-renders. v1 uses one string for both queue and
+  // stop-and-send paths — the user's keypress already disambiguated the
+  // intent; the announcement just confirms the message went out.
+  const [queueAnnouncement, setQueueAnnouncement] = useState("");
   useEffect(() => {
     const wasActive = prevSubprocessActiveRef.current;
     prevSubprocessActiveRef.current = subprocessActiveForCurrentTab;
@@ -423,11 +431,14 @@ export function WorkspaceThread({
     // user can retry by editing in the new turn."
     const text = queuedMessage;
     clearQueuedMessage(tabId);
+    setQueueAnnouncement("Queued message sent.");
+    const t = window.setTimeout(() => setQueueAnnouncement(""), 1500);
     void onSend({
       text,
       attachments: [],
       meta: { model: "opus-4.7", effort: "medium", planMode: false },
     });
+    return () => window.clearTimeout(t);
   }, [subprocessActiveForCurrentTab, queuedMessage, tabId, onSend]);
 
   // B7 — clear activity once a new agent artifact lands. The submitting
@@ -680,6 +691,18 @@ export function WorkspaceThread({
           workspaceId={workspace.id}
           tabId={tabId ?? null}
         />
+        {/* Phase 24 §5.4 — sr-only live region for queue dispatch.
+            The chip's removal alone is silent for screen readers; this
+            announces the dispatch event explicitly. Visually hidden via
+            the .sr-only utility (clip-path + position:absolute pattern). */}
+        <span
+          className="sr-only"
+          role="status"
+          aria-live="polite"
+          data-component="QueueAnnouncement"
+        >
+          {queueAnnouncement}
+        </span>
       </div>
     </div>
   );

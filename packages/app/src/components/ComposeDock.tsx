@@ -410,7 +410,7 @@ export const ComposeDock = forwardRef<
             >
               <IconButton
                 type="submit"
-                label="Queue (sends after this response)"
+                label="Queue message"
                 shortcut="↵"
                 className="btn-icon--primary"
                 disabled={busy}

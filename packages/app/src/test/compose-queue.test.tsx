@@ -160,9 +160,44 @@ describe("ComposeDock — SendMenu visibility (Phase 24 §5.4)", () => {
   it("relabels the Send button when subprocess is running", () => {
     setActive("working");
     render(<ComposeDock workspaceId={WS} tabId={TAB} />);
+    expect(screen.getByLabelText("Queue message")).toBeTruthy();
+  });
+});
+
+describe("auto-dispatch on working→idle transition (Phase 24 §5.4)", () => {
+  // The auto-dispatch effect lives in WorkspaceThread, not ComposeDock.
+  // Test it at the unit-of-behavior altitude by asserting the contract
+  // via store mutations: setQueuedMessage + activity transition →
+  // queuedMessage cleared. Full WorkspaceThread render is out of scope
+  // for this file (lives in workspace-thread.test.tsx); these tests
+  // cover the store-level invariant the effect relies on.
+  it("clearQueuedMessage clears in-memory + localStorage atomically", () => {
+    setQueuedMessage(TAB, "auto-dispatched");
+    expect(appStore.get().queuedMessageByTab[TAB]).toBe("auto-dispatched");
     expect(
-      screen.getByLabelText("Queue (sends after this response)"),
-    ).toBeTruthy();
+      JSON.parse(
+        localStorage.getItem("designer.composer.queuedMessageByTab") ?? "{}",
+      )[TAB],
+    ).toBe("auto-dispatched");
+    clearQueuedMessage(TAB);
+    expect(appStore.get().queuedMessageByTab[TAB]).toBeUndefined();
+    expect(
+      JSON.parse(
+        localStorage.getItem("designer.composer.queuedMessageByTab") ?? "{}",
+      )[TAB],
+    ).toBeUndefined();
+  });
+
+  it("queue persists across multiple tabs independently", () => {
+    const TAB_B = "tab-q-b" as TabId;
+    setQueuedMessage(TAB, "queue-a");
+    setQueuedMessage(TAB_B, "queue-b");
+    expect(appStore.get().queuedMessageByTab[TAB]).toBe("queue-a");
+    expect(appStore.get().queuedMessageByTab[TAB_B]).toBe("queue-b");
+    clearQueuedMessage(TAB);
+    // B's queue must survive A's clear.
+    expect(appStore.get().queuedMessageByTab[TAB]).toBeUndefined();
+    expect(appStore.get().queuedMessageByTab[TAB_B]).toBe("queue-b");
   });
 });
 
