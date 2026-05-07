@@ -14,10 +14,27 @@ import {
 } from "../components/ComposeDock";
 import { getBlockRenderer, GenericBlock } from "../blocks";
 import type { TabId, Workspace } from "../ipc/types";
-import type { ArtifactDetail, ArtifactId, ArtifactSummary, PayloadRef } from "../ipc/types";
+import type {
+  ArtifactDetail,
+  ArtifactId,
+  ArtifactSummary,
+  PayloadRef,
+} from "../ipc/types";
 import { ipcClient } from "../ipc/client";
 import { describeIpcError } from "../ipc/error";
-import { appStore, markTabStarted, setTabDraft } from "../store/app";
+import {
+  appStore,
+  clearQueuedMessage,
+  markTabStarted,
+  setTabDraft,
+  useAppState,
+} from "../store/app";
+import { activityKey, useDataState } from "../store/data";
+import {
+  currentOpenTurn,
+  subprocessKey,
+  useChatThreadState,
+} from "../store/chatThread";
 import { useFlag, useEnsureFlagsLoaded } from "../store/flags";
 import { ChatStreamRenderer } from "../blocks/ChatStreamRenderer";
 import "../blocks";
@@ -358,6 +375,61 @@ export function WorkspaceThread({
     [workspace.id, tabId, stateKey, refresh],
   );
 
+  // Phase 24 §5.4 — auto-dispatch the queued message when the
+  // subprocess for the focused tab transitions from working /
+  // awaiting_approval → idle. Same observable signal the
+  // ComposeDockActivityRow uses to derive `subprocess_running`. The
+  // ⌘⏎ stop-and-send path lands here too — the interrupt RPC ends the
+  // turn, the AgentTurnEnded { Interrupted } flips this signal idle,
+  // and we dispatch the queue (via the same onSend handler used by
+  // immediate sends).
+  //
+  // V1 limitation: dispatch only fires for the active tab. If the user
+  // switches tabs mid-stream and the inactive tab's turn finishes, the
+  // queue persists but doesn't auto-fire — the user sees the chip when
+  // they switch back and can re-send manually. Out-of-active-tab auto-
+  // dispatch needs a global watcher; deferred to a follow-up if dogfood
+  // surfaces the gap.
+  const phase24OpenForCurrentTab = useChatThreadState((s) => {
+    if (!showChatV2 || !tabId) return false;
+    if (!currentOpenTurn(s.byTab[tabId])) return false;
+    return s.runningSubprocesses.has(subprocessKey(workspace.id, tabId));
+  });
+  const legacyActivity = useDataState(
+    (s) => s.activity[activityKey(workspace.id, tabId)],
+  );
+  const subprocessActiveForCurrentTab = showChatV2
+    ? phase24OpenForCurrentTab
+    : legacyActivity?.state === "working" ||
+      legacyActivity?.state === "awaiting_approval";
+  const queuedMessage = useAppState((s) =>
+    tabId ? s.queuedMessageByTab[tabId] : undefined,
+  );
+  const prevSubprocessActiveRef = useRef(false);
+  useEffect(() => {
+    const wasActive = prevSubprocessActiveRef.current;
+    prevSubprocessActiveRef.current = subprocessActiveForCurrentTab;
+    if (!tabId) return;
+    if (!wasActive) return; // No transition to dispatch on.
+    if (subprocessActiveForCurrentTab) return; // Still active.
+    if (!queuedMessage) return; // No queue to dispatch.
+    // Snapshot the queue body, clear it before dispatch so a
+    // re-render mid-flight doesn't see the chip linger past the
+    // dispatch. onSend is async; failures restore the draft via the
+    // existing catch-handler in the onSend body, but the queue is
+    // intentionally not re-saved on failure (the user gets a draft
+    // they can edit + retry, not another silent queue). This matches
+    // the spec §5.4 dispatch line: "if the prior turn errored, the
+    // user can retry by editing in the new turn."
+    const text = queuedMessage;
+    clearQueuedMessage(tabId);
+    void onSend({
+      text,
+      attachments: [],
+      meta: { model: "opus-4.7", effort: "medium", planMode: false },
+    });
+  }, [subprocessActiveForCurrentTab, queuedMessage, tabId, onSend]);
+
   // B7 — clear activity once a new agent artifact lands. The submitting
   // and stuck states both end the same way: the artifact list grew past
   // the snapshot we took when the user clicked send. The snapshot is
@@ -517,7 +589,10 @@ export function WorkspaceThread({
           />
         </div>
       ) : showSuggestions ? (
-        <div className="thread thread--suggestions" aria-label="Starter suggestions">
+        <div
+          className="thread thread--suggestions"
+          aria-label="Starter suggestions"
+        >
           <ul className="suggestion-list" role="list">
             {suggestions.map((s) => (
               <li key={s}>
@@ -563,9 +638,7 @@ export function WorkspaceThread({
                 />
               );
             })}
-            {activity !== "idle" && (
-              <ActivityIndicator activity={activity} />
-            )}
+            {activity !== "idle" && <ActivityIndicator activity={activity} />}
           </div>
           {behind && (
             <button
@@ -626,11 +699,7 @@ export function WorkspaceThread({
  * `::before { content: ... }` keyframe so React holds no animation
  * state. Reduced-motion swaps the spinner for a static glyph.
  */
-function ActivityIndicator({
-  activity,
-}: {
-  activity: "submitting" | "stuck";
-}) {
+function ActivityIndicator({ activity }: { activity: "submitting" | "stuck" }) {
   const label =
     activity === "stuck"
       ? "Still working — this is taking longer than usual"

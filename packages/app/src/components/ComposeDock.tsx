@@ -1,8 +1,28 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { IconButton } from "./IconButton";
 import { Tooltip } from "./Tooltip";
 import { IconX } from "./icons";
 import { ComposeDockActivityRow } from "./ComposeDockActivityRow";
+import { SendMenu } from "./SendMenu";
+import {
+  setQueuedMessage,
+  clearQueuedMessage,
+  useAppState,
+} from "../store/app";
+import { activityKey, useDataState } from "../store/data";
+import {
+  currentOpenTurn,
+  subprocessKey,
+  useChatThreadState,
+} from "../store/chatThread";
+import { useFlag } from "../store/flags";
+import { ipcClient } from "../ipc/client";
 import type { TabId, WorkspaceId } from "../ipc/types";
 
 /**
@@ -98,6 +118,36 @@ export const ComposeDock = forwardRef<
   };
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
+
+  // Phase 24 §5.4 — derive whether the subprocess for this tab is
+  // currently producing a response. The Send button's behavior pivots
+  // on this: when running, ⏎ queues the message instead of sending,
+  // and the SendMenu hover/focus surface offers Stop-and-send as the
+  // alternate. When idle, ⏎ sends immediately and the menu hides.
+  // Mirrors the dual-source read pattern from ComposeDockActivityRow:
+  // chat-v2 (render-time observable) when the flag is on, legacy
+  // ActivityChanged slice otherwise.
+  const showChatV2 = useFlag("show_chat_v2");
+  const phase24OpenForTab = useChatThreadState((s) => {
+    if (!showChatV2 || !tabId || !workspaceId) return false;
+    const tabState = s.byTab[tabId];
+    if (!currentOpenTurn(tabState)) return false;
+    return s.runningSubprocesses.has(subprocessKey(workspaceId, tabId));
+  });
+  const legacyActivity = useDataState((s) =>
+    workspaceId ? s.activity[activityKey(workspaceId, tabId)] : undefined,
+  );
+  const subprocessActive = showChatV2
+    ? phase24OpenForTab
+    : legacyActivity?.state === "working" ||
+      legacyActivity?.state === "awaiting_approval";
+
+  // Per-tab queued message body (Phase 24 §5.4). Stored in appStore +
+  // localStorage; auto-dispatch handler in WorkspaceThread consumes
+  // it on the working→idle transition.
+  const queuedMessage = useAppState((s) =>
+    tabId ? s.queuedMessageByTab[tabId] : undefined,
+  );
   const [model, setModel] = useState<ComposeModel>("opus-4.7");
   const [effort, setEffort] = useState<ComposeEffort>("medium");
   const [planMode, setPlanMode] = useState(false);
@@ -136,6 +186,50 @@ export const ComposeDock = forwardRef<
     setAttachments([]);
   };
 
+  // Phase 24 §5.4 — queue the current draft as the per-tab pending
+  // message. Auto-dispatched by WorkspaceThread's working→idle
+  // transition effect. Queue holds text only for v1; attachments stay
+  // attached to the live composer until dispatch (q1 deferral —
+  // attachment-while-streaming is rare enough that text-only queue is
+  // the right v1 cut).
+  const queueDraft = () => {
+    if (!tabId) {
+      // No tabId → fallback to send (off-thread callers, smoke tests).
+      send();
+      return;
+    }
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    setQueuedMessage(tabId, trimmed);
+    setDraft("");
+  };
+
+  // Phase 24 §5.4 — stop-and-send: dispatch cmd_interrupt_turn against
+  // the active subprocess, queue the message, and let the auto-dispatch
+  // effect fire it when AgentTurnEnded { Interrupted } arrives. Same
+  // queue mechanism as the default ⏎ path; the only difference is the
+  // interrupt RPC that accelerates the turn-end transition.
+  const stopAndSend = async () => {
+    if (!tabId || !workspaceId) {
+      send();
+      return;
+    }
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    setQueuedMessage(tabId, trimmed);
+    setDraft("");
+    try {
+      await ipcClient().interruptTurn(workspaceId, tabId);
+    } catch {
+      // Interrupt-RPC failures are silent — the queue still holds the
+      // message and will dispatch when the turn ends naturally
+      // (matching the legacy interruptTurn translator that turns
+      // ChannelClosed / TeamNotFound into Ok(()) for race-with-end).
+    }
+  };
+
+  const isSubprocessRunning = !!subprocessActive && !busy;
+
   return (
     <form
       className="compose"
@@ -146,7 +240,16 @@ export const ComposeDock = forwardRef<
       aria-busy={busy || undefined}
       onSubmit={(e) => {
         e.preventDefault();
-        send();
+        // Pivot on subprocess state — same logic as the textarea
+        // onKeyDown so clicking Send and pressing ⏎ behave
+        // identically. When running, the "Send" label has been
+        // swapped to "Queue" and SendMenu is mounted; clicking the
+        // button defaults to queue, not send.
+        if (isSubprocessRunning) {
+          queueDraft();
+        } else {
+          send();
+        }
       }}
       onDragEnter={(e) => {
         e.preventDefault();
@@ -168,6 +271,26 @@ export const ComposeDock = forwardRef<
     >
       {workspaceId && (
         <ComposeDockActivityRow workspaceId={workspaceId} tabId={tabId} />
+      )}
+
+      {tabId && queuedMessage && (
+        <div
+          className="compose__queued"
+          role="status"
+          aria-live="polite"
+          data-component="QueuedMessageChip"
+        >
+          <span className="compose__queued-prefix">Queued —</span>
+          <span className="compose__queued-text">{queuedMessage}</span>
+          <IconButton
+            size="sm"
+            label="Discard queued message"
+            className="compose__queued-cancel"
+            onClick={() => clearQueuedMessage(tabId)}
+          >
+            <IconX />
+          </IconButton>
+        </div>
       )}
 
       {attachments.length > 0 && (
@@ -198,19 +321,37 @@ export const ComposeDock = forwardRef<
           placeholder={
             dragging
               ? "Drop files to attach…"
-              : placeholder ?? "Say something to the team…"
+              : (placeholder ?? "Say something to the team…")
           }
           rows={3}
           onKeyDown={(e) => {
-            // Enter sends; Shift+Enter inserts a newline. ⌘/Ctrl+Enter
-            // is preserved as an alias so the muscle memory shown in
-            // the help dialog still works.
+            // Phase 24 §5.4 — Enter behavior depends on subprocess
+            // state for the focused tab:
+            //
+            //   subprocess idle:    ⏎    send immediately
+            //   subprocess running: ⏎    queue (auto-dispatch on
+            //                            AgentTurnEnded)
+            //   subprocess running: ⌘⏎   stop-and-send (interrupt
+            //                            then queue → auto-dispatch
+            //                            on AgentTurnEnded{Interrupted})
+            //   any:                ⇧⏎   newline (textarea default)
+            //
+            // ⌘⏎ when idle collapses to "send immediately" — same as
+            // ⏎ — so muscle memory survives.
             if (e.key !== "Enter") return;
             if (e.shiftKey) return;
-            // Don't intercept the IME composition's confirmation Enter.
             if (e.nativeEvent.isComposing) return;
+            const stopAndSendChord = e.metaKey || e.ctrlKey;
             e.preventDefault();
-            send();
+            if (isSubprocessRunning) {
+              if (stopAndSendChord) {
+                void stopAndSend();
+              } else {
+                queueDraft();
+              }
+            } else {
+              send();
+            }
           }}
           aria-label="Message"
         />
@@ -262,16 +403,34 @@ export const ComposeDock = forwardRef<
           <IconButton label="Dictation — coming soon" disabled>
             <IconMic />
           </IconButton>
-          <IconButton
-            type="submit"
-            label={busy ? "Sending…" : "Send"}
-            shortcut="↵"
-            className="btn-icon--primary"
-            disabled={busy}
-            aria-busy={busy || undefined}
-          >
-            <IconSend />
-          </IconButton>
+          {isSubprocessRunning ? (
+            <SendMenu
+              onQueue={queueDraft}
+              onStopAndSend={() => void stopAndSend()}
+            >
+              <IconButton
+                type="submit"
+                label="Queue (sends after this response)"
+                shortcut="↵"
+                className="btn-icon--primary"
+                disabled={busy}
+                aria-busy={busy || undefined}
+              >
+                <IconSend />
+              </IconButton>
+            </SendMenu>
+          ) : (
+            <IconButton
+              type="submit"
+              label={busy ? "Sending…" : "Send"}
+              shortcut="↵"
+              className="btn-icon--primary"
+              disabled={busy}
+              aria-busy={busy || undefined}
+            >
+              <IconSend />
+            </IconButton>
+          )}
         </div>
       </div>
     </form>

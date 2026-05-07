@@ -86,7 +86,11 @@ const queuedMessagesStore = persisted<Record<TabId, string>>(
   (raw) => {
     try {
       const parsed = JSON.parse(raw);
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
         return undefined;
       }
       // Coerce values to strings; drop entries with non-string values.
@@ -195,14 +199,16 @@ export const appStore = createStore<AppState>({
   noticedLastViewedSeq: 0,
 });
 
-export const useAppState = <U,>(selector: (s: AppState) => U) =>
+export const useAppState = <U>(selector: (s: AppState) => U) =>
   useStore(appStore, selector);
 
 // Actions ------------------------------------------------------------------
 
 export const selectProject = (id: ProjectId | null) =>
   appStore.set((s) =>
-    s.activeProject === id && s.activeWorkspace === null && s.activeView === "home"
+    s.activeProject === id &&
+    s.activeWorkspace === null &&
+    s.activeView === "home"
       ? s
       : { ...s, activeProject: id, activeWorkspace: null, activeView: "home" },
   );
@@ -241,7 +247,10 @@ export const selectTab = (workspaceId: WorkspaceId, tabId: TabId) =>
       ? s
       : {
           ...s,
-          activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceId]: tabId },
+          activeTabByWorkspace: {
+            ...s.activeTabByWorkspace,
+            [workspaceId]: tabId,
+          },
         },
   );
 
@@ -322,7 +331,9 @@ export const toggleQuickSwitcher = (open?: boolean) =>
   });
 
 export const setFollowingAgent = (id: string | null) =>
-  appStore.set((s) => (s.followingAgent === id ? s : { ...s, followingAgent: id }));
+  appStore.set((s) =>
+    s.followingAgent === id ? s : { ...s, followingAgent: id },
+  );
 
 export const toggleInbox = (open?: boolean) =>
   appStore.set((s) => {
@@ -333,7 +344,9 @@ export const toggleInbox = (open?: boolean) =>
 export const toggleProjectStrip = (visible?: boolean) =>
   appStore.set((s) => {
     const next = visible ?? !s.projectStripVisible;
-    return s.projectStripVisible === next ? s : { ...s, projectStripVisible: next };
+    return s.projectStripVisible === next
+      ? s
+      : { ...s, projectStripVisible: next };
   });
 
 export const setAutonomyOverride = (projectId: ProjectId, level: Autonomy) =>
@@ -375,7 +388,9 @@ export const toggleSpine = (visible?: boolean) => {
 /** Called during drag — updates in-memory width only, does not persist. */
 export const setSidebarWidthLive = (width: number) => {
   const clamped = clampPaneWidth(width);
-  appStore.set((s) => (s.sidebarWidth === clamped ? s : { ...s, sidebarWidth: clamped }));
+  appStore.set((s) =>
+    s.sidebarWidth === clamped ? s : { ...s, sidebarWidth: clamped },
+  );
 };
 
 /** Called on pointer-up — flushes the latest width to localStorage. */
@@ -385,7 +400,9 @@ export const commitSidebarWidth = () => {
 
 export const setSpineWidthLive = (width: number) => {
   const clamped = clampPaneWidth(width);
-  appStore.set((s) => (s.spineWidth === clamped ? s : { ...s, spineWidth: clamped }));
+  appStore.set((s) =>
+    s.spineWidth === clamped ? s : { ...s, spineWidth: clamped },
+  );
 };
 
 export const commitSpineWidth = () => {

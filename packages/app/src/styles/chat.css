@@ -22,11 +22,16 @@
 }
 
 @keyframes blink {
-  50% { opacity: 0; }
+  50% {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .streaming-cursor { animation: none; opacity: 1; }
+  .streaming-cursor {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* --- Phase 23.B: per-tab activity row + tab-strip badge ----------------
@@ -60,10 +65,12 @@
   height: var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--accent-9);
-  animation: compose-dock-activity-pulse var(--motion-pulse) ease-in-out infinite;
+  animation: compose-dock-activity-pulse var(--motion-pulse) ease-in-out
+    infinite;
 }
 
-.compose-dock-activity-row[data-state="awaiting_approval"] .compose-dock-activity-row__pulse {
+.compose-dock-activity-row[data-state="awaiting_approval"]
+  .compose-dock-activity-row__pulse {
   background: var(--warning-9);
 }
 
@@ -113,13 +120,24 @@
 }
 
 @keyframes compose-dock-activity-pulse {
-  0%   { opacity: 0.45; transform: scale(0.85); }
-  50%  { opacity: 1;    transform: scale(1.05); }
-  100% { opacity: 0.45; transform: scale(0.85); }
+  0% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .compose-dock-activity-row__pulse { animation: none; }
+  .compose-dock-activity-row__pulse {
+    animation: none;
+  }
 }
 
 /* Tab-strip badge: solid dot inside the tab button label, only painted
@@ -142,9 +160,122 @@
 }
 
 .tab-button__activity-badge[data-state="working"] {
-  animation: compose-dock-activity-pulse var(--motion-pulse) ease-in-out infinite;
+  animation: compose-dock-activity-pulse var(--motion-pulse) ease-in-out
+    infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tab-button__activity-badge { animation: none; }
+  .tab-button__activity-badge {
+    animation: none;
+  }
+}
+
+/* Phase 24 §5.4 — queued-message chip above the composer textarea.
+   Renders when appStore.queuedMessageByTab[tabId] is non-empty. The
+   user can dismiss via the trailing × button (also Esc while focused
+   in the composer; chain in §5.4.1). */
+.compose__queued {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  background: var(--color-surface-muted, var(--color-surface-sunken));
+  border: var(--border-thin) solid var(--color-border-soft);
+  border-radius: var(--radius-button);
+  color: var(--color-foreground-muted, var(--color-muted));
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+}
+
+.compose__queued-prefix {
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+  flex-shrink: 0;
+}
+
+.compose__queued-text {
+  font-size: var(--type-body-size);
+  color: var(--color-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.compose__queued-cancel {
+  flex-shrink: 0;
+}
+
+/* Phase 24 §5.4 — hover/focus-revealed Send menu. Anchored above the
+   Send button by SendMenu.tsx; renders in a fixed-position layer so
+   overflow ancestors don't clip. Reduced-motion collapses the fade. */
+.send-menu {
+  background: var(--color-surface-raised);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-button);
+  box-shadow: var(--elevation-overlay, 0 8px 24px rgba(0, 0, 0, 0.18));
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 14rem;
+  z-index: var(--layer-overlay, 1000);
+  animation: send-menu-in var(--motion-quick) ease-out;
+}
+
+@keyframes send-menu-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .send-menu {
+    animation: none;
+  }
+}
+
+.send-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-button);
+  color: var(--color-foreground);
+  font-size: var(--type-body-size);
+  text-align: left;
+  cursor: pointer;
+}
+
+.send-menu__item:hover,
+.send-menu__item:focus-visible {
+  background: var(--color-surface-hover, var(--color-surface-raised));
+  outline: none;
+}
+
+.send-menu__item:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: calc(-1 * var(--focus-outline-width));
+}
+
+.send-menu__label {
+  flex: 1 1 auto;
+}
+
+.send-menu__kbd {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-muted);
+  background: var(--color-surface-sunken);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-badge);
+  flex-shrink: 0;
 }
