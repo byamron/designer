@@ -13,6 +13,70 @@ Before starting any work (~1 minute):
 3. **Spot-check the spec** — if relying on an architectural or UX claim, verify it against `spec.md`, not memory.
 4. **Pick your primary agent** — see agent table below.
 
+## Build cycle (per CLAUDE.md §How-to-Work item 7)
+
+Every PR follows this five-step sequence. The earlier the loop catches an issue, the cheaper it is to fix; reviewer-agent budget is reserved for what mechanical checks and self-review can't catch.
+
+### Step 1 — Plan
+
+Open the spec section the PR implements. Could be:
+- A `core-docs/<phase>.md` file (e.g. `phase-24-pass-through-chat.md` §5.4).
+- An ADR (e.g. `core-docs/adr/0009-trustworthy-shipping.md` §1.B).
+- A roadmap sub-bullet (`core-docs/roadmap.md` § Phase 24H).
+
+For each numbered/bulleted requirement in the section:
+- [ ] Identify the user-perceptible behaviour the requirement names.
+- [ ] Decide what test pins it (test-first for spec contracts).
+- [ ] Note any deferrals — file in `roadmap.md` / `parking-lot.md` per item 6 BEFORE writing code, so the plan is honest about scope.
+
+If the spec section says *"announce X via aria-live"* / *"render in dark mode"* / *"persist across reloads"* / *"keyboard path Y"* / etc., each of these is a checkbox. Don't implement from memory.
+
+### Step 2 — Implement
+
+Write code + tests for each checkbox. When in doubt about behaviour, walk back to the spec — don't improvise.
+
+For each checkbox, before checking it off:
+- [ ] The code that satisfies the requirement points to a test that asserts on it.
+- [ ] No requirement was silently dropped.
+
+### Step 3 — Self-review
+
+BEFORE invoking `/staff-review`:
+
+```sh
+# Mechanical preflight (sub-second).
+node tools/preflight/check.mjs
+
+# Mini invariants + manifest.
+node tools/invariants/check.mjs packages/app/src
+node tools/manifest/check.mjs
+
+# Local quality gates.
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+npm --workspace @designer/app run typecheck
+npm --workspace @designer/app run test -- --run
+```
+
+All must pass. Then walk the spec section line-by-line against the code; check every box from Step 1. If a requirement is missing, decide: implement now, or file per item 6.
+
+Concrete patterns to scan for (failure-pattern memory in `~/.claude/projects/.../memory/feedback_*.md`):
+- **CSS tokens**: every `var(--name)` resolves to a real definition (preflight checks this; manifest's `tokens_referenced` must list real tokens, not fallback heads).
+- **`aria-live` announcements**: when spec says "announce X", the live region + dispatch + cleanup all need to land. The chip's own `aria-live` doesn't fire on chip *removal*.
+- **Doc-comment orphans**: re-run `cargo clippy` after every merge resolution; doc blocks can end up separated from their impl.
+- **Test-first contracts**: every "must X" / "shall Y" requirement should have a test pinning it.
+
+### Step 4 — Staff-review
+
+Invoke `/staff-review` only when self-review is clean. The skill's Step 0 will verify preflight + spec-walk are done; agents focus on subtler issues, not the obvious ones. Findings classified BLOCKER / NIT / FOLLOW-UP and triaged per item 6.
+
+### Step 5 — Merge
+
+Only after staff-review concludes the PR is ready and all gates are green. Per ADR 0009, every release tag also ships a checked-in golden-path screencast bound to a Playwright test (Phase 26H).
+
+---
+
 ## Current Stage
 
 Pre-implementation. Work is primarily docs, decisions, and the de-risk spike. Standard agent workflow starts at Phase 1 per `roadmap.md`.
