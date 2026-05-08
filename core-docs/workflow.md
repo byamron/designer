@@ -13,7 +13,11 @@ Before starting any work (~1 minute):
 3. **Spot-check the spec** — if relying on an architectural or UX claim, verify it against `spec.md`, not memory.
 4. **Pick your primary agent** — see agent table below.
 
-## Build cycle (per CLAUDE.md §How-to-Work item 7)
+## This document is living
+
+`workflow.md` evolves with how the work actually flows. When a step becomes friction without value, prune it. When a missed pattern would have been caught by a tighter checklist, tighten it. When the build cycle below stops matching reality, edit the cycle. Same applies to `CLAUDE.md`, the skills, the preflight script, and the failure-pattern memory entries — see CLAUDE.md §How-to-Work item 7. The framework is in service of high-quality output; a stale framework is a tax on every PR that runs through it.
+
+## Build cycle (per CLAUDE.md §How-to-Work item 8)
 
 Every PR follows this five-step sequence. The earlier the loop catches an issue, the cheaper it is to fix; reviewer-agent budget is reserved for what mechanical checks and self-review can't catch.
 

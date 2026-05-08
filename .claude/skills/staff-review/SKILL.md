@@ -5,6 +5,8 @@ description: Reviews Designer changes from three parallel staff-level perspectiv
 
 # Staff review
 
+> **This skill is living.** When a class of issue keeps slipping past the three perspectives — when reviewers miss the same kind of bug twice, when a Step 0 check is missing, when a per-perspective prompt could be sharper — update the skill. Add a check to Step 0 / 4.5, sharpen a perspective's "specifically asks" list, file a new failure-pattern memory entry. The skill is part of the deliverable, not separate. Per CLAUDE.md §How-to-Work item 7.
+
 Designer changes are ready for review. Run three independent reviews **in parallel**, each from a distinct staff-level lens, then triage and fix the findings before human review. The skill works in three modes depending on git state:
 
 - **PR mode** — a PR is open against the current branch. Review the PR's diff; on success, update the PR body and leave it open for the human reviewer.

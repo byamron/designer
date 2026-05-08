@@ -32,6 +32,15 @@
 // Failure-pattern memory entries informed these checks. Add new
 // checks here when a new pattern surfaces; the cost is one function
 // + one entry in the runner below.
+//
+// This script is living — extend it. Per CLAUDE.md §How-to-Work
+// item 7, when /staff-review catches a class of issue that could
+// have been caught mechanically, the right move is a new preflight
+// check (cheap, fast, repeatable) plus a memory entry (so the
+// pattern is named) — not a one-off fix and a hope it won't recur.
+// The cost of growing this file is one function; the cost of
+// running on a stale preflight is every BLOCKER it would have
+// caught.
 
 import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
