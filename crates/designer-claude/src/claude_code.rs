@@ -497,28 +497,66 @@ impl<S: EventStore + 'static> Orchestrator for ClaudeCodeOrchestrator<S> {
     }
 
     async fn interrupt(&self, workspace_id: WorkspaceId, tab_id: TabId) -> OrchestratorResult<()> {
-        let (tx, child_pid) = {
+        // Phase 24 §5.4.2 — SIGINT-via-libc::kill is the production
+        // interrupt mechanism. The PR #117 spike (SIGINT-SPIKE.md)
+        // verified this against real claude: SIGINT cleanly interrupts
+        // a streaming turn, claude flushes the partial assistant
+        // envelope, emits a `[Request interrupted by user]` line + a
+        // `result/error_during_execution` envelope (translator
+        // synthesizes `AgentTurnEnded { Interrupted }` per ADR 0008),
+        // then exits with code 0. The legacy in-band path (writing a
+        // `control_request` envelope over stdin) requires the writer
+        // task to be alive, which is exactly the case where interrupt
+        // is most needed (a wedged subprocess). SIGINT works
+        // regardless.
+        let child_pid = {
             let teams = self.teams.lock();
             let handle = teams.get(&(workspace_id, tab_id)).ok_or_else(|| {
                 OrchestratorError::TeamNotFound(format!("{workspace_id}/{tab_id}"))
             })?;
-            (handle.stdin_tx.clone(), handle.child_pid)
+            handle.child_pid
         };
-        let line = interrupt_request_line()?;
-        debug!(
-            workspace = %workspace_id, tab = %tab_id, pid = ?child_pid,
-            "interrupt: sending control_request to claude stdin"
-        );
-        tx.send(line).await.map_err(|_| {
-            warn!(
-                workspace = %workspace_id, tab = %tab_id, pid = ?child_pid,
-                "interrupt: stdin channel closed (writer task exited)"
+        let Some(pid) = child_pid else {
+            // Race: spawn-in-progress, child handle landed in the map
+            // but `Child::id()` returned None (pre-spawn) or the child
+            // already exited and the slot is being torn down. Treat as
+            // a non-error — there's nothing to interrupt.
+            debug!(
+                workspace = %workspace_id, tab = %tab_id,
+                "interrupt: no child_pid yet (race with spawn / exit); skipping"
             );
-            OrchestratorError::ChannelClosed {
-                workspace_id,
-                tab_id,
-            }
-        })?;
+            return Ok(());
+        };
+        // SAFETY: `libc::kill` with SIGINT is signal-safe and operates
+        // on the kernel-level process table; sending to a stale pid
+        // returns ESRCH (handled below). The pid was captured at spawn
+        // time and lives in the orchestrator's mutex-protected map; if
+        // the child has exited and a new process happened to inherit
+        // the same pid (~32k-namespace wraparound), we'd interrupt the
+        // wrong process — extremely rare on macOS where pids don't
+        // reuse aggressively, and even if it happens the wrong process
+        // is overwhelmingly likely to ignore SIGINT or already be
+        // dead. Acceptable v1 risk.
+        let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGINT) };
+        if rc != 0 {
+            // ESRCH = no such process (already exited). Other errors
+            // (EPERM, EINVAL) are surprising on a child we spawned;
+            // log + return Ok so the caller treats interrupt-against-
+            // dead-subprocess as benign (matches the spec §5.4.2 race
+            // semantics: "Interrupt-RPC failures are silent — the
+            // queue still holds the message and will dispatch when
+            // the turn ends naturally").
+            let errno = std::io::Error::last_os_error();
+            warn!(
+                workspace = %workspace_id, tab = %tab_id, pid = pid, error = %errno,
+                "interrupt: libc::kill(SIGINT) failed; subprocess may already be exiting"
+            );
+            return Ok(());
+        }
+        debug!(
+            workspace = %workspace_id, tab = %tab_id, pid = pid,
+            "interrupt: SIGINT delivered to claude subprocess"
+        );
         Ok(())
     }
 
@@ -893,23 +931,15 @@ fn user_message_line(prompt: &str) -> OrchestratorResult<Vec<u8>> {
     Ok(bytes)
 }
 
-/// Phase 23.F — `control_request` envelope for the `interrupt` subtype on
-/// the stream-json wire. Tells claude to abort the current turn cleanly,
-/// leaving the session alive. The matching `result` (or reader-EOF) line
-/// flows through the translator's existing arms and lands as
-/// `ActivityChanged{Idle}` — no extra plumbing required here. `request_id`
-/// is generated fresh per interrupt; we don't correlate a response, so any
-/// uniqueness scheme works.
-fn interrupt_request_line() -> OrchestratorResult<Vec<u8>> {
-    let obj = json!({
-        "type": "control_request",
-        "request_id": Uuid::new_v4().to_string(),
-        "request": { "subtype": "interrupt" },
-    });
-    let mut bytes = serde_json::to_vec(&obj)?;
-    bytes.push(b'\n');
-    Ok(bytes)
-}
+// Phase 24 §5.4.2 — the in-band `control_request` interrupt mechanism
+// (Phase 23.F precedent) was replaced by libc::kill(pid, SIGINT) per
+// the PR #117 spike findings. SIGINT works regardless of writer-task
+// state (the wedged-subprocess case is exactly when interrupt is most
+// needed); control_request required stdin to be writable. The
+// `interrupt_request_line` builder + its test were removed alongside
+// the orchestrator's stdin-write call. If a future protocol needs a
+// fallback path (the spike's "if SIGINT is denied" edge case), the
+// helper can be reconstructed from the spike binary's source.
 
 #[cfg(test)]
 mod tests {
@@ -996,18 +1026,6 @@ mod tests {
         assert_eq!(parsed["type"], "user");
         assert_eq!(parsed["message"]["role"], "user");
         assert_eq!(parsed["message"]["content"], "hi");
-    }
-
-    #[test]
-    fn interrupt_request_line_is_newline_terminated_control_request() {
-        let line = interrupt_request_line().unwrap();
-        let s = std::str::from_utf8(&line).unwrap();
-        assert!(s.ends_with('\n'));
-        let parsed: serde_json::Value = serde_json::from_str(s.trim()).unwrap();
-        assert_eq!(parsed["type"], "control_request");
-        assert_eq!(parsed["request"]["subtype"], "interrupt");
-        let id = parsed["request_id"].as_str().expect("request_id present");
-        assert!(!id.is_empty());
     }
 
     #[test]

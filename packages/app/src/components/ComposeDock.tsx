@@ -325,6 +325,40 @@ export const ComposeDock = forwardRef<
           }
           rows={3}
           onKeyDown={(e) => {
+            // Phase 24 §5.4.1 — Esc priority chain (composer-focused
+            // rules 4 + 5; rules 1–3 are owned by upstream modal /
+            // tooltip / friction-selection surfaces and consume Esc
+            // before it reaches us). Order:
+            //
+            //   queue exists for this tab → discard queue (rule 4)
+            //   subprocess running         → SIGINT interrupt (rule 5)
+            //   otherwise                  → no-op
+            //
+            // Queue takes precedence over interrupt: if the user has
+            // already typed a follow-up they're reconsidering, Esc
+            // discards that text first; a second Esc then interrupts
+            // the running turn.
+            if (e.key === "Escape") {
+              if (e.nativeEvent.isComposing) return;
+              if (tabId && queuedMessage) {
+                e.preventDefault();
+                clearQueuedMessage(tabId);
+                return;
+              }
+              if (isSubprocessRunning && tabId && workspaceId) {
+                e.preventDefault();
+                void ipcClient()
+                  .interruptTurn(workspaceId, tabId)
+                  .catch(() => {
+                    // Silent — same race semantics as stop-and-send;
+                    // if the interrupt RPC fails, the turn ends
+                    // naturally and any queued message dispatches via
+                    // the WorkspaceThread auto-dispatch effect.
+                  });
+                return;
+              }
+              return;
+            }
             // Phase 24 §5.4 — Enter behavior depends on subprocess
             // state for the focused tab:
             //
