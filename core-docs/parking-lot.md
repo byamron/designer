@@ -118,6 +118,28 @@ See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract 
 
 ---
 
+### Compose queue — attachment + meta queueing (currently text-only)
+
+- **Deferred:** 2026-05-07
+- **Reason:** PR #124 (Phase 24 §5.4) ships per-tab queueing of message text only. If a user has files attached and presses ⏎ during a streaming turn, the text queues but attachments stay attached to the live composer (not bundled with the queued message). Auto-dispatch fires text-only — the attachments would dispatch on the *next* user send if they're still attached. Acceptable v1 cut: dogfood typically queues text-only follow-ups during streaming; attachment-while-streaming is rare. If it's not, the queue shape extends to `QueuedMessage = { text, attachments, meta }` with corresponding localStorage migration.
+- **Primary trigger:** ≥2 friction reports about attachments disappearing or behaving unexpectedly when used with the queue, OR an explicit user ask for "queue my attachments too."
+- **Time fallback:** Reassess after Phase 27 ships.
+- **Source:** PR #124 implementation deferral (documented in spec §5.4 + commit message).
+- **Unhide path:** Promote to active sequence; extend `setQueuedMessage` shape; bump localStorage decode/encode to handle the richer payload (additive — old string entries decode as `{ text, attachments: [], meta: defaults }`); update auto-dispatch handler in `WorkspaceThread.tsx` to pass attachments + meta through.
+
+---
+
+### Compose queue — out-of-active-tab auto-dispatch
+
+- **Deferred:** 2026-05-07
+- **Reason:** PR #124's auto-dispatch effect lives in `WorkspaceThread.tsx` and fires only for the focused tab. If the user queues a message on tab A, switches to tab B, and tab A's turn ends while inactive, the queue persists but doesn't auto-fire. The user sees the chip when they switch back to A and can manually re-send. Acceptable v1 cut: cross-tab streaming awareness is a different feature (per-tab Claude subprocess from Phase 23.E means each tab finishes independently, and the user is typically watching the tab they care about). If dogfood surfaces it, a global watcher (App-level effect against `appStore.queuedMessageByTab` × `dataStore.activity`) dispatches across all tabs.
+- **Primary trigger:** ≥2 friction reports about queues "not firing" on inactive tabs, OR the user explicitly asks for cross-tab queue auto-dispatch.
+- **Time fallback:** Reassess after Phase 27 ships.
+- **Source:** PR #124 implementation deferral (documented in `WorkspaceThread.tsx` effect comment + spec §5.4 multi-tab subsection).
+- **Unhide path:** Move the auto-dispatch effect from `WorkspaceThread.tsx` to a global `useQueueAutoDispatch()` hook mounted in `App.tsx`. Iterate `queuedMessageByTab`; for each, look up the workspace via `dataStore.workspaces`, watch the activity slice, dispatch on transition. Consideration: `cmd_post_message` needs both `workspace_id` and `tab_id` — either change `queuedMessageByTab` to `{ workspace_id, text }` shape, or look up workspace from tab via the workspace tree.
+
+---
+
 ### `InterruptedMarker` — distinguish synthesis from user-triggered interrupt
 
 - **Deferred:** 2026-05-06

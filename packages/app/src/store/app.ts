@@ -76,6 +76,36 @@ const spineWidthStore = persisted<number>(
   intDecoder(clampPaneWidth),
 );
 
+// Phase 24 §5.4 — per-tab queued message persistence. Survives app
+// reloads; in-session live-state lives on `appStore.queuedMessageByTab`.
+// Single key + JSON-serialized map keeps quota small and cleanup
+// trivial; per-tab keys would scatter and never get reaped.
+const queuedMessagesStore = persisted<Record<TabId, string>>(
+  "designer.composer.queuedMessageByTab",
+  {},
+  (raw) => {
+    try {
+      const parsed = JSON.parse(raw);
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return undefined;
+      }
+      // Coerce values to strings; drop entries with non-string values.
+      const out: Record<TabId, string> = {};
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof v === "string" && v.length > 0) out[k as TabId] = v;
+      }
+      return out;
+    } catch {
+      return undefined;
+    }
+  },
+  (value) => JSON.stringify(value),
+);
+
 export interface AppState {
   activeProject: ProjectId | null;
   activeWorkspace: WorkspaceId | null;
@@ -100,6 +130,14 @@ export interface AppState {
    * tab-switch flash friction report.
    */
   tabStartedById: Record<TabId, boolean>;
+  /**
+   * Phase 24 §5.4 — per-tab queued message body. Populated when the user
+   * sends while a turn is open in that tab; auto-dispatched when the
+   * turn ends. Persisted to localStorage so a reload preserves it
+   * (per spec §5.4 "Reloading the app preserves it"). Empty string is
+   * never stored — clearing always deletes the key.
+   */
+  queuedMessageByTab: Record<TabId, string>;
   quickSwitcherOpen: boolean;
   followingAgent: string | null;
   inboxOpen: boolean;
@@ -144,6 +182,7 @@ export const appStore = createStore<AppState>({
   activeTabByWorkspace: {},
   composerDraftByTab: {},
   tabStartedById: {},
+  queuedMessageByTab: queuedMessagesStore.read(),
   quickSwitcherOpen: false,
   followingAgent: null,
   inboxOpen: false,
@@ -160,14 +199,16 @@ export const appStore = createStore<AppState>({
   noticedLastViewedSeq: 0,
 });
 
-export const useAppState = <U,>(selector: (s: AppState) => U) =>
+export const useAppState = <U>(selector: (s: AppState) => U) =>
   useStore(appStore, selector);
 
 // Actions ------------------------------------------------------------------
 
 export const selectProject = (id: ProjectId | null) =>
   appStore.set((s) =>
-    s.activeProject === id && s.activeWorkspace === null && s.activeView === "home"
+    s.activeProject === id &&
+    s.activeWorkspace === null &&
+    s.activeView === "home"
       ? s
       : { ...s, activeProject: id, activeWorkspace: null, activeView: "home" },
   );
@@ -206,7 +247,10 @@ export const selectTab = (workspaceId: WorkspaceId, tabId: TabId) =>
       ? s
       : {
           ...s,
-          activeTabByWorkspace: { ...s.activeTabByWorkspace, [workspaceId]: tabId },
+          activeTabByWorkspace: {
+            ...s.activeTabByWorkspace,
+            [workspaceId]: tabId,
+          },
         },
   );
 
@@ -224,6 +268,30 @@ export const setTabDraft = (tabId: TabId, text: string) =>
     }
     return { ...s, composerDraftByTab: next };
   });
+
+/** Phase 24 §5.4 — set the queued message for a tab (the message the
+ *  user submitted via ⏎ or ⌘⏎ while a turn was open). Empty / whitespace
+ *  text deletes the entry. Syncs to localStorage on every mutation so a
+ *  reload preserves the queue. */
+export const setQueuedMessage = (tabId: TabId, text: string) =>
+  appStore.set((s) => {
+    const trimmed = text.trim();
+    const current = s.queuedMessageByTab[tabId] ?? "";
+    if (current === trimmed) return s;
+    const next = { ...s.queuedMessageByTab };
+    if (trimmed.length === 0) {
+      delete next[tabId];
+    } else {
+      next[tabId] = trimmed;
+    }
+    queuedMessagesStore.write(next);
+    return { ...s, queuedMessageByTab: next };
+  });
+
+/** Phase 24 §5.4 — clear the queued message for a tab. Convenience
+ *  wrapper around `setQueuedMessage(tabId, "")` that reads cleaner at
+ *  callsites (cancel button, dispatch-success). Idempotent. */
+export const clearQueuedMessage = (tabId: TabId) => setQueuedMessage(tabId, "");
 
 /** Mark a tab as "the user has started a conversation here." Causes
  *  WorkspaceThread to render the message thread instead of the
@@ -244,12 +312,16 @@ export const clearTabState = (tabId: TabId) =>
   appStore.set((s) => {
     const hadDraft = tabId in s.composerDraftByTab;
     const hadStarted = tabId in s.tabStartedById;
-    if (!hadDraft && !hadStarted) return s;
+    const hadQueued = tabId in s.queuedMessageByTab;
+    if (!hadDraft && !hadStarted && !hadQueued) return s;
     const composerDraftByTab = { ...s.composerDraftByTab };
     delete composerDraftByTab[tabId];
     const tabStartedById = { ...s.tabStartedById };
     delete tabStartedById[tabId];
-    return { ...s, composerDraftByTab, tabStartedById };
+    const queuedMessageByTab = { ...s.queuedMessageByTab };
+    delete queuedMessageByTab[tabId];
+    if (hadQueued) queuedMessagesStore.write(queuedMessageByTab);
+    return { ...s, composerDraftByTab, tabStartedById, queuedMessageByTab };
   });
 
 export const toggleQuickSwitcher = (open?: boolean) =>
@@ -259,7 +331,9 @@ export const toggleQuickSwitcher = (open?: boolean) =>
   });
 
 export const setFollowingAgent = (id: string | null) =>
-  appStore.set((s) => (s.followingAgent === id ? s : { ...s, followingAgent: id }));
+  appStore.set((s) =>
+    s.followingAgent === id ? s : { ...s, followingAgent: id },
+  );
 
 export const toggleInbox = (open?: boolean) =>
   appStore.set((s) => {
@@ -270,7 +344,9 @@ export const toggleInbox = (open?: boolean) =>
 export const toggleProjectStrip = (visible?: boolean) =>
   appStore.set((s) => {
     const next = visible ?? !s.projectStripVisible;
-    return s.projectStripVisible === next ? s : { ...s, projectStripVisible: next };
+    return s.projectStripVisible === next
+      ? s
+      : { ...s, projectStripVisible: next };
   });
 
 export const setAutonomyOverride = (projectId: ProjectId, level: Autonomy) =>
@@ -312,7 +388,9 @@ export const toggleSpine = (visible?: boolean) => {
 /** Called during drag — updates in-memory width only, does not persist. */
 export const setSidebarWidthLive = (width: number) => {
   const clamped = clampPaneWidth(width);
-  appStore.set((s) => (s.sidebarWidth === clamped ? s : { ...s, sidebarWidth: clamped }));
+  appStore.set((s) =>
+    s.sidebarWidth === clamped ? s : { ...s, sidebarWidth: clamped },
+  );
 };
 
 /** Called on pointer-up — flushes the latest width to localStorage. */
@@ -322,7 +400,9 @@ export const commitSidebarWidth = () => {
 
 export const setSpineWidthLive = (width: number) => {
   const clamped = clampPaneWidth(width);
-  appStore.set((s) => (s.spineWidth === clamped ? s : { ...s, spineWidth: clamped }));
+  appStore.set((s) =>
+    s.spineWidth === clamped ? s : { ...s, spineWidth: clamped },
+  );
 };
 
 export const commitSpineWidth = () => {

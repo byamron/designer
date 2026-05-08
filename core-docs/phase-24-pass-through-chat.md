@@ -176,21 +176,55 @@ Unchanged from 13.G. Approval cards still render inline at the position in the t
 
 ### 5.4 Send-while-streaming
 
-The composer is enabled mid-turn, but submissions are queued, not interleaved. (D6.)
+The composer is enabled mid-turn. Two send modes when a turn is open in the focused tab — **queue** (default) and **stop-and-send** (alternate). Both are reachable from the same Send button via a hover/focus menu; no chevron, no split-button. (D6.)
 
-**Visual treatment.** The queued message renders as a `Cluster` of icon (clock or paper-plane outline) + text, placed **above** the ComposeDock textarea, full-width minus dock padding. Tokens:
+**Mode 1 — Queue (default).** Pressing **⏎** (or clicking Send) while a turn is open puts the message into a per-tab queue. The user's input is preserved verbatim; the running turn streams to completion; on `AgentTurnEnded` (any `stop_reason`, including `Error` and `Interrupted`), the queued message dispatches as a normal user message. Use this when the running response is still useful and you have a follow-up.
+
+**Mode 2 — Stop-and-send (alternate).** Pressing **⌘⏎** (macOS — Ctrl+⏎ on other platforms once relevant) while a turn is open: dispatches `cmd_interrupt_turn` (Phase 23.F primitive — same SIGINT/control_request mechanism Phase 24 §5.4.2 will upgrade), waits for the resulting `AgentTurnEnded { stop_reason: Interrupted }`, then dispatches the message. Use this when the running response is off-track and you want the model to address your new input now.
+
+**Discoverability — hover/focus menu on the Send button.** No visible chevron. When the user hovers the send button OR keyboard-focuses it (focus-visible parity), a small popover anchored above the button reveals after ~200 ms (debounced so cursor passing doesn't flash it):
+
+```
+┌────────────────────────────────┐
+│  Send when done           ⏎    │
+│  Stop and send now        ⌘⏎   │
+└────────────────────────────────┘
+            ▼
+        [Send btn]
+```
+
+Both rows are clickable (`role="menuitem"` inside `role="menu"`); each row shows label + shortcut chord. Default click on the Send button = first row (queue when running, send immediately when idle). Arrow-down moves keyboard focus into the menu; ⏎ activates the focused row; Esc dismisses. Click-outside dismisses.
+
+**When the subprocess is idle in the focused tab,** the menu hides entirely — no choice to surface. The Send button reverts to plain "Send" tooltip. The keyboard chord ⌘⏎ collapses to "send immediately" (same as ⏎); no interrupt step needed.
+
+**Visual treatment of the queued message.** The queued message renders as a `Cluster` of icon (clock or paper-plane outline) + text, placed **above** the ComposeDock textarea, full-width minus dock padding. Tokens:
 - Surface: `--color-surface-muted`.
-- Border: `--color-border-soft`, 1px.
+- Border: `--color-border-soft`, `--border-thin`.
 - Radius: `--radius-button`.
 - Padding: `--space-3` vertical, `--space-4` horizontal.
 - Type: `--type-caption-size` for the "queued" prefix, `--type-body-size` for the message body, `--color-foreground-muted`.
 - Cancel affordance: trailing `IconButton` (×) sized `--target-sm` per axiom #14, label `"Discard queued message"`.
 
+**Visual treatment of the hover menu.** Tokens:
+- Surface: `--color-surface-raised`.
+- Border: `--border-thin solid var(--color-border)`.
+- Radius: `--radius-button`.
+- Padding: `--space-2` block, `--space-3` inline; rows separated by `--space-1`.
+- Type: `--type-body-size` label, `--type-caption-size` shortcut chord (right-aligned, `--color-foreground-muted`).
+- Elevation: `--elevation-overlay`.
+- Reveal motion: opacity 0 → 1 over `--motion-quick`; `prefers-reduced-motion` collapses to instant.
+
 **Multi-tab.** Queue is per-tab, persisted to localStorage keyed `(workspace_id, tab_id)`. Switching tabs preserves both the visible queue (in the active tab) and the dormant queue (in the inactive tab). Closing the tab discards the queue (matches draft-text behavior in the audit). Reloading the app preserves it (replay on boot). (Open question Q1 closed.)
 
-**Dispatch.** On `AgentTurnEnded` (any `stop_reason`, including `Error` and `Interrupted`), the queued message dispatches as a normal user message. A short `aria-live="polite"` announcement: *"Queued message sent."* The chip fades over `--motion-standard`. (Engineer-review NIT 4 closed: dispatch is unconditional; if the prior turn errored, the user can retry by editing in the new turn.)
+**Dispatch.** On `AgentTurnEnded` (any `stop_reason`, including `Error` and `Interrupted`), the queued message dispatches as a normal user message. A short `aria-live="polite"` announcement: *"Queued message sent."* The chip fades over `--motion-standard`. (Engineer-review NIT 4 closed: dispatch is unconditional; if the prior turn errored, the user can retry by editing in the new turn.) Stop-and-send dispatches manually after observing `AgentTurnEnded { Interrupted }`; same code path; the user-facing announcement is *"Stopped and sent."*
 
-**Cancel.** Three paths: click the `×` affordance; press ESC while the composer is focused (only — see §5.4.1 for ESC priority); type more in the composer (replaces the queued message — clear visual transition, queue chip dissolves into the active textarea).
+**Cancel queue.** Three paths: click the `×` affordance; press Esc while the composer is focused (only — see §5.4.1 for Esc priority); type more in the composer (replaces the queued message — clear visual transition, queue chip dissolves into the active textarea).
+
+**Feature flag.** Stop-and-send is gated behind `show_compose_stop_and_send` (default ON when `show_chat_v2` is on, but available as a kill-switch if the alternate flow surfaces issues during dogfood). Queue ships unconditionally inside the chat-v2 surface — it's the must-have default. The flag exists so we can ship Phase 24 with queue and disable stop-and-send if the interrupt round-trip latency is poor against real claude.
+
+**Implementation note.** The hover menu reuses or introduces a small `HoverMenu` Mini primitive (TBD: check `core-docs/component-manifest.json` for an existing fit before generating). The menu mounts in a Portal anchored to the Send button so it can render over the activity row without z-index gymnastics. Click-outside detection uses the existing focus-trap utility from `lib/modal.ts` (already used by `RepoLinkModal`).
+
+**Out of scope for this step:** mobile/touch (Phase 18 parking lot — long-press would replace hover); the §5.4.2 SIGINT mechanism upgrade (orthogonal — stop-and-send works against today's `control_request` primitive and will benefit from §5.4.2 transparently when that lands).
 
 ### 5.4.1 ESC priority chain
 
