@@ -5,6 +5,8 @@ description: Reviews Designer changes from three parallel staff-level perspectiv
 
 # Staff review
 
+> **This skill is living.** When a class of issue keeps slipping past the three perspectives — when reviewers miss the same kind of bug twice, when a Step 0 check is missing, when a per-perspective prompt could be sharper — update the skill in the same PR that surfaces the gap. Add a check to Step 0 / 4.5, sharpen a perspective's "specifically asks" list, file a new failure-pattern memory entry. The skill is held to the same quality bar as the code it reviews. Per CLAUDE.md §How-to-Work item 7.
+
 Designer changes are ready for review. Run three independent reviews **in parallel**, each from a distinct staff-level lens, then triage and fix the findings before human review. The skill works in three modes depending on git state:
 
 - **PR mode** — a PR is open against the current branch. Review the PR's diff; on success, update the PR body and leave it open for the human reviewer.
@@ -74,6 +76,45 @@ If a perspective genuinely has nothing to look at (a pure-Rust IPC-only change h
 
 ## Workflow
 
+### 0. Self-review pass before launching agents (REQUIRED)
+
+> **Do not invoke `/staff-review` until Step 0 is clean.** Invoking reviewer agents against red gates wastes budget on symptoms of problems you haven't fixed yet. Agents focus on subtler issues, not the obvious ones.
+
+Reviewer agents are expensive and have higher latency than mechanical checks. Cheap-but-easy-to-forget issues should be caught before agents run. The skill is not done correctly if obvious failures (undefined CSS tokens, missing manifest entries, orphan PR-body follow-ups, raw `px` literals) reach the agents.
+
+Run, in order:
+
+```sh
+# 1. Mechanical preflight — sub-second; catches what's catchable by grep.
+node tools/preflight/check.mjs
+
+# 2. The Mini invariants + manifest + token rules.
+node tools/invariants/check.mjs packages/app/src
+node tools/manifest/check.mjs
+
+# 3. Local quality gates — same suite CI runs.
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+npm --workspace @designer/app run typecheck
+npm --workspace @designer/app run test -- --run
+```
+
+If any fail: fix locally, re-run, only then proceed. **Do not invoke reviewer agents against red gates** — they'll waste budget reporting symptoms of problems you haven't fixed yet.
+
+Then perform a **spec-walk** — read the spec section line-by-line and, for each numbered/bulleted requirement, point to the line of code that satisfies it. The spec is the contract; memory is not. Procedure:
+
+- Identify the spec section(s) the PR implements (typically a `core-docs/<phase>.md` section, an ADR, or a roadmap sub-bullet).
+- Open it. Read it line by line.
+- For each numbered/bulleted requirement, point to the line of code that satisfies it. If a requirement is absent from the implementation, decide: (a) implement it now, (b) file as a deferral per CLAUDE.md item 6.
+- Common failure modes to scan for explicitly (these have all shipped in past PRs):
+  - **`aria-live` announcements** — when spec says "announce X", the live region + dispatch + cleanup all need to land. The chip's `aria-live` alone is silent on chip *removal*. (See user-memory `feedback_aria_live_for_spec_announcements.md`.)
+  - **Token references** — every `var(--name)` must resolve to a real definition; fallback chains hide undefined tokens silently. The component-manifest's `tokens_referenced` must list tokens that ACTUALLY resolve, not the fallback head. (See user-memory `feedback_verify_tokens.md`.)
+  - **Doc-comment orphans after merge** — `cargo clippy` catches `empty-line-after-doc-comment`; re-run after every merge resolution. (See user-memory `feedback_doc_orphans_after_merge.md`.)
+  - **Test-first for spec contracts** — every "must X" / "shall Y" requirement should have a test that pins it. Working backwards from "what test would have caught the absence of this behaviour?" usually identifies the right shape.
+
+When the spec-walk finds nothing missing AND all gates are green, proceed.
+
 ### 1. Detect mode and pick the diff base
 
 Run these in parallel and pick the first match:
@@ -101,7 +142,20 @@ Reviewers reference both by path so the prompt stays small. (Use `..` instead of
 
 ### 3. Launch the three reviews in parallel
 
-A single tool message with three `Agent` calls, each `subagent_type: Explore`. Each prompt names its lens, the diff path, the changed files, the relevant docs to read (`CLAUDE.md`, `core-docs/spec.md` §5, `core-docs/plan.md` Dogfood Push section, `core-docs/feedback.md`, `core-docs/design-language.md`, `core-docs/component-manifest.json`, and — in PR mode — the PR body for the workstream's stated intent), and asks for findings classified as **BLOCKER / NIT / FOLLOW-UP**. Cap each review at ~1200 words.
+A single tool message with three `Agent` calls, each `subagent_type: Explore`. Each prompt must include:
+
+- **The lens** (engineer / UX / design engineer) and what to hunt for (perspective sections below).
+- **The diff path** (`/tmp/pr-diff.patch`) and the changed-file list (`/tmp/pr-files.txt`).
+- **The relevant spec section** — when the PR implements a specific spec (e.g. Phase 24 §5.4.2), point reviewers at that section explicitly: *"Read `core-docs/phase-24-pass-through-chat.md` §5.4.2 in full; verify every numbered requirement is implemented or filed."* Reviewers find findings against memory of the spec; the more concrete the pointer, the sharper the findings.
+- **Recent-failure callouts.** When the past 1–3 PRs surfaced specific BLOCKER patterns, name them in the prompt so reviewers check them first. Examples that recurred during Phase 24:
+  - "Verify every `var(--…)` token reference in changed CSS resolves to a definition in `packages/ui/styles/tokens.css` / `packages/app/src/styles/app.css` / `packages/app/src/styles/blocks.css`. Fallback chains can paper over undefined tokens; the manifest's `tokens_referenced` must list tokens that actually resolve."
+  - "If the PR adds a state-change UX (queue chip, banner, marker), check whether the spec calls for an `aria-live` announcement on dispatch and verify the announcement is both wired and cleared."
+  - "Spot-check `cargo clippy` against orphaned doc comments after any merge resolution."
+- **PR-claim verification.** If the PR body claims a property (e.g. *"token-only CSS"*, *"no breaking changes"*, *"all 11 tests passing"*), instruct the reviewer to *verify the claim by grepping or running the relevant tool*, not just trust it.
+- **Standard cross-reference docs.** `CLAUDE.md` (Product Principles, How-to-Work item 6, Quality Bar), `core-docs/spec.md` §5 compliance, `core-docs/feedback.md` if relevant, `core-docs/design-language.md` for the design-eng lens, `core-docs/component-manifest.json` for the design-eng lens.
+- **Output format.** Findings classified as **BLOCKER / NIT / FOLLOW-UP**, each with file:line citations and proposed fixes. Cap at ~1200 words per review.
+
+If a perspective genuinely has nothing to look at (a pure-Rust IPC change has no design surface), tell that reviewer to say so explicitly rather than manufacture findings.
 
 ### 4. Triage the findings
 
@@ -111,6 +165,35 @@ A finding is:
 - **FOLLOW-UP** if it's a real issue but expanding scope here is wrong — the right fix belongs to a different workstream / lane, requires a separate ADR, or needs design input. **Prefer doing over filing**: if a follow-up is small enough to land in the same PR without meaningfully expanding scope, just fix it now. Only what genuinely doesn't fit gets filed — and per CLAUDE.md §How-to-Work item 6, filed follow-ups MUST land in `core-docs/roadmap.md` (active section if it gates a current Build/Harden phase) or `core-docs/parking-lot.md` (with a friction-driven primary trigger + time-based fallback per ADR 0009) before the review closes. The PR body cross-references the filed entries; it must not be the only home.
 
 Some reviewer claims will be wrong on closer inspection. Spot-check the highest-impact items against the actual code before fixing or filing — reviewers can be confidently incorrect about subtle code paths.
+
+### 4.5. Post-review grep sweep (REQUIRED)
+
+Three reviewers can collectively miss a class of issue that a focused grep catches in seconds. Before applying any fixes, run a sweep against the patterns below for changed files:
+
+```sh
+# Raw px / hex / ms / z-index in changed CSS (also covered by
+# tools/invariants/check.mjs but explicit is safer):
+node tools/invariants/check.mjs $(cat /tmp/pr-files.txt | grep -E '\.(tsx|css)$')
+
+# Token references that don't resolve (the failure pattern from
+# PR #124 / PR #126):
+node tools/preflight/check.mjs
+
+# tokio::spawn outside Tauri's runtime context (the PR #23 hazard):
+git diff <base>...HEAD | grep -nE '^\+.*tokio::spawn' && echo "  ↑ verify these are inside tauri::async_runtime::spawn or async_trait fn body"
+
+# `unwrap()` / `expect()` in production paths (not test code).
+# NOTE: this filter only excludes integration-test files
+# (`tests/`, `_test.rs`); it does NOT exclude inline `#[cfg(test)]
+# mod tests` blocks within production files. ~30 such blocks exist
+# in the codebase; survivors here MUST be manually audited to
+# determine whether the unwrap/expect is in a test fixture (safe)
+# or production path (BLOCKER). The grep is a starting list, not a
+# verdict.
+git diff <base>...HEAD --name-only | grep -E '\.rs$' | grep -v 'tests/\|/test\|_test\.rs' | xargs grep -nE 'unwrap\(\)|expect\(' 2>/dev/null | head -20
+```
+
+Treat any survivor as a finding the reviewers missed and add it to the BLOCKER / NIT triage from Step 4 *after manually verifying* the hit is in production code, not a test block. The reviewers' summaries are hypotheses; greps surface candidates that still need judgement.
 
 ### 5. Apply blocker + cheap-nit fixes; re-run gates
 
