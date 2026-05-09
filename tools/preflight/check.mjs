@@ -90,6 +90,13 @@ function getDiffText(base) {
 // Check 1 — CSS token references must resolve
 // ---------------------------------------------------------------------------
 
+// Keep in sync with: `grep -rE '^\s+--[a-z]' packages/ui/styles
+// packages/app/src/styles --include="*.css" -l | sort -u`. If a new
+// CSS file starts defining tokens (e.g., a future `core-tokens.css`
+// for shared palette), add it here so the token-resolves check stays
+// honest. Failure mode if missed: a real token defined in the new
+// file would be flagged as undefined by the preflight, surfacing as
+// noise the developer has to triage.
 const TOKEN_DEF_FILES = [
   "packages/ui/styles/tokens.css",
   "packages/app/src/styles/app.css",

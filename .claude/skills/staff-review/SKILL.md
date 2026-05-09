@@ -5,7 +5,7 @@ description: Reviews Designer changes from three parallel staff-level perspectiv
 
 # Staff review
 
-> **This skill is living.** When a class of issue keeps slipping past the three perspectives — when reviewers miss the same kind of bug twice, when a Step 0 check is missing, when a per-perspective prompt could be sharper — update the skill. Add a check to Step 0 / 4.5, sharpen a perspective's "specifically asks" list, file a new failure-pattern memory entry. The skill is part of the deliverable, not separate. Per CLAUDE.md §How-to-Work item 7.
+> **This skill is living.** When a class of issue keeps slipping past the three perspectives — when reviewers miss the same kind of bug twice, when a Step 0 check is missing, when a per-perspective prompt could be sharper — update the skill in the same PR that surfaces the gap. Add a check to Step 0 / 4.5, sharpen a perspective's "specifically asks" list, file a new failure-pattern memory entry. The skill is held to the same quality bar as the code it reviews. Per CLAUDE.md §How-to-Work item 7.
 
 Designer changes are ready for review. Run three independent reviews **in parallel**, each from a distinct staff-level lens, then triage and fix the findings before human review. The skill works in three modes depending on git state:
 
@@ -78,7 +78,9 @@ If a perspective genuinely has nothing to look at (a pure-Rust IPC-only change h
 
 ### 0. Self-review pass before launching agents (REQUIRED)
 
-Reviewer agents are expensive and have higher latency than mechanical checks. Cheap-but-easy-to-forget issues should be caught before agents run, so agents focus on subtler problems. The skill is not done correctly if obvious failures (undefined CSS tokens, missing manifest entries, orphan PR-body follow-ups, raw `px` literals) reach the agents.
+> **Do not invoke `/staff-review` until Step 0 is clean.** Invoking reviewer agents against red gates wastes budget on symptoms of problems you haven't fixed yet. Agents focus on subtler issues, not the obvious ones.
+
+Reviewer agents are expensive and have higher latency than mechanical checks. Cheap-but-easy-to-forget issues should be caught before agents run. The skill is not done correctly if obvious failures (undefined CSS tokens, missing manifest entries, orphan PR-body follow-ups, raw `px` literals) reach the agents.
 
 Run, in order:
 
@@ -100,7 +102,7 @@ npm --workspace @designer/app run test -- --run
 
 If any fail: fix locally, re-run, only then proceed. **Do not invoke reviewer agents against red gates** — they'll waste budget reporting symptoms of problems you haven't fixed yet.
 
-Then perform a **spec-walk**:
+Then perform a **spec-walk** — read the spec section line-by-line and, for each numbered/bulleted requirement, point to the line of code that satisfies it. The spec is the contract; memory is not. Procedure:
 
 - Identify the spec section(s) the PR implements (typically a `core-docs/<phase>.md` section, an ADR, or a roadmap sub-bullet).
 - Open it. Read it line by line.
@@ -180,11 +182,18 @@ node tools/preflight/check.mjs
 # tokio::spawn outside Tauri's runtime context (the PR #23 hazard):
 git diff <base>...HEAD | grep -nE '^\+.*tokio::spawn' && echo "  ↑ verify these are inside tauri::async_runtime::spawn or async_trait fn body"
 
-# `unwrap()` / `expect()` in production paths (not test code):
+# `unwrap()` / `expect()` in production paths (not test code).
+# NOTE: this filter only excludes integration-test files
+# (`tests/`, `_test.rs`); it does NOT exclude inline `#[cfg(test)]
+# mod tests` blocks within production files. ~30 such blocks exist
+# in the codebase; survivors here MUST be manually audited to
+# determine whether the unwrap/expect is in a test fixture (safe)
+# or production path (BLOCKER). The grep is a starting list, not a
+# verdict.
 git diff <base>...HEAD --name-only | grep -E '\.rs$' | grep -v 'tests/\|/test\|_test\.rs' | xargs grep -nE 'unwrap\(\)|expect\(' 2>/dev/null | head -20
 ```
 
-Treat any survivor as a finding the reviewers missed and add it to the BLOCKER / NIT triage from Step 4. The reviewers' summaries are hypotheses; greps are facts.
+Treat any survivor as a finding the reviewers missed and add it to the BLOCKER / NIT triage from Step 4 *after manually verifying* the hit is in production code, not a test block. The reviewers' summaries are hypotheses; greps surface candidates that still need judgement.
 
 ### 5. Apply blocker + cheap-nit fixes; re-run gates
 
