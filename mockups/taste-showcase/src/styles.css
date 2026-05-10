@@ -1,0 +1,233 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--type-family-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+}
+
+/* Lock the document — chrome is fixed, only content scrolls.
+   Without this the whole page rubber-bands at the viewport edges. */
+html, body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 264px 1fr;
+  height: 100vh;
+  background: var(--color-surface-raised, var(--gray-2));
+}
+
+/* === Designer chrome — three-tier layout ===
+   Page tier (gray-2 / surface-raised): the workspace shell — strip + rail.
+   Raised tier (content-surface, rounded, shadowed): the main panel where
+   the variant lives. This is axiom 8's "two-tier register" + axiom 9's
+   "concentric corner math": page tier is flat, content tier is the
+   raised card the manager focuses on. */
+
+/* Rail: workspace nav, page tier, transparent so the page color shows through */
+.app__rail {
+  padding: var(--space-4) var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: transparent;
+}
+
+.app__rail-head {
+  padding: 0 var(--space-3) var(--space-3);
+  border-bottom: 1px solid var(--color-border-soft, var(--gray-5));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.app__rail-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-foreground-subtle, var(--gray-10));
+  margin: 0;
+}
+.app__rail-head h1 {
+  font-size: var(--type-h3-size, 18px);
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.app__rail-sub {
+  font-size: var(--type-caption-size, 13px);
+  color: var(--color-foreground-subtle, var(--gray-10));
+  font-family: var(--type-family-mono);
+  margin: 4px 0 0;
+}
+
+.app__rail-empty {
+  font-size: var(--type-caption-size, 13px);
+  color: var(--color-foreground-muted, var(--gray-11));
+  padding: 0 var(--space-3);
+}
+.app__rail-empty code {
+  font-family: var(--type-family-mono);
+}
+
+/* Listbox container — the only tab stop for the rail.
+   aria-activedescendant points at the active option; items never receive
+   DOM focus. Subtle focus indicator on the container when tabbed in. */
+.app__rail-listbox {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  outline: none;
+  border-radius: var(--radius-card, 12px);
+}
+.app__rail-listbox:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-7, var(--accent-8));
+}
+
+/* Cycle group — separated by a hairline + breathing space, no extra header chrome */
+.app__rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border-soft, var(--gray-5));
+}
+.app__rail-group[data-first="true"] {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: 0;
+}
+
+.app__rail-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 2px;
+}
+.app__rail-group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-foreground-muted, var(--gray-11));
+}
+
+.app__rail-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Item — single-row layout: headline grows, id stays right.
+   Color-before-weight: same weight throughout, hierarchy carried by foreground intensity.
+   Active state uses functional accent tint (axiom 3 — calm / energized). */
+.app__rail-item {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-button, 6px);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-foreground-muted, var(--gray-11));
+  transition: background var(--motion-interactive, 120ms ease), color var(--motion-interactive, 120ms ease);
+}
+.app__rail-item:hover {
+  background: var(--gray-2);
+  color: var(--color-foreground);
+}
+/* No focus-visible on individual items — they never receive DOM focus.
+   The aria-activedescendant pattern (see App.tsx) keeps focus on the listbox
+   container; the active fill is the keyboard-cursor indicator. */
+.app__rail-item[data-active="true"] {
+  background: var(--accent-3);
+  color: var(--accent-12, var(--color-foreground));
+}
+.app__rail-item[data-active="true"] .app__rail-item-id {
+  color: var(--accent-11);
+}
+
+.app__rail-item-headline {
+  flex: 1;
+  font-size: var(--type-body-size, 15px);
+  font-weight: var(--weight-medium, 500);
+  letter-spacing: -0.005em;
+  line-height: 1.35;
+}
+.app__rail-item-id {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size, 13px);
+  color: var(--color-foreground-subtle, var(--gray-10));
+  flex-shrink: 0;
+}
+
+/* Stage — page tier with breathing room; the panel inside is the raised tier */
+.app__stage {
+  overflow: hidden;
+  padding: var(--space-3);
+  padding-left: 0;
+  background: transparent;
+  display: grid;
+  grid-template-rows: 1fr;
+  min-height: 0;
+}
+
+/* Panel — raised tier. Where the variant content actually lives.
+   Two-layer diffuse shadow stack from axiom 19 (--surface-shadow), 12px
+   card radius from axiom 9, content-surface fill so the chat surface inside
+   reads as the focal "manager's cockpit" main tab. */
+.app__panel {
+  background: var(--color-content-surface, white);
+  border-radius: var(--radius-card, 12px);
+  box-shadow: var(--surface-shadow);
+  border: 1px solid var(--color-border-soft, var(--gray-5));
+  overflow: hidden;
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr;
+  min-height: 0;
+}
+
+/* The chat variants render full-height inside the panel.
+   Override their default 100vh and chat-level background so they sit
+   inside the raised tab cleanly. min-height:0 on every level of the chain
+   so the inner thread-wrap can shrink to enable its overflow scroll. */
+.app__panel .chat {
+  height: 100%;
+  background: transparent;
+  min-height: 0;
+}
+.app__panel .chat__thread-wrap {
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+/* Compose dock and "Jump to latest" pill removed from variants per cycle-5
+   chat: both are non-functional in the static showcase (no content streams
+   in, the pill never has a real trigger, the compose has no action). They
+   were distracting from the surface critique. JSX stays in place so the
+   patterns can be re-enabled when a variant actually tests them. */
+.app__panel .chat__compose,
+.app__panel .chat__pill {
+  display: none;
+}
+
+.app__stage-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--color-foreground-muted, var(--gray-11));
+}

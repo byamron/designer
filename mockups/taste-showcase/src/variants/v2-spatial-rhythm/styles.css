@@ -1,0 +1,248 @@
+.v2 {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  color: var(--color-foreground);
+}
+
+.v2__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+.v2__head-title {
+  margin: 0;
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+}
+.v2__head-sub {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+  font-family: var(--type-family-mono);
+}
+
+.v2__thread {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.v2__row { margin: 0; padding: 0; }
+
+/* User messages: 2px left rail */
+.v2__row[data-kind="message"][data-author="user"] {
+  border-left: 2px solid var(--gray-a6);
+  padding-left: var(--space-3);
+}
+/* Agent messages: flush */
+.v2__row[data-kind="message"][data-author="agent"] {
+  padding-left: var(--space-3);
+}
+.v2__byline {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin-bottom: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-muted);
+}
+.v2__body {
+  margin: 0;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+}
+.v2__cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--color-foreground);
+  animation: v2-blink 1s steps(2) infinite;
+}
+@keyframes v2-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* Tool calls — indented under agent flow with tree connector */
+.v2__row[data-kind="tool-call"] {
+  padding-left: var(--space-6);
+}
+.v2__tool {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--type-caption-size);
+  font-family: var(--type-family-mono);
+  color: var(--color-foreground-muted);
+}
+.v2__tool-connector {
+  color: var(--color-foreground-subtle);
+  user-select: none;
+}
+.v2__tool-verb {
+  text-transform: lowercase;
+  color: var(--color-foreground);
+}
+.v2__tool-target {
+  color: var(--color-foreground-muted);
+}
+.v2__tool-dur {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-foreground-subtle);
+}
+
+/* Code-changes — indented like tool calls but heavier */
+.v2__row[data-kind="code-change"] {
+  padding-left: var(--space-6);
+}
+.v2__code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.v2__code-head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.v2__code-connector {
+  color: var(--color-foreground-subtle);
+  font-family: var(--type-family-mono);
+  user-select: none;
+}
+.v2__code-title {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  flex: 1;
+}
+.v2__code-stats {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+  font-family: var(--type-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+.v2__code-add { color: var(--success-11); }
+.v2__code-rem { color: var(--danger-11); }
+.v2__code-file {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+  padding-left: var(--space-3);
+}
+.v2__code-diff {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-3);
+  margin-left: var(--space-3);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-muted);
+  border-left: 1px solid var(--color-border-soft);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Reports — dedent to flush, top hairline above to mark a section break */
+.v2__row[data-kind="report"] {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-soft);
+}
+.v2__report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.v2__report-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+.v2__report-class {
+  font-size: var(--type-caption-size);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-foreground-subtle);
+  font-weight: var(--weight-medium);
+}
+.v2__report-title {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  flex: 1;
+}
+.v2__report-time {
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+}
+.v2__report-body {
+  margin: 0;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  color: var(--color-foreground-muted);
+}
+
+/* Approval — full-width section with top hairline; emphasis through space, not chrome */
+.v2__row[data-kind="approval"] {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+.v2__approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.v2__approval-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+.v2__approval-label {
+  font-size: var(--type-caption-size);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-foreground-subtle);
+  font-weight: var(--weight-medium);
+}
+.v2__approval-title {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+}
+.v2__approval-context {
+  margin: 0;
+  font-size: var(--type-body-size);
+  color: var(--color-foreground-muted);
+}
+.v2__approval-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.v2__approval-btn {
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-foreground);
+  cursor: pointer;
+  transition: background var(--motion-interactive);
+}
+.v2__approval-btn:hover { background: var(--gray-3); }
+.v2__approval-btn[data-intent="primary"] {
+  background: var(--accent-9);
+  color: var(--accent-contrast);
+  border-color: var(--accent-9);
+}
+.v2__approval-btn[data-intent="primary"]:hover { background: var(--accent-10); }

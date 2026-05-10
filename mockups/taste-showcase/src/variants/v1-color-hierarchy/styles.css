@@ -1,0 +1,241 @@
+.v1 {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.v1__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+.v1__head-title {
+  margin: 0;
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+}
+.v1__head-sub {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+  font-family: var(--type-family-mono);
+}
+
+.v1__thread {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.v1__row {
+  margin: 0;
+  padding: 0;
+}
+
+/* Messages — user is foreground-12, agent is foreground-11 (one step muted).
+   No bubbles, no indent, no weight delta. The byline name color carries author. */
+.v1__byline {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin-bottom: var(--space-2);
+  font-size: var(--type-caption-size);
+}
+.v1__byline-name {
+  font-weight: var(--weight-medium);
+}
+.v1__byline-time {
+  color: var(--color-foreground-subtle);
+}
+.v1__message[data-author="user"] .v1__byline-name {
+  color: var(--color-foreground);
+}
+.v1__message[data-author="agent"] .v1__byline-name {
+  color: var(--color-foreground-subtle);
+}
+
+.v1__body {
+  margin: 0;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+}
+.v1__message[data-author="user"] .v1__body {
+  color: var(--color-foreground);
+}
+.v1__message[data-author="agent"] .v1__body {
+  color: var(--color-foreground-muted);
+}
+
+.v1__cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--color-foreground);
+  animation: v1-blink 1s steps(2) infinite;
+}
+@keyframes v1-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* Tool calls — single line, gray-9 (most muted). Mono for verb. */
+.v1__tool {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+}
+.v1__tool-verb {
+  font-family: var(--type-family-mono);
+  text-transform: lowercase;
+}
+.v1__tool-target {
+  font-family: var(--type-family-mono);
+  color: var(--color-foreground-subtle);
+}
+.v1__tool-dur {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reports — title medium gray-12, body gray-11. Small classification chip in caption. */
+.v1__report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.v1__report-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+.v1__report-class {
+  font-size: var(--type-caption-size);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-foreground-subtle);
+  font-weight: var(--weight-medium);
+}
+.v1__report-title {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+}
+.v1__report-body {
+  margin: 0;
+  font-size: var(--type-body-size);
+  color: var(--color-foreground-muted);
+  line-height: var(--type-body-leading);
+}
+
+/* Code-changes — title gray-12 medium, file path mono gray-9, diff in gray-11 */
+.v1__code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.v1__code-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+.v1__code-title {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+  flex: 1;
+}
+.v1__code-stats {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--type-family-mono);
+}
+.v1__code-add { color: var(--success-11); }
+.v1__code-rem { color: var(--danger-11); }
+.v1__code-file {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+}
+.v1__code-diff {
+  margin: 0;
+  padding: var(--space-3);
+  font-family: var(--type-family-mono);
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-muted);
+  background: var(--gray-2);
+  border-radius: var(--radius-button);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Approval — title gray-12, context gray-11, primary action uses accent-9 */
+.v1__approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.v1__approval-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+.v1__approval-label {
+  font-size: var(--type-caption-size);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-foreground-subtle);
+  font-weight: var(--weight-medium);
+}
+.v1__approval-title {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  color: var(--color-foreground);
+}
+.v1__approval-context {
+  margin: 0;
+  font-size: var(--type-body-size);
+  color: var(--color-foreground-muted);
+}
+.v1__approval-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.v1__approval-btn {
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-foreground);
+  cursor: pointer;
+  transition: background var(--motion-interactive);
+}
+.v1__approval-btn:hover { background: var(--gray-3); }
+.v1__approval-btn[data-intent="primary"] {
+  background: var(--accent-9);
+  color: var(--accent-contrast);
+  border-color: var(--accent-9);
+}
+.v1__approval-btn[data-intent="primary"]:hover { background: var(--accent-10); }
+.v1__approval-btn[data-intent="danger"] {
+  background: var(--danger-9);
+  color: var(--danger-contrast);
+  border-color: var(--danger-9);
+}

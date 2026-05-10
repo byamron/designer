@@ -1,0 +1,171 @@
+/* c3 synthesis — conversation layer is warm and visible, operation layer is quiet and collapsed */
+
+/* Resumed indicator in header */
+.c3__resumed {
+  margin-left: auto;
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+  font-style: italic;
+}
+
+/* Date stamp at session start */
+.c3__date-stamp {
+  text-align: center;
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+  padding: var(--space-2) 0 var(--space-3);
+  letter-spacing: 0.02em;
+  position: relative;
+}
+.c3__date-stamp span {
+  background: var(--color-background);
+  padding: 0 var(--space-3);
+  position: relative;
+  z-index: 1;
+}
+.c3__date-stamp::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--color-border-soft);
+  z-index: 0;
+}
+
+/* Rich agent prose — tighten paragraph rhythm */
+.c3 .chat__prose {
+  font-size: var(--type-body-size);
+  line-height: 1.55;
+}
+.c3 .chat__prose > * + * { margin-top: var(--space-3); }
+.c3 .chat__prose h3 {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
+  margin-bottom: -2px;
+}
+.c3 .chat__prose ol { padding-left: var(--space-4); }
+.c3 .chat__prose ol > li { padding-left: var(--space-1); }
+.c3 .chat__prose ol > li::marker {
+  color: var(--color-foreground-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+/* User bubble — content-width, modest padding */
+.c3 .chat__bubble {
+  padding: var(--space-2) var(--space-3);
+}
+
+/* OPERATION LAYER — quiet, monospaced, demoted */
+.c3__tool-run {
+  /* Slightly indent to signal "subordinate to surrounding agent message" */
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border-soft);
+}
+.c3__tool-line {
+  align-items: baseline;
+}
+.c3__tool-line-dur {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-foreground-subtle);
+  font-size: var(--type-caption-size);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Streaming row — toned from c2-c. Just an accent rail and accent cursor.
+   No ambient background pulse. Calm-by-default with a single signal of activity. */
+.c3__streaming {
+  position: relative;
+  padding-left: var(--space-3);
+}
+.c3__streaming::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent-9);
+  opacity: 0.5;
+  animation: c3-rail 1.6s ease-in-out infinite;
+}
+@keyframes c3-rail {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.7; }
+}
+.c3__cursor {
+  background: var(--accent-9);
+  width: 6px;
+  animation: c3-cursor 0.9s ease-in-out infinite;
+}
+@keyframes c3-cursor {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .c3__streaming::before, .c3__cursor { animation: none; opacity: 0.5; }
+}
+
+/* CONVERSATION LAYER artifact treatments */
+
+/* Code-change as a quiet conversational block — visible, but unfussy */
+.c3__code-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-button);
+  background: var(--color-content-surface);
+}
+.c3__code-head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.c3__code-icon {
+  color: var(--color-foreground-subtle);
+  font-family: var(--type-family-mono);
+}
+.c3__code-block .chat__code-title {
+  flex: 1;
+}
+.c3__code-block .chat__code-file {
+  margin: 0;
+}
+.c3__diff-toggle {
+  align-self: flex-start;
+  font: inherit;
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-muted);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--color-border);
+  text-underline-offset: 3px;
+}
+.c3__diff-toggle:hover { color: var(--color-foreground); }
+
+/* Report — prominent but not chromed up */
+.c3__report {
+  border-left: 3px solid var(--success-9);
+  background: var(--success-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* Approval — most prominent, with conversational microcopy */
+.c3__approval .chat__approval-label {
+  /* Conversational, not formal */
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-medium);
+  color: var(--accent-11);
+}
