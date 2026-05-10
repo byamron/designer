@@ -177,6 +177,13 @@ describe("Esc priority chain (Phase 24 §5.4.1)", () => {
     // over rule 5 — the user discards their unsent text first).
     expect(appStore.get().queuedMessageByTab[TAB]).toBeUndefined();
     expect(interruptTurn).not.toHaveBeenCalled();
+    // localStorage must also be cleared — otherwise the queue
+    // resurrects on reload (the persisted store backs the in-memory
+    // map; clearQueuedMessage must wipe both atomically).
+    const persisted = JSON.parse(
+      localStorage.getItem("designer.composer.queuedMessageByTab") ?? "{}",
+    );
+    expect(persisted[TAB]).toBeUndefined();
   });
 
   it("Esc with no queue but running subprocess interrupts (rule 5)", () => {
