@@ -37,6 +37,55 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 24 §5.4.2 — SIGINT interrupt + Esc priority chain + §5.7 assertive announcement
+**Date:** 2026-05-10
+**Branch:** phase-24-sigint-interrupt
+**Commit:** PR #125 (62443204)
+
+**What was done:**
+
+Replaced the mid-turn interrupt mechanism with `libc::kill(pid, SIGINT)` against the per-tab subprocess PID tracked since Phase 23.E. The orchestrator's `interrupt()` reads `child_pid` from `teams.get(...)` under the lock, drops the lock, and signals — silent on the race where the child has already exited (the natural turn-end event fires anyway). The translator's existing `error_during_execution → AgentTurnEnded { Interrupted }` mapping continues to lift the resulting envelope.
+
+Wired the Esc priority chain in `ComposeDock` (§5.4.1, composer-focused rules 4 + 5): queue discard takes precedence over interrupt so a user reconsidering a typed follow-up can clear it without interrupting the stream; a second Esc then interrupts. Rules 1–3 (modal / tooltip / friction overlay) are owned by upstream surfaces and consume Esc before reaching the composer.
+
+Wired the §5.7 assertive screen-reader announcement: a long-lived `aria-live="assertive"` sr-only region in `WorkspaceThread` populated by a ref-tracked effect that announces "Agent interrupted." exactly once per interrupted turn. The visible `InterruptedMarker` (a `role="status"` polite region, conditionally mounted) is insufficient for screen readers — same failure shape as the queue-chip-removal silence pattern (`feedback_aria_live_for_spec_announcements` user memory).
+
+Cargo: promoted `libc` from optional (gated by `claude_live`) to unconditional, since the production interrupt path now calls into it. `anyhow` stays optional — only the spike binary uses it.
+
+Fixed a latent storage-layer flake surfaced by this PR's CI run: `EventStore::read_all` ordered by `(timestamp ASC, sequence ASC)`, but `sequence` is per-stream — on fast macOS-arm64 runners, two events sharing an RFC3339 instant on different streams could interleave non-causally, and the `Projector`'s sequence-idempotency dedup would silently drop the seq=1 follower as a "duplicate." Changed to `(timestamp ASC, rowid ASC)` — rowid is the strictly-monotonic global insertion order under SQLite IMMEDIATE-transaction-serialized writes.
+
+**Why:**
+
+§5.4.2 needed a mid-turn interrupt primitive that works regardless of the in-band stdin writer task's state. The PR #117 SIGINT spike (commit 622be0fc, see `crates/designer-claude/SIGINT-SPIKE.md`) verified that SIGINT to a piped-stdio `claude` produces a clean `error_during_execution` envelope with a `[Request interrupted by user]` marker and exit code 0 — same observable transcript as `control_request`-style interrupts, with simpler ownership: any thread can signal, no shared writer-task contention.
+
+§5.7's spec table (row 274) mandates an `aria-live="assertive"` announcement on `AgentTurnEnded { stop_reason: Interrupted }`. The first round of staff-review caught that the existing `InterruptedMarker` (polite + conditionally mounted) was silent to screen readers — same pattern that bit PR #124's queue chip.
+
+**Design decisions:**
+
+Queue-discard before interrupt in the Esc priority chain is a UX call: when a user types a follow-up *and* the stream is running, they're more likely to want to revise their composer text than to interrupt the agent. A second Esc lets the user escalate to interrupt without ambiguity.
+
+Avoided `role="alert"` on the new sr-only region — `findByRole("alert")` in existing cost-cap-banner tests would have stolen it. `aria-live="assertive"` alone is the announcement contract.
+
+**Technical decisions:**
+
+Tracked already-announced interrupted turn IDs in a `Set<turn_id>` ref so the announcement fires exactly once per interruption, even on subsequent re-renders. Without this, any re-render with the same interrupted turn in scope would re-trigger the SR string and cause noise.
+
+The storage ORDER BY fix lives in the storage layer (not the projector dedup) because `read_all` advertises ordered semantics — fixing it at the source benefits all 11 call sites (audit log, sync protocol, cost replay, approval replay, etc.), not just the projector.
+
+**Tradeoffs discussed:**
+
+- Engineer-review NIT suggested `e.preventDefault()` on the Esc no-op branch. Skipped: Esc has no native default on a textarea, and `preventDefault` doesn't affect bubbling — adding it would be cargo-cult defensive code.
+- UX-review FOLLOW-UP recommended a render-altitude test for the `InterruptAnnouncement` region. Filed in `roadmap.md` § Phase 24H rather than inlined — mounting `WorkspaceThread` with `show_chat_v2: true` + a primed chat-thread state is heavy scaffold; batches naturally with the `bootReplaying` and queue-auto-dispatch render-altitude tests already filed there.
+- Engineer-review FOLLOW-UP suggested a deterministic test forcing same-RFC3339-instant rows to pin the new `read_all` tiebreaker contract. Filed in `roadmap.md` § Phase 24H — would need a `#[doc(hidden)] pub fn force_timestamp_for_test()` helper on `SqliteEventStore`, batches with the Phase 24I AppCore integration harness work that also wants test-only DB helpers.
+
+**Lessons learned:**
+
+This PR was the first end-to-end exercise of the post-PR-#126 sharpened workflow (Step 0 self-review gate + preflight + sharpened agent prompts + Step 4.5 grep sweep). It caught two real BLOCKERs the first round of agents would have missed: the missing assertive announcement (UX) and the storage flake (CI signal). The framework paid for itself on its first substantive run.
+
+The CI flake also revealed a latent bug pattern worth a memory entry: when a per-stream sequence number is used as a global tiebreaker, mixed-stream queries can interleave non-causally. The fix at the source layer (`read_all` ordering) is cheaper than defensive layers higher up.
+
+---
+
 ### Phase 24 Steps 2–3 — dual-mode stream-json translator + activity bridge
 **Date:** 2026-05-04
 **Branch:** phase-24-chat-pass-through
