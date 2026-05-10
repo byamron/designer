@@ -48,8 +48,10 @@ pub trait EventStore: Send + Sync {
         options: StreamOptions,
     ) -> Result<Vec<EventEnvelope>>;
 
-    /// Read all events globally (ordered by `(stream, sequence)` then
-    /// timestamp). Used by the audit log and sync protocol.
+    /// Read all events globally, ordered by `(timestamp ASC, rowid ASC)`.
+    /// Rowid is the deterministic tiebreaker because `sequence` is
+    /// per-stream — see the comment on the `read_all` impl in
+    /// `SqliteEventStore`. Used by the audit log and sync protocol.
     async fn read_all(&self, options: StreamOptions) -> Result<Vec<EventEnvelope>>;
 
     /// Subscribe to new events via a callback. The implementation may choose
