@@ -441,6 +441,41 @@ export function WorkspaceThread({
     return () => window.clearTimeout(t);
   }, [subprocessActiveForCurrentTab, queuedMessage, tabId, onSend]);
 
+  // Phase 24 §5.7 — assertive SR announcement on agent interrupt. The
+  // visible InterruptedMarker mounts conditionally; conditional mount of
+  // a `role="status"` region is unreliable for screen readers (same
+  // failure pattern as the queue-chip removal — see
+  // feedback_aria_live_for_spec_announcements memory). A separate
+  // long-lived `aria-live="assertive"` region with text that changes
+  // when a new turn becomes interrupted produces the announcement.
+  const interruptedTurnIds = useChatThreadState((s) => {
+    if (!showChatV2 || !tabId) return undefined;
+    const tabState = s.byTab[tabId];
+    if (!tabState) return undefined;
+    const ids: string[] = [];
+    for (const turn of Object.values(tabState.turns)) {
+      if (turn.stop_reason === "interrupted") ids.push(turn.turn_id);
+    }
+    return ids.join(",");
+  });
+  const announcedInterruptsRef = useRef<Set<string>>(new Set());
+  const [interruptAnnouncement, setInterruptAnnouncement] = useState("");
+  useEffect(() => {
+    if (!interruptedTurnIds) return;
+    const ids = interruptedTurnIds ? interruptedTurnIds.split(",").filter(Boolean) : [];
+    let announced = false;
+    for (const id of ids) {
+      if (!announcedInterruptsRef.current.has(id)) {
+        announcedInterruptsRef.current.add(id);
+        announced = true;
+      }
+    }
+    if (!announced) return;
+    setInterruptAnnouncement("Agent interrupted.");
+    const t = window.setTimeout(() => setInterruptAnnouncement(""), 1500);
+    return () => window.clearTimeout(t);
+  }, [interruptedTurnIds]);
+
   // B7 — clear activity once a new agent artifact lands. The submitting
   // and stuck states both end the same way: the artifact list grew past
   // the snapshot we took when the user clicked send. The snapshot is
@@ -702,6 +737,19 @@ export function WorkspaceThread({
           data-component="QueueAnnouncement"
         >
           {queueAnnouncement}
+        </span>
+        {/* Phase 24 §5.7 — assertive announcement on
+            AgentTurnEnded { stop_reason: Interrupted }. Spec table:
+            thread region · assertive · "Agent interrupted". No
+            `role="alert"` — that would collide with banner-style
+            alerts (e.g. cost-cap). aria-live="assertive" alone is
+            the announcement contract. */}
+        <span
+          className="sr-only"
+          aria-live="assertive"
+          data-component="InterruptAnnouncement"
+        >
+          {interruptAnnouncement}
         </span>
       </div>
     </div>

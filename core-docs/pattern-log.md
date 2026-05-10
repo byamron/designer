@@ -641,3 +641,19 @@ Idempotency lives at two layers. The projector's `last_applied` guard short-circ
 This also informs how a future merge-watcher should integrate. `complete_track(track_id, pr_url?)` is the public seam in `core_git.rs` — it emits `TrackCompleted` then `NodeShipmentRecorded` if the track has a roadmap claim and a PR URL. A watcher polling `gh pr view --json state,mergeCommit` calls `complete_track` once per detected merge; the in-memory idempotency guards (the projector's `last_applied` plus the projection's `(node_id, track_id)` check) cover the inevitable double-fire under flapping gh state.
 
 The additive `pr_url: String` field on `PullRequestOpened` (with `serde(default)` for legacy decode) is the supporting change that makes this work end-to-end without a parallel store. The Track domain object had `pr_url: Option<String>` since 13.E but was never populated — `PullRequestOpened` only carried `pr_number`. Filling the gap means `complete_track(track_id, None)` can resolve the URL from the projection, no caller plumbing required.
+
+## 2026-05-07 — SIGINT over control_request for §5.4.2 mid-turn interrupt
+
+Phase 24 §5.4.2 needed an "ESC interrupts mid-turn" path. Two mechanisms were on the table: (a) the legacy in-band `control_request` envelope written to claude's stdin (Phase 23.F precedent), or (b) `libc::kill(pid, SIGINT)` directly to the subprocess.
+
+PR #117's spike binary (`crates/designer-claude/src/bin/sigint_spike.rs`) ran both against the live `claude` v2.1.126 binary on macOS and captured the transcripts at `crates/designer-claude/SIGINT-SPIKE.md`. SIGINT won on every axis that matters:
+
+- **Same observable transcript shape.** Both produce the partial assistant flush + `[Request interrupted by user]` user-message line + `result/error_during_execution` envelope. The translator's existing arm (`translate_result` for the error-during-execution subtype) lifts that envelope into `AgentTurnEnded { Interrupted }` regardless of which mechanism fired.
+- **Cleaner exit semantics.** SIGINT exits with code 0; control_request exits with code 1 + a stray `control_response` ack. Both end the session, but Designer's logs are quieter under SIGINT.
+- **Works when the writer task is dead.** The control_request mechanism requires stdin to be writable. The exact case where interrupt is most needed — a wedged subprocess where the writer task has already exited (the `claude_code.rs:334` warning path) — is when in-band interrupt is unreachable. SIGINT works regardless.
+
+Cost: a non-optional `libc` dependency (was previously gated behind the `claude_live` feature for the spike binary alone). Tiny crate, POSIX-portable; macOS-only Designer doesn't care about Windows. The `child_pid: Option<u32>` field already lived on the orchestrator's per-tab handle for logging — the SIGINT impl just reads that same field instead of writing to `stdin_tx`. Three lines of code (a `libc::kill` call + an errno check + a `None`-pid race guard) replace the `interrupt_request_line` builder + its test.
+
+The fallback path the spike sketched ("if SIGINT is denied, fall back to in-band") was rejected for v1. SIGINT against a process the orchestrator spawned cannot fail under normal operation (no permission boundary; same-uid relationship). The denial case is hypothetical; if it surfaces in dogfood, the helper can be reconstructed from the spike binary's source.
+
+Documented here so the next time someone considers in-band `control_request` for a similar problem (mid-turn cancel, hard reset, etc.), they don't re-litigate this trade-off.

@@ -164,6 +164,48 @@ describe("ComposeDock — SendMenu visibility (Phase 24 §5.4)", () => {
   });
 });
 
+describe("Esc priority chain (Phase 24 §5.4.1)", () => {
+  it("Esc with queued message discards the queue (rule 4)", () => {
+    setActive("working");
+    setQueuedMessage(TAB, "queued thing");
+    const interruptTurn = vi.fn().mockResolvedValue(undefined);
+    __setIpcClient({ ...mockIpcClient(), interruptTurn });
+    render(<ComposeDock workspaceId={WS} tabId={TAB} />);
+    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    // Queue cleared; interrupt NOT called (rule 4 takes precedence
+    // over rule 5 — the user discards their unsent text first).
+    expect(appStore.get().queuedMessageByTab[TAB]).toBeUndefined();
+    expect(interruptTurn).not.toHaveBeenCalled();
+    // localStorage must also be cleared — otherwise the queue
+    // resurrects on reload (the persisted store backs the in-memory
+    // map; clearQueuedMessage must wipe both atomically).
+    const persisted = JSON.parse(
+      localStorage.getItem("designer.composer.queuedMessageByTab") ?? "{}",
+    );
+    expect(persisted[TAB]).toBeUndefined();
+  });
+
+  it("Esc with no queue but running subprocess interrupts (rule 5)", () => {
+    setActive("working");
+    const interruptTurn = vi.fn().mockResolvedValue(undefined);
+    __setIpcClient({ ...mockIpcClient(), interruptTurn });
+    render(<ComposeDock workspaceId={WS} tabId={TAB} />);
+    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(interruptTurn).toHaveBeenCalledWith(WS, TAB);
+  });
+
+  it("Esc with no queue and no running subprocess is a no-op", () => {
+    const interruptTurn = vi.fn().mockResolvedValue(undefined);
+    __setIpcClient({ ...mockIpcClient(), interruptTurn });
+    render(<ComposeDock workspaceId={WS} tabId={TAB} />);
+    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(interruptTurn).not.toHaveBeenCalled();
+  });
+});
+
 describe("auto-dispatch on working→idle transition (Phase 24 §5.4)", () => {
   // The auto-dispatch effect lives in WorkspaceThread, not ComposeDock.
   // Test it at the unit-of-behavior altitude by asserting the contract

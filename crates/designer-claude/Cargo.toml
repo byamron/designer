@@ -26,10 +26,12 @@ uuid.workspace = true
 parking_lot.workspace = true
 dashmap.workspace = true
 
-# Spike-only deps for the Phase 24 SIGINT verification binary
-# (src/bin/sigint_spike.rs). Optional; pulled in only when the
-# `claude_live` feature is on, which also gates the binary itself.
-libc = { version = "0.2", optional = true }
+# Phase 24 §5.4.2 — SIGINT interrupt mechanism. `libc::kill(pid,
+# SIGINT)` is the production interrupt path (see SIGINT-SPIKE.md);
+# unconditional dep because the orchestrator's `interrupt` impl uses
+# it for every interrupt. `anyhow` stays optional — only the spike
+# binary needs it for its `?` ergonomics.
+libc = "0.2"
 anyhow = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -43,7 +45,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # core-docs/adr/0001-claude-runtime-primitive.md and spec Decision 33.
 # Also gates the Phase 24 P2 SIGINT spike binary so a normal
 # `cargo build --workspace` never compiles it.
-claude_live = ["dep:libc", "dep:anyhow"]
+claude_live = ["dep:anyhow"]
 
 [[bin]]
 name = "sigint_spike"

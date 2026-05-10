@@ -48,8 +48,10 @@ pub trait EventStore: Send + Sync {
         options: StreamOptions,
     ) -> Result<Vec<EventEnvelope>>;
 
-    /// Read all events globally (ordered by `(stream, sequence)` then
-    /// timestamp). Used by the audit log and sync protocol.
+    /// Read all events globally, ordered by `(timestamp ASC, rowid ASC)`.
+    /// Rowid is the deterministic tiebreaker because `sequence` is
+    /// per-stream — see the comment on the `read_all` impl in
+    /// `SqliteEventStore`. Used by the audit log and sync protocol.
     async fn read_all(&self, options: StreamOptions) -> Result<Vec<EventEnvelope>>;
 
     /// Subscribe to new events via a callback. The implementation may choose
@@ -475,7 +477,22 @@ impl EventStore for SqliteEventStore {
             let conn = pool.get().map_err(|e| StoreError::Pool(e.to_string()))?;
             let limit = options.limit.map(|x| x as i64).unwrap_or(i64::MAX);
             let mut stmt = conn
-                .prepare("SELECT * FROM events ORDER BY timestamp ASC, sequence ASC LIMIT ?1")
+                // `timestamp` is the primary order (RFC3339, second-or-better
+                // resolution), but RFC3339 strings tie when several events
+                // arrive in the same instant — common on fast CI runners.
+                // The previous tiebreaker `sequence ASC` is *per-stream*, so
+                // a Workspace-stream seq=2 (TabOpened) could sort before a
+                // Project-stream seq=1 (ProjectCreated) when their timestamps
+                // matched, and worse, the same Workspace-stream pair could
+                // arrive [seq=2, seq=1] when the WorkspaceCreated and
+                // TabOpened timestamps tied — which broke the
+                // sequence-idempotency dedup in `Projector::apply` (the
+                // dedup saw seq=2 first, then skipped seq=1 as a duplicate,
+                // and WorkspaceCreated was lost). `rowid ASC` is the
+                // strictly-monotonic global insertion order under the
+                // IMMEDIATE-transaction-serialized writes, so it's the
+                // correct final tiebreaker.
+                .prepare("SELECT * FROM events ORDER BY timestamp ASC, rowid ASC LIMIT ?1")
                 .map_err(StoreError::Sqlite)?;
             let rows = stmt
                 .query_map(params![limit], row_to_envelope)
