@@ -1,0 +1,66 @@
+/* Streaming message: ambient gray-2 background, soft lift, accent-tinted cursor */
+
+.c2-c__streaming {
+  background: var(--gray-2);
+  border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4);
+  margin: 0 calc(var(--space-3) * -1);
+  position: relative;
+  animation: c2c-ambient-pulse 3s ease-in-out infinite;
+}
+@keyframes c2c-ambient-pulse {
+  0%, 100% { background-color: var(--gray-2); }
+  50%      { background-color: var(--gray-3); }
+}
+.c2-c__streaming::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent-9);
+  opacity: 0.4;
+  animation: c2c-rail-pulse 1.4s ease-in-out infinite;
+}
+@keyframes c2c-rail-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.7; }
+}
+
+.c2-c__cursor {
+  background: var(--accent-9);
+  width: 6px;
+  animation: c2c-cursor 0.9s ease-in-out infinite;
+}
+@keyframes c2c-cursor {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1; }
+}
+
+/* New-content pill bob */
+.c2-c__pill-bob {
+  animation: c2c-pill-bob 2.4s ease-in-out infinite;
+}
+@keyframes c2c-pill-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(-3px); }
+}
+
+/* Compose: very subtle idle breathing — opacity step on the inner border */
+.c2-c__compose-breathe .chat__compose-inner {
+  animation: c2c-compose-breathe 5s ease-in-out infinite;
+}
+@keyframes c2c-compose-breathe {
+  0%, 100% { border-color: var(--color-border); }
+  50%      { border-color: var(--gray-7); }
+}
+
+/* Reduce-motion respects user preference */
+@media (prefers-reduced-motion: reduce) {
+  .c2-c__streaming, .c2-c__streaming::before, .c2-c__cursor,
+  .c2-c__pill-bob, .c2-c__compose-breathe .chat__compose-inner {
+    animation: none;
+  }
+}

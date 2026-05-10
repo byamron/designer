@@ -1,0 +1,53 @@
+.c2-d__synopsis {
+  font-family: var(--type-family-mono);
+  color: var(--color-foreground-subtle);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.c2-d__tool-line {
+  align-items: baseline;
+}
+.c2-d__tool-line-dur {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-foreground-subtle);
+  font-size: var(--type-caption-size);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Code-change: looks like a clickable row, hover lifts */
+.c2-d__code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  border: 1px solid var(--color-border-soft);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-interactive);
+  width: 100%;
+}
+.c2-d__code:hover { background: var(--gray-2); }
+.c2-d__code[data-expanded="true"] { background: var(--gray-2); }
+.c2-d__code-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+/* Report: clickable row, expands inline */
+.c2-d__report {
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  border: 0;
+  transition: background var(--motion-interactive);
+}
+.c2-d__report:hover { background: var(--gray-3); }

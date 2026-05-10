@@ -1,0 +1,34 @@
+.c2-b .chat__prose {
+  /* Tighten paragraph rhythm; rely on type leading for breathing */
+  font-size: var(--type-body-size);
+  line-height: 1.55;
+}
+.c2-b .chat__prose > * + * {
+  margin-top: var(--space-3);
+}
+.c2-b .chat__prose h3 {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
+  margin-bottom: -2px;
+}
+.c2-b .chat__prose ol {
+  padding-left: var(--space-4);
+}
+.c2-b .chat__prose ol > li {
+  padding-left: var(--space-1);
+}
+.c2-b .chat__prose ol > li::marker {
+  color: var(--color-foreground-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tighten the bubble — content-width up to 80%, no excess padding */
+.c2-b .chat__bubble {
+  padding: var(--space-2) var(--space-3);
+}
+
+/* Tool-run header looks like Designer's "3 tool calls, 2 messages" */
+.c2-b .chat__tool-head {
+  font-style: normal;
+}

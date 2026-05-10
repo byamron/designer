@@ -1,0 +1,54 @@
+/* Hospitality: small soft welcomes, time gestures, hovered details */
+
+.c2-a__resumed {
+  margin-left: auto;
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+  font-style: italic;
+}
+
+.c2-a__date-stamp {
+  text-align: center;
+  font-size: var(--type-caption-size);
+  color: var(--color-foreground-subtle);
+  padding: var(--space-2) 0 var(--space-3);
+  letter-spacing: 0.02em;
+  position: relative;
+}
+.c2-a__date-stamp span {
+  background: var(--color-background);
+  padding: 0 var(--space-3);
+  position: relative;
+  z-index: 1;
+}
+.c2-a__date-stamp::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--color-border-soft);
+  z-index: 0;
+}
+
+/* Slightly more generous breathing room above agent's first response */
+.c2-a .chat__row[data-author="agent"][data-kind="message"]:first-of-type {
+  margin-top: var(--space-2);
+}
+
+/* Compose: a soft warmth on idle */
+.c2-a .chat__compose-input::placeholder {
+  font-style: italic;
+}
+
+/* Bubble carries title attribute for hovered timestamp — visible via the
+   browser's native title tooltip. Soft hint that there's more if you want it. */
+.c2-a .chat__bubble {
+  cursor: default;
+}
+
+/* Pill becomes more inviting */
+.c2-a .chat__pill {
+  font-style: normal;
+}

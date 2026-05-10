@@ -112,6 +112,42 @@ MINI_PATH=/path/to/mini-design-system ./scripts/sync-mini.sh
 ```
 <!-- mini:end -->
 
+## Taste-loop ritual
+
+Designer runs an iterative taste loop on its surfaces — variant generation, critique, distillation. The infrastructure lives in Designer (vendored from the Mini × Taste monorepo). Cycle work happens in `core-docs/taste/`.
+
+### First action of every session (when working on taste-loop concerns)
+
+```
+node tools/feedback-status.mjs core-docs/taste/feedback/
+```
+
+Reports HEALTHY / WARN / DUE based on the distillation backlog. React to the verdict:
+- **HEALTHY** → proceed.
+- **WARN** → note in chat; one cycle from DUE.
+- **DUE** → run `distill-feedback` before any other substantive taste-loop work, unless the user explicitly says "override".
+
+This gate doesn't apply when working on Designer's product code (Tauri / Rust / packages/app — those have their own conventions in this CLAUDE.md). It only governs taste-loop work.
+
+### Skills
+
+- `drain-feedback` — capture per-cycle reactions (annotations + chat) into `core-docs/taste/feedback/`. Run at end of every variant-generation cycle.
+- `distill-feedback` — cross-cycle pattern extraction; proposes promotions to `core-docs/design-language.md`, `core-docs/spec.md` Decisions Log, `core-docs/taste/tensions.md`. Run every 2–3 cycles, at end of session, or when ≥3 undistilled cycles accumulate.
+- `uncommon-care` — generative craft critique through 8 lenses; writes a feedback-ledger entry. Use when pushing a surface from ship-ready to memorable.
+- `taste-staff-review` — three-perspective review for taste-loop changes (engineer / design critic / workflow editor). Vendored from the Mini × Taste monorepo as `staff-review`; renamed here to avoid collision with Designer's existing `staff-review` skill (which uses different lenses for Designer product changes — engineer / UX designer / design engineer). Both coexist; use `taste-staff-review` for cycle / feedback / showcase changes and `staff-review` for Designer product code.
+
+### Foundations reference
+
+`core-docs/foundations.md` is the established-vocabulary reference (Gestalt, UX laws, Norman, WCAG, motion, cognitive load). Cite it during distillation; reference it when deviating from a known pattern. It's not a checklist applied uniformly.
+
+### Scope guard — craft vs. product architecture
+
+Most taste-loop output sharpens Designer's `design-language.md`. Sometimes product-architecture decisions surface during craft work (what an artifact *is*, where it lives, its lifecycle). Those go to `spec.md` Decisions Log, not the design-language doc. When a question is product-shape (not visual), capture briefly with a `> **Scope note:**` blockquote and route to the right home.
+
+### Vendored infrastructure
+
+The four taste-loop skills (`drain-feedback`, `distill-feedback`, `uncommon-care`, `taste-staff-review`), `core-docs/foundations.md`, and `tools/feedback-status.mjs` are vendored from `byamron/mini-design-system`. Each vendored SKILL.md carries a YAML-comment provenance line recording the source commit. Do not edit these files in place — upstream changes propagate via re-vendor.
+
 ## Subtraction is welcome
 
 Removing or simplifying shipped code is encouraged when it yields cleaner architecture or better UX. Do not treat shipped work as untouchable — propose deletions, consolidations, and undos as readily as additions.
