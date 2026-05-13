@@ -12,8 +12,15 @@ import {
   formatElapsed,
 } from "../components/ComposeDockActivityRow";
 import { dataStore } from "../store/data";
+import {
+  chatThreadStore,
+  emptyChatThread,
+  subprocessKey,
+} from "../store/chatThread";
+import { flagsStore } from "../store/flags";
 import { __setIpcClient } from "../ipc/client";
 import { mockIpcClient } from "./ipcMockClient";
+import type { TabId } from "../ipc/types";
 
 /**
  * Phase 23.B acceptance tests T-23B-2 + T-23B-3 + T-23B-4 cover the
@@ -36,11 +43,92 @@ beforeEach(() => {
     activity: {},
     loaded: true,
   });
+  chatThreadStore.set({
+    byTab: {},
+    runningSubprocesses: new Set(),
+    bootReplaying: false,
+  });
+  flagsStore.set({ flags: null, loaded: false });
 });
 
 afterEach(() => {
   vi.useRealTimers();
 });
+
+/** Seed a chat-v2 open turn on `tab` with `started_at`. The activity-
+ *  indicator selector reads `currentOpenTurn(tabState)` + membership
+ *  in `runningSubprocesses`, so both pieces are populated here. */
+function seedOpenTurn(ws: string, tab: string, started_at: number) {
+  const turn_id = `turn-${started_at}`;
+  chatThreadStore.set((s) => ({
+    ...s,
+    byTab: {
+      ...s.byTab,
+      [tab as TabId]: {
+        ...(s.byTab[tab as TabId] ?? emptyChatThread()),
+        row_order: [{ kind: "turn", turn_id }],
+        turns: {
+          [turn_id]: {
+            turn_id,
+            workspace_id: ws as never,
+            tab_id: tab as TabId,
+            model: "claude-sonnet-4-6",
+            parent_user_event_id: "evt-0" as never,
+            session_id: "sess-0" as never,
+            started_at,
+            block_order: [],
+            blocks: {},
+            tool_results: {},
+            stop_reason: null,
+            usage: null,
+            is_legacy: false,
+          },
+        },
+      },
+    },
+    runningSubprocesses: new Set([...s.runningSubprocesses, subprocessKey(ws, tab as TabId)]),
+  }));
+}
+
+/** Close the chat-v2 turn on `tab` by setting `stop_reason`. The
+ *  activity-indicator selector then yields `null` for `currentOpenTurn`,
+ *  which trips the fade-out state machine. */
+function closeTurn(tab: string, stop_reason: "end_turn" | "tool_use" | "interrupted" | "error" | "max_tokens" = "end_turn") {
+  chatThreadStore.set((s) => {
+    const state = s.byTab[tab as TabId];
+    if (!state) return s;
+    const lastTurn = state.row_order.find((r) => r.kind === "turn");
+    if (!lastTurn || lastTurn.kind !== "turn") return s;
+    return {
+      ...s,
+      byTab: {
+        ...s.byTab,
+        [tab as TabId]: {
+          ...state,
+          turns: {
+            ...state.turns,
+            [lastTurn.turn_id]: {
+              ...state.turns[lastTurn.turn_id],
+              stop_reason,
+            },
+          },
+        },
+      },
+    };
+  });
+}
+
+function enableChatV2() {
+  flagsStore.set({
+    flags: {
+      show_chat_v2: true,
+      show_recent_reports_v2: false,
+      show_roadmap_canvas: false,
+      show_compose_stop_and_send: true,
+    } as never,
+    loaded: true,
+  });
+}
 
 describe("formatElapsed (Phase 23.B copy invariant)", () => {
   it("renders MM:SS for the first hour", () => {
@@ -227,5 +315,167 @@ describe("ComposeDockActivityRow", () => {
     );
     const pulse = container.querySelector(".compose-dock-activity-row__pulse");
     expect(pulse).not.toBeNull();
+  });
+});
+
+describe("Phase 24 §5.2 — render-time activity indicator (chat-v2)", () => {
+  it("shows the chip when subprocess is running AND a turn is open", () => {
+    enableChatV2();
+    const t0 = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(t0);
+    seedOpenTurn(WS, TAB_A, t0);
+
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A as TabId} />,
+    );
+    const row = container.querySelector(".compose-dock-activity-row");
+    expect(row).not.toBeNull();
+    expect(row?.getAttribute("data-state")).toBe("working");
+    expect(row?.getAttribute("data-exiting")).toBeNull();
+  });
+
+  it("hides the chip when a turn is open but the subprocess is NOT running (no half-state)", () => {
+    enableChatV2();
+    const t0 = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(t0);
+    // Seed the turn but DO NOT add the subprocess to runningSubprocesses.
+    chatThreadStore.set((s) => ({
+      ...s,
+      byTab: {
+        [TAB_A as TabId]: {
+          row_order: [{ kind: "turn", turn_id: "t1" }],
+          turns: {
+            t1: {
+              turn_id: "t1",
+              workspace_id: WS as never,
+              tab_id: TAB_A as TabId,
+              model: "claude-sonnet-4-6",
+              parent_user_event_id: "evt-0" as never,
+              session_id: "sess-0" as never,
+              started_at: t0,
+              block_order: [],
+              blocks: {},
+              tool_results: {},
+              stop_reason: null,
+              usage: null,
+              is_legacy: false,
+            },
+          },
+          user_messages: {},
+        },
+      },
+    }));
+
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A as TabId} />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("fades out (data-exiting=true) on turn end and unmounts after CHIP_EXIT_MS", async () => {
+    enableChatV2();
+    const t0 = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(t0);
+    seedOpenTurn(WS, TAB_A, t0);
+
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A as TabId} />,
+    );
+    expect(
+      container.querySelector(".compose-dock-activity-row"),
+    ).not.toBeNull();
+
+    // Close the turn — the spec UX-blocker fix: chip fades over
+    // --motion-quick (120 ms) instead of snapping off.
+    await act(async () => {
+      closeTurn(TAB_A);
+    });
+    const fading = container.querySelector(".compose-dock-activity-row");
+    expect(fading).not.toBeNull();
+    expect(fading?.getAttribute("data-exiting")).toBe("true");
+
+    // Advance past CHIP_EXIT_MS (120 ms). The chip should unmount.
+    await act(async () => {
+      vi.advanceTimersByTime(140);
+    });
+    expect(container.querySelector(".compose-dock-activity-row")).toBeNull();
+  });
+
+  it("cancels the fade when a new turn opens mid-fade", async () => {
+    enableChatV2();
+    const t0 = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(t0);
+    seedOpenTurn(WS, TAB_A, t0);
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A as TabId} />,
+    );
+
+    // Close turn → enter fade.
+    await act(async () => {
+      closeTurn(TAB_A);
+    });
+    expect(
+      container.querySelector(".compose-dock-activity-row")?.getAttribute("data-exiting"),
+    ).toBe("true");
+
+    // A new turn arrives 50 ms into the fade — should cancel.
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+      seedOpenTurn(WS, TAB_A, t0 + 1000);
+    });
+    const row = container.querySelector(".compose-dock-activity-row");
+    expect(row).not.toBeNull();
+    expect(row?.getAttribute("data-exiting")).toBeNull();
+
+    // Drain remaining 70 ms — chip stays mounted (the timeout would
+    // have fired at 120 ms total; the cancel cleared it).
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(
+      container.querySelector(".compose-dock-activity-row"),
+    ).not.toBeNull();
+  });
+
+  it("does NOT enter the fade state on initial mount with no open turn (no spurious fade)", () => {
+    enableChatV2();
+    // No turn seeded; no subprocess running.
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A as TabId} />,
+    );
+    expect(container.firstChild).toBeNull();
+    // Advance time — chip must remain unmounted, no fade kicks off.
+    vi.advanceTimersByTime(200);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("activity-indicator container carries a static aria-label per spec §5.7 row 278", () => {
+    enableChatV2();
+    const t0 = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(t0);
+    seedOpenTurn(WS, TAB_A, t0);
+
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A as TabId} />,
+    );
+    const row = container.querySelector(".compose-dock-activity-row");
+    expect(row).not.toBeNull();
+    // Static label — not aria-live; the nested "Working…" span owns the
+    // live announcement (`role="status" aria-live="polite"`).
+    expect(row?.getAttribute("aria-label")).toBe("Agent working");
+    expect(row?.getAttribute("aria-live")).toBeNull();
+  });
+
+  it("elapsed counter reads the OPEN turn's started_at, not Date.now()", () => {
+    enableChatV2();
+    const t0 = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(t0 + 30_000); // wall clock 30 s past start
+    seedOpenTurn(WS, TAB_A, t0); // turn started 30 s ago
+
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A as TabId} />,
+    );
+    const label = container.querySelector(".compose-dock-activity-row__label");
+    expect(label?.textContent).toContain("0:30");
   });
 });
