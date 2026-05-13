@@ -40,7 +40,7 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 ### Phase 24 step 4 — `cmd_post_message` user-only dispatch contract pinned
 **Date:** 2026-05-12
 **Branch:** phase-24-step-4-user-only-dispatch
-**Commit:** PR (TBD)
+**Commit:** PR #130 (c75ca163)
 
 **What was done:**
 
