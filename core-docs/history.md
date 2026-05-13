@@ -84,11 +84,19 @@ Sibling rule documented in pattern-log: **no error-red unless destructive**. Spe
 - **"Restarting…" transient copy.** Spec §5.6 row 1's first leg (*"Claude stopped unexpectedly. Restarting…"*) is a transient state during the auto-respawn retry inside `post_message`. Surfacing it requires a new IPC state (e.g. `PostMessageProgress { phase: "retrying" }`) so the frontend can paint the banner. Filed as a Phase 24H FOLLOW-UP — the state machine extension warrants a separate cycle and isn't on the critical path for `show_chat_v2` defaulting ON.
 - **Render-altitude tests.** Tests for `ErrorMarker` / `MaxTokensMarker` / `ErrorAnnouncement` were not added in this PR. The existing `InterruptedMarker` and `InterruptAnnouncement` have no render-altitude tests either — both are filed in the Phase 24H roadmap entry for "render-altitude tests gated on chat-v2 flag-flip becoming testable." Adding tests for the new markers in isolation would create asymmetric coverage (the parallel Interrupted equivalents would still be untested). Extended the existing 24H entry to cover all four pieces together — same fixture skeleton, same gate.
 
+**Post-staff-review self-review fix:**
+
+The first cut of `humanize_dispatch_error` kept the original `Fn(&OrchestratorError) -> String` signature and the call sites kept their `format!("couldn't deliver your message to Claude — {humanize}")` wrapping. For non-ChannelClosed variants this works — the OrchestratorError Display is engineer-y and benefits from a manager-voiced prefix. But for the spec-§5.6-row-1 ChannelClosed path, the user-visible string became *"couldn't deliver your message to Claude — Couldn't reach Claude. Check your installation in Settings → Account."* — a double-prefix that dilutes the spec copy. None of the three staff-review agents caught it (the engineer reviewer's prompt #8 asked the exact question but the response didn't actually verify). The post-review self-review pass surfaced it.
+
+Refactored `humanize_dispatch_error` to take `fallback_prefix: &str`. For ChannelClosed the prefix is discarded and the spec copy stands alone. For other variants the prefix wraps the Display. Three call sites updated: post_message's respawn-failure branch and the fall-through branch both pass `"couldn't deliver your message to Claude"`; interrupt_turn's fall-through passes `"couldn't interrupt the turn"`. (ChannelClosed in the interrupt path is converted to `Ok(())` upstream and never reaches the helper today, but the contract is robust to future callers — pinned by a third new test, `humanize_dispatch_error_channel_closed_ignores_fallback_prefix`.)
+
 **Lessons learned:**
 
 When the spec names a token that doesn't exist, the temptation is either to invent a new scale or to substitute the closest existing token in component CSS. Both are wrong: the first creates premature tiers, the second hides spec intent. The right move is a semantic alias at the role layer — the spec's words resolve as-written, future tier decisions have a clean seam, and the alias itself becomes the spec-vs-code traceability link.
 
 Spec tables are exhaustive; absence is a signal. `MaxTokens` not appearing in spec §5.7's aria-live table reads as a deliberate omission, not an oversight — max-tokens isn't an *error* in the spec's mental model, just a length-limit reached, so the visual marker carries the weight without an audio announcement. Resisting the urge to add "for consistency" coverage when the spec is explicit about scope.
+
+When tightening copy at the leaves of an error-formatting tree, check the wrapping at every call site. The agents' three perspectives can collectively miss a redundancy that a single-prompt self-review with "what does the final user-visible string actually look like" catches in seconds. The skill's "reviewers can be confidently wrong" warning works in both directions — both confidently-wrong findings AND confidently-missing oversights.
 
 ---
 
