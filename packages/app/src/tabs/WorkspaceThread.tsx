@@ -476,6 +476,44 @@ export function WorkspaceThread({
     return () => window.clearTimeout(t);
   }, [interruptedTurnIds]);
 
+  // Phase 24 §5.7 row 275 — assertive SR announcement on
+  // `AgentTurnEnded { stop_reason: Error }`. Carries the §5.6
+  // user-facing copy verbatim so the screen-reader user hears the
+  // same message a sighted user reads on the inline ErrorMarker.
+  // Same pattern as `interruptAnnouncement` above: long-lived live
+  // region with text that changes when a new turn becomes errored.
+  // Tracked-by-turn-id ref so each errored turn announces exactly
+  // once even if the component re-renders.
+  const erroredTurnIds = useChatThreadState((s) => {
+    if (!showChatV2 || !tabId) return undefined;
+    const tabState = s.byTab[tabId];
+    if (!tabState) return undefined;
+    const ids: string[] = [];
+    for (const turn of Object.values(tabState.turns)) {
+      if (turn.stop_reason === "error") ids.push(turn.turn_id);
+    }
+    return ids.join(",");
+  });
+  const announcedErrorsRef = useRef<Set<string>>(new Set());
+  const [errorAnnouncement, setErrorAnnouncement] = useState("");
+  useEffect(() => {
+    if (!erroredTurnIds) return;
+    const ids = erroredTurnIds ? erroredTurnIds.split(",").filter(Boolean) : [];
+    let announced = false;
+    for (const id of ids) {
+      if (!announcedErrorsRef.current.has(id)) {
+        announcedErrorsRef.current.add(id);
+        announced = true;
+      }
+    }
+    if (!announced) return;
+    setErrorAnnouncement(
+      "Agent stopped: something went wrong on Claude’s side. Try again, or shorten the request.",
+    );
+    const t = window.setTimeout(() => setErrorAnnouncement(""), 2000);
+    return () => window.clearTimeout(t);
+  }, [erroredTurnIds]);
+
   // B7 — clear activity once a new agent artifact lands. The submitting
   // and stuck states both end the same way: the artifact list grew past
   // the snapshot we took when the user clicked send. The snapshot is
@@ -750,6 +788,17 @@ export function WorkspaceThread({
           data-component="InterruptAnnouncement"
         >
           {interruptAnnouncement}
+        </span>
+        {/* Phase 24 §5.7 row 275 — assertive announcement on
+            AgentTurnEnded { stop_reason: Error }. Carries the §5.6
+            user-facing copy verbatim. Sibling region to
+            InterruptAnnouncement above; same contract. */}
+        <span
+          className="sr-only"
+          aria-live="assertive"
+          data-component="ErrorAnnouncement"
+        >
+          {errorAnnouncement}
         </span>
       </div>
     </div>

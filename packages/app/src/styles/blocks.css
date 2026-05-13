@@ -1333,6 +1333,35 @@
   font-size: var(--type-caption-size);
 }
 
+/* Phase 24 §5.6 — inline marker for `AgentTurnEnded` with a
+ * `stop_reason` of `error` or `max_tokens`. Same caption register as
+ * the interrupted marker; spec §5.6 specifies muted foreground for
+ * the copy and a warning-accent pill icon (the `::before` dot).
+ * No error-red — spec reserves red for destructive states (file
+ * deletion blocked, etc.), not for "agent had trouble." */
+.thread__turn-end-marker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  color: var(--color-foreground-muted);
+  font-size: var(--type-caption-size);
+}
+
+.thread__turn-end-marker::before {
+  content: "";
+  display: inline-block;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-warning);
+  flex-shrink: 0;
+}
+
+.thread__turn-end-marker-text {
+  flex: 1;
+}
+
 /* Imported-from-earlier-version banner. Pinned to the top of the
  * thread when a tab has only legacy events; dismissible per
  * (workspace, tab) via localStorage. Tokens mirror the spec §5.4

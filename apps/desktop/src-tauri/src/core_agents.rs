@@ -54,13 +54,26 @@ fn resolve_tab(tab_id: Option<TabId>) -> TabId {
 /// is engineering jargon for the manager user. Logs still carry the
 /// full structured error via `warn!(error = %e, …)` at the call site,
 /// so we lose no diagnostics on the operator side.
-fn humanize_dispatch_error(err: &OrchestratorError) -> String {
+/// Produces the final user-facing string for a dispatch error. The
+/// spec-defined variants stand alone (no caller prefix); all other
+/// variants are concatenated with the caller's `fallback_prefix`
+/// (e.g. "couldn't deliver your message to Claude" /
+/// "couldn't interrupt the turn") so the user-visible string keeps
+/// its action context.
+///
+/// Phase 24 §5.6 row 1 — `ChannelClosed` after the post_message
+/// auto-respawn retry also fails surfaces the spec copy *as the
+/// complete message*. Wrapping it with "couldn't deliver your
+/// message to Claude — Couldn't reach Claude…" would be a redundant
+/// double-prefix; the spec copy already names the action ("reach
+/// Claude") and the recovery ("check your installation"). The
+/// `fallback_prefix` is unused on this branch.
+fn humanize_dispatch_error(err: &OrchestratorError, fallback_prefix: &str) -> String {
     match err {
         OrchestratorError::ChannelClosed { .. } => {
-            "Claude's connection dropped and reconnecting didn't help. Try again in a moment."
-                .into()
+            "Couldn't reach Claude. Check your installation in Settings → Account.".into()
         }
-        other => other.to_string(),
+        other => format!("{fallback_prefix} — {other}"),
     }
 }
 
@@ -257,17 +270,17 @@ impl AppCore {
                     .await
                 {
                     warn!(error = %e, %workspace_id, tab = %dispatch_tab, "post_message after lazy spawn failed");
-                    return Err(CoreError::Invariant(format!(
-                        "couldn't deliver your message to Claude — {}",
-                        humanize_dispatch_error(&e)
+                    return Err(CoreError::Invariant(humanize_dispatch_error(
+                        &e,
+                        "couldn't deliver your message to Claude",
                     )));
                 }
             }
             Err(e) => {
                 warn!(error = %e, %workspace_id, tab = %dispatch_tab, "orchestrator post_message failed");
-                return Err(CoreError::Invariant(format!(
-                    "couldn't deliver your message to Claude — {}",
-                    humanize_dispatch_error(&e)
+                return Err(CoreError::Invariant(humanize_dispatch_error(
+                    &e,
+                    "couldn't deliver your message to Claude",
                 )));
             }
         }
@@ -430,9 +443,9 @@ impl AppCore {
             }
             Err(e) => {
                 warn!(error = %e, %workspace_id, tab = %dispatch_tab, "orchestrator interrupt failed");
-                Err(CoreError::Invariant(format!(
-                    "couldn't interrupt the turn — {}",
-                    humanize_dispatch_error(&e)
+                Err(CoreError::Invariant(humanize_dispatch_error(
+                    &e,
+                    "couldn't interrupt the turn",
                 )))
             }
         }
@@ -1095,6 +1108,77 @@ mod tests {
     fn truncate_handles_empty_first_line() {
         let body = "\n\nactual content here";
         assert_eq!(first_line_truncate(body, 60), "actual content here");
+    }
+
+    /// Phase 24 §5.6 row 1 — when the subprocess crashes mid-turn AND
+    /// the auto-respawn dispatch ALSO fails, the user-facing copy from
+    /// `humanize_dispatch_error` must match the spec verbatim and
+    /// STAND ALONE (no caller-prefix concatenation). The previous
+    /// implementation wrapped every variant with the caller's prefix,
+    /// producing redundant text like "couldn't deliver your message
+    /// to Claude — Couldn't reach Claude. Check your installation…"
+    /// — the staff-review self-review caught the redundancy. Spec
+    /// copy now stands alone for ChannelClosed; the fallback prefix
+    /// is unused on this branch.
+    #[test]
+    fn humanize_dispatch_error_channel_closed_uses_spec_copy() {
+        use designer_claude::OrchestratorError;
+        let err = OrchestratorError::ChannelClosed {
+            workspace_id: WorkspaceId::new(),
+            tab_id: default_tab_id(),
+        };
+        let out = humanize_dispatch_error(&err, "couldn't deliver your message to Claude");
+        assert_eq!(
+            out, "Couldn't reach Claude. Check your installation in Settings → Account.",
+            "ChannelClosed copy must match Phase 24 §5.6 row 1 spec verbatim AND stand alone (no caller-prefix wrapping)"
+        );
+    }
+
+    /// The previous (pre-fix) helper signature returned only the
+    /// `humanize` half and required callers to concatenate their own
+    /// prefix. That worked for non-ChannelClosed variants but
+    /// produced a double-prefix for ChannelClosed (see the test
+    /// above). The new signature takes the prefix as a parameter so
+    /// non-spec variants still get a wrapped output.
+    #[test]
+    fn humanize_dispatch_error_other_uses_fallback_prefix() {
+        use designer_claude::OrchestratorError;
+        let err = OrchestratorError::TeamNotFound("ws/tab".into());
+        let out = humanize_dispatch_error(&err, "couldn't deliver your message to Claude");
+        assert!(
+            out.starts_with("couldn't deliver your message to Claude — "),
+            "fall-through must prefix with the caller-supplied action context: got {out}"
+        );
+        assert!(
+            out.contains("ws/tab"),
+            "fall-through should preserve the OrchestratorError Display: got {out}"
+        );
+    }
+
+    /// Spec §5.6 row 1 explicitly addresses the post_message path.
+    /// The interrupt path (`humanize_dispatch_error` called with the
+    /// "couldn't interrupt the turn" prefix at `interrupt_turn`'s
+    /// site 3) is currently unreachable for ChannelClosed because
+    /// the AppCore::interrupt_turn handler converts ChannelClosed to
+    /// `Ok(())` upstream — but the helper's contract is robust to
+    /// future callers that might pass a non-Send prefix. The spec
+    /// copy still stands alone (no double-prefix) regardless of the
+    /// caller's context. This test pins that contract so a future
+    /// refactor that re-routes ChannelClosed through interrupt
+    /// surfaces sensibly.
+    #[test]
+    fn humanize_dispatch_error_channel_closed_ignores_fallback_prefix() {
+        use designer_claude::OrchestratorError;
+        let err = OrchestratorError::ChannelClosed {
+            workspace_id: WorkspaceId::new(),
+            tab_id: default_tab_id(),
+        };
+        let out_send = humanize_dispatch_error(&err, "couldn't deliver your message to Claude");
+        let out_interrupt = humanize_dispatch_error(&err, "couldn't interrupt the turn");
+        assert_eq!(
+            out_send, out_interrupt,
+            "ChannelClosed copy must be context-independent (no caller-prefix leakage)"
+        );
     }
 
     async fn boot_test_core() -> Arc<AppCore> {
@@ -2006,9 +2090,19 @@ mod tests {
             .expect_err("recovery-also-fails must surface a clean error");
 
         let msg = format!("{err}");
+        // Phase 24 §5.6 row 1 second leg — spec mandates the
+        // user-facing copy stand alone (not wrapped with the
+        // dispatch-context prefix), so the spec string is the entire
+        // user-visible message. Pre-Phase-24-§5.6 the test asserted
+        // on a "couldn't deliver" wrapper; that wrapper now only
+        // applies to non-ChannelClosed variants.
         assert!(
-            msg.contains("couldn't deliver"),
-            "expected manager-readable copy, got: {msg}"
+            msg.contains("Couldn't reach Claude"),
+            "expected Phase 24 §5.6 spec copy, got: {msg}"
+        );
+        assert!(
+            msg.contains("Check your installation in Settings → Account."),
+            "expected spec recovery-hint copy, got: {msg}"
         );
         assert!(
             !msg.starts_with("orchestrator post_message failed:"),
@@ -2017,8 +2111,9 @@ mod tests {
         // Phase 23.E follow-up: the recovered-then-failed path used to
         // suffix the user-facing copy with `OrchestratorError::ChannelClosed`'s
         // Display string, which after 23.E embeds raw `workspace` + `tab`
-        // UUIDs. Manager users don't read UUIDs. The humanizer must rewrite
-        // this suffix to a clean retry hint.
+        // UUIDs. Manager users don't read UUIDs. The humanizer rewrites
+        // this suffix to a clean recovery hint (and as of Phase 24
+        // §5.6 replaces it entirely with the spec stand-alone copy).
         assert!(
             !msg.contains("stdin channel closed"),
             "ChannelClosed Display string leaked to user-facing copy (got: {msg})"
