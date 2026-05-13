@@ -58,13 +58,15 @@
   font-variant-numeric: tabular-nums;
   border-bottom: var(--border-thin) solid var(--color-border-soft);
   /* Phase 24 §5.2 — exit fade on AgentTurnEnded (chat-v2 only,
-   * gated by `data-exiting="true"` from the component). `--motion-fast`
-   * in spec → resolved to `--motion-quick` (the closest existing
-   * motion-token tier; see pattern-log.md). The chat-v1 (legacy)
-   * branch never sets the exit attribute, so its snap-off behavior
-   * is preserved by `opacity: 1` being the steady state. */
+   * gated by `data-exiting="true"` from the component). Uses the
+   * composed `--motion-exit` token (= `--motion-quick` 120ms +
+   * `--ease-in-exit` cubic-bezier). Spec text said `--motion-fast`;
+   * resolved to the design-language's canonical exit-motion compound
+   * (see pattern-log.md). The chat-v1 (legacy) branch never sets the
+   * exit attribute, so its snap-off behavior is preserved by
+   * `opacity: 1` being the steady state. */
   opacity: 1;
-  transition: opacity var(--motion-quick) ease-out;
+  transition: opacity var(--motion-exit);
 }
 
 .compose-dock-activity-row[data-exiting="true"] {

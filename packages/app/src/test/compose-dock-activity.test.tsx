@@ -449,6 +449,23 @@ describe("Phase 24 §5.2 — render-time activity indicator (chat-v2)", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("activity-indicator container carries a static aria-label per spec §5.7 row 278", () => {
+    enableChatV2();
+    const t0 = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(t0);
+    seedOpenTurn(WS, TAB_A, t0);
+
+    const { container } = render(
+      <ComposeDockActivityRow workspaceId={WS} tabId={TAB_A as TabId} />,
+    );
+    const row = container.querySelector(".compose-dock-activity-row");
+    expect(row).not.toBeNull();
+    // Static label — not aria-live; the nested "Working…" span owns the
+    // live announcement (`role="status" aria-live="polite"`).
+    expect(row?.getAttribute("aria-label")).toBe("Agent working");
+    expect(row?.getAttribute("aria-live")).toBeNull();
+  });
+
   it("elapsed counter reads the OPEN turn's started_at, not Date.now()", () => {
     enableChatV2();
     const t0 = Date.UTC(2026, 0, 1);

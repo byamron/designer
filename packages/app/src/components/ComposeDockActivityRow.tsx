@@ -11,14 +11,14 @@ import { ipcClient } from "../ipc/client";
 import type { TabId, WorkspaceId } from "../ipc/types";
 
 /**
- * Phase 24 §5.2 — chip fade-out duration on `AgentTurnEnded`. Spec calls
- * this `--motion-fast`; the project's existing motion-token tier closest
- * to "fast" is `--motion-quick` (120 ms in `tokens.css`). The CSS
- * transition uses `var(--motion-quick)` and this constant mirrors it so
- * the unmount-after-fade timeout matches the visible animation. If the
- * token value moves, update both this constant AND the CSS rule. (See
- * `pattern-log.md` entry for the `--motion-fast` → `--motion-quick`
- * mapping rationale.)
+ * Phase 24 §5.2 — chip fade-out duration on `AgentTurnEnded`. The CSS
+ * transition uses the composed `--motion-exit` token (= `--motion-quick`
+ * 120 ms + `--ease-in-exit`); this constant mirrors that duration so
+ * the React unmount-after-fade timeout matches the visible animation.
+ * Spec text said `--motion-fast`; resolved to `--motion-exit` per the
+ * design-language exit-motion compound (see `pattern-log.md`). If the
+ * `--motion-quick` token value moves, update this constant AND the CSS
+ * rule together.
  */
 const CHIP_EXIT_MS = 120;
 
@@ -263,6 +263,7 @@ function renderWorkingChip(
       data-component="ComposeDockActivityRow"
       data-state="working"
       data-exiting={exiting ? "true" : undefined}
+      aria-label="Agent working"
     >
       <span className="compose-dock-activity-row__pulse" aria-hidden="true" />
       <span className="compose-dock-activity-row__label">
