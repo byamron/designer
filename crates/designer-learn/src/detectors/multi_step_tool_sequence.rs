@@ -846,6 +846,24 @@ mod tests {
         )
     }
 
+    /// Build a chat-v2 thinking block-start envelope (NOT a tool use).
+    /// Phase 24 §2.2 scenario B: thinking blocks appear in the same
+    /// content stream as text + tool_use blocks. The detector must
+    /// skip them like any other non-ToolUse block.
+    fn chat_v2_thinking_block(seq: u64, ws: WorkspaceId) -> EventEnvelope {
+        env(
+            seq,
+            EventPayload::AgentContentBlockStarted {
+                workspace_id: ws,
+                tab_id: designer_core::TabId::new(),
+                turn_id: designer_core::ClaudeMessageId::new(format!("msg_{seq}")),
+                block_index: 0,
+                block_kind: designer_core::AgentContentBlockKind::Thinking,
+            },
+            ws,
+        )
+    }
+
     /// Pure-chat-v2 stream: three sessions, each with the same
     /// `(Read, Edit, Bash)` tool sequence emitted via
     /// `AgentContentBlockStarted{ToolUse}` events instead of legacy
@@ -944,15 +962,16 @@ mod tests {
     /// Only `ToolUse` blocks are tool calls — text deltas, thinking,
     /// and tool results are noise from the detector's perspective.
     #[tokio::test]
-    async fn chat_v2_text_blocks_do_not_join_run() {
+    async fn chat_v2_text_and_thinking_blocks_do_not_join_run() {
         let ws = WorkspaceId::new();
         let events = vec![
             user_message(1, ws, "go"),
             chat_v2_tool_use(2, ws, "Read"),
-            chat_v2_text_block(3, ws), // noise
-            chat_v2_tool_use(4, ws, "Edit"),
-            chat_v2_text_block(5, ws), // noise
-            chat_v2_tool_use(6, ws, "Bash"),
+            chat_v2_text_block(3, ws),     // noise: agent narration
+            chat_v2_thinking_block(4, ws), // noise: agent thinking
+            chat_v2_tool_use(5, ws, "Edit"),
+            chat_v2_text_block(6, ws), // noise
+            chat_v2_tool_use(7, ws, "Bash"),
         ];
         let input = SessionAnalysisInput::builder(ProjectId::new())
             .workspace(ws)
