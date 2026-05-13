@@ -94,29 +94,40 @@ pub struct FeatureFlags {
     pub show_recent_reports_v2: bool,
     /// Phase 24 (ADR 0008) — emit the new `AgentTurn*` chat-domain
     /// event family from the stream translator and route the renderer
-    /// through the Phase 24 chat surface. Off by default for the first
-    /// dogfood week so the existing chat plumbing stays the production
-    /// path until the new surface earns its way on. When the flag
-    /// flips on, the translator emits `AgentTurn*`, the bridge in
+    /// through the Phase 24 chat surface. **Default ON as of Step 13
+    /// (2026-05-12)** — the A1–A12 contract-level coverage audit
+    /// (`core-docs/phase-24-pass-through-chat.md` §6.1) pinned each
+    /// criterion to its test, and PRs #119–#133 shipped every
+    /// behavioral piece (translator, bridge, renderer, queue, ESC +
+    /// SIGINT, dispatch contract, render-time activity indicator,
+    /// detector dual-shape, §5.6 error copy). When ON, the translator
+    /// emits `AgentTurn*`, the bridge in
     /// `core_agents::spawn_message_coalescer` persists them, the
-    /// activity indicator becomes a render-time observable, and the
-    /// renderer's per-block accumulator drives the chat thread. When
-    /// off, every code path stays on the legacy
-    /// `MessagePosted` / `ArtifactProduced` flow with the 120 ms
-    /// coalescer.
+    /// activity indicator is a render-time observable, and the
+    /// renderer's per-block accumulator drives the chat thread.
+    ///
+    /// Setting the flag OFF still works for back-compat (the legacy
+    /// `MessagePosted` / `ArtifactProduced` arms of the
+    /// broadcast→store bridge remain) but is no longer the default.
+    /// The legacy-arms cleanup is filed as a Phase 24H follow-up — the
+    /// `spawn_message_coalescer` function itself stays load-bearing as
+    /// the broadcast→store bridge for `AgentTurn*` events; only the
+    /// chat-v1-specific arms inside it retire.
     ///
     /// **Transition behaviour:** the flag is read once at subprocess
     /// spawn; flipping it only takes effect on the next respawn (next
-    /// user message after a model swap or tab re-open). Until the
-    /// Phase 24 renderer follow-up lands, flipping ON during dogfood
-    /// will leave the legacy renderer unable to display new
-    /// `AgentTurn*` events — chat will appear frozen mid-turn. The
-    /// Settings → Preferences toggle for this flag intentionally lives
-    /// in the renderer follow-up so the toggle can warn before the
-    /// flip; until then, dogfood operators flip the flag by editing
-    /// `settings.json` directly and respawning.
-    #[serde(default)]
+    /// user message after a model swap or tab re-open).
+    #[serde(default = "default_show_chat_v2")]
     pub show_chat_v2: bool,
+}
+
+/// Phase 24 (ADR 0008) — `show_chat_v2` defaults ON as of Step 13.
+/// Old settings.json files predating the flip de-serialize through
+/// this fn (the `#[serde(default = ...)]` on the field) and pick up
+/// the new default. Users who explicitly disabled chat-v2 in settings
+/// (`"show_chat_v2": false`) keep their override.
+fn default_show_chat_v2() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

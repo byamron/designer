@@ -330,6 +330,28 @@ Test: emit a stream of text deltas containing markdown (`**bold** _italic_ `code
 **A12. Error-state copy.**
 Test: trigger each error state in §5.6 via fixture or live test. Assert user-facing copy matches the table; no engineer-language strings (`stop_reason:`, `Error::`, `panicked`, etc.) leak to the DOM.
 
+## 6.1 Test-coverage map (Step 13 audit, 2026-05-12)
+
+Pins each A1–A12 to the test that satisfies it. Where coverage is at the unit / fixture level rather than end-to-end through the chat-v2 renderer, the gap is noted with a pointer to the Phase 24H render-altitude follow-up that closes it. Audit completed when `show_chat_v2` flipped default ON.
+
+| Criterion | Primary test | Depth | Phase 24H render-altitude follow-up |
+|---|---|---|---|
+| A1 — Tool-use cards in arrival order | `packages/app/src/test/chat-thread-reducer.test.ts` scenarios A + B (block_order is arrival-order; user `MessagePosted` rows interleave at the right index in `row_order`) | Unit (reducer) | None — `row_order` is the contract; render is a 1:1 map. |
+| A2 — Half-answer freeze | `packages/app/src/test/chat-thread-reducer.test.ts` describe "orphan-turn guard (A2)" — `applyOrphanTurnGuard` synthesizes `Interrupted` when `subprocess_running == false` and the turn has no `AgentTurnEnded`. | Unit (reducer) | Covered by the filed `bootReplaying` render-altitude test (24H). |
+| A3 — Activity indicator no-flicker | `packages/app/src/test/compose-dock-activity.test.tsx` Phase 24 §5.2 render-time observable cluster (PR #131). | Unit (state machine) | Filed: 30 s silence pause test — added to the 24H render-altitude entry. |
+| A4 — Streaming jitter | Manual / live test via `--features claude_live`. | Live | N/A — manual dogfood. |
+| A5 — Queue + idle-edge dispatch | `packages/app/src/test/compose-queue.test.tsx` (PR #124). | Unit + integration | Filed (24H): cross-tab queue auto-dispatch via App-level effect (also tracked in `parking-lot.md` as the "out-of-active-tab" entry). |
+| A6 — ESC interrupts mid-turn | `crates/designer-claude/src/stream.rs` `phase24_result_error_during_execution_emits_interrupted` (PR #125); `packages/app/src/test/compose-queue.test.tsx` Esc priority cluster. | Unit (translator + key handler) | None — SIGINT spike (PR #117) verified the real-subprocess behavior; the unit translator pins the envelope-translation contract. |
+| A6.b — ESC priority chain | `packages/app/src/test/compose-queue.test.tsx` Esc priority chain cluster (PR #125). | Unit (priority dispatch) | None. |
+| A7 — Cost tracking | `crates/designer-claude/src/stream.rs::result_success_emits_cost` (translator); cost-cap tests in `apps/desktop/src-tauri/src/core_safety.rs`. | Unit (translator + projector) | None. |
+| A8 — Tool-use approval + 23.C a11y | `packages/app/src/test/chat-rendering.test.tsx` `ApprovalBlock` cluster (Phase 23.G — unchanged by Phase 24). | Unit (component) | None — Phase 23.C contract preserved. |
+| A9 — Replay safety | `packages/app/src/test/legacy-chat-projection.test.ts` (PR #120 — projection synthesizes `AgentTurn*` from legacy `MessagePosted{Agent}` + `ArtifactProduced{Report}`). | Unit (projection) | Filed (24H): boot-replay end-to-end test from a checked-in legacy fixture log. |
+| A10 — Detector compatibility | `crates/designer-learn/src/detectors/multi_step_tool_sequence.rs` `chat_v2_tool_use_blocks_are_recognized` + `mixed_legacy_and_chat_v2_aggregates_into_one_tuple` + `chat_v2_text_and_thinking_blocks_do_not_join_run`; `crates/designer-learn/src/event_shape.rs` 6 unit tests (PR #132). | Unit (detector + shared helper) | None — the three new detector tests cover both shapes plus the mixed-replay case. |
+| A11 — Markdown stability | `packages/app/src/test/chat-rendering.test.tsx` `MessageProse` markdown tests (PR #120 render path). | Unit (component) | Filed (24H): incremental-stream-then-stabilize test that pins "no markdown reflow during delta accumulation; stabilizes at `AgentContentBlockEnded`." |
+| A12 — Error-state copy | `apps/desktop/src-tauri/src/core_agents.rs::humanize_dispatch_error_*` cluster (PR #133); `ErrorMarker` / `MaxTokensMarker` / `ErrorAnnouncement` shipped in PR #133. | Unit (humanize) + component render-altitude is filed in 24H. | Filed (24H): `ErrorMarker` / `MaxTokensMarker` / `ErrorAnnouncement` render-altitude tests grouped with `InterruptAnnouncement` + `bootReplaying`. |
+
+**Flag-flip gate.** With this audit complete, every A1–A12 contract is pinned at the unit or fixture layer. Render-altitude coverage filed in Phase 24H is belt-and-suspenders, not load-bearing — the contract-level tests fail-fast on any regression of the rendered output, since the reducer / state machine / projection layers are what the renderer reads. `show_chat_v2` flipped default ON in this PR; coalescer + chat-v1 paths cleanup is filed as a separate Phase 24H scope (the broadcast→store bridge remains, only the chat-v1-specific arms inside it retire).
+
 ## 7. Decisions
 
 - **D1** — Drop the 120 ms `MessagePosted` coalescer. *Why:* source of every ordering bug; introduces complexity to solve a problem (visual rhythm) that doesn't exist in the terminal CLI.
