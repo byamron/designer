@@ -116,6 +116,19 @@ impl AppCore {
     /// If no chat session has been spawned yet (demo flow / first user
     /// message), we lazy-spawn one as a plain pass-through claude session
     /// and retry the dispatch.
+    ///
+    /// **Phase 24 (ADR 0008) — user-only dispatch contract.** This method
+    /// is the user side of the chat pipeline. It writes exactly two events
+    /// to the store, both authored by [`Actor::User`]: the
+    /// `MessagePosted { author: User }` event and the
+    /// `ArtifactCreated { kind: Message, author_role: "user" }` artifact.
+    /// It never emits agent-side events — no `MessagePosted { author:
+    /// Agent }`, no `ActivityChanged`, no `AgentTurn*`. Agent output flows
+    /// in via the orchestrator broadcast and is persisted by the
+    /// coalescer (chat-v1) or the `AgentTurn*` bridge (chat-v2) — both
+    /// run in `spawn_message_coalescer`, not here. The contract is
+    /// flag-independent: it holds whether `show_chat_v2` is on or off.
+    /// Pinned by `post_message_emits_only_user_authored_events` below.
     pub async fn post_message(
         &self,
         workspace_id: WorkspaceId,
@@ -1099,6 +1112,119 @@ mod tests {
         };
         std::mem::forget(dir);
         AppCore::boot(config).await.unwrap()
+    }
+
+    /// Phase 24 (ADR 0008) — user-only dispatch contract. `post_message`
+    /// writes exactly two `Actor::User`-authored events to the store: the
+    /// `MessagePosted { author: User }` and the
+    /// `ArtifactCreated { kind: Message, author_role: "user" }`. Anything
+    /// agent-side comes through the orchestrator broadcast → coalescer /
+    /// `AgentTurn*` bridge, never from this method. The contract holds
+    /// flag-independently — we do not spawn the coalescer here so any
+    /// agent-side leak from `post_message` itself would surface as an
+    /// extra `Actor::User` event in the store (the mock's reply lands as
+    /// `Actor::Agent` and is filtered out below).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn post_message_emits_only_user_authored_events() {
+        let core = boot_test_core().await;
+        // Intentionally do NOT spawn the coalescer. The agent-side path
+        // is the coalescer's responsibility; this test pins what
+        // `post_message` itself writes.
+        let project = core
+            .create_project("P".into(), "/tmp".into())
+            .await
+            .unwrap();
+        let ws = core
+            .create_workspace(project.id, "ws".into(), "main".into())
+            .await
+            .unwrap();
+        core.orchestrator
+            .spawn_team(designer_claude::TeamSpec {
+                workspace_id: ws.id,
+                tab_id: default_tab_id(),
+                team_name: "t".into(),
+                lead_role: "assistant".into(),
+                teammates: vec![],
+                env: Default::default(),
+                cwd: None,
+                model: None,
+                phase24: true,
+            })
+            .await
+            .unwrap();
+
+        let before = core
+            .store
+            .read_all(designer_core::StreamOptions::default())
+            .await
+            .unwrap()
+            .len();
+
+        core.post_message(ws.id, None, None, "hello team".into())
+            .await
+            .unwrap();
+
+        let events = core
+            .store
+            .read_all(designer_core::StreamOptions::default())
+            .await
+            .unwrap();
+        let new_events: Vec<_> = events.iter().skip(before).collect();
+        let new_user_events: Vec<_> = new_events
+            .iter()
+            .copied()
+            .filter(|e| e.actor == Actor::User)
+            .collect();
+
+        assert_eq!(
+            new_user_events.len(),
+            2,
+            "post_message must write exactly 2 user-authored events; saw {}: {:?}",
+            new_user_events.len(),
+            new_user_events
+                .iter()
+                .map(|e| e.payload.kind())
+                .collect::<Vec<_>>()
+        );
+
+        match &new_user_events[0].payload {
+            EventPayload::MessagePosted { author, body, .. } => {
+                assert_eq!(author, &Actor::User, "first event author must be User");
+                assert_eq!(body, "hello team");
+            }
+            other => panic!(
+                "expected MessagePosted as first user event; saw {:?}",
+                other.kind()
+            ),
+        }
+        match &new_user_events[1].payload {
+            EventPayload::ArtifactCreated {
+                artifact_kind,
+                author_role,
+                ..
+            } => {
+                assert_eq!(*artifact_kind, ArtifactKind::Message);
+                assert_eq!(
+                    author_role.as_deref(),
+                    Some(USER_AUTHOR_ROLE),
+                    "user artifact author_role must be 'user'"
+                );
+            }
+            other => panic!(
+                "expected ArtifactCreated as second user event; saw {:?}",
+                other.kind()
+            ),
+        }
+
+        // No `AgentTurn*` event may be authored by the user —
+        // those belong to the reader-side bridge.
+        for ev in &new_user_events {
+            assert!(
+                !matches!(ev.payload, EventPayload::AgentTurnStarted { .. }),
+                "post_message must not write agent-side event types: {:?}",
+                ev.payload.kind()
+            );
+        }
     }
 
     /// Coalescer must skip events whose `author_role == "user"` so the

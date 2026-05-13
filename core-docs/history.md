@@ -37,6 +37,40 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 24 step 4 — `cmd_post_message` user-only dispatch contract pinned
+**Date:** 2026-05-12
+**Branch:** phase-24-step-4-user-only-dispatch
+**Commit:** PR #130 (c75ca163)
+
+**What was done:**
+
+Pinned the Phase 24 (ADR 0008) user-only dispatch contract on `AppCore::post_message`. The method already wrote exactly two `Actor::User`-authored events to the store — `MessagePosted { author: User }` and `ArtifactCreated { kind: Message, author_role: "user" }` — but the contract was load-bearing and untested. Added `post_message_emits_only_user_authored_events` in `core_agents.rs` tests: boots a core *without* spawning the coalescer / `AgentTurn*` bridge, spawns a `phase24: true` team, posts a message, snapshots events before/after, filters new events by `Actor::User`, and asserts exactly two — the `MessagePosted` and the `ArtifactCreated` — in that order with the expected shapes. Also asserts no `AgentTurnStarted` is authored by the user. Test runs in <20 ms.
+
+Tightened the `AppCore::post_message` doc-comment with an explicit "user-only dispatch contract" paragraph naming the two persisted events and citing ADR 0008. Cross-references the new test by name.
+
+**Why:**
+
+Step 4 of the Phase 24 workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1): "Update `cmd_post_message` to dispatch user messages with `MessagePosted{author: User}` only. Reader handles agent side via `AgentTurn*`." At the code level this was already true — the user post path emits only user events; the agent side flows through the orchestrator broadcast → coalescer (chat-v1) / `AgentTurn*` bridge (chat-v2) in `spawn_message_coalescer`. The remaining work was contract-pinning: lock the invariant with a test so a future refactor that accidentally re-couples agent emission to the user post path fails CI, and surface the contract in the doc-comment so future readers don't need to triangulate from the broadcast bridge code.
+
+**Design decisions:**
+
+The test deliberately does NOT spawn the coalescer. The agent-side path is the coalescer's responsibility, not `post_message`'s — including the coalescer in the test would conflate "what `post_message` writes" with "what the broadcast bridge writes." Without the coalescer running, any agent-side leak from `post_message` itself would land as an extra `Actor::User`-authored event in the store and fail the count assertion. The mock orchestrator's synchronous agent reply (`Actor::Agent`-authored) is filtered out by the actor predicate.
+
+**Technical decisions:**
+
+Used a before/after event-count snapshot rather than filtering by stream or kind. The workspace stream contains `ProjectCreated` and `WorkspaceCreated` events from the test setup that are also `Actor::User`-authored; counting from the post-setup baseline isolates exactly the events `post_message` produces. Simpler than threading a stream-id filter through `read_all`.
+
+**Tradeoffs discussed:**
+
+- Considered making the test flag-parameterized (one assertion per `phase24: true/false`). Skipped: the contract is flag-independent (`post_message` doesn't read the flag), so one test path is sufficient. Made the team `phase24: true` to exercise the chat-v2 spawn path; the chat-v1 path is already covered by adjacent `coalescer_*` tests.
+- Considered also asserting "no `ActivityChanged` written by user." `ActivityChanged` is an `OrchestratorEvent` variant, not an `EventPayload` variant — it doesn't persist to the store at all, only broadcasts. The assertion would have been against a non-existent enum variant. Dropped.
+
+**Lessons learned:**
+
+A contract that's already true in code can still be load-bearing in spec — pinning it with a 30-line test costs less than re-deriving the invariant the next time someone touches `post_message`. The Phase 24 sequence's "remaining" steps aren't always net-new code; some are *verification* work that lets the next refactor proceed without re-reading the surrounding history.
+
+---
+
 ### Phase 24 §5.4.2 — SIGINT interrupt + Esc priority chain + §5.7 assertive announcement
 **Date:** 2026-05-10
 **Branch:** phase-24-sigint-interrupt
