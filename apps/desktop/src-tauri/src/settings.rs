@@ -372,12 +372,18 @@ mod tests {
             rust_default.show_chat_v2, serde_default.show_chat_v2,
             "first-run default for show_chat_v2 must match the serde default"
         );
-        assert_eq!(rust_default.show_models_section, serde_default.show_models_section);
+        assert_eq!(
+            rust_default.show_models_section,
+            serde_default.show_models_section
+        );
         assert_eq!(
             rust_default.show_all_artifacts_in_spine,
             serde_default.show_all_artifacts_in_spine
         );
-        assert_eq!(rust_default.show_roadmap_canvas, serde_default.show_roadmap_canvas);
+        assert_eq!(
+            rust_default.show_roadmap_canvas,
+            serde_default.show_roadmap_canvas
+        );
         assert_eq!(
             rust_default.show_recent_reports_v2,
             serde_default.show_recent_reports_v2
