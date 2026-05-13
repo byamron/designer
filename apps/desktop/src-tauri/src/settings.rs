@@ -57,13 +57,26 @@ impl ResolvedTheme {
 /// Per-feature opt-in toggles. The DP-C reliability audit (2026-04-30)
 /// set the project rule: half-baked features should not appear in prod
 /// without an explicit user opt-in. Each field defaults to `false` so a
-/// fresh install never surfaces a placeholder.
+/// fresh install never surfaces a placeholder — **except** for flags
+/// that have shipped through Phase 24's Build-cycle audit and flipped
+/// default ON (currently `show_chat_v2`).
 ///
 /// Add a new flag by adding a field with `#[serde(default)]`; the IPC
 /// surface (`cmd_set_feature_flag`) matches by field name. Legacy
 /// settings files without the `feature_flags` key load with all
-/// flags off via the outer `#[serde(default)]` on `Settings`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// flags off via the outer `#[serde(default)]` on `Settings` — except
+/// for flags with an explicit `#[serde(default = "...")]` attribute,
+/// which read from their named default fn.
+///
+/// **Note on `Default` impl.** The serde `#[serde(default = "...")]`
+/// attribute only fires when deserializing JSON with a missing field.
+/// The Rust-level `Default::default()` (called on first-time install
+/// when settings.json doesn't exist — see `Settings::load`'s
+/// `NotFound` branch) needs a hand-rolled `Default` impl so the same
+/// defaults apply on both paths. **Do not switch back to `#[derive
+/// (Default)]`** — that would silently regress flags like
+/// `show_chat_v2` for first-time installs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureFlags {
     /// Show the Settings → Models pane. Currently a static placeholder
     /// (no model selection mechanism). Off by default until per-tab
@@ -128,6 +141,29 @@ pub struct FeatureFlags {
 /// (`"show_chat_v2": false`) keep their override.
 fn default_show_chat_v2() -> bool {
     true
+}
+
+impl Default for FeatureFlags {
+    /// Hand-rolled to keep the Rust-level default in sync with the
+    /// serde-level per-field defaults. First-time installs hit this
+    /// path through `Settings::load`'s `NotFound` branch (no
+    /// settings.json file yet); without this impl they would silently
+    /// regress `show_chat_v2` back to `false` even though the field's
+    /// `#[serde(default = "...")]` says otherwise.
+    ///
+    /// When adding a new flag with a non-`false` default, update this
+    /// impl alongside the serde attribute. The
+    /// `feature_flags_first_run_default_matches_serde_default` test
+    /// below pins the contract.
+    fn default() -> Self {
+        Self {
+            show_models_section: false,
+            show_all_artifacts_in_spine: false,
+            show_roadmap_canvas: false,
+            show_recent_reports_v2: false,
+            show_chat_v2: default_show_chat_v2(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,9 +315,15 @@ mod tests {
     }
 
     #[test]
-    fn legacy_settings_without_feature_flags_loads_all_flags_off() {
+    fn legacy_settings_without_feature_flags_loads_at_per_field_defaults() {
         // DP-C: feature_flags is additive; legacy files without it must
-        // load with every flag at its default (false).
+        // load with every flag at its per-field default. Pre-Phase-24
+        // every default was `false`; Phase 24 step 13 flipped
+        // `show_chat_v2` to default ON, so a legacy file without the
+        // feature_flags object now gets show_chat_v2: true (via the
+        // outer `#[serde(default)]` on Settings → FeatureFlags::default()
+        // → the hand-rolled Default impl that mirrors the serde
+        // per-field defaults).
         let dir = tempdir().unwrap();
         fs::write(
             Settings::path(dir.path()),
@@ -291,6 +333,10 @@ mod tests {
         let s = Settings::load(dir.path());
         assert!(!s.feature_flags.show_models_section);
         assert!(!s.feature_flags.show_all_artifacts_in_spine);
+        assert!(
+            s.feature_flags.show_chat_v2,
+            "Phase 24 step 13 — chat-v2 default ON applies to legacy files without feature_flags too"
+        );
     }
 
     #[test]
@@ -303,6 +349,44 @@ mod tests {
         assert!(
             !s.feature_flags.show_all_artifacts_in_spine,
             "spine pollution debug flag stays off by default"
+        );
+    }
+
+    /// Phase 24 step 13 — first-time installs (no settings.json) must
+    /// see the same defaults as users whose settings.json is missing
+    /// individual fields. The serde `#[serde(default = "...")]` only
+    /// fires on JSON deserialization; the Rust-level `Default::default()`
+    /// (called via `Settings::load`'s `NotFound` branch) needs its own
+    /// hand-rolled impl in lock-step. If a new flag flips default ON
+    /// at the serde level but the Rust `Default` impl misses it,
+    /// first-time installs silently regress.
+    #[test]
+    fn feature_flags_first_run_default_matches_serde_default() {
+        let rust_default = FeatureFlags::default();
+
+        // Deserialize an empty `{}` object — serde fires every field's
+        // `#[serde(default ...)]` attribute. The two paths must agree.
+        let serde_default: FeatureFlags = serde_json::from_str("{}").unwrap();
+
+        assert_eq!(
+            rust_default.show_chat_v2, serde_default.show_chat_v2,
+            "first-run default for show_chat_v2 must match the serde default"
+        );
+        assert_eq!(rust_default.show_models_section, serde_default.show_models_section);
+        assert_eq!(
+            rust_default.show_all_artifacts_in_spine,
+            serde_default.show_all_artifacts_in_spine
+        );
+        assert_eq!(rust_default.show_roadmap_canvas, serde_default.show_roadmap_canvas);
+        assert_eq!(
+            rust_default.show_recent_reports_v2,
+            serde_default.show_recent_reports_v2
+        );
+
+        // Pin the specific Phase 24 step 13 contract: show_chat_v2 defaults ON.
+        assert!(
+            rust_default.show_chat_v2,
+            "Phase 24 step 13 — show_chat_v2 defaults ON for first-time installs"
         );
     }
 
