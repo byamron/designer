@@ -195,9 +195,9 @@
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "radius-badge", "border-thin", "color-foreground", "color-muted", "color-border", "color-surface-raised", "color-surface-hover", "color-surface-sunken", "elevation-overlay", "layer-overlay", "type-body-size", "type-caption-size", "type-family-mono", "motion-quick", "focus-outline-width", "focus-outline-color"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "radius-button", "radius-badge", "border-thin", "color-foreground", "color-muted", "color-border", "color-surface-raised", "color-surface-hover", "color-surface-sunken", "elevation-overlay", "layer-overlay", "type-body-size", "type-caption-size", "type-family-mono", "motion-quick", "ease-out-enter", "focus-outline-width", "focus-outline-color"],
       "css_prefix": "send-menu__",
-      "last_updated": "2026-05-07"
+      "last_updated": "2026-05-12"
     },
     {
       "name": "ComposeDockActivityRow",

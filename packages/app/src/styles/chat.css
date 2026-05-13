@@ -246,7 +246,7 @@
   gap: var(--space-1);
   min-width: 14rem;
   z-index: var(--layer-overlay);
-  animation: send-menu-in var(--motion-quick) ease-out;
+  animation: send-menu-in var(--motion-quick) var(--ease-out-enter);
 }
 
 @keyframes send-menu-in {
