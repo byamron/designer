@@ -83,9 +83,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use async_trait::async_trait;
-use designer_core::{
-    author_roles, Actor, Anchor, EventPayload, Finding, FindingId, Severity, Timestamp,
-};
+use designer_core::{Actor, Anchor, EventPayload, Finding, FindingId, Severity, Timestamp};
 
 use crate::{window_digest, Detector, DetectorConfig, DetectorError, SessionAnalysisInput};
 
@@ -230,32 +228,41 @@ fn detect(input: &SessionAnalysisInput, config: &DetectorConfig) -> Vec<Finding>
     let mut tuples: HashMap<Vec<String>, TupleEvidence> = HashMap::new();
 
     for env in &input.events {
-        match &env.payload {
-            EventPayload::MessagePosted {
-                author: Actor::User,
-                body,
-                ..
-            } => {
-                flush_run(&mut current_run, current_session, &mut tuples);
-                sessions.push(SessionAnchor {
-                    message_id: env.id.to_string(),
-                    quote: quote_snippet(body),
-                });
-                current_session = Some(sessions.len() - 1);
-            }
-            EventPayload::ArtifactCreated {
-                author_role: Some(role),
-                title,
-                ..
-            } if role == author_roles::AGENT => {
-                if let Some(tool) = extract_tool_name(title) {
-                    current_run.push(RunEntry {
-                        tool: tool.to_string(),
-                        event_id: env.id.to_string(),
-                    });
-                }
-            }
-            _ => {}
+        // Session boundary — first user message of a session opens a
+        // new session anchor; subsequent tool runs attribute to it.
+        // (User messages still flow through `MessagePosted{author:User}`
+        // under both chat-v1 and chat-v2 per the Step 4 contract.)
+        if let EventPayload::MessagePosted {
+            author: Actor::User,
+            body,
+            ..
+        } = &env.payload
+        {
+            flush_run(&mut current_run, current_session, &mut tuples);
+            sessions.push(SessionAnchor {
+                message_id: env.id.to_string(),
+                quote: quote_snippet(body),
+            });
+            current_session = Some(sessions.len() - 1);
+            continue;
+        }
+
+        // Phase 24 §11.1 step 11 — dual-shape tool-call recognition.
+        // The shared helper picks the right shape:
+        //   - chat-v1: `ArtifactCreated{author_role:AGENT, title}` →
+        //     `extract_tool_name(title)` canonicalizes "Used Foo" /
+        //     "Read X" / "Wrote Y" / etc.
+        //   - chat-v2: `AgentContentBlockStarted{block_kind: ToolUse
+        //     { name, .. }}` reads the canonical name directly.
+        // The detector doesn't branch on the event shape at the call
+        // site; the helper owns the dispatch and the title-parser
+        // stays here as a closure (canonicalization rules are
+        // detector-specific, dual-shape dispatch is shared).
+        if let Some(tool) = crate::event_shape::agent_tool_use_name(env, extract_tool_name) {
+            current_run.push(RunEntry {
+                tool: tool.to_string(),
+                event_id: env.id.to_string(),
+            });
         }
     }
     flush_run(&mut current_run, current_session, &mut tuples);
@@ -456,7 +463,7 @@ mod tests {
                 title: title.into(),
                 summary: String::new(),
                 payload: designer_core::PayloadRef::inline(""),
-                author_role: Some(author_roles::AGENT.into()),
+                author_role: Some(designer_core::author_roles::AGENT.into()),
                 tab_id: None,
                 summary_high: None,
                 classification: None,
@@ -800,5 +807,172 @@ mod tests {
             "summary should keep uncapped session count: {}",
             f.summary
         );
+    }
+
+    // ─── Phase 24 §11.1 step 11 — chat-v2 (AgentTurn*) recognition ──
+
+    /// Build a chat-v2 tool-use block-start envelope. Mirrors what the
+    /// translator emits when claude opens a `tool_use` content block.
+    fn chat_v2_tool_use(seq: u64, ws: WorkspaceId, tool_name: &str) -> EventEnvelope {
+        env(
+            seq,
+            EventPayload::AgentContentBlockStarted {
+                workspace_id: ws,
+                tab_id: designer_core::TabId::new(),
+                turn_id: designer_core::ClaudeMessageId::new(format!("msg_{seq}")),
+                block_index: 0,
+                block_kind: designer_core::AgentContentBlockKind::ToolUse {
+                    name: tool_name.into(),
+                    tool_use_id: format!("toolu_{seq}"),
+                },
+            },
+            ws,
+        )
+    }
+
+    /// Build a chat-v2 text block-start envelope (NOT a tool use).
+    /// Used to verify the helper rejects non-tool-use blocks.
+    fn chat_v2_text_block(seq: u64, ws: WorkspaceId) -> EventEnvelope {
+        env(
+            seq,
+            EventPayload::AgentContentBlockStarted {
+                workspace_id: ws,
+                tab_id: designer_core::TabId::new(),
+                turn_id: designer_core::ClaudeMessageId::new(format!("msg_{seq}")),
+                block_index: 0,
+                block_kind: designer_core::AgentContentBlockKind::Text,
+            },
+            ws,
+        )
+    }
+
+    /// Pure-chat-v2 stream: three sessions, each with the same
+    /// `(Read, Edit, Bash)` tool sequence emitted via
+    /// `AgentContentBlockStarted{ToolUse}` events instead of legacy
+    /// `ArtifactCreated{kind:Report}`. Detector must fire exactly the
+    /// same finding as the legacy-shape equivalent.
+    #[tokio::test]
+    async fn chat_v2_tool_use_blocks_are_recognized() {
+        let ws = WorkspaceId::new();
+        let mut events = Vec::new();
+        let mut seq = 0u64;
+        for i in 0..4 {
+            seq += 1;
+            events.push(user_message(seq, ws, &format!("session {i}")));
+            for tool in ["Read", "Edit", "Bash"] {
+                seq += 1;
+                events.push(chat_v2_tool_use(seq, ws, tool));
+            }
+        }
+        let input = SessionAnalysisInput::builder(ProjectId::new())
+            .workspace(ws)
+            .events(events)
+            .build();
+        let detector = MultiStepToolSequenceDetector;
+        #[cfg(feature = "local-ops")]
+        let findings = detector
+            .analyze(&input, &SKILL_DEFAULTS, None)
+            .await
+            .unwrap();
+        #[cfg(not(feature = "local-ops"))]
+        let findings = detector.analyze(&input, &SKILL_DEFAULTS).await.unwrap();
+        assert_eq!(findings.len(), 1, "chat-v2 stream should produce a finding");
+        let f = &findings[0];
+        assert!(f.summary.contains("Read"));
+        assert!(f.summary.contains("Edit"));
+        assert!(f.summary.contains("Bash"));
+    }
+
+    /// Mixed legacy + chat-v2 stream (replay safety per Phase 24 §4.2):
+    /// some sessions used the old `ArtifactCreated{author_role:AGENT}`
+    /// shape, later sessions use the chat-v2 `AgentContentBlockStarted`
+    /// shape. Both must contribute to the same tuple aggregation —
+    /// the detector should not split the count by shape.
+    #[tokio::test]
+    async fn mixed_legacy_and_chat_v2_aggregates_into_one_tuple() {
+        let ws = WorkspaceId::new();
+        let mut events = Vec::new();
+        let mut seq = 0u64;
+
+        // Session 1 + 2 — legacy shape.
+        for i in 0..2 {
+            seq += 1;
+            events.push(user_message(seq, ws, &format!("legacy session {i}")));
+            for title in ["Read CLAUDE.md", "Edited foo.rs", "Ran cargo test"] {
+                seq += 1;
+                events.push(tool_artifact(seq, ws, title));
+            }
+        }
+        // Session 3 + 4 — chat-v2 shape (same canonical tools).
+        for i in 0..2 {
+            seq += 1;
+            events.push(user_message(seq, ws, &format!("chat-v2 session {i}")));
+            for tool in ["Read", "Edit", "Bash"] {
+                seq += 1;
+                events.push(chat_v2_tool_use(seq, ws, tool));
+            }
+        }
+
+        let input = SessionAnalysisInput::builder(ProjectId::new())
+            .workspace(ws)
+            .events(events)
+            .build();
+        let detector = MultiStepToolSequenceDetector;
+        #[cfg(feature = "local-ops")]
+        let findings = detector
+            .analyze(&input, &SKILL_DEFAULTS, None)
+            .await
+            .unwrap();
+        #[cfg(not(feature = "local-ops"))]
+        let findings = detector.analyze(&input, &SKILL_DEFAULTS).await.unwrap();
+        assert_eq!(
+            findings.len(),
+            1,
+            "legacy+chat-v2 must coalesce into ONE finding, not two"
+        );
+        let f = &findings[0];
+        // 4 sessions × 1 (Read,Edit,Bash) run each — 4 occurrences across
+        // 4 distinct sessions. Summary should not distinguish shapes.
+        assert!(
+            f.summary.contains("4 sessions") || f.summary.contains("4\u{a0}sessions"),
+            "summary should aggregate across both shapes: {}",
+            f.summary
+        );
+    }
+
+    /// Chat-v2 text and thinking blocks must NOT contribute to the run.
+    /// Only `ToolUse` blocks are tool calls — text deltas, thinking,
+    /// and tool results are noise from the detector's perspective.
+    #[tokio::test]
+    async fn chat_v2_text_blocks_do_not_join_run() {
+        let ws = WorkspaceId::new();
+        let events = vec![
+            user_message(1, ws, "go"),
+            chat_v2_tool_use(2, ws, "Read"),
+            chat_v2_text_block(3, ws), // noise
+            chat_v2_tool_use(4, ws, "Edit"),
+            chat_v2_text_block(5, ws), // noise
+            chat_v2_tool_use(6, ws, "Bash"),
+        ];
+        let input = SessionAnalysisInput::builder(ProjectId::new())
+            .workspace(ws)
+            .events(events)
+            .build();
+        let detector = MultiStepToolSequenceDetector;
+        let cfg = DetectorConfig {
+            min_occurrences: 1,
+            min_sessions: 1,
+            ..DetectorConfig::default()
+        };
+        #[cfg(feature = "local-ops")]
+        let findings = detector.analyze(&input, &cfg, None).await.unwrap();
+        #[cfg(not(feature = "local-ops"))]
+        let findings = detector.analyze(&input, &cfg).await.unwrap();
+        // The text blocks interleaved between tools must not break the
+        // run OR add to it — the (Read,Edit,Bash) tuple is intact.
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].summary.contains("Read"));
+        assert!(findings[0].summary.contains("Edit"));
+        assert!(findings[0].summary.contains("Bash"));
     }
 }

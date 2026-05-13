@@ -37,6 +37,61 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 24 step 11 — detectors recognize both event shapes
+**Date:** 2026-05-12
+**Branch:** phase-24-step-11-detectors-dual-shape
+**Commit:** PR (TBD)
+
+**What was done:**
+
+Added a shared `crates/designer-learn/src/event_shape.rs` module with `agent_tool_use_name(env, title_to_tool) -> Option<&str>` that returns the canonical tool name for either legacy `EventPayload::ArtifactCreated { author_role: Some("agent"), title }` (parsed via a caller-supplied closure) or chat-v2 `EventPayload::AgentContentBlockStarted { block_kind: AgentContentBlockKind::ToolUse { name, .. } }` (read directly). The closure form keeps each detector's title-parsing rules where they belong (next to the detector that canonicalizes "Used Foo" / "Read X" / etc.) while letting the helper own the dual-shape dispatch.
+
+Updated `multi_step_tool_sequence::detect` to use the helper. The detector now recognizes tool-call runs from either event vocabulary without branching at the call site; the existing `extract_tool_name` is passed as the title-parser closure.
+
+Added 3 chat-v2 tests + 6 helper-module tests:
+- Pure-chat-v2 stream (3+ sessions, all `AgentContentBlockStarted{ToolUse}`) emits the expected finding.
+- Mixed legacy + chat-v2 stream coalesces into one finding (replay safety per spec §4.2 — old conversations + new conversations under the same workspace must not split the tuple count by event shape).
+- Chat-v2 text and thinking blocks interleaved between tool blocks are correctly skipped (only `ToolUse` blocks join the run).
+- Helper-module unit tests: legacy `Used Foo` / `Read X` titles extract; non-tool titles return `None`; chat-v2 `ToolUse` block extracts; chat-v2 `Text` block returns `None`; user messages return `None`. The title-parser closure for chat-v2 is a panicking closure to prove it's never invoked on the new shape.
+
+**Why:**
+
+Step 11 of the Phase 24 workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1): *"Update detectors in `crates/designer-learn/src/detectors/` to recognize both shapes (§4.1)."* Under chat-v2, the translator no longer emits `ArtifactCreated{kind:Report}` for tool calls — the new family is `AgentContentBlockStarted{ToolUse}` + `AgentContentBlockDelta` + `AgentContentBlockEnded` + `AgentToolResult` per ADR 0008. Without this step, `multi_step_tool_sequence` would silently produce zero findings once `show_chat_v2` defaults ON.
+
+**Design decisions:**
+
+The shared helper takes a title-parser closure rather than owning tool-name canonicalization itself. Reasoning: the legacy title format (`"Used Read"` / `"Edited foo.rs"` / `"Ran cargo test"`) is detector-specific — `multi_step_tool_sequence` canonicalizes those into a small fixed vocabulary; future detectors might want a different canonicalization (e.g., grouping all bash invocations together vs. preserving the command). Pushing the parser into the helper would force one rule on every consumer; passing it as a closure keeps the rule where it belongs and the dual-shape dispatch shared.
+
+Only one detector got the new arm. The spec §4.1 wording said *"The four detectors in `crates/designer-learn/src/detectors/` (`repeated_correction`, `multi_step_tool_sequence`, `repeated_prompt_opening`, `compaction_pressure`) all pattern-match on `MessagePosted{author_role:AGENT}` today."* Code-walk during Step 11 implementation showed that's over-stated — three of the four detectors only inspect user-authored events:
+
+- `repeated_correction`: matches `MessagePosted{author: User}` only (line 164: `if !matches!(author, Actor::User) { continue; }`). Counts repeated *user* corrections across workspaces. Agent text is irrelevant.
+- `repeated_prompt_opening`: matches first `MessagePosted{author: User}` per workspace (line 184). Counts repeated *user* opening phrasings. Agent text is irrelevant.
+- `compaction_pressure`: matches all `MessagePosted`, then filters by `is_compact_command(body)`. The `/compact` slash command is user-typed; agent messages never invoke it. Effectively user-only.
+
+These three detectors work unchanged under chat-v2 because user messages still flow through `MessagePosted{author: User}` under both chat modes per the Step 4 contract (PR #130). Only `multi_step_tool_sequence` inspected agent-side events — its pattern was `ArtifactCreated{author_role: AGENT, title}` for tool-call cards. Under chat-v2 those events don't exist; the new `AgentContentBlockStarted{ToolUse}` family carries the same information in a different shape.
+
+**Technical decisions:**
+
+The helper module returns `Option<&str>` rather than a richer `Option<ToolEvent>` struct. The detector's `RunEntry` only needs the tool name and the source event's id (which the detector reads directly from `env.id`). A struct would force a wider contract that the helper might not be able to satisfy for all future event shapes — e.g., if a Phase-25-era detector wants `tool_use_id` for cross-event correlation, it can read the `EventPayload::AgentContentBlockStarted` directly and call the helper only when it wants the canonical name.
+
+`LEGACY_AGENT_AUTHOR_ROLE = "agent"` is a private constant in the helper module — duplicated from `designer_core::author_roles::AGENT` to keep the helper from reaching across crates for one string. Comment in code documents the mirror.
+
+Did NOT add an `is_user_message` helper or an `agent_text_for_turn` helper. The spec §4.1 mentions "shared helper methods for 'is this an agent message' and 'what is the agent's text content for this turn.'" Neither is load-bearing today — `repeated_correction` and `repeated_prompt_opening` use `matches!(author, Actor::User)` inline (already terse); no detector needs agent text. Premature helpers would invite ad-hoc consumers. If a future detector wants agent text-per-turn (e.g., a "repeated agent apology" detector), the helper can be added then.
+
+**Tradeoffs discussed:**
+
+- **Shape of the helper.** Considered three forms: (a) `Option<&str>` returning canonical name (chosen); (b) `Option<ToolEvent { name, event_id, tool_use_id }>` returning a struct; (c) `bool` predicate paired with a separate `tool_use_name` extractor. Form (a) is minimal and matches what `multi_step_tool_sequence` needs; the title-parser closure handles the legacy canonicalization without making the helper detector-specific. Forms (b) and (c) speculate on future consumers.
+- **Where the title parser lives.** Considered moving `extract_tool_name` from `multi_step_tool_sequence.rs` into the helper as a public function. Skipped: the title-parsing rules are not necessarily stable across detector evolution, and forcing one ruleset would prevent a future detector from having a different one. Keeping it as a closure parameter is the least-coupling option.
+- **Test fixtures.** Could have added `tests/fixtures/multi_step_tool_sequence/input_chat_v2.jsonl` to mirror the existing fixture-based testing pattern. Inlined the chat-v2 tests instead because they exercise three specific edge cases (pure chat-v2, mixed shapes, text-block noise) rather than a representative bulk-input scenario; in-code tests read more clearly for edge-case coverage. The existing fixture-based test stays as the canonical happy-path baseline.
+
+**Lessons learned:**
+
+A spec claim about the current state of code is a hypothesis, not a fact. Step 11's spec §4.1 wording said "all four detectors" — verification by code-walk showed only one detector actually has the pattern arm the spec assumes. Treating the spec as the contract for *what should be* (one shared helper, dual-shape dispatch) while verifying *what is* against the code (only one detector needs the arm) keeps the work scoped without re-deriving the contract.
+
+The same lesson applies more broadly: when a spec asserts a property of the current codebase ("X pattern-matches on Y", "Z is wired", "all callers use W"), spot-check against the code before designing around the assertion. The spec is the contract for the change; the code is the ground truth for the starting state.
+
+---
+
 ### Phase 24 step 10 — render-time activity indicator (chat-v2)
 **Date:** 2026-05-12
 **Branch:** phase-24-step-10-render-time-activity

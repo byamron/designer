@@ -37,6 +37,7 @@
 
 pub mod defaults;
 pub mod detectors;
+pub mod event_shape;
 pub mod example_detector;
 pub mod session_input;
 
