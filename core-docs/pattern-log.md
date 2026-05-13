@@ -657,3 +657,14 @@ Cost: a non-optional `libc` dependency (was previously gated behind the `claude_
 The fallback path the spike sketched ("if SIGINT is denied, fall back to in-band") was rejected for v1. SIGINT against a process the orchestrator spawned cannot fail under normal operation (no permission boundary; same-uid relationship). The denial case is hypothetical; if it surfaces in dogfood, the helper can be reconstructed from the spike binary's source.
 
 Documented here so the next time someone considers in-band `control_request` for a similar problem (mid-turn cancel, hard reset, etc.), they don't re-litigate this trade-off.
+
+
+## 2026-05-12 — `--motion-fast` → `--motion-quick`; monochrome activity pulse
+
+Phase 24 §5.2 specified two motion + color tokens that didn't fit the project's existing palette:
+
+**1. `--motion-fast` for the chip's exit fade.** No such token exists in `packages/ui/styles/tokens.css`. The motion tier list is `--motion-quick: 120ms` / `--motion-standard: 250ms` / `--motion-pulse: 1200ms`. The spec author intended "fast tier" — i.e., the one already named `--motion-quick`. Resolved by using `var(--motion-quick)` in the CSS and pinning the JS unmount-after-fade timeout (`CHIP_EXIT_MS = 120` in `ComposeDockActivityRow.tsx`) to match. **Rule:** don't introduce ad-hoc motion tokens to mirror spec aspirational naming; map to the existing tier list and document the mapping here. If a real new tier surfaces (e.g., `60ms` for a perceptibly-different "instant" tempo), promote it through the design language, not through one component.
+
+**2. Monochrome `--color-muted` for the activity pulse.** The pre-Phase-24 pulse used `--accent-9` which colored the activity by the project's accent. Spec §5.2: *"Color: monochrome `--color-muted` — does not encode state; activity is a binary signal, not a status."* The rationale: a status color (accent / warning / danger) implies severity gradation; activity has only "running" vs "not running" and should read as a neutral signal. The `awaiting_approval` legacy chat-v1 path keeps its `--warning-9` override because that *is* a status (the agent is blocked waiting on the user), not a binary activity indicator. **Rule:** when a UI signal is binary, prefer monochrome (`--color-muted`); reserve accent / warning / danger for surfaces that genuinely encode state on a gradient. Documented here so future activity-style affordances (tab badges, sidebar dots, etc.) inherit the same logic without re-deriving it.
+
+The 1.2s vs 1.6s pulse-duration discrepancy (spec says `--motion-pulse` is "defined as 1.6s ease-in-out"; the token is `1200ms`) is filed as a Phase 24H FOLLOW-UP because the same token drives the tab-strip activity badge — changing it here would silently re-pace a sibling surface without spec coverage. Project-wide resolution belongs in 24H polish, not in this step's PR.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRight, StopCircle } from "lucide-react";
 import { activityKey, useDataState } from "../store/data";
 import {
@@ -9,6 +9,18 @@ import {
 import { useFlag } from "../store/flags";
 import { ipcClient } from "../ipc/client";
 import type { TabId, WorkspaceId } from "../ipc/types";
+
+/**
+ * Phase 24 §5.2 — chip fade-out duration on `AgentTurnEnded`. Spec calls
+ * this `--motion-fast`; the project's existing motion-token tier closest
+ * to "fast" is `--motion-quick` (120 ms in `tokens.css`). The CSS
+ * transition uses `var(--motion-quick)` and this constant mirrors it so
+ * the unmount-after-fade timeout matches the visible animation. If the
+ * token value moves, update both this constant AND the CSS rule. (See
+ * `pattern-log.md` entry for the `--motion-fast` → `--motion-quick`
+ * mapping rationale.)
+ */
+const CHIP_EXIT_MS = 120;
 
 /**
  * Phase 23.B — pinned status row above the compose textarea. Reads
@@ -66,14 +78,21 @@ export function ComposeDockActivityRow({
   // edges); turn_open derives from currentOpenTurn(tabState). The
   // elapsed chip reads `started_at` from the open turn (envelope
   // timestamp captured by the reducer).
-  const phase24Open = useChatThreadState((s) => {
+  //
+  // **Returns a primitive (`number | null`), not an object.** The
+  // useSyncExternalStore subscription compares selector results by
+  // reference; returning `{ started_at }` would yield a fresh object
+  // each call, breaking referential equality and downstream effect
+  // dep-arrays. The `started_at` number is sufficient since the
+  // indicator only needs the start instant.
+  const phase24Open = useChatThreadState((s): number | null => {
     if (!showChatV2 || !tabId) return null;
     const tabState = s.byTab[tabId];
     const open = currentOpenTurn(tabState);
     if (!open) return null;
     if (!s.runningSubprocesses.has(subprocessKey(workspaceId, tabId)))
       return null;
-    return { started_at: open.started_at };
+    return open.started_at;
   });
 
   // Legacy data source. When show_chat_v2 is OFF, this is the only
@@ -93,12 +112,63 @@ export function ComposeDockActivityRow({
     setStoppedAt(null);
   }, [slice?.state, slice?.since_ms]);
 
+  // Phase 24 §5.2 — exit-fade state machine for the chat-v2 chip. We
+  // only enter the fade when `phase24Open` *transitions* from non-null
+  // → null (turn ended). On initial mount with no open turn, the chip
+  // stays unmounted (no spurious fade). A new turn arriving mid-fade
+  // cancels the timeout. Legacy (chat-v1) path preserves snap-off.
+  //
+  // `prevOpenRef` tracks the last observed value; only its
+  // non-null → null edge starts a fade. The fade carries the previous
+  // turn's `started_at` so the elapsed counter doesn't snap to 0 mid-
+  // fade. Unmounted after `CHIP_EXIT_MS` (matches the CSS opacity
+  // transition under `var(--motion-quick)`).
+  const [fading, setFading] = useState<number | null>(null);
+  const fadeTimer = useRef<number | null>(null);
+  const prevOpenRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!showChatV2) {
+      prevOpenRef.current = null;
+      return;
+    }
+    const prev = prevOpenRef.current;
+    prevOpenRef.current = phase24Open;
+    if (phase24Open !== null) {
+      // Open — cancel any pending fade.
+      if (fadeTimer.current !== null) {
+        window.clearTimeout(fadeTimer.current);
+        fadeTimer.current = null;
+      }
+      if (fading !== null) setFading(null);
+      return;
+    }
+    // phase24Open === null. Only start a fade on the transition edge
+    // (prev was non-null).
+    if (prev !== null && fadeTimer.current === null) {
+      setFading(prev);
+      fadeTimer.current = window.setTimeout(() => {
+        setFading(null);
+        fadeTimer.current = null;
+      }, CHIP_EXIT_MS);
+    }
+  }, [showChatV2, phase24Open, fading]);
+  // Cleanup outstanding timer on unmount.
+  useEffect(
+    () => () => {
+      if (fadeTimer.current !== null) {
+        window.clearTimeout(fadeTimer.current);
+        fadeTimer.current = null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     // Tick the elapsed counter while either the legacy `working`
-    // state is showing or the phase24 indicator is on. One interval
-    // covers both modes.
+    // state is showing or the phase24 indicator is on (visible or
+    // fading). One interval covers both modes.
     const ticking =
-      (showChatV2 && phase24Open !== null) ||
+      (showChatV2 && (phase24Open !== null || fading !== null)) ||
       (!showChatV2 && slice?.state === "working");
     if (!ticking) return;
     const handle = window.setInterval(() => setNow(Date.now()), 1000);
@@ -106,6 +176,7 @@ export function ComposeDockActivityRow({
   }, [
     showChatV2,
     phase24Open,
+    fading,
     slice?.state,
     slice?.since_ms,
   ]);
@@ -117,9 +188,17 @@ export function ComposeDockActivityRow({
   // ignore the legacy slice. AwaitingApproval is dropped per spec —
   // the inline ApprovalBlock carries the signal in phase24 mode.
   if (showChatV2) {
-    if (phase24Open === null) return null;
-    const elapsedMs = Math.max(0, now - phase24Open.started_at);
-    return renderWorkingChip(workspaceId, tabId, elapsedMs, setStoppedAt);
+    const startedAt = phase24Open ?? fading;
+    if (startedAt === null) return null;
+    const elapsedMs = Math.max(0, now - startedAt);
+    const exiting = phase24Open === null && fading !== null;
+    return renderWorkingChip(
+      workspaceId,
+      tabId,
+      elapsedMs,
+      setStoppedAt,
+      exiting,
+    );
   }
 
   if (!slice) {
@@ -150,17 +229,22 @@ export function ComposeDockActivityRow({
 
   // Legacy working: render the same chip as phase24 — share via helper.
   const elapsedMs = Math.max(0, now - slice.since_ms);
-  return renderWorkingChip(workspaceId, tabId, elapsedMs, setStoppedAt);
+  return renderWorkingChip(workspaceId, tabId, elapsedMs, setStoppedAt, false);
 }
 
 /** Shared "working" chip render — used by both legacy
  *  `slice.state === "working"` and phase24 `phase24Open !== null`
- *  branches. Body is identical (pulse + label + elapsed + stop). */
+ *  branches. Body is identical (pulse + label + elapsed + stop).
+ *  `exiting` is set to `true` for the chat-v2 fade-out window per
+ *  spec §5.2; the CSS reads it via `data-exiting` and runs the
+ *  opacity transition. Legacy callers pass `false` (snap-off
+ *  behavior preserved). */
 function renderWorkingChip(
   workspaceId: WorkspaceId,
   tabId: TabId | null | undefined,
   elapsedMs: number,
   setStoppedAt: (n: number | null) => void,
+  exiting: boolean,
 ) {
   const onStop = () => {
     if (!tabId) return;
@@ -178,6 +262,7 @@ function renderWorkingChip(
       className="compose-dock-activity-row"
       data-component="ComposeDockActivityRow"
       data-state="working"
+      data-exiting={exiting ? "true" : undefined}
     >
       <span className="compose-dock-activity-row__pulse" aria-hidden="true" />
       <span className="compose-dock-activity-row__label">

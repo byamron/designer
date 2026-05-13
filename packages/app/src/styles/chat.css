@@ -57,6 +57,18 @@
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
   border-bottom: var(--border-thin) solid var(--color-border-soft);
+  /* Phase 24 §5.2 — exit fade on AgentTurnEnded (chat-v2 only,
+   * gated by `data-exiting="true"` from the component). `--motion-fast`
+   * in spec → resolved to `--motion-quick` (the closest existing
+   * motion-token tier; see pattern-log.md). The chat-v1 (legacy)
+   * branch never sets the exit attribute, so its snap-off behavior
+   * is preserved by `opacity: 1` being the steady state. */
+  opacity: 1;
+  transition: opacity var(--motion-quick) ease-out;
+}
+
+.compose-dock-activity-row[data-exiting="true"] {
+  opacity: 0;
 }
 
 .compose-dock-activity-row__pulse {
@@ -64,7 +76,10 @@
   width: var(--space-2);
   height: var(--space-2);
   border-radius: var(--radius-pill);
-  background: var(--accent-9);
+  /* Phase 24 §5.2 — monochrome `--color-muted` does not encode state;
+   * activity is a binary signal, not a status. Pre-Phase-24 the pulse
+   * used `--accent-9` which colored the activity by project accent. */
+  background: var(--color-muted);
   animation: compose-dock-activity-pulse var(--motion-pulse) ease-in-out
     infinite;
 }
@@ -137,6 +152,13 @@
 @media (prefers-reduced-motion: reduce) {
   .compose-dock-activity-row__pulse {
     animation: none;
+  }
+  /* Phase 24 §5.2 — reduced-motion users get an instant unmount on
+   * AgentTurnEnded; no opacity easing. The component's `setTimeout`
+   * still fires after CHIP_EXIT_MS, but visually the row is gone the
+   * moment `data-exiting="true"` lands. */
+  .compose-dock-activity-row {
+    transition: none;
   }
 }
 

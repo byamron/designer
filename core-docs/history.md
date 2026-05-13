@@ -37,6 +37,54 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 24 step 10 — render-time activity indicator (chat-v2)
+**Date:** 2026-05-12
+**Branch:** phase-24-step-10-render-time-activity
+**Commit:** PR (TBD)
+
+**What was done:**
+
+Wired the activity indicator as a render-time observable per Phase 24 spec §5.2 in `packages/app/src/components/ComposeDockActivityRow.tsx`. The Phase 24 branch in this component existed since PR #120, but two spec gaps remained: the chip snapped off the moment a turn ended (instead of fading), and the pulse used `--accent-9` (encoding state by accent color, which spec §5.2 explicitly forbids — *"activity is a binary signal, not a status"*).
+
+Step 10 closes both gaps:
+
+1. **Exit fade on `AgentTurnEnded`.** Added an internal visibility state machine that gates a `data-exiting="true"` attribute. When `phase24Open` transitions from non-null → null (turn ended), the chip keeps mounting with the prior turn's `started_at` for one `var(--motion-quick)` window (120 ms) so the CSS opacity transition runs; a `setTimeout` unmounts after the same duration. A new turn arriving mid-fade cancels the timeout and the chip stays visible with the new `started_at`. The legacy chat-v1 path is untouched (snap-off preserved by `opacity: 1` being the steady state and the legacy branch never setting `data-exiting`).
+
+2. **Monochrome pulse color.** `.compose-dock-activity-row__pulse { background: var(--color-muted); }` replaces `var(--accent-9)`. The `[data-state="awaiting_approval"]` `--warning-9` override stays because awaiting-approval is genuinely a status (the agent is blocked on a user decision), not a binary activity signal. The tab-strip badge color is unchanged (different surface; spec doesn't speak to it).
+
+3. **Reduced-motion override.** Extended the existing `@media (prefers-reduced-motion: reduce)` block to suppress the opacity transition as well as the pulse keyframe — reduced-motion users see an instant unmount on turn-end.
+
+A latent bug surfaced during testing: the `phase24Open` selector returned a fresh object literal (`{ started_at: ... }`) on every render. Pre-Step-10, nothing depended on this selector's referential stability, so the test that would have caught it never failed. The new fade-effect's dep-array tripped an infinite render loop the first time. Fixed by returning a primitive `number | null` directly — the indicator only needs the start instant.
+
+**Why:**
+
+Step 10 of the Phase 24 workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1): *"Wire activity indicator as render-time observable (§5.2). Preserve elapsed-time chip."* The render-time computation (subprocess running AND turn open, no wall-clock recency check) was already wired in PR #120. The two remaining items — fade on AgentTurnEnded and monochrome pulse — are spec-mandated UX-blocker fixes that need to land before `show_chat_v2` flips ON.
+
+**Design decisions:**
+
+The fade is implemented in the renderer, not via CSS-only `animation: forwards` on unmount, because React unmounts the component the moment the conditional render returns null — there's no DOM around for a CSS exit animation to play against. The two clean alternatives were a `framer-motion`/`AnimatePresence` wrapper (heavyweight for one chip) or a small internal state machine (used here, no new dependencies, ~30 LOC).
+
+The legacy chat-v1 path keeps snap-off rather than gaining the same fade. The spec UX-blocker fix is explicitly scoped to chat-v2 (`AgentTurnEnded` is a chat-v2 event); changing the legacy path's behavior would couple this PR to a path that's about to be deleted in step-3 cleanup once `show_chat_v2` defaults ON.
+
+**Technical decisions:**
+
+`prevOpenRef` tracks the last observed `phase24Open` so the fade-trigger fires only on the transition edge (non-null → null), not on initial mount with an already-null value. Without this ref, the effect would attempt to enter a fade every time the component rendered with `phase24Open === null`, creating a spurious fade on first paint.
+
+`CHIP_EXIT_MS` is a TypeScript constant (`120`) that mirrors the CSS `var(--motion-quick)` value (also `120ms`). The constant is documented as load-bearing in tandem with the CSS rule. Reading the CSS variable from JS at runtime would work but is brittle and was rejected for the same reason CLAUDE.md tells the reader to "never use raw values": the token system is the contract, not the computed style.
+
+The spec calls the fade duration `--motion-fast` and the pulse duration `--motion-pulse` (defined as 1.6s ease-in-out). The project's existing motion tokens are `--motion-quick: 120ms`, `--motion-standard: 250ms`, `--motion-pulse: 1200ms`. `--motion-fast` resolves to `--motion-quick` (closest existing tier; documented in `pattern-log.md`). The 1.2s vs 1.6s pulse-duration discrepancy is filed as a Phase 24H FOLLOW-UP — changing the global token affects the tab-strip badge too, and resolving "should pulse be 1.2s or 1.6s globally" warrants one cross-surface decision rather than ad-hoc per-surface tokens.
+
+**Tradeoffs discussed:**
+
+- **Visual baselines.** PR #120's staff-review filed visual baselines for the chat-v2 surface as a Phase 24H entry, gated on the flag flip. Step 10 inherits the same gate — the new fade behavior + color change are not in any current baseline. Both will land in 24H per the existing roadmap entry. Not duplicating the filing.
+- **Selector primitive refactor scope.** The `phase24Open` fix is technically a separate concern from Step 10 (it was a latent bug, not a spec gap). Bundled into this PR because Step 10's new fade-effect dep-array is what surfaced it; splitting would require either landing Step 10 with a known-broken selector or landing a standalone "stabilize selector" PR that has no observable behavior change. Bundling keeps the diff coherent.
+
+**Lessons learned:**
+
+A selector that returns a fresh object literal each call is a latent bug waiting for a referentially-sensitive consumer. Pre-existing patterns in the codebase (returning primitives or stable references) caught it, but the chat-v2 selector was new code from PR #120 that no test exercised at the render level. The fix is a one-liner; the discovery cost a debug cycle. Filed as a general practice in the changeset: **selectors used in `useStore`/`useSyncExternalStore` should return primitives or already-stable references unless paired with a custom equality function.**
+
+---
+
 ### Phase 24 step 4 — `cmd_post_message` user-only dispatch contract pinned
 **Date:** 2026-05-12
 **Branch:** phase-24-step-4-user-only-dispatch
