@@ -37,6 +37,61 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Phase 24 step 12 — §5.6 error-state copy mapping
+**Date:** 2026-05-12
+**Branch:** phase-24-step-12-error-copy
+**Commit:** PR (TBD)
+
+**What was done:**
+
+Wired the chat-v2 paths for spec §5.6's error-state copy table.
+
+Frontend, `packages/app/src/blocks/ChatStreamRenderer.tsx`: added `ErrorMarker` and `MaxTokensMarker` inline siblings of the existing `InterruptedMarker`. `AgentTurnRow` now dispatches on `turn.stop_reason`: `"interrupted"` → existing marker, `"error"` → ErrorMarker (copy: *"Something went wrong on Claude's side. Try again, or shorten the request."*), `"max_tokens"` → MaxTokensMarker (copy: *"Reached the response length limit. Ask for a continuation if you need more."*). Each marker is `role="status"`, caption-register, with a `--color-warning` accent pill (8 px circle, `--space-2` × `--radius-pill`) and `--color-foreground-muted` body text.
+
+Frontend, `packages/app/src/tabs/WorkspaceThread.tsx`: added the spec §5.7 row 275 assertive announcement for `AgentTurnEnded { stop_reason: Error }`. Sibling region to the existing `InterruptAnnouncement` (PR #125) — long-lived `aria-live="assertive"` `.sr-only` `<span>`, populated by a ref-tracked `useEffect` that announces *"Agent stopped: something went wrong on Claude's side. Try again, or shorten the request."* exactly once per errored turn. Tracked-by-turn-id ref (same shape as `announcedInterruptsRef`) prevents re-announcement on re-renders. No assertive announcement for `MaxTokens` — spec §5.7 only lists Interrupted and Error as live events; MaxTokens is visual-only on the inline marker.
+
+Tokens, `packages/app/src/styles/app.css`: added `--color-foreground-muted` (aliased to `--color-muted`) and `--color-warning` (aliased to `--warning-9`) in both light- and dark-mode role-layer blocks. Spec §5.6 names both tokens explicitly; the project's existing role layer had `--color-muted` and the Radix scale `--warning-9` but not the spec names. Adding them as semantic aliases keeps spec intent legible at the role layer.
+
+CSS, `packages/app/src/styles/blocks.css`: new `.thread__turn-end-marker` cluster (display flex, gap `--space-2`, top margin `--space-2`, body color `--color-foreground-muted`, caption size). The `::before` pseudo renders the warning-accent pill (8 px circle, `--color-warning` background, pill radius). `.thread__turn-end-marker-text` gets `flex: 1`. Mirrors the existing `.thread__interrupted-marker` register while adding the pill icon spec §5.6 calls for.
+
+Backend, `apps/desktop/src-tauri/src/core_agents.rs`: updated `humanize_dispatch_error` to return the spec §5.6 row-1 second-leg copy verbatim — *"Couldn't reach Claude. Check your installation in Settings → Account."* — when `OrchestratorError::ChannelClosed` surfaces after the auto-respawn retry fails. (The first leg, *"Claude stopped unexpectedly. Restarting…"*, is a transient state during retry that the current state machine doesn't surface — filed as a Phase 24H FOLLOW-UP rather than expand this PR's scope.) Two new Rust tests pin the copy: `humanize_dispatch_error_channel_closed_uses_spec_copy` (exact-match assertion) and `humanize_dispatch_error_other_falls_through_to_display` (non-ChannelClosed variants preserve their Display impl, since the wrapping in `post_message`'s error mapping already manager-voices the prefix).
+
+**Why:**
+
+Step 12 of the Phase 24 workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1): *"Error-state copy mapping (§5.6) implemented in `WorkspaceThread` and `ComposeDock` error surfaces."* Spec §5.6 enumerates six error states; pre-Step-12 the chat-v2 surfaces silently dropped four of them on the floor: `stop_reason: error_during_execution`, `stop_reason: max_tokens`, approval-expired, and subprocess-crash-restart-failed all had no user-visible explanation. The existing tool-error path (`AgentToolResult { is_error: true }` → ToolUseBlock prefix) and cost-cap-reached path (`describeIpcError` → cost_cap_exceeded branch) were already wired and matched spec close-enough to leave untouched.
+
+**Design decisions:**
+
+Two new top-level marker components rather than one parameterized component. Considered `<TurnEndMarker variant="error" | "max-tokens" | "interrupted" />` to share the rendering, but the existing `InterruptedMarker` is already a separate function with a different visual register (no pill icon, no warning accent), and the variant prop would force a more-conditional render than the three component definitions. Three small functions read clearer than one switch.
+
+`MaxTokensMarker` is not announced via aria-live. Spec §5.7 row table is exhaustive — Interrupted (assertive), Error (assertive), Queued message dispatched/added (polite), Activity indicator (visual). MaxTokens is conspicuously absent. Surface-level reasoning: max-tokens is not an error condition — the agent finished its turn within Claude's limit, and the user's next move is a follow-up "continue" message. Announcing it would be noisy compared to its semantic weight. The visible inline marker reads it for sighted users; screen-reader users who follow the turn see the conversation continuation prompt on the next user-send.
+
+Semantic tokens added at the role layer (`app.css`) rather than passed through component CSS as raw Radix scale references. Pattern-log entry codifies the rule: when a spec section names a token that doesn't exist, **add it as a semantic alias to the project's existing tier**. The alias keeps spec intent legible (anyone scanning `app.css` sees `--color-warning: var(--warning-9)` next to the Phase-24-§5.6 comment) and decouples future intent changes from component-level edits. If the project ever wants a separate `foreground-muted` tier between body and chrome, the alias becomes the seam — no component touch needed.
+
+Sibling rule documented in pattern-log: **no error-red unless destructive**. Spec is explicit: *"No error red unless the error is destructive (file deletion blocked, etc.)."* The amber-9 warning hue is the project's "agent had trouble, retry might work" register; red is reserved for destructive states (scope-denied writes, etc.). A future `--color-danger` semantic token would follow the same alias pattern when an actual destructive surface ships.
+
+**Technical decisions:**
+
+`erroredTurnIds` selector mirrors the existing `interruptedTurnIds` selector exactly — same shape (joined-string of turn ids), same dep-array, same ref-tracked dedup. Both selectors return `undefined` when chat-v2 is OFF (early return on `!showChatV2 || !tabId`), keeping the legacy chat-v1 path free of new effect-runs. The dedup ref is keyed by turn-id so each errored turn announces exactly once, even if the component re-renders or the selector returns the same joined-id list (a no-op selector value yields no setState).
+
+`ErrorAnnouncement` lives as a dedicated `<span>` next to `InterruptAnnouncement` rather than sharing a single live region with a stop-reason-keyed text. Two reasons: (1) Spec §5.7 row-by-row table assigns each event its own region; collapsing them risks announce-ordering races if two stop reasons fire in quick succession (rare but possible — an errored turn followed by an interrupt during the second turn). (2) The aria-live announcement contract is "text changes → announce"; setting the same `<span>` text from "Agent interrupted" → "Agent stopped: …" within 1.5s would either announce both (if the screen reader catches the transition) or one (if the reader misses the gap). Two separate regions avoid the ambiguity at the cost of one extra DOM node.
+
+`humanize_dispatch_error` two test cases — exact-match for ChannelClosed (the spec-copy assertion) and contains-match for fall-through (preserving the Display impl). Both are pure-function tests; no orchestrator state needed. The wider `post_message` error path already wraps this output in `"couldn't deliver your message to Claude — {humanized}"`, which is itself manager-voiced, so the fall-through path stays user-readable without per-variant overrides.
+
+**Tradeoffs discussed:**
+
+- **Approval-expired surface.** Spec §5.6 row 6 wants *"Approval expired. The agent stopped waiting; send your message again to continue."* Today the `InboxPermissionHandler` emits `ApprovalDenied { reason: "timeout" }` after the 5-min window but no renderer consumes it. Surfacing this copy requires a new event-renderer wiring in `WorkspaceThread` (or a sibling component) plus a replay-safety consideration (legacy `ApprovalDenied` events shouldn't retroactively start surfacing markers). Filed as a Phase 24H FOLLOW-UP — separate cycle of design + implementation rather than bundle into this PR.
+- **"Restarting…" transient copy.** Spec §5.6 row 1's first leg (*"Claude stopped unexpectedly. Restarting…"*) is a transient state during the auto-respawn retry inside `post_message`. Surfacing it requires a new IPC state (e.g. `PostMessageProgress { phase: "retrying" }`) so the frontend can paint the banner. Filed as a Phase 24H FOLLOW-UP — the state machine extension warrants a separate cycle and isn't on the critical path for `show_chat_v2` defaulting ON.
+- **Render-altitude tests.** Tests for `ErrorMarker` / `MaxTokensMarker` / `ErrorAnnouncement` were not added in this PR. The existing `InterruptedMarker` and `InterruptAnnouncement` have no render-altitude tests either — both are filed in the Phase 24H roadmap entry for "render-altitude tests gated on chat-v2 flag-flip becoming testable." Adding tests for the new markers in isolation would create asymmetric coverage (the parallel Interrupted equivalents would still be untested). Extended the existing 24H entry to cover all four pieces together — same fixture skeleton, same gate.
+
+**Lessons learned:**
+
+When the spec names a token that doesn't exist, the temptation is either to invent a new scale or to substitute the closest existing token in component CSS. Both are wrong: the first creates premature tiers, the second hides spec intent. The right move is a semantic alias at the role layer — the spec's words resolve as-written, future tier decisions have a clean seam, and the alias itself becomes the spec-vs-code traceability link.
+
+Spec tables are exhaustive; absence is a signal. `MaxTokens` not appearing in spec §5.7's aria-live table reads as a deliberate omission, not an oversight — max-tokens isn't an *error* in the spec's mental model, just a length-limit reached, so the visual marker carries the weight without an audio announcement. Resisting the urge to add "for consistency" coverage when the spec is explicit about scope.
+
+---
+
 ### Phase 24 step 11 — detectors recognize both event shapes
 **Date:** 2026-05-12
 **Branch:** phase-24-step-11-detectors-dual-shape

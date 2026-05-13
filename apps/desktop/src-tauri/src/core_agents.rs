@@ -56,9 +56,13 @@ fn resolve_tab(tab_id: Option<TabId>) -> TabId {
 /// so we lose no diagnostics on the operator side.
 fn humanize_dispatch_error(err: &OrchestratorError) -> String {
     match err {
+        // Phase 24 §5.6 row 1 — subprocess crash + auto-restart failed.
+        // The auto-restart on first `ChannelClosed` lives in
+        // `post_message`'s `Err(ChannelClosed)` branch above; this copy
+        // surfaces only when the second send (after respawn) also
+        // fails, which is the spec's "if restart also fails" leg.
         OrchestratorError::ChannelClosed { .. } => {
-            "Claude's connection dropped and reconnecting didn't help. Try again in a moment."
-                .into()
+            "Couldn't reach Claude. Check your installation in Settings → Account.".into()
         }
         other => other.to_string(),
     }
@@ -1095,6 +1099,41 @@ mod tests {
     fn truncate_handles_empty_first_line() {
         let body = "\n\nactual content here";
         assert_eq!(first_line_truncate(body, 60), "actual content here");
+    }
+
+    /// Phase 24 §5.6 row 1 — when the subprocess crashes mid-turn AND
+    /// the auto-respawn dispatch ALSO fails, the user-facing copy from
+    /// `humanize_dispatch_error` must match the spec verbatim. This
+    /// surfaces in the frontend banner via `describeIpcError`'s
+    /// pass-through of the `Invariant` error string.
+    #[test]
+    fn humanize_dispatch_error_channel_closed_uses_spec_copy() {
+        use designer_claude::OrchestratorError;
+        let err = OrchestratorError::ChannelClosed {
+            workspace_id: WorkspaceId::new(),
+            tab_id: default_tab_id(),
+        };
+        let out = humanize_dispatch_error(&err);
+        assert_eq!(
+            out, "Couldn't reach Claude. Check your installation in Settings → Account.",
+            "ChannelClosed copy must match Phase 24 §5.6 row 1 spec verbatim"
+        );
+    }
+
+    #[test]
+    fn humanize_dispatch_error_other_falls_through_to_display() {
+        use designer_claude::OrchestratorError;
+        let err = OrchestratorError::TeamNotFound("ws/tab".into());
+        let out = humanize_dispatch_error(&err);
+        // Non-ChannelClosed variants fall through to their Display
+        // impl; spec doesn't override these because the user only
+        // ever hits this path through the manager-voiced wrapper in
+        // `post_message`'s error mapping ("couldn't deliver your
+        // message to Claude — {humanized}").
+        assert!(
+            out.contains("ws/tab"),
+            "fall-through should preserve the OrchestratorError Display: got {out}"
+        );
     }
 
     async fn boot_test_core() -> Arc<AppCore> {

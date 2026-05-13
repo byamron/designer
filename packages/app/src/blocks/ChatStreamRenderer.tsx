@@ -158,6 +158,8 @@ function AgentTurnRow({ turn }: { turn: TurnAccumulator }) {
         return <BlockView key={idx} block={block} turn={turn} />;
       })}
       {turn.stop_reason === "interrupted" && <InterruptedMarker />}
+      {turn.stop_reason === "error" && <ErrorMarker />}
+      {turn.stop_reason === "max_tokens" && <MaxTokensMarker />}
     </div>
   );
 }
@@ -471,6 +473,50 @@ function InterruptedMarker() {
       role="status"
     >
       <span className="thread__interrupted-marker-text">Interrupted</span>
+    </div>
+  );
+}
+
+// ---- Phase 24 §5.6 turn-end error markers ------------------------------
+//
+// `AgentTurnEnded { stop_reason: Error | MaxTokens }` lands an inline
+// marker under the turn carrying the user-facing copy from the §5.6
+// table. The visible marker is `role="status"` (polite); the assertive
+// announcement for `Error` lives in `WorkspaceThread` as a separate
+// `aria-live="assertive"` region — same pattern as `InterruptedMarker` +
+// `InterruptAnnouncement` (PR #125 / spec §5.7 row 275). Conditional
+// mount of a `role="status"` region is unreliable for screen readers
+// (see user-memory `feedback_aria_live_for_spec_announcements`); the
+// assertive sibling is the announcement contract.
+
+function ErrorMarker() {
+  return (
+    <div
+      className="thread__turn-end-marker"
+      data-component="ErrorMarker"
+      data-variant="error"
+      role="status"
+    >
+      <span className="thread__turn-end-marker-text">
+        Something went wrong on Claude&rsquo;s side. Try again, or shorten the
+        request.
+      </span>
+    </div>
+  );
+}
+
+function MaxTokensMarker() {
+  return (
+    <div
+      className="thread__turn-end-marker"
+      data-component="MaxTokensMarker"
+      data-variant="max-tokens"
+      role="status"
+    >
+      <span className="thread__turn-end-marker-text">
+        Reached the response length limit. Ask for a continuation if you need
+        more.
+      </span>
     </div>
   );
 }

@@ -82,6 +82,16 @@
   --color-surface-overlay: var(--gray-4);
   --color-foreground: var(--gray-12);
   --color-muted: var(--gray-11);
+  /* Phase 24 §5.6 — error-state copy uses muted foreground; aliased
+   * to `--color-muted` so spec wording (`--color-foreground-muted`)
+   * resolves directly. If the project ever introduces a separate
+   * tier between body and chrome, decouple here. */
+  --color-foreground-muted: var(--color-muted);
+  /* Phase 24 §5.6 — warning accent for the error-marker pill icon.
+   * Aliased to the Radix `--warning-9` scale (amber) defined in
+   * `packages/ui/styles/tokens.css`. Designer-side semantic name
+   * so component CSS doesn't reach into the scale. */
+  --color-warning: var(--warning-9);
   --color-border: var(--gray-6);
   --color-border-strong: var(--gray-8);
   /* Soft border — alpha scale at step 5, so the stroke picks up the
@@ -189,6 +199,9 @@
    * sand-11 is a softer secondary. */
   --color-foreground: var(--sand-12);
   --color-muted: var(--sand-11);
+  /* Phase 24 §5.6 — see light-mode block above for rationale. */
+  --color-foreground-muted: var(--color-muted);
+  --color-warning: var(--warning-9);
   --color-border: var(--sand-6);
   /* In dark mode the alpha-5 border isn't strong enough to differentiate
    * the main surface and tabs from the page; promote to alpha-7. */

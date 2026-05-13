@@ -672,3 +672,22 @@ Phase 24 §5.2 specified two motion + color tokens that didn't fit the project's
 **2. Monochrome `--color-muted` for the activity pulse.** The pre-Phase-24 pulse used `--accent-9` which colored the activity by the project's accent. Spec §5.2: *"Color: monochrome `--color-muted` — does not encode state; activity is a binary signal, not a status."* The rationale: a status color (accent / warning / danger) implies severity gradation; activity has only "running" vs "not running" and should read as a neutral signal. The `awaiting_approval` legacy chat-v1 path keeps its `--warning-9` override because that *is* a status (the agent is blocked waiting on the user), not a binary activity indicator. **Rule:** when a UI signal is binary, prefer monochrome (`--color-muted`); reserve accent / warning / danger for surfaces that genuinely encode state on a gradient. Documented here so future activity-style affordances (tab badges, sidebar dots, etc.) inherit the same logic without re-deriving it.
 
 The 1.2s vs 1.6s pulse-duration discrepancy (spec says `--motion-pulse` is "defined as 1.6s ease-in-out"; the token is `1200ms`) is filed as a Phase 24H FOLLOW-UP because the same token drives the tab-strip activity badge — changing it here would silently re-pace a sibling surface without spec coverage. Project-wide resolution belongs in 24H polish, not in this step's PR.
+
+
+## 2026-05-12 — Semantic tokens for spec-named values; no error red unless destructive
+
+Phase 24 §5.6 specifies error-state copy and names two tokens explicitly: `--color-foreground-muted` for the body text and `--color-warning` for the pill-icon accent. Neither token existed in `packages/app/src/styles/app.css` — the role layer had `--color-muted` (foreground tier) and `--warning-9` (Radix scale) but not the spec's exact names.
+
+**Resolution.** Added both as semantic aliases in the role layer:
+
+```css
+/* Phase 24 §5.6 — spec wording uses these names; alias to existing tier. */
+--color-foreground-muted: var(--color-muted);
+--color-warning: var(--warning-9);
+```
+
+**Rule.** When a spec section names a token that doesn't exist, **add it as a semantic alias to the project's existing tier** rather than (a) inventing a new tier or (b) substituting the closest existing token in component CSS. The semantic alias keeps the spec's intent legible at the role layer (anyone scanning `app.css` sees the §5.6 rationale next to the alias) and decouples future intent changes from component-level edits. If the project ever wants a *separate* `foreground-muted` tier between body and chrome, the alias becomes the seam — no component touch needed.
+
+**Sibling rule from §5.6: no error-red unless destructive.** Spec text: *"All error states render in `--color-foreground-muted` with `--color-warning` accent for the pill icon. No error red unless the error is destructive (file deletion blocked, etc.)."* The amber-9 warning hue is the project's "agent had trouble, retry might work" register; red is reserved for destructive states (file deletion blocked, scope-denied writes, etc.). Documented here so future error surfaces inherit the same logic without re-deriving it — a `tone: "error"` vs `tone: "warning"` distinction at the token layer would be over-engineering for the current surface count, but the rule is explicit.
+
+The reverse rule also holds: if a future surface genuinely needs error-red (e.g., a destructive-action-blocked banner), promote a `--color-danger` semantic token through this same pattern. Don't reach for a raw `--red-9` from the Radix scale in component CSS.
