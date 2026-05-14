@@ -10,17 +10,17 @@ Build / Harden alternation per ADR 0009. The active sequence is one Build phase 
 
 | Phase | State | What it ships |
 |---|---|---|
-| **24 — Chat pass-through** | **✅ Build complete (this PR — step 13).** `show_chat_v2` flipped default ON; A1–A12 acceptance criteria pinned to existing tests per the §6.1 audit (`core-docs/phase-24-pass-through-chat.md`). PRs #119, #120, #124, #125, #130, #131, #132, #133, and this PR. **Next:** cut v0.1.2 release tag per the ADR 0009 §1.E build-phase release convention, then Phase 24H Harden. | 1:1 stream-json projection per ADR 0008. Renderer rewrite, queue UX, ESC + SIGINT, detector updates, error copy, A1–A12 audit, Mini docs. |
-| **24H — Chat polish + first-run audit** | Next | Friction inbox triaged against chat-v2; first-run audited against v0.1.2 subtractions; "What's new" card for hidden surfaces; v0.1.2 screencast checked in. |
-| **24I — AppCore integration test harness** | Next (lands solo) | Boot AppCore in a test, drive via IPC, assert on event log. Wired to CI. Foundation for every Harden phase that follows. |
-| **25 — Inline approvals** | Build (after 24I) | Approval card renders inline under the agent message that requested the tool. Inbox modal retires. (PR #103 shipped the manager-grade inline `ApprovalBlock` rewrite; this phase finishes the migration off the inbox modal.) |
+| **24 — Chat pass-through** | **✅ Build complete (PR #134, step 13).** `show_chat_v2` flipped default ON; A1–A12 acceptance criteria pinned to existing tests per the §6.1 audit (`core-docs/phase-24-pass-through-chat.md`). PRs #119, #120, #124, #125, #130, #131, #132, #133, #134. **Next:** cut the Phase 24 Build release tag per the ADR 0009 §1.E build-phase release convention, then Phase 24I. | 1:1 stream-json projection per ADR 0008. Renderer rewrite, queue UX, ESC + SIGINT, detector updates, error copy, A1–A12 audit, Mini docs. |
+| **24I — AppCore integration test harness** | **Next (lands solo, before 24H — reordered 2026-05-13)** | Boot AppCore in a test, drive via IPC, assert on event log. Wired to CI. Foundation for 24H's render-altitude FOLLOW-UPs and every Harden phase that follows. |
+| **24H — Chat polish + first-run audit** | After 24I | Friction inbox triaged against chat-v2; first-run audited against the Phase-24 release's subtractions; "What's new" card for hidden surfaces; release screencast checked in. Render-altitude FOLLOW-UPs land as integration tests against the 24I harness. |
+| **25 — Inline approvals** | Build (after 24H) | Approval card renders inline under the agent message that requested the tool. Inbox modal retires. (PR #103 shipped the manager-grade inline `ApprovalBlock` rewrite; this phase finishes the migration off the inbox modal.) |
 | **25H — Token enforcement + Settings cull** | Harden | Custom ESLint rule banning inline `style={{...var(--…)}}`; 9 holdouts migrated to Mini primitives; Settings → ~600 LOC removed; component manifest 47 → ~20. |
 | **26 — Designer Noticed: one detector** | Build | One friction-driven detector end-to-end on local models with Home-tab proposal accept/reject. Other 7 keep emitting events behind hidden UI per ADR 0009 §3. |
 | **26H — Demo gate automation** | Harden | Playwright golden-path on Linux; macOS spot-check process; release tag binds test ↔ screencast. |
 
 ## Subtractions in flight (lands across 24H + 25H)
 
-Per ADR 0009, these ship with a v0.1.2 "What's new" card explaining each:
+Per ADR 0009, these ship with a "What's new" card on the Phase-24H release explaining each:
 
 - **5 stub block renderers** hidden behind `DESIGNER_SHOW_STUBS=1`.
 - **7 of 8 Designer-Noticed detector UIs** hidden via in-app Settings toggle. Detectors keep emitting events (frozen-contract additive); UI surfaces one at a time as proposals earn user acceptance.
@@ -36,7 +36,8 @@ Phase 22 unshipped sub-phases (22.C / 22.D / 22.E / 22.H / 22.M / 22.N / 22.N.1;
 - **Active detector pick (Phase 26):** default candidate is `repeated_correction`; final pick at phase start, gated on dogfood evidence. The friction log will name the pattern hitting the user repeatedly.
 - **Detector unhide UI (Phase 26):** in-app Settings toggle preferred; feature flag is fallback. Decided at Phase 26 implementation.
 - **12.B Apple-Intelligence round-trip:** still needs one run on an Apple-Intelligence-capable Mac to close the SDK-shape delta in `integration-notes.md` §12.B.
-- **Phase 24 sequencing:** ✅ Build complete. All 13 workspace steps shipped (PRs #119, #120, #124, #125, #130, #131, #132, #133, and step-13 PR). `show_chat_v2` flips default ON in step 13 per the §6.1 audit. Coalescer + chat-v1 specific arms inside `spawn_message_coalescer` are filed for Phase 24H cleanup (the function itself stays load-bearing as the broadcast→store bridge for `AgentTurn*` events; only the chat-v1-specific arms retire). Phase 24H render-altitude tests filed earlier (`bootReplaying`, queue auto-dispatch, `InterruptAnnouncement`, §5.6 markers + `ErrorAnnouncement`) now unblocked by the flag flip; they're belt-and-suspenders against the contract-level coverage that the §6.1 audit pinned.
+- **Phase 24 sequencing:** ✅ Build complete. All 13 workspace steps shipped (PRs #119, #120, #124, #125, #130, #131, #132, #133, #134). `show_chat_v2` flips default ON in step 13 per the §6.1 audit. Coalescer + chat-v1 specific arms inside `spawn_message_coalescer` are filed for Phase 24H cleanup (the function itself stays load-bearing as the broadcast→store bridge for `AgentTurn*` events; only the chat-v1-specific arms retire).
+- **24I-before-24H reorder (2026-05-13):** documented order was 24 → 24H → 24I → 25; reordered to 24 → 24I → 24H → 25. Reasons: (a) 24H's render-altitude FOLLOW-UPs (`bootReplaying`, queue auto-dispatch, `InterruptAnnouncement`, §5.6 markers + `ErrorAnnouncement`) want an integration harness underneath them — landing them first means writing render-altitude tests then later wishing they were integration tests; (b) the deterministic `read_all` rowid-tiebreaker test from PR #125 was already filed *into* 24I, so the boundary was already fuzzy; (c) the coalescer-cleanup pre-condition is "≥1 dogfood week with no `show_chat_v2: false` overrides" — that week elapses naturally during 24I, so 24H can ship the cleanup confidently; (d) 24I is smaller (~3–5 days vs. ~1 week), so it's lower-risk to land first when chat-v2 is still settling from the flag flip. Mitigates the cognitive-load overlap flagged in PR #122's staff review.
 
 ## Where shipped work lives
 
