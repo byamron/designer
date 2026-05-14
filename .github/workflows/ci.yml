@@ -33,6 +33,18 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          # Bumped from default `v0-rust` to bust the poisoned cache that
+          # restored a broken `~/.cargo/bin/cargo` (actually `rustup-init`)
+          # — cargo invocations failed with "unexpected argument 'test'".
+          # Observed on macos-15-arm64 runs of PR #134 (transient on rerun)
+          # and PR #136 (stuck on the same cache key). Bump again if the
+          # symptom recurs after fresh cache populates.
+          prefix-key: v1-rust
+          # Don't cache ~/.cargo/bin — that's what got poisoned. rustup
+          # restores cargo/rustc/clippy on each run anyway; the cost of
+          # re-installing cargo-installed bins on cache miss is small.
+          cache-bin: false
 
       - name: cargo test --workspace
         if: matrix.job == 'test'

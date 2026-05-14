@@ -52,6 +52,11 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          # Match ci.yml — bust the poisoned cache, don't cache ~/.cargo/bin.
+          # See ci.yml for full rationale.
+          prefix-key: v1-rust
+          cache-bin: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
