@@ -37,6 +37,8 @@ import {
 } from "../store/chatThread";
 import { useFlag, useEnsureFlagsLoaded } from "../store/flags";
 import { ChatStreamRenderer } from "../blocks/ChatStreamRenderer";
+import { planAutoName } from "../util/autoname";
+import { refreshWorkspaces } from "../store/data";
 import "../blocks";
 
 /**
@@ -75,6 +77,56 @@ const STARTER_SUGGESTIONS = [
  */
 function buildSuggestions(_artifacts: ArtifactSummary[]): string[] {
   return STARTER_SUGGESTIONS;
+}
+
+/**
+ * Per frc_019dea6a-9278 — after the user's first message lands, rename
+ * the active tab (and workspace, when applicable) from the placeholder
+ * `Tab N` / `Workspace N` to a short title derived from the message
+ * body. Idempotent via the default-name gate: once a name has been
+ * customized (manually or by this function), subsequent messages
+ * leave it alone. Refreshes the workspace projection on success so
+ * the sidebar reflects the new name immediately.
+ *
+ * Errors are logged, never thrown — auto-naming is a quality-of-life
+ * affordance and must never interfere with message delivery.
+ */
+async function autoRenameOnFirstMessage(args: {
+  workspaceId: string;
+  workspaceName: string;
+  tabId: TabId | undefined;
+  tabTitle: string | null;
+  text: string;
+}): Promise<void> {
+  const plan = planAutoName({
+    workspaceName: args.workspaceName,
+    tabTitle: args.tabTitle,
+    text: args.text,
+  });
+  if (!plan) return;
+  const tasks: Promise<unknown>[] = [];
+  if (plan.renameWorkspace) {
+    tasks.push(
+      ipcClient()
+        .renameWorkspace(args.workspaceId, plan.title)
+        .catch((err) => console.warn("auto-rename workspace failed", err)),
+    );
+  }
+  if (plan.renameTab && args.tabId) {
+    tasks.push(
+      ipcClient()
+        .renameTab(args.workspaceId, args.tabId, plan.title)
+        .catch((err) => console.warn("auto-rename tab failed", err)),
+    );
+  }
+  if (tasks.length === 0) return;
+  await Promise.all(tasks);
+  try {
+    const projectId = appStore.get().activeProject;
+    if (projectId) await refreshWorkspaces(projectId);
+  } catch (err) {
+    console.warn("auto-rename refresh failed", err);
+  }
 }
 
 /**
@@ -340,6 +392,22 @@ export function WorkspaceThread({
         // refreshes the thread when those events arrive. We don't
         // append to local state here — the projector is the source
         // of truth and `refresh()` is idempotent.
+
+        // frc_019dea6a-9278 — first-message auto-naming. If the
+        // current workspace or tab still carries its default
+        // `Workspace N` / `Tab N` name, derive a short title from
+        // this message and rename. Fire-and-forget: a rename failure
+        // must never surface above the actual conversation. The
+        // default-name gate makes this idempotent — once renamed
+        // (either manually or by this path), subsequent messages
+        // skip the call.
+        void autoRenameOnFirstMessage({
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          tabId,
+          tabTitle: workspace.tabs.find((t) => t.id === tabId)?.title ?? null,
+          text: payload.text,
+        });
       } catch (err) {
         setSendErrorFor(sendKey, describeIpcError(err));
         // ComposeDock clears its own draft synchronously after onSend
