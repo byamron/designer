@@ -577,7 +577,7 @@ Restructures the active roadmap around a new fifth Product Principle ("Shipped s
 
 **Why:**
 
-The active roadmap had drifted toward unbounded ambition: every cycle added a track, none retired. Plan.md had ballooned to 517 lines with no clear answer to "what's the next one feature to ship?" The fifth principle is the anti-drift mechanism: shipping is itself the verification, and "shipped" requires demoable end-to-end without seams — which means each cycle must close before the next opens. Build/Harden alternation enforces the cadence; the parking lot preserves ambition (with re-activation triggers) without polluting the active sequence.
+The active roadmap had drifted toward unbounded ambition: every cycle added a track, none retired. Plan.md had ballooned to 517 lines with no clear answer to "what's the next one feature to ship?" The fifth principle is the anti-drift mechanism: shipping is itself the verification, and "shipped" requires demoable end-to-end without seams — which means each cycle must close before the next opens. Build/Harden alternation enforces the cadence; the parking lot preserves ambition (with re-activation triggers) without polluting the active sequence. CLAUDE.md §How-to-Work item 6 ("findings: do them or file them, never lose them") + ADR 0009's parking-lot mechanism are the discipline that operationalizes the principle on a per-PR basis.
 
 **Design decisions:**
 
