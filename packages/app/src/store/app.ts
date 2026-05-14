@@ -18,7 +18,7 @@ export type AppDialog = "settings" | "help" | "create-project" | null;
  * top-level sidebar tabs (Home, Archived). When `activeWorkspace` is
  * non-null this is ignored — the workspace owns the main pane.
  */
-export type ProjectView = "home" | "archived";
+export type ProjectView = "home" | "archived" | "friction";
 
 // Track 13.M — Friction trivial-by-default UX. The state machine flips so
 // "composing" (the typed-sentence path) is the default surface. Selection
@@ -239,6 +239,14 @@ export const selectArchivedView = () =>
     s.activeWorkspace === null && s.activeView === "archived"
       ? s
       : { ...s, activeWorkspace: null, activeView: "archived" },
+  );
+
+/** Switch the project-level view to Friction (per-project triage list). */
+export const selectFrictionView = () =>
+  appStore.set((s) =>
+    s.activeWorkspace === null && s.activeView === "friction"
+      ? s
+      : { ...s, activeWorkspace: null, activeView: "friction" },
   );
 
 export const selectTab = (workspaceId: WorkspaceId, tabId: TabId) =>
