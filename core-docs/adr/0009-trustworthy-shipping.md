@@ -86,6 +86,23 @@ Per release tag (`v*`):
 
 The Playwright test gates the release; the screencast documents what trustworthy looks like at that version. macOS Playwright CI is parked (see `parking-lot.md`).
 
+### 1.E Release cadence: every phase, not only every Harden phase (2026-05-12 amendment)
+
+Original §1.B said a release tag lands at the close of each Harden phase. Dogfood experience through Phase 24 surfaced the friction: a Build phase that ships a behaviorally-complete feature behind a feature flag default-OFF is invisible to dogfood until the flag flips ON, which only happens in the Build phase itself (Step 13 of Phase 24, in the case at hand). Holding the release tag until the *following* Harden phase delays user-visible signal by 1–2 weeks per cycle without commensurate quality benefit — the Build phase already gates on its own contract-level test coverage; the Harden phase is for *friction* found through use, which can't be discovered without a release tag in the user's hands.
+
+**Amendment:** release tag at the close of every phase, Build or Harden:
+
+- **Build-phase release.** Cuts when the phase's primary feature flag (`show_chat_v2`, future equivalents) flips to default-ON and all contract-level acceptance tests pass. The shipped state may still have FOLLOW-UPs filed for the subsequent Harden phase (render-altitude tests, polish, visual baselines) — those are the Harden phase's scope, not the release gate.
+- **Harden-phase release.** Cuts at Harden close when the filed FOLLOW-UPs are closed or re-parked and the demo gate passes.
+
+Both releases follow the verification mechanism in §1.D (screencast + Playwright + macOS spot-check). The build-phase screencast captures the *new behavior* end-to-end; the harden-phase screencast captures the *polished* state.
+
+**Why this works under ADR 0009.** The §1.A Trustworthy principle says shipped state must be demoable end-to-end without seams; it does not say Build-phase output is intrinsically less demoable than Harden-phase output. The Build-cycle quality bar (CLAUDE.md §How-to-Work item 8: plan → implement → self-review → staff-review → merge) already requires every requirement on the spec walk to be tested or filed before the merge. A Build-phase tag carries that same guarantee.
+
+**What's preserved.** The Harden phase still ships (Phase 24H, Phase 25H, Phase 26H, etc.) and still cuts a release at its close. The change is that a Build-phase tag is no longer skipped — both Build and Harden get tags, with Harden's tag landing later. Version numbers increment per release: e.g., Phase 24 Build closes with v0.1.2, Phase 24H Harden closes with v0.1.3, Phase 25 Build closes with v0.1.4, and so on.
+
+**What's gained.** Dogfood signal lands within days of a feature shipping, not weeks. The Harden phase becomes data-driven (real friction reports from real use of the released feature) rather than speculative. Build-phase commits don't sit on `main` accumulating cognitive load for the next release tag — they ship, they're verified in the wild, then their Harden pass closes them out.
+
 ## Consequences
 
 ### Positive
