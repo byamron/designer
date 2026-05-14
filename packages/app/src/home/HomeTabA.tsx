@@ -276,20 +276,17 @@ function ProjectRepoSection({
               {hasLinkedWorkspace ? "Re-link" : "Link"}
             </button>
           )}
-          <button
-            type="button"
-            className="btn"
-            data-variant="danger"
-            onClick={() => setUnlinkOpen(true)}
-            disabled={!hasLinkedWorkspace}
-            title={
-              hasLinkedWorkspace
-                ? "Disconnect Designer from this repo"
-                : "Repo is not currently linked to any workspace"
-            }
-          >
-            Disconnect repository
-          </button>
+          {hasLinkedWorkspace && (
+            <button
+              type="button"
+              className="btn"
+              data-variant="danger"
+              onClick={() => setUnlinkOpen(true)}
+              title="Disconnect Designer from this repo"
+            >
+              Disconnect repository
+            </button>
+          )}
         </div>
       </div>
       <RepoUnlinkModal
