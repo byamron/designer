@@ -37,6 +37,25 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### docs: reorder Phase 24I before 24H
+**Date:** 2026-05-13
+**Branch:** docs-phase-24i-before-24h-reorder
+**Commit:** PR #135 (dc4d6d3d)
+
+**What was done:**
+
+Reordered the post–Phase-24 active sequence from `24 → 24H → 24I → 25` to `24 → 24I → 24H → 25` in both `plan.md` (Current focus table + Open questions) and `roadmap.md` (physical section swap + sequencing-note blockquote callouts at the top of both phase sections). Phase 24 heading flipped from "Build, in flight" to "Build, ✅ complete 2026-05-13." The "Active-roadmap parallelism check" item retired from 24H since the reorder mitigates it. PR #125's deterministic `read_all` rowid-tiebreaker test, previously cross-filed into 24I, now lives in 24I definitively.
+
+**Why:**
+
+Four reasons converging on the same direction: (1) 24H's render-altitude FOLLOW-UPs (`bootReplaying`, queue auto-dispatch, `InterruptAnnouncement`, §5.6 markers + `ErrorAnnouncement`) want the AppCore integration harness from 24I underneath them — landing them as render-only mounts first means re-doing them as integration tests later. (2) PR #125's deterministic `read_all` rowid-tiebreaker test was already filed *into* 24I (test-only DB helpers), so the 24H/24I boundary was already fuzzy on that line item. (3) The coalescer-cleanup pre-condition ("≥1 dogfood week with no `show_chat_v2: false` overrides") elapses naturally during 24I, so 24H can confidently ship the cleanup. (4) 24I is the smaller phase (~3–5 days vs. ~1 week), lower-risk to land first while chat-v2 is still settling from the PR #134 flag flip. Mitigates the cognitive-load overlap that PR #122 staff review flagged.
+
+**Lessons learned:**
+
+A "sequencing note" blockquote at the top of each affected section is cheaper than physically swapping the section order *and* updating cross-references — but the physical swap is what readers actually see when scanning the doc top-to-bottom. Did both. The blockquote names the date and the rationale so future readers don't re-litigate.
+
+---
+
 ### Phase 24 step 13 — A1–A12 audit, `show_chat_v2` default ON, release-per-phase convention
 **Date:** 2026-05-12
 **Branch:** phase-24-step-13-acceptance
@@ -286,6 +305,63 @@ A contract that's already true in code can still be load-bearing in spec — pin
 
 ---
 
+### Draft: Mini enforcement layer tightening plan
+**Date:** 2026-05-10
+**Branch:** mini-enforcement-tightening-plan
+**Commit:** PR #129 (f6605436)
+
+> _Backfilled 2026-05-13 from PR #129 commit message._
+
+**What was done:**
+
+Captures a planning document covering the diagnosis (skills designed but unused — 52/52 manual `generation-log.md` entries, ~0% skill-fired generation), a north-star reframe (craft over compliance — push enforcement upstream from manual log review into prompt-time scaffolding), and a phased plan to move enforcement leverage earlier in the cycle. v2 incorporates findings from a three-lens staff review.
+
+**Why:**
+
+Mini's skill set (`generate-ui`, `check-component-reuse`, `enforce-tokens`, `audit-a11y`, `propagate-language-update`) was instrumented; signals show ~0% adoption. The skills exist; the workflow doesn't reach them. The plan diagnoses why and proposes structural fixes rather than louder reminders — louder reminders are what we've already tried.
+
+**Status:**
+
+Draft — not implemented in this PR. Implementation lands as a follow-up phase once the diagnosis stabilizes.
+
+---
+
+### docs: post-PR-125 hand-off — `plan.md` + `history.md` sync
+**Date:** 2026-05-10
+**Branch:** post-pr-125-handoff
+**Commit:** PR #128 (7b262b00)
+
+> _Backfilled 2026-05-13 from PR #128 commit message._
+
+**What was done:**
+
+`plan.md` Current Focus row for Phase 24 still claimed "remaining steps 4–14" even though PRs #119 / #120 / #124 / #125 had shipped most of the workspace sequence. Updated the row to enumerate what shipped per PR (steps 1–3, 5–7, 8–9, §5.7) and what remained (steps 4, 10, 11, 12, 13). `history.md` gained the full entry for PR #125 (SIGINT + Esc + §5.7 announcement) that hadn't been backfilled yet.
+
+**Why:**
+
+The next agent picking up Phase 24 was about to re-derive state from PR commit messages because the canonical docs lagged the work. Cheap fix; high leverage. Reinforces the "findings: do them or file them, never lose them" rule from CLAUDE.md item 6.
+
+---
+
+### core-docs: vendor taste-loop infrastructure + relocate showcase
+**Date:** 2026-05-10
+**Branch:** vendor-taste-loop-infrastructure
+**Commit:** PR #127 (64d48e5f)
+
+> _Backfilled 2026-05-13 from PR #127 commit message._
+
+**What was done:**
+
+Phase 1A of taste-loop consolidation. After PR #123 propagated cycles 1–5 design-language + product-decision content into Designer's canonical, this PR moves the loop's per-project substrate into Designer itself so future cycles run natively here instead of in the Mini × Taste monorepo.
+
+Vendors four skills (`drain-feedback`, `distill-feedback`, `uncommon-care`, `taste-staff-review`), `core-docs/foundations.md`, and `tools/feedback-status.mjs`. Migrates the cycle ledger (`core-docs/taste/feedback/`), tensions, and reference captures. Relocates the variant showcase to `mockups/taste-showcase/` and rewires it to render against Designer's actual `packages/ui/` tokens instead of the monorepo fixtures.
+
+**Design decisions:**
+
+Each vendored SKILL.md carries a YAML-comment provenance line recording the source commit. Vendored files are explicitly not edited in place — upstream changes propagate via re-vendor, not local divergence. The `taste-staff-review` skill is renamed locally to avoid collision with Designer's existing `staff-review` (which uses different lenses — engineer / UX designer / design engineer — than the taste-loop's engineer / design critic / workflow editor).
+
+---
+
 ### Phase 24 §5.4.2 — SIGINT interrupt + Esc priority chain + §5.7 assertive announcement
 **Date:** 2026-05-10
 **Branch:** phase-24-sigint-interrupt
@@ -332,6 +408,191 @@ The storage ORDER BY fix lives in the storage layer (not the projector dedup) be
 This PR was the first end-to-end exercise of the post-PR-#126 sharpened workflow (Step 0 self-review gate + preflight + sharpened agent prompts + Step 4.5 grep sweep). It caught two real BLOCKERs the first round of agents would have missed: the missing assertive announcement (UX) and the storage flake (CI signal). The framework paid for itself on its first substantive run.
 
 The CI flake also revealed a latent bug pattern worth a memory entry: when a per-stream sequence number is used as a global tiebreaker, mixed-stream queries can interleave non-causally. The fix at the source layer (`read_all` ordering) is cheaper than defensive layers higher up.
+
+---
+
+### Workflow infrastructure — preflight + self-review + sharpened staff-review
+**Date:** 2026-05-09
+**Branch:** workflow-infrastructure
+**Commit:** PR #126 (4c62f903)
+
+> _Backfilled 2026-05-13 from PR #126 commit message._
+
+**What was done:**
+
+Built the bulletproof PR workflow per user direction: plan → implement → self-review → staff-review → merge, with explicit gates that catch failure patterns the recent Phase 24 cycles kept introducing.
+
+- **`tools/preflight/check.mjs` (NEW).** Sub-second mechanical checks: (1) CSS token references resolve (catches undefined-token fallback chains, a PR #124/#126-review repeat); (2) PR body has no standalone `## Follow-ups` section (per CLAUDE.md item 6; PR #122/#124 violations); (3) PR-body claims (e.g. "token-only CSS", "no Rust changes") are verified against the actual diff. Exits non-zero on failure.
+- **CLAUDE.md §"How to Work" item 8 (NEW).** Codifies the build cycle; names preflight + spec-walk as the self-review gate before reviewer agents are invoked.
+- **`.claude/skills/staff-review/SKILL.md` sharpened.** Step 0 added: REQUIRED self-review pass before launching agents — the skill refuses to spend agent budget on red gates. Step 3 reviewer prompts hardened (give reviewers the relevant spec section explicitly, name recent-failure callouts, PR-claim verification by grep not trust). Step 4.5 added: REQUIRED post-review grep sweep (token resolution, `tokio::spawn` outside runtime, raw `unwrap/expect` in non-test paths).
+- **`core-docs/workflow.md`** gets a "Build cycle" section.
+- **Three failure-pattern memory entries** saved to user-memory: `feedback_verify_tokens.md`, `feedback_aria_live_for_spec_announcements.md`, `feedback_doc_orphans_after_merge.md`.
+
+**Why:**
+
+Three reviewers in three consecutive Phase 24 cycles flagged the same classes of issues — undefined CSS tokens, orphaned `## Follow-ups` sections in PR bodies, false PR-body claims. The classes are mechanical; agent budget spent re-finding them is wasted. The new How-to-Work item now captures the meta-rule: workflow infrastructure is living; update it proactively, because running on a stale framework costs every PR after.
+
+**Lessons learned:**
+
+The first end-to-end exercise of the sharpened workflow was PR #125 (the next cycle after this one landed). It caught two real BLOCKERs the first round of agents would have missed — the missing `aria-live` announcement on `AgentTurnEnded { stop_reason: Interrupted }` and the storage flake from per-stream sequence-as-global-tiebreaker. The framework paid for itself on its first substantive run.
+
+---
+
+### Phase 24 §5.4 — queue + stop-and-send + SendMenu
+**Date:** 2026-05-07
+**Branch:** phase-24-queue-and-stop-send
+**Commit:** PR #124 (b032f8ae)
+
+> _Backfilled 2026-05-13 from PR #124 commit message._
+
+**What was done:**
+
+Implements the send-while-streaming UX from spec §5.4. Two send modes when a turn is open in the focused tab:
+
+- **⏎ (default)** → queue. Message held in per-tab localStorage (single key `designer.composer.queuedMessageByTab` with a JSON-encoded map); auto-dispatched when `AgentTurnEnded` fires for the open turn.
+- **⌘⏎ (alternate)** → stop-and-send. Calls `cmd_interrupt_turn` (Phase 23.F), then queues. The same auto-dispatch handler fires the message when the resulting `AgentTurnEnded { Interrupted }` arrives.
+
+Both modes surface from the same Send button via a hover/focus-revealed `SendMenu` (200 ms reveal debounce, `role=menu` / `menuitem`, click-outside + Esc dismissal, keyboard-navigable on focus, motion gated by `prefers-reduced-motion`). No chevron, no split-button — the button stays a button until the user gestures intent.
+
+Spec §5.4 updated to spell out both modes, tokens for the queue chip + menu, and the auto-dispatch wiring. New feature flag `show_compose_stop_and_send` (default ON when `show_chat_v2` is on) reserved as a kill-switch — wiring the runtime gate is filed for Phase 24H.
+
+**Design decisions:**
+
+Queue is the default for the most common case (typing a follow-up while the agent is still mid-turn); stop-and-send is the explicit `⌘⏎` for the urgent case. The hover menu surfaces both without making the button feel busy.
+
+LocalStorage strategy: one key + JSON-encoded map rather than per-tab keys. Per-tab keys would scatter and never get reaped; the single-map approach keeps storage quota small and `clearTabState` cleanup trivial.
+
+**Tradeoffs discussed:**
+
+- **Chevron split-button vs. hover-revealed menu.** Rejected the chevron — it adds permanent visual weight to a button that's 99% used in its primary mode.
+- **Default ON for `show_compose_stop_and_send` without runtime gate.** Accepted as a kill-switch reserve; runtime gate filed for Phase 24H so it exists before the alternate path becomes load-bearing.
+
+---
+
+### core-docs: propagate taste-loop decisions and craft principles (cycles 1–5)
+**Date:** 2026-05-06
+**Branch:** propagate-taste-loop-cycles-1-5
+**Commit:** PR #123 (980c2e88)
+
+> _Backfilled 2026-05-13 from PR #123 commit message._
+
+**What was done:**
+
+Twelve items from the Mini × Taste taste-loop monorepo land in Designer's canonical design language; two adjacent product-architecture decisions land in the spec Decisions Log.
+
+**`design-language.md`:**
+- Core Principle 1 scoped to the surrounding shell — chat metaphor governs the workspace-thread interior.
+- Axiom #10 specifies `:focus-visible` (never raw `:focus`); visible focus is for keyboard, not mouse.
+- Patterns: existing "Chat asymmetry" sharpened (bubble-vs-flat is the load-bearing user-vs-agent encoding); three new entries — workspace thread is chat at its core; conversation/operation classification; bordered boxes (not edge-rails) with the blockquote gutter exception preserved.
+- New "Craft Principles" section: one signal per affordance/state; conventional patterns over invented ones; mouse clicks don't leave a focus ring; less is more; group controls with their indicators; chrome doesn't scroll; listbox pattern for nav-style lists; cockpit aggregates open state. Each carries a foundation citation (Gestalt, Norman, Jakob, WCAG, ARIA APG).
+
+**`spec.md` Decisions Log:**
+- **#65** — approvals as inbox-pattern artifacts (sharpens #47).
+- **#66** — reports as frozen + supersession (extends #51/#52/#56).
+
+**Why:**
+
+The Mini × Taste monorepo accumulated cycle output that needed to land in Designer before Designer's substrate could be consolidated locally (which PR #127 then did). This PR is the upstream half of that consolidation.
+
+**Design decisions:**
+
+Implementation-level questions for the two product decisions (#65, #66) are explicitly deferred per the propagation prompt's scope. The Decisions Log captures the *what* and *why*, not the *how* — that lives in the implementing phase's spec section.
+
+---
+
+### Phase 24 renderer bundle — chat-thread reducer + new chat surface + render-time activity
+**Date:** 2026-05-06
+**Branch:** phase-24-renderer-bundle
+**Commit:** PR #120 (6a71938d)
+
+> _Backfilled 2026-05-13 from PR #120 commit message._
+
+**What was done:**
+
+The Phase 24 chat-v2 surface, end-to-end, behind `show_chat_v2` (default OFF at the time; flipped ON in PR #134). Four logical phases shipped on one branch:
+
+**Phase A — lifecycle + flag plumbing:**
+- `OrchestratorEvent::TeamReady` / `TeamExited` broadcasts (reader-loop entry + exit, regardless of EOF / kill / panic). Broadcast-only, same precedent as `ActivityChanged`.
+- `TeamLifecycle` DTO in `designer-ipc`; `designer://team-lifecycle` Tauri channel; frontend `teamLifecycleStream` subscriber.
+- Frontend types: `ClaudeMessageId`, `ClaudeSessionId`, `EventId` transparent string newtypes; `AgentContentBlockKind` discriminated union; `AgentStopReason`, `TokenUsage`, `AgentTurnPayload` (six chat-domain variants).
+- `flagsStore` + `useFlag()` / `useEnsureFlagsLoaded()` hooks centralize flag reads so a Settings flip propagates on the same frame.
+
+**Phase B — per-tab chat reducer + legacy projection:**
+- `chatThreadStore` with `row_order` (single flat append-only list), `turns` map keyed by `ClaudeMessageId`, `user_messages` map keyed by `EventId`. `BlockAccumulator` per `block_index`. `tool_results` map keyed by `tool_use_id` (correlation by id, not array position — A1 acceptance).
+- `runningSubprocesses` set driven by team-lifecycle edges; render-time activity indicator membership-checks here.
+- Reducer is defensive: idempotent on duplicate `AgentTurnStarted`, lazy-creates blocks on out-of-order delta-before-started, drops out-of-turn `tool_results` silently. `applyOrphanTurnGuard` synthesizes `Interrupted` at the renderer level (no event-log writeback) for turns with no `AgentTurnEnded` AND no live subprocess — A2 acceptance.
+- `projectLegacyChat` walks chronological events to produce synthetic chat-v2 turns from legacy `MessagePosted` / `ArtifactProduced` / `ArtifactUpdated` events so existing conversations render natively in the new surface. Synthetic turn-ids prefixed `legacy_<seq>_<n>` so the renderer suppresses live-only affordances.
+
+**Phase C — `ChatStreamRenderer` + block components:**
+- `ChatStreamRenderer.tsx` (~470 LOC, co-located components until shapes stabilize): `ChatThreadRowView`, `AgentTurnRow`, `TextBlock`, `ThinkingBlock`, `ToolUseBlock`, `InterruptedMarker`, `LegacyChatBanner`, `EmptyState`, `IdlePrompt`.
+- `TextBlock` streams raw delta with `white-space: pre-wrap` while open; on `ended` flips into `MessageProse` markdown rendering inside `requestAnimationFrame` so the parsed DOM commits in the next frame after the final delta paints (spec §5.8 UX-1, A11 markdown stability).
+- `ThinkingBlock` default-collapsed disclosure; `prefers-reduced-motion` honored on the chevron transition.
+- `ToolUseBlock` no IPC round-trip — input lives in `block.delta` (JSON-encoded, parsed tolerantly for partial streaming JSON), result lives in `turn.tool_results[tool_use_id]`. Verb-first head ("Read plan.md") via `parseToolHead`. `data-error="true"` accent on `is_error: true` results.
+- `WorkspaceThread.tsx` flag-gated branch: when `show_chat_v2` is true, render `.thread--phase24` with `ChatStreamRenderer`; else fall through to the existing legacy thread verbatim. ComposeDock stays shared. Hooks fire unconditionally (React invariant).
+- CSS (`blocks.css`, +143 LOC) — token-only; no raw px / hex / ms. Mini invariants pass.
+
+**Phase D — render-time activity indicator:**
+- `ComposeDockActivityRow` gains a `phase24` branch that derives "Working…" from `runningSubprocesses && currentTurnOpen` rather than the legacy `ActivityChanged` slice. Spec §5.2 contract ("subprocess_running && !turn_ended") is the observable, not a stored `ActivityState`.
+
+**Why:**
+
+The renderer is the largest user-visible piece of Phase 24 — once it lands, the rest of the workspace sequence (queue UX, ESC + SIGINT, detector updates, error copy) writes against a real surface instead of a planned one. Bundling A/B/C/D on one branch kept the chat-v2 path internally consistent during development; the flag-OFF default kept it invisible to dogfood until the rest of the workspace was in.
+
+**Design decisions:**
+
+Co-locating the block components inside `ChatStreamRenderer.tsx` (rather than splitting per-block) is deliberate — the block shapes were expected to change as Phase 24 progressed (and did, in PR #131's pulse rework and PR #132's detector dual-shape work). Co-location made the iteration cheap; the split into per-block files is a Phase 24H/I tidy-up.
+
+The legacy projector (`projectLegacyChat`) was a load-bearing decision: without it, flipping `show_chat_v2` ON would have orphaned every existing conversation in the user's event log. The projector synthesizes turn structure from legacy events so the new surface renders prior history natively.
+
+**Tradeoffs discussed:**
+
+- **One branch vs. four PRs (one per phase).** Bundled because phases B/C have tight contract dependencies (the reducer's shape and the renderer's consumption are co-designed). Four PRs would have meant either four stub branches with no observable behavior until the fourth landed, or a sequence of "in-progress" merges to main where each intermediate state was incoherent. Behind a flag-OFF default, the bundle was demonstrably safe.
+- **`block_index` from content-array index vs. server-generated id.** Used array index per the Anthropic Messages API contract. Server-generated ids would have been more robust to out-of-order delivery but required a server-side mechanism we don't control.
+
+**Lessons learned:**
+
+Staff-review pre-merge spot-check caught a bug worth memory-saving: a selector returning a fresh object literal each call is a latent bug for `useStore` / `useSyncExternalStore` consumers. Pre-existing patterns (primitives / stable references) caught it for older code, but the chat-v2 selector was new. General practice filed: **selectors used in `useStore` / `useSyncExternalStore` should return primitives or already-stable references unless paired with a custom equality function.** Also flagged: visual baselines for the new chat surface ship empty (flag default OFF blocks regeneration); filed as a Phase 24H entry, now pending against the PR #134 flag flip.
+
+---
+
+### ADR 0009 — Trustworthy shipping + Build/Harden alternation + parking lot
+**Date:** 2026-05-05
+**Branch:** adr-0009-trustworthy-shipping
+**Commit:** PR #122 (2ca10c8d)
+
+> _Backfilled 2026-05-13 from PR #122 commit message._
+
+**What was done:**
+
+Restructures the active roadmap around a new fifth Product Principle ("Shipped state is trustworthy") with two coupled mechanisms: **Build/Harden alternation** in the active sequence, and a **parking lot** that defers (does not delete) ambition with friction-driven primary triggers + time-based fallbacks.
+
+- **`core-docs/adr/0009-trustworthy-shipping.md` (NEW)** — principle, alternation rules, parking-lot mechanism, hidden-but-emitting events convention, verification (checked-in golden-path screencast + Playwright binding at every release tag).
+- **`core-docs/parking-lot.md` (NEW)** — index + ten parked entries (Phase 15.H, 17, 18, 19, 20, 21.A2 remaining detectors, Phase 22 unshipped sub-phases, 23.E.f3 memory chip, `core_*/commands_*` reorg, macOS Playwright CI runner). Phase 22 entry parks only 22.C/D/E/H/M/N/N.1; 22.A/B/G/I shipped and stay.
+- **CLAUDE.md** — fifth Product Principle; fifth Quality Bar item ("Trustworthy"); Build/Harden alternation + parking-lot reference in How to Work; parking-lot row in Core Documents.
+- **`core-docs/spec.md`** — Decision 64 in the Decisions Log.
+- **`core-docs/roadmap.md`** — active-sequence callout at top (Phase 24 → 24H → 24I → 25 → 25H → 26 → 26H); detail sections for the seven active phases inserted before Milestones; Parked callouts on 15.H / 17 / 18 / 19 / 20 / 21.A2 / 22.
+- **`core-docs/plan.md`** — rewrite (517 → 43 lines). Pre-rewrite content preserved in `core-docs/history.md`.
+- **`core-docs/history.md`** — 22 PR entries backfilled (#95, #98, #99, #100–#119) with provenance preambles per the convention PR #100 established. Net +431 lines of preserved context.
+- **`core-docs/generation-log.md`** — process-change entry per Mini procedure.
+
+**Why:**
+
+The active roadmap had drifted toward unbounded ambition: every cycle added a track, none retired. Plan.md had ballooned to 517 lines with no clear answer to "what's the next one feature to ship?" The fifth principle is the anti-drift mechanism: shipping is itself the verification, and "shipped" requires demoable end-to-end without seams — which means each cycle must close before the next opens. Build/Harden alternation enforces the cadence; the parking lot preserves ambition (with re-activation triggers) without polluting the active sequence.
+
+**Design decisions:**
+
+The plan went through three parallel staff-perspective reviews (engineer + UX + design engineer); eight blockers acted on before merge. Plan v2 lives at `.context/roadmap-restructure/plan-v2.md` as a one-time decision artifact.
+
+The hidden-but-emitting events convention (detectors fire without UI; events stay frozen-contract additive; UI surfaces one at a time as proposals earn user acceptance) resolves a real tension: Designer Noticed has eight detectors but shipping all eight UIs at once produces a noise floor the user reasonably distrusts. Hiding the surfaces while keeping the events live preserves the option without re-architecting the contract.
+
+**Tradeoffs discussed:**
+
+- **Build/Harden alternation vs. continuous integration.** Alternation accepts an explicit "no new features" half-cycle to close out friction; continuous integration would let polish slip. The principle is unambiguous: shipped state is trustworthy → polish gets its own phase.
+- **Delete vs. park.** Deletion would be cleaner for reading but loses the work-already-done. Parking with friction triggers preserves the option without scattering future-cycle decisions across closed PRs.
+
+**Lessons learned:**
+
+Pure docs change; no code paths touched; no CI gates affected. Net +608 / -504 lines. A one-day intervention with months of compounding effect — every cycle since runs against this scaffold.
 
 ---
 
