@@ -369,7 +369,7 @@ Pins each A1–A12 to the test that satisfies it. Where coverage is at the unit 
 - **Q1 — RESOLVED 2026-05-04.** Runtime `show_chat_v2` flag gating, default off in dogfood for one week, default on after. Settings → Preferences toggle, follows the existing `show_models_section` / `show_recent_reports_v2` / `show_roadmap_canvas` template. Two-week stable-dogfood window before flipping the default permanently and deleting the flag in a follow-up PR. Provides kill switch + per-user observability + smooth rollback if a regression escapes.
 - **Q2** — Multi-agent / sub-agent chat in Phase 25+. The single-subprocess-per-tab model assumes one agent per tab; future phases may want N agents per tab. The new event contract supports this (`turn_id` is per-message; a tab can have interleaved turns from multiple agent sessions if Designer routes them so). Out of scope for Phase 24, tracked here as a forward-compat checkpoint.
 - **Q3** — Thinking-block default disclosure. Spec says default-collapsed; some users may prefer default-expanded for transparency. *Recommendation:* default-collapsed for v1, add a per-project preference in a follow-up if dogfood signal asks.
-- **Q4** — Scroll-anchor behavior when a 5000-token response streams in. Out of scope for the architectural spec; assigned as a Phase 24.a polish pass after first dogfood.
+- **Q4 — RESOLVED 2026-05-13.** Scroll-anchor behavior when a 5000-token response streams in. The 2026-05-13 chat-UX research synthesis (Appendix C) named the gap and filed the fix into Phase 24H as the "Scroll-stickiness on the Phase 24 chat surface" follow-up: port the legacy `stickRef` + `onThreadScroll` + Jump-to-latest pattern from `WorkspaceThread.tsx:597–649` into the chat-v2 surface, add `ResizeObserver` for content-height changes during streaming, add a programmatic-scroll guard so auto-pin scrolls don't re-fire `onScroll`. 32 px threshold (matches the learned legacy heuristic; not 96 px).
 
 ## 9. Out of scope
 
@@ -476,3 +476,50 @@ Specific revisions from review:
 - **Detector compatibility:** §4.1 + A10 + §11.1 step 11.
 - **Procedural artifacts:** §11.2.
 - **LOC target:** §2.5 reframed; A10 (LOC target) deleted.
+
+---
+
+## Appendix C — Chat-UX research synthesis (2026-05-13)
+
+Heading into Phase 24H, a research pass on AI chat UX best practices, Claude Code architecture, and coding-harness design patterns produced 12 recommendations against the shipped chat-v2 surface. The research drew on Smashing's *Designing Stable Interfaces for Streaming Content*, Chrome for Developers' *Best practices to render streamed LLM responses*, Claude Code's Streaming Input docs + CLI control-protocol reference, Cursor's *Continually improving our agent harness*, Addy Osmani's *Agent Harness Engineering*, Sara Soueidan / TPGi on `aria-live`, Cloudscape's generative-AI chat pattern, and the [`use-stick-to-bottom`](https://github.com/stackblitz-labs/use-stick-to-bottom) library; cross-referenced against [Claude Code issues #49373, #50246, #30492, #6643](https://github.com/anthropics/claude-code/issues/49373) and the upstream `/rewind` UX. Full source list lives in the research-report response (2026-05-13 session).
+
+The 12 recommendations were triaged via parallel staff-engineer + staff-UX reviews against ADR 0008 (pass-through by default) and ADR 0009 (Harden ships no new features — only friction closure, test coverage, design-language enforcement, demo gatekeeping).
+
+### Triage outcome
+
+**Into Phase 24H (5 items — friction closure / coverage / design-language enforcement; landed in `roadmap.md` §"Chat-UX research synthesis follow-ups"):**
+
+1. **Scroll-stickiness on the Phase 24 chat surface.** Closes Q4 above. The new surface lost the legacy `stickRef` + Jump-to-latest pill at flag-flip; port the legacy 32 px pattern, add a `ResizeObserver`, add a programmatic-scroll guard.
+2. **Visible Stop button while a turn is open.** Mouse-only users with the composer unfocused have no path to interrupt without sending. Add a sibling `IconButton` to Send (not a swap); reuse `interruptTurn` IPC.
+3. **Streaming caret on the open text block.** Mini Craft Principle 1 ("cursor alone for streaming text"); the surface looks frozen mid-stream during thinking/web-search pauses. `::after` pseudo-element on `.block__message-body--streaming`; reuse `--motion-pulse`; gate blink on `prefers-reduced-motion`.
+4. **Reduced-motion audit on tool-line + thinking chevrons.** Verifies spec §5.8 UX-3 against shipped CSS. Pair with the visual-baselines regen pass.
+5. **Regression test: queue does not flush on intermediate `AgentContentBlockEnded`.** Designer's auto-dispatch on `AgentTurnEnded` is one of the chat-v2 surface's quiet differentiators over upstream Claude Code (issue #49373). Lock the contract with a deterministic fixture against the 24I harness.
+
+**Into parking lot with friction-driven triggers (4 items — each filed in `parking-lot.md`):**
+
+- **Hover-revealed copy on code blocks.** Trigger: ≥1 friction report citing "wanted to copy Claude's code/response" OR Phase 25 PR that already touches per-turn hover affordances. Scope to code blocks only (per-turn copy is engineer-y).
+- **Conversation rewind / undo-a-turn.** Trigger: Anthropic publishes a stdio `/rewind` protocol OR ≥3 friction reports asking to undo a user message in a 2-week window. The **gesture** (Esc-Esc chord) is rejected outright — design a per-turn hover affordance when the trigger fires, not a global chord. Per ADR 0008, this becomes a real Build phase (event-log mutation has implications) the moment one of those triggers fires.
+- **Per-turn cost / usage chip.** Trigger: Phase 13.I (cost cap enforcement) begins OR ≥2 dogfood reports. Workspace-level chip first; per-turn is engineer-lens.
+- **Tool-result rich rendering** (Read/Edit/Grep/Bash structured render). Trigger: ≥3 friction reports OR Phase 27+ slot opens regardless. Real BUILD-sized phase (per-tool design passes, new host actions, manifest entries); Edit's JSON-blob register is a known craft floor.
+
+**Dropped (3 items — explicit citations recorded so future agents don't re-propose):**
+
+- **Code-fence buffering during streaming** (e.g., "writing code…" placeholder). Resolved by §3.3 — the spec deliberately chose plain-text incremental + markdown-stabilize-at-block-end. A placeholder swap injects a Designer-specific render state Claude Code's terminal doesn't have (§2.1 violation) and re-fires `aria-live` mid-turn. If raw partial fences ever read poorly, tighten `MessageProse`'s plain-text register rather than re-rendering placeholders.
+- **↑-from-empty-composer to edit previous user message.** Terminal/CLI muscle (zsh, Slack, iMessage) that the manager-not-engineer audience doesn't expect. Conflicts with Claude Code's `/rewind` semantics and with the textarea's native ↑ caret-movement (breaks multi-line drafts for screen-reader and keyboard users). If undo lands, it gets a deliberate gesture, not stolen from the textarea.
+- **Persistent keyboard-hint strip in the composer footer.** Directly contradicts the Mini design-language pattern declaring keyboard shortcuts as Tooltip + Help-dialog content, not chrome under every input. DP-B (PR #63) and Phase 24's whole §3 architecture pass removed chrome the same surface would add back. If shortcut discoverability surfaces as friction, sharpen the existing Tooltip / SendMenu / Help-dialog stack.
+
+### What the synthesis closed
+
+- **Q4 (scroll-anchor behavior on long streams)** — closed by the 24H scroll-stickiness item.
+- A latent regression at the PR #134 flag-flip (chat-v2 surface lost the legacy scroll-pin) — now named and queued.
+- Spec §5.8 UX-3 (reduced-motion on disclosures) gets a verification pass against shipped CSS.
+- The queue end-of-turn contract gets a deterministic test that protects against upstream-mirror regressions.
+
+### What the synthesis deliberately did **not** add
+
+- No new event-vocabulary additions (ADR 0008 frozen contract).
+- No new tokens (Mini design-language pass; the streaming caret reuses `--motion-pulse`).
+- No new IPC surfaces.
+- No interception of Claude Code's runtime decisions — every accepted item is either friction closure on a Designer-owned surface (scroll, mouse affordance) or coverage of an existing contract.
+
+The full research report and triage rationale are recoverable in the 2026-05-13 chat session transcript. Future agents picking up Phase 24H should look at the five filed items in `roadmap.md` first; the four parked items in `parking-lot.md` when their triggers fire; and ignore the three dropped items (citations above).

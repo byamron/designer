@@ -151,6 +151,50 @@ See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract 
 
 ---
 
+### Copy affordance on agent code blocks (and optionally turns)
+
+- **Deferred:** 2026-05-13
+- **Reason:** Chat-UX research pass (synthesis in `phase-24-pass-through-chat.md` Appendix C) surfaced that the chat-v2 surface has no `navigator.clipboard` integration — managers who want to paste a Claude-generated snippet into a terminal or a doc currently select-and-⌘C. Universal in ChatGPT / Claude.ai / Cursor. Staff-UX review favored scoping to **code blocks only** for v1 (per-turn copy is engineer-y and adds hover chrome to every agent message). Not load-bearing for current dogfood (no friction reports yet); ship when one lands or as a side-of-desk pickup during Phase 25 (inline approvals) which already touches per-turn affordances.
+- **Primary trigger:** ≥1 friction report citing "wanted to copy Claude's code/response" OR a Phase 25 PR that already touches per-turn hover affordances (opportunistic pickup).
+- **Time fallback:** Reassess after Phase 27 ships.
+- **Source:** Chat-UX research synthesis, 2026-05-13; `phase-24-pass-through-chat.md` Appendix C item 3.
+- **Unhide path:** Add a hover-revealed (and `:focus-within`-revealed for keyboard) `IconButton` inside `MessageProse`'s `<pre>` block render. `navigator.clipboard.writeText`; aria-live="polite" "Copied" confirmation after click. Honor reduced-motion (instant reveal). Microcopy + Mini token review before merge.
+
+---
+
+### Conversation rewind / undo-a-turn affordance
+
+- **Deferred:** 2026-05-13
+- **Reason:** Claude Code's terminal CLI ships `/rewind` (single-Esc interrupts; double-Esc opens a checkpoint picker). The chat-UX research synthesis proposed binding the same gesture (Esc-Esc) in Designer as a pass-through to a future `cmd_rewind` IPC. Both staff reviews rejected the **gesture** (Esc is already overloaded by the §5.4.1 priority chain; chord double-taps are hostile to keyboard users with motor impairments) but kept the **capability** as worth pursuing once the trigger surface is designed and the upstream protocol is clearer. There is no stdio `/rewind` protocol today — `/rewind` is a slash command typed into Claude Code's TUI, not part of the streaming-input control protocol. Without an upstream wire, Designer would be inventing its own conversation-mutation primitive (event-log replay-mutation, etc.), which goes well beyond pass-through.
+- **Primary trigger:** EITHER (a) Anthropic publishes a stdio/control-protocol surface for `/rewind` (`code.claude.com/docs/en/agent-sdk/...`) that Designer can pass through to, OR (b) ≥3 friction reports asking to undo a user message / restore a previous turn within a 2-week window.
+- **Time fallback:** Reassess after Phase 28 ships.
+- **Source:** Chat-UX research synthesis, 2026-05-13; `phase-24-pass-through-chat.md` Appendix C item 9.
+- **Unhide path:** Build phase, not a polish entry. When the trigger fires: design a per-turn hover affordance ("rewind to here" on the agent message), not a global chord. Pairs naturally with Phase 25's per-turn approval cards. If the upstream protocol lands first, ride it; if user signal lands first, scope the Designer-side semantics (event-log truncation? branch? virtual replay?) and write an ADR — this is not a one-line IPC.
+
+---
+
+### Per-turn cost / usage chip
+
+- **Deferred:** 2026-05-13
+- **Reason:** `TurnAccumulator.usage` is populated by `agent_turn_ended` events (`packages/app/src/store/chatThread.ts:75`, `:292`) and is currently unread by the renderer — the data exists, the chip doesn't. Staff-UX review noted per-turn cost (often <$0.01) is engineer signal, not manager signal — workspace-level roll-up is the manager-grade register, and the workspace-level chip belongs with Phase 13.I (cost cap enforcement) where it's coherent with a per-project budget readout. Shipping per-turn first is the engineer's lens; defer.
+- **Primary trigger:** Phase 13.I (cost cap enforcement) begins, OR ≥2 dogfood reports asking "how much did this turn cost."
+- **Time fallback:** Reassess after Phase 27 ships.
+- **Source:** Chat-UX research synthesis, 2026-05-13; `phase-24-pass-through-chat.md` Appendix C item 12.
+- **Unhide path:** Scope to workspace-level cost first (header chip "$0.X this workspace"); per-turn second only if managers ask. Coordinate with `CostTracker` (`crates/designer-claude` cost extraction per Phase 24 §3.1) to avoid divergent numbers. Monetary precision rule: always 2-decimal cents ("$0.01" not "$0.0123"). Not announced via aria-live (would flood for chatty sessions); visual chip only.
+
+---
+
+### Tool-result rich rendering (Read / Edit / Grep / Bash)
+
+- **Deferred:** 2026-05-13
+- **Reason:** `ToolResultPanel` (`ChatStreamRenderer.tsx:345–378`) renders all tool results as a 40-line-capped `<pre>`. Phase 24 spec §9 explicitly defers "tool-result rich rendering" past the Phase 24 architectural pass. The chat-UX research synthesis re-surfaced this as a manager-comprehensibility upgrade (Edit's textual JSON dump is the obvious offender — a +/- diff with file-path header would be a manager-grade win), but staff-engineer and staff-UX reviews agreed it's a real BUILD-sized phase: each tool needs its own design pass (Edit = diff with header; Grep = grouped-by-file result list; Bash = stdout/stderr split with exit code), each may introduce host actions (clickable filenames need an open-in-editor surface Designer doesn't have today), and the 40-line truncation logic interacts with structured rendering. Not Harden material.
+- **Primary trigger:** ≥3 friction reports about unreadable tool output (especially Edit JSON blobs or Grep multi-file dumps), OR Phase 25 (inline approvals) ships and the next Build phase is open for a candidate that ties cleanly to manager comprehension of agent actions.
+- **Time fallback:** Reassess after Phase 27 ships — likely promote to the active Build sequence here regardless of friction signal because Edit's JSON-blob register is a known craft floor.
+- **Source:** Chat-UX research synthesis, 2026-05-13; `phase-24-pass-through-chat.md` Appendix C item 10. Original spec deferral: `phase-24-pass-through-chat.md` §9 (Out of scope).
+- **Unhide path:** Phase it incrementally — Edit first (highest value; existing diff infrastructure from `CodeChange` artifacts to repurpose), then Bash (stdout/stderr split + exit code), then Grep (grouped result list). Read is fine as-is (the `· Read plan.md` head + expand-to-content register is already terse-correct). Each tool's structured render gets a craft pass via `uncommon-care` before merge. Add `ToolEditPanel`, `ToolBashPanel`, `ToolGrepPanel` to `component-manifest.json`; keep the generic `ToolResultPanel` as the fallback for unknown tools.
+
+---
+
 ### Hidden-detector decommission convention (future ADR)
 
 - **Deferred:** 2026-05-05
