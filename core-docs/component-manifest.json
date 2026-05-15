@@ -76,12 +76,12 @@
     {
       "name": "HomeTabA",
       "path": "packages/app/src/home/HomeTabA.tsx",
-      "purpose": "Project home — single-column dashboard. Sections in order: Needs your attention (only when non-empty), Near-term focus, Active workspaces (WorkspaceStatusIcon + name + one-line summary from the first open tab), Recent reports, Autonomy (interactive SegmentedToggle with optimistic local update via setAutonomyOverride — Phase 13 will swap in IPC). No kicker. Panels, not cards; hairline dividers between groups. The Home A/B toggle was pruned 2026-04-22 — Panels is committed.",
+      "purpose": "Project home — single-column dashboard. Sections in order: Needs your attention (only when non-empty), Near-term focus, Active workspaces (WorkspaceStatusIcon + name + one-line summary from the first open tab), Recent reports, Autonomy (interactive SegmentedToggle with optimistic local update via setAutonomyOverride — Phase 13 will swap in IPC). No kicker. Panels, not cards; hairline dividers between groups. The Home A/B toggle was pruned 2026-04-22 — Panels is committed. ProjectRepoSection now hides the Disconnect button when no repo is linked (frc_019dea6c, 2026-05-13): only the action that applies to current state is visible — Link when unlinked, Re-link + Disconnect when linked.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-2", "space-3", "space-4", "space-5", "space-6", "type-lead-size", "type-body-size", "type-caption-size", "weight-medium", "color-foreground", "color-muted", "color-border", "color-surface-overlay", "radius-pill", "radius-badge", "border-thin", "motion-interactive"],
-      "last_updated": "2026-04-22"
+      "last_updated": "2026-05-13"
     },
     {
       "name": "HomeTabB",
