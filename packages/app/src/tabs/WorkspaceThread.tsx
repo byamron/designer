@@ -37,6 +37,8 @@ import {
 } from "../store/chatThread";
 import { useFlag, useEnsureFlagsLoaded } from "../store/flags";
 import { ChatStreamRenderer } from "../blocks/ChatStreamRenderer";
+import { planAutoName } from "../util/autoname";
+import { refreshWorkspaces } from "../store/data";
 import "../blocks";
 
 /**
@@ -75,6 +77,61 @@ const STARTER_SUGGESTIONS = [
  */
 function buildSuggestions(_artifacts: ArtifactSummary[]): string[] {
   return STARTER_SUGGESTIONS;
+}
+
+/**
+ * Per frc_019dea6a-9278 — after the user's first message lands, rename
+ * the active tab (and workspace, when applicable) from the placeholder
+ * `Tab N` / `Workspace N` to a short title derived from the message
+ * body. Idempotent via the default-name gate: once a name has been
+ * customized (manually or by this function), subsequent messages
+ * leave it alone. Refreshes the workspace projection on success so
+ * the sidebar reflects the new name immediately.
+ *
+ * Errors are logged, never thrown — auto-naming is a quality-of-life
+ * affordance and must never interfere with message delivery.
+ */
+async function autoRenameOnFirstMessage(args: {
+  workspaceId: string;
+  workspaceName: string;
+  tabId: TabId | undefined;
+  tabTitle: string | null;
+  text: string;
+  onAnnounce?: (title: string) => void;
+}): Promise<void> {
+  const plan = planAutoName({
+    workspaceName: args.workspaceName,
+    tabTitle: args.tabTitle,
+    text: args.text,
+  });
+  if (!plan) return;
+  const tasks: Promise<unknown>[] = [];
+  if (plan.renameWorkspace) {
+    tasks.push(
+      ipcClient()
+        .renameWorkspace(args.workspaceId, plan.title)
+        .catch((err) => console.warn("auto-rename workspace failed", err)),
+    );
+  }
+  if (plan.renameTab && args.tabId) {
+    tasks.push(
+      ipcClient()
+        .renameTab(args.workspaceId, args.tabId, plan.title)
+        .catch((err) => console.warn("auto-rename tab failed", err)),
+    );
+  }
+  if (tasks.length === 0) return;
+  await Promise.all(tasks);
+  // Polite SR announcement so users who can't see the sidebar update
+  // hear that the rename happened (per PR #139 staff-review UX BLOCKER).
+  // Sighted users see the sidebar text swap; this restores parity.
+  args.onAnnounce?.(plan.title);
+  try {
+    const projectId = appStore.get().activeProject;
+    if (projectId) await refreshWorkspaces(projectId);
+  } catch (err) {
+    console.warn("auto-rename refresh failed", err);
+  }
 }
 
 /**
@@ -290,6 +347,40 @@ export function WorkspaceThread({
       if (current === value) return prev;
       return { ...prev, [key]: value };
     });
+  // frc_019dea6a-9278 — session-level guard against the second-message
+  // race surfaced in PR #139 staff-review. The closure inside onSend
+  // captures workspace.name; if the user sends a second message before
+  // the first rename's refreshWorkspaces propagates, the closure still
+  // sees "Workspace 1" and the default-name regex gate would fire a
+  // second rename with the second message's derived title. This ref
+  // short-circuits the call before it reaches the gate, ensuring auto-
+  // rename runs at most once per workspace / tab per session.
+  const autoRenamedRef = useRef<Set<string>>(new Set());
+  // frc_019dea6a-9278 — polite SR announcement when auto-rename
+  // fires. Sighted users see the sidebar text swap from
+  // "Workspace N" to the derived title; this restores parity for
+  // screen-reader users. Cleared after 1.5s so the same string
+  // doesn't linger on unrelated re-renders.
+  const [renameAnnouncement, setRenameAnnouncement] = useState("");
+  const renameAnnouncementTimerRef = useRef<number | null>(null);
+  const announceAutoRename = useCallback((title: string) => {
+    setRenameAnnouncement(`Renamed to ${title}.`);
+    if (renameAnnouncementTimerRef.current) {
+      window.clearTimeout(renameAnnouncementTimerRef.current);
+    }
+    renameAnnouncementTimerRef.current = window.setTimeout(() => {
+      setRenameAnnouncement("");
+      renameAnnouncementTimerRef.current = null;
+    }, 1500);
+  }, []);
+  useEffect(
+    () => () => {
+      if (renameAnnouncementTimerRef.current) {
+        window.clearTimeout(renameAnnouncementTimerRef.current);
+      }
+    },
+    [],
+  );
   const onSend = useCallback(
     async (payload: ComposeSendPayload) => {
       if (!payload.text.trim() && payload.attachments.length === 0) return;
@@ -340,6 +431,28 @@ export function WorkspaceThread({
         // refreshes the thread when those events arrive. We don't
         // append to local state here — the projector is the source
         // of truth and `refresh()` is idempotent.
+
+        // frc_019dea6a-9278 — first-message auto-naming. If the
+        // current workspace or tab still carries its default
+        // `Workspace N` / `Tab N` name, derive a short title from
+        // this message and rename. Fire-and-forget: a rename failure
+        // must never surface above the actual conversation. The
+        // default-name gate makes this idempotent — once renamed
+        // (either manually or by this path), subsequent messages
+        // skip the call.
+        const autoRenameKey = `${workspace.id}:${tabId ?? ""}`;
+        if (!autoRenamedRef.current.has(autoRenameKey)) {
+          autoRenamedRef.current.add(autoRenameKey);
+          void autoRenameOnFirstMessage({
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+            tabId,
+            tabTitle:
+              workspace.tabs.find((t) => t.id === tabId)?.title ?? null,
+            text: payload.text,
+            onAnnounce: announceAutoRename,
+          });
+        }
       } catch (err) {
         setSendErrorFor(sendKey, describeIpcError(err));
         // ComposeDock clears its own draft synchronously after onSend
@@ -372,7 +485,7 @@ export function WorkspaceThread({
         void refresh();
       }
     },
-    [workspace.id, tabId, stateKey, refresh],
+    [workspace.id, tabId, stateKey, refresh, announceAutoRename],
   );
 
   // Phase 24 §5.4 — auto-dispatch the queued message when the
@@ -775,6 +888,18 @@ export function WorkspaceThread({
           data-component="QueueAnnouncement"
         >
           {queueAnnouncement}
+        </span>
+        {/* frc_019dea6a-9278 — sr-only live region for auto-rename.
+            Sighted users see the sidebar text swap; this announces it
+            for screen-reader users so they hear the workspace / tab
+            title change after their first message. */}
+        <span
+          className="sr-only"
+          role="status"
+          aria-live="polite"
+          data-component="RenameAnnouncement"
+        >
+          {renameAnnouncement}
         </span>
         {/* Phase 24 §5.7 — assertive announcement on
             AgentTurnEnded { stop_reason: Interrupted }. Spec table:

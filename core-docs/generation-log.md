@@ -1097,3 +1097,23 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - files: `packages/app/src/home/FrictionView.tsx` (new), `packages/app/src/layout/MainView.tsx` (route new view), `packages/app/src/layout/SettingsPage.tsx` (FrictionTriageSection prop + filter + comment), `packages/app/src/layout/WorkspaceSidebar.tsx` (footer button), `packages/app/src/store/app.ts` (ProjectView + selectFrictionView), `packages/app/src/test/friction.test.tsx` (filter test), `core-docs/component-manifest.json` (FrictionView entry; WorkspaceSidebar last_updated bump).
 - deviations: (1) Reuse `.home-a` class in FrictionView (it's currently the only home-side wrapper that gives the right max-width + flex column behavior). Filed as a follow-up consideration if FrictionView grows or other per-project views appear. (2) Staff-review UX flagged that the empty state could read as "friction is broken" when a fresh project has no entries. Resolved by adding a project-scoped header above the triage section ("Friction · ${project.name}") with a subtitle explaining the scope, so an empty list reads as "you haven't filed anything in this project yet". (3) Staff-review UX flagged ambiguity in the shared description "Reports persist as local markdown files in the linked repo" (workspace-scoped statement shown in a project-scoped view). The new header above the description makes the filtering scope explicit, so the shared description still reads correctly. (4) Orphan entries (null project_id) intentionally never appear in project-scoped views — they surface only in Settings → Friction. Inline comment documents the intent.
 - feedback: pending.
+
+
+## 2026-05-14T00:10:00Z — manual (frc_019dea6a-9278: auto-name workspaces/tabs)
+
+- prompt: "The workspaces and tabs should automatically name themselves after a few messages based on the contents of the workspace/tab — as soon as it has a good signal" — friction report frc_019dea6a-9278.
+- trigger: manual (new util + WorkspaceThread.onSend extension; no fresh UI generation)
+- archetype-reused: none
+- components-reused: WorkspaceThread (extended onSend post-message), ComposeDock (unchanged)
+- components-new: none (util/autoname.ts is pure logic)
+- components-removed: none
+- css-new: none
+- css-modified: none
+- tokens-new: none
+- tokens-referenced: unchanged
+- invariants: 6/6 pass on packages/app/src
+- typecheck: clean
+- tests: 268/268 frontend (vitest) pass. autoname.test.ts adds 20 unit tests pinning the heuristic (deriveTitle), the planner (planAutoName), and the default-name detectors. Coverage includes the minimum-signal floor cases ("Hi" → null, "/help" → null, "Quickstart" → "Quickstart"), the manual-collision case ("Workspace 42" treated as default — documented behavior), and the orphan tabTitle case.
+- files: `packages/app/src/util/autoname.ts` (new), `packages/app/src/test/autoname.test.ts` (new, 20 tests), `packages/app/src/tabs/WorkspaceThread.tsx` (autoRenameOnFirstMessage helper, session-level autoRenamedRef guard, polite RenameAnnouncement live region), `core-docs/component-manifest.json` (WorkspaceThread last_updated + purpose).
+- deviations: (1) Reporter said "after a few messages... as soon as it has a good signal". PR fires on the first message but adds a minimum-signal floor (≥2 words OR ≥6 chars for a single word) to reject weak titles like "Hi" / "ok" / "test" / "/help" — the first-message body is the strongest cheap signal we have without LLM titling, and the floor responds to "good signal" without deferring trigger to message #N. (2) Staff-review UX flagged the silent rename as a "Suggest, do not act" concern; resolved by adding a polite sr-only live region (`RenameAnnouncement`) that announces "Renamed to <title>." so SR users get parity with the visible sidebar swap. (3) Staff-review engineer flagged a race where a fast second message could re-fire rename with stale closure state before refreshWorkspaces propagated; resolved with a session-level `autoRenamedRef` Set that short-circuits the call. The default-name regex gate inside planAutoName remains the primary defense — the ref is a faster short-circuit. (4) Documented collision: if a user manually names a workspace "Workspace 42" (matching the default regex), it WILL get auto-renamed on the next first message. Tradeoff accepted vs. carrying an `is_auto_named` flag through the schema; an explicit test in autoname.test.ts pins this behavior. (5) Workspace + tab get the SAME derived title from the first message; staff-review UX raised this as potentially redundant but it's a small concern that depends on real dogfood; not addressed in this PR.
+- feedback: pending.
