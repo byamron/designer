@@ -634,7 +634,9 @@ function shortPrLabel(url: string): string {
 
 /// Exported so the test suite can mount the section in isolation
 /// without booting the full SettingsPage.
-export function FrictionTriageSection() {
+export function FrictionTriageSection({
+  projectId,
+}: { projectId?: string } = {}) {
   const [entries, setEntries] = useState<FrictionEntry[] | null>(null);
   const [filter, setFilter] = useState<FrictionFilter>("open");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -702,10 +704,17 @@ export function FrictionTriageSection() {
       try {
         const list = await ipcClient().listFriction();
         if (cancelled) return;
-        setEntries(list);
+        // Entries with a null project_id are "orphan" — captured without
+        // project context. They intentionally never surface in a
+        // project-scoped view; only Settings → Friction (where projectId
+        // is undefined) shows them. Per PR #138 staff-review.
+        const scoped = projectId
+          ? list.filter((e) => e.project_id === projectId)
+          : list;
+        setEntries(scoped);
         if (
-          list.length > 0 &&
-          list.every((e) => e.state !== "open" && e.state !== "addressed")
+          scoped.length > 0 &&
+          scoped.every((e) => e.state !== "open" && e.state !== "addressed")
         ) {
           setFilter("all");
         }
@@ -716,7 +725,7 @@ export function FrictionTriageSection() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectId]);
 
   // Re-fetch when the on-disk event store changes externally — the most
   // common trigger is the `designer` CLI's `friction address|resolve|
@@ -729,7 +738,11 @@ export function FrictionTriageSection() {
       void (async () => {
         try {
           const list = await ipcClient().listFriction();
-          if (!cancelled) setEntries(list);
+          if (!cancelled) {
+            setEntries(
+              projectId ? list.filter((e) => e.project_id === projectId) : list,
+            );
+          }
         } catch {
           // Swallow — the next refresh (or a manual tab bounce) will
           // recover. A toast on every transient fs hiccup would be
@@ -741,7 +754,7 @@ export function FrictionTriageSection() {
       cancelled = true;
       off();
     };
-  }, []);
+  }, [projectId]);
 
   const counts = useMemo(() => {
     let openOrAddressed = 0;

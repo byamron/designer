@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, House } from "lucide-react";
+import { Archive, House, MessageSquareWarning } from "lucide-react";
 import {
   PANE_DEFAULT_WIDTH,
   commitSidebarWidth,
   selectArchivedView,
+  selectFrictionView,
   selectHomeView,
   selectTab,
   selectWorkspace,
@@ -109,6 +110,7 @@ export function WorkspaceSidebar() {
 
   const onHome = () => selectHomeView();
   const onArchived = () => selectArchivedView();
+  const onFriction = () => selectFrictionView();
   const homeActive =
     activeProjectId !== null &&
     activeWorkspaceId === null &&
@@ -117,6 +119,10 @@ export function WorkspaceSidebar() {
     activeProjectId !== null &&
     activeWorkspaceId === null &&
     activeView === "archived";
+  const frictionActive =
+    activeProjectId !== null &&
+    activeWorkspaceId === null &&
+    activeView === "friction";
 
   return (
     <aside
@@ -218,12 +224,28 @@ export function WorkspaceSidebar() {
         )}
       </div>
 
-      {/* Archived is a rarely-visited destination — pinned to the bottom of
-          the sidebar, same register as Settings/Help in the project rail.
-          The sidebar's flex column + this footer's `margin-top: auto`
-          push it to the bottom regardless of how many active workspaces
-          sit above. */}
+      {/* Archived + Friction are rarely-visited destinations — pinned to
+          the bottom of the sidebar, same register as Settings/Help in the
+          project rail. The sidebar's flex column + this footer's
+          `margin-top: auto` push them to the bottom regardless of how
+          many active workspaces sit above. Friction is project-scoped
+          per frc_019dea6d — capture lives in the global ⌘⇧F widget but
+          the triage list is partitioned by project. */}
       <div className="sidebar-footer">
+        <Tooltip label="Friction reports for this project">
+          <button
+            type="button"
+            className="sidebar-home"
+            data-active={frictionActive}
+            onClick={onFriction}
+            disabled={!activeProjectId}
+          >
+            <MessageSquareWarning size={16} strokeWidth={1.5} aria-hidden="true" />
+            <span className="sidebar-home__label">
+              <span>Friction</span>
+            </span>
+          </button>
+        </Tooltip>
         <Tooltip
           label={
             archivedCount > 0

@@ -17,6 +17,7 @@ import type {
 } from "../ipc/types";
 import { HomeTabA } from "../home/HomeTabA";
 import { ArchivedView } from "../home/ArchivedView";
+import { FrictionView } from "../home/FrictionView";
 import { WorkspaceThread } from "../tabs/WorkspaceThread";
 import { emptyArray } from "../util/empty";
 import type { WorkspaceSummary } from "../ipc/types";
@@ -145,23 +146,36 @@ export function MainView() {
 
   if (!workspace) {
     const isArchived = activeView === "archived";
+    const isFriction = activeView === "friction";
+    const sectionId = isArchived
+      ? "project-archived"
+      : isFriction
+        ? "project-friction"
+        : "project-home";
+    const sectionLabel = isArchived
+      ? "archived workspaces"
+      : isFriction
+        ? "friction"
+        : "home";
     return (
       <main className="app-main" data-component="MainView" aria-label="Main" id="main-content" tabIndex={-1}>
-        {/* Project home / Archived — both surfaces render in the same
-            slot since they're the project-level views the sidebar tabs
-            switch between. The Palette variant is still used for blank
-            tabs (BlankTab) where it better fits the "I don't know what
-            I want yet; show me affordances" intent. */}
+        {/* Project home / Archived / Friction — all three render in the
+            same slot since they're the project-level views the sidebar
+            tabs switch between. The Palette variant is still used for
+            blank tabs (BlankTab) where it better fits the "I don't know
+            what I want yet; show me affordances" intent. */}
         <div className="main-surface">
           <section
             className="tab-body"
             role="region"
-            id={isArchived ? "project-archived" : "project-home"}
-            aria-label={`${project.name} ${isArchived ? "archived workspaces" : "home"}`}
+            id={sectionId}
+            aria-label={`${project.name} ${sectionLabel}`}
             tabIndex={0}
           >
             {isArchived ? (
               <ArchivedView project={project} />
+            ) : isFriction ? (
+              <FrictionView project={project} />
             ) : (
               <HomeTabA project={project} />
             )}
