@@ -4,7 +4,22 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WorkspaceThread } from "../tabs/WorkspaceThread";
 import { __setIpcClient, ipcClient, type IpcClient } from "../ipc/client";
 import { createMockCore, type MockCore } from "../ipc/mock";
-import type { ArtifactSummary, StreamEvent, Workspace } from "../ipc/types";
+import {
+  chatThreadStore,
+  emptyChatThread,
+  subprocessKey,
+} from "../store/chatThread";
+import { flagsStore } from "../store/flags";
+import type {
+  ArtifactSummary,
+  ClaudeMessageId,
+  ClaudeSessionId,
+  EventId,
+  StreamEvent,
+  TabId,
+  Workspace,
+  WorkspaceId,
+} from "../ipc/types";
 
 /**
  * B6 — auto-scroll with stickiness. The thread should pin to the bottom
@@ -297,5 +312,284 @@ describe("Thread scroll stickiness (B6)", () => {
       ).toBeNull();
     });
     expect(thread.scrollTop).toBe(thread.scrollHeight);
+  });
+});
+
+/**
+ * 24H-W1a — chat-v2 (Phase 24 surface) scroll-stickiness. Closes spec
+ * Q4 ("scroll-anchor behavior on long streams"). Mirrors the legacy
+ * B6 contract on the chat-v2 surface: thread pins to the bottom while
+ * the user is at (or near) it; doesn't yank when the user has scrolled
+ * up; once behind, the Jump-to-latest pill appears and re-pins on click.
+ *
+ * The implementation difference vs. legacy is the inner-content
+ * ResizeObserver: chat-v2 streams via AgentContentBlockDelta updates
+ * that extend an open block without changing any value the layout
+ * effect's deps catch, so a RO observes the scroll container's first
+ * child for height growth. The test triggers the observer via the
+ * MockResizeObserver shim in `setup.ts`.
+ */
+describe("Thread scroll stickiness — chat-v2 (24H-W1a)", () => {
+  let originalClient: IpcClient;
+  let mock: MockCore;
+  let workspace: Workspace;
+  const TAB: TabId = "tab-chat-v2" as TabId;
+
+  function enableChatV2() {
+    flagsStore.set({
+      flags: {
+        show_chat_v2: true,
+        show_recent_reports_v2: false,
+        show_roadmap_canvas: false,
+        show_compose_stop_and_send: true,
+      } as never,
+      loaded: true,
+    });
+  }
+
+  function seedTurnWithText(ws: WorkspaceId, tab: TabId, body: string) {
+    const turnId = `turn-${Math.random().toString(36).slice(2, 8)}` as ClaudeMessageId;
+    chatThreadStore.set((s) => ({
+      ...s,
+      byTab: {
+        ...s.byTab,
+        [tab]: {
+          ...(s.byTab[tab] ?? emptyChatThread()),
+          row_order: [
+            ...((s.byTab[tab] ?? emptyChatThread()).row_order),
+            { kind: "turn", turn_id: turnId },
+          ],
+          turns: {
+            ...((s.byTab[tab] ?? emptyChatThread()).turns),
+            [turnId]: {
+              turn_id: turnId,
+              workspace_id: ws,
+              tab_id: tab,
+              model: "claude-sonnet-4-6",
+              parent_user_event_id: "evt-0" as EventId,
+              session_id: "sess-0" as ClaudeSessionId,
+              started_at: Date.now(),
+              block_order: [0],
+              blocks: {
+                0: {
+                  block_index: 0,
+                  kind: { kind: "text" },
+                  delta: body,
+                  ended: true,
+                },
+              },
+              tool_results: {},
+              stop_reason: "end_turn",
+              usage: null,
+              is_legacy: false,
+            },
+          },
+        },
+      },
+      runningSubprocesses: new Set([
+        ...s.runningSubprocesses,
+        subprocessKey(ws, tab),
+      ]),
+    }));
+  }
+
+  function appendDeltaToOpenTurn(tab: TabId, more: string) {
+    chatThreadStore.set((s) => {
+      const tabState = s.byTab[tab];
+      if (!tabState) return s;
+      const lastTurn = [...tabState.row_order]
+        .reverse()
+        .find((r) => r.kind === "turn");
+      if (!lastTurn || lastTurn.kind !== "turn") return s;
+      const turn = tabState.turns[lastTurn.turn_id];
+      const block = turn.blocks[0];
+      return {
+        ...s,
+        byTab: {
+          ...s.byTab,
+          [tab]: {
+            ...tabState,
+            turns: {
+              ...tabState.turns,
+              [lastTurn.turn_id]: {
+                ...turn,
+                blocks: {
+                  ...turn.blocks,
+                  0: { ...block, delta: block.delta + more },
+                },
+              },
+            },
+          },
+        },
+      };
+    });
+  }
+
+  beforeEach(() => {
+    originalClient = ipcClient();
+    mock = createMockCore();
+    const project = mock.listProjects()[0];
+    workspace = mock.listWorkspaces(project.project.id)[0].workspace;
+    listArtifactsCb = () => [];
+    lastStream = null;
+    __setIpcClient(makeClient(mock, workspace));
+    chatThreadStore.set({
+      byTab: {},
+      runningSubprocesses: new Set(),
+      bootReplaying: false,
+    });
+    enableChatV2();
+    // Reset RO mock instances captured by the shim.
+    const RO = window.ResizeObserver as unknown as {
+      instances?: Array<{ __trigger: () => void }>;
+    };
+    if (Array.isArray(RO.instances)) RO.instances.length = 0;
+  });
+
+  afterEach(() => {
+    __setIpcClient(originalClient);
+    flagsStore.set({ flags: null, loaded: false });
+  });
+
+  async function bootChatV2Thread() {
+    seedTurnWithText(workspace.id, TAB, "first agent reply");
+    const r = render(<WorkspaceThread workspace={workspace} tabId={TAB} />);
+    const thread = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(".thread--phase24");
+      if (!el) throw new Error("chat-v2 thread did not mount");
+      return el;
+    });
+    return { ...r, thread };
+  }
+
+  function triggerResizeObservers() {
+    const RO = window.ResizeObserver as unknown as {
+      instances?: Array<{ __trigger: () => void }>;
+    };
+    for (const inst of RO.instances ?? []) inst.__trigger();
+  }
+
+  // T-24H-W1a-1 — Jump-to-latest pill appears once the user scrolls up
+  // on the chat-v2 surface. Equivalent of legacy T8 ported over.
+  it("shows the jump-to-latest pill once the user has scrolled up", async () => {
+    const { thread } = await bootChatV2Thread();
+    installScrollShim(thread, 1000, 400);
+    thread.scrollTop = 100; // way above the bottom (distance = 500 > 32)
+    fireEvent.scroll(thread);
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-component="JumpToLatest"]'),
+      ).not.toBeNull();
+    });
+  });
+
+  // T-24H-W1a-2 — content grows while the user is scrolled up; the
+  // surface must NOT yank them back down. This is the user-visible
+  // regression that surfaced when show_chat_v2 flipped default ON in
+  // PR #134 — the chat-v2 container had no stickRef logic at all, so
+  // every streaming delta scrolled the viewport.
+  it("does not yank the viewport when content streams while the user is scrolled up", async () => {
+    const { thread } = await bootChatV2Thread();
+    installScrollShim(thread, 1000, 400);
+    thread.scrollTop = 120;
+    fireEvent.scroll(thread);
+    const before = thread.scrollTop;
+
+    // Simulate a streaming delta extending the open turn's text block.
+    // In production this lands as AgentContentBlockDelta → reducer
+    // updates → DOM grows → ResizeObserver fires our pin path.
+    await act(async () => {
+      appendDeltaToOpenTurn(TAB, " — and a long continuation that grows the thread");
+      installScrollShim(thread, 1400, 400); // height grew
+      triggerResizeObservers();
+    });
+
+    expect(thread.scrollTop).toBe(before);
+  });
+
+  // T-24H-W1a-3 — when the user is pinned at the bottom, a streaming
+  // delta re-pins the viewport. Drives the ResizeObserver path
+  // directly (jsdom has no layout engine).
+  it("re-pins to the bottom on inner-content growth while sticky", async () => {
+    const { thread } = await bootChatV2Thread();
+    installScrollShim(thread, 1000, 400);
+    thread.scrollTop = 600; // at bottom (1000 - 400 = 600)
+    fireEvent.scroll(thread); // confirms stickRef stays true
+
+    await act(async () => {
+      appendDeltaToOpenTurn(TAB, " more text");
+      installScrollShim(thread, 1400, 400);
+      triggerResizeObservers();
+    });
+
+    // pinToBottom assigns `scrollTop = scrollHeight`. In a real
+    // browser that clamps to `scrollHeight - clientHeight`; jsdom
+    // stores the raw value. Either way the post-condition is
+    // `scrollTop === scrollHeight` — the legacy T8 test uses the same
+    // assertion to dodge the clamp difference.
+    expect(thread.scrollTop).toBe(thread.scrollHeight);
+  });
+
+  // T-24H-W1a-4 — clicking the Jump-to-latest pill re-pins and hides
+  // the pill. Same semantics as legacy T8 — the pill component is
+  // shared; only the container that owns the ref differs.
+  it("hides the pill and re-pins on Jump-to-latest click", async () => {
+    const { thread } = await bootChatV2Thread();
+    installScrollShim(thread, 1000, 400);
+    thread.scrollTop = 100;
+    fireEvent.scroll(thread);
+
+    const pill = await waitFor(() =>
+      document.querySelector<HTMLButtonElement>(
+        '[data-component="JumpToLatest"]',
+      ),
+    );
+    fireEvent.click(pill!);
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-component="JumpToLatest"]'),
+      ).toBeNull();
+    });
+    expect(thread.scrollTop).toBe(thread.scrollHeight);
+  });
+
+  // T-24H-W1a-5 — the programmatic-scroll guard prevents auto-pin
+  // scrolls from flipping stickRef false. Without it, a content-growth
+  // re-pin can race a natural scroll event from the layout reflow and
+  // un-stick the surface. The guard is a microtask boundary; once it
+  // releases, real user scrolls take effect as normal.
+  it("survives a programmatic re-pin without un-sticking, but still honors a subsequent user scroll", async () => {
+    const { thread } = await bootChatV2Thread();
+    installScrollShim(thread, 1000, 400);
+    thread.scrollTop = 600;
+
+    // Programmatic re-pin path: while the guard is up, a synthesized
+    // scroll event in the same tick should be ignored.
+    await act(async () => {
+      installScrollShim(thread, 1400, 400);
+      triggerResizeObservers();
+      // Simulate the natural scroll event that some browsers fire as
+      // a result of the programmatic scrollTop assignment — the guard
+      // must absorb it so stickRef stays true.
+      fireEvent.scroll(thread);
+    });
+
+    // Pill must NOT appear from the absorbed event.
+    expect(
+      document.querySelector('[data-component="JumpToLatest"]'),
+    ).toBeNull();
+
+    // Now drop a microtask so the guard clears, then fire a real user
+    // scroll up. The guard must not swallow this one.
+    await Promise.resolve();
+    thread.scrollTop = 50;
+    fireEvent.scroll(thread);
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-component="JumpToLatest"]'),
+      ).not.toBeNull();
+    });
   });
 });
