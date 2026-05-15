@@ -1057,3 +1057,23 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - files: `packages/app/src/blocks/ChatStreamRenderer.tsx` (ErrorMarker + MaxTokensMarker + stop_reason dispatch), `packages/app/src/tabs/WorkspaceThread.tsx` (erroredTurnIds selector + ErrorAnnouncement region), `packages/app/src/styles/blocks.css` (`.thread__turn-end-marker` cluster), `packages/app/src/styles/app.css` (semantic tokens), `apps/desktop/src-tauri/src/core_agents.rs` (humanize_dispatch_error copy + 2 tests), `core-docs/component-manifest.json` (ChatStreamRenderer tokens + last_updated), `core-docs/pattern-log.md` (semantic-tokens-for-spec-copy rule).
 - deviations: (1) Approval-expired surface (spec §5.6 row 6) is currently silent — `ApprovalDenied { reason: "timeout" }` is emitted but no renderer consumes it. Filed as Phase 24H FOLLOW-UP rather than expand this PR's scope (new event-renderer wiring + inline marker placement + tests = a separate cycle). (2) "Restarting…" transient copy (spec §5.6 row 1 first leg) is not surfaced — the auto-respawn happens silently inside `post_message`'s retry; only the second-fail copy reaches the user. Filed as Phase 24H FOLLOW-UP — surfacing the transient would require a new IPC state ("retrying"). (3) The exact `--color-foreground-muted` token name from spec didn't exist; resolved by adding it as a semantic alias of `--color-muted`. Pattern-log entry codifies the rule.
 - feedback: pending. The §5.6 inline markers are spec-mandated turn-end copy; dogfood will tell whether the `--color-warning` pill reads as the right intensity (spec is explicit "no error red unless destructive" — the pattern-log entry pins that interpretation). Visual baselines for chat-v2 are gated on the flag flip per Phase 24H.
+
+
+## 2026-05-13T23:45:00Z — manual (frc_019dea6c: conditional Disconnect button)
+
+- prompt: "make the Disconnect repository button conditional on whether a repo is linked" — friction report frc_019dea6c noted that the Home tab's repo section showed both Link and Disconnect (the latter disabled when nothing was linked), making it ambiguous whether a repo was already linked.
+- trigger: manual (single-button visibility tweak inside an existing component; no fresh generation)
+- archetype-reused: none
+- components-reused: HomeTabA / ProjectRepoSection (existing internal section)
+- components-new: none
+- components-removed: none
+- css-new: none
+- css-modified: none
+- tokens-new: none
+- tokens-referenced: unchanged (existing `.btn[data-variant="danger"]` styles still resolve to `--danger-12`, `--danger-7`, `--danger-3`)
+- invariants: 6/6 pass on packages/app/src
+- typecheck: clean
+- tests: 248/248 frontend (vitest) pass. Visual baseline (`packages/app/src/test/visual/home.test.tsx`) unchanged — the home fixture's workspace has a non-null `worktree_path`, so `hasLinkedWorkspace` is true and the Disconnect button still renders in the baseline.
+- files: `packages/app/src/home/HomeTabA.tsx` (Disconnect button wrapped in `{hasLinkedWorkspace && (...)}` instead of `disabled={!hasLinkedWorkspace}`), `core-docs/component-manifest.json` (HomeTabA purpose + last_updated).
+- deviations: none. Staff-review UX raised whether Re-link should also hide in the linked state to reach a strict "one button per state" model; concluded no — Re-link is a distinct useful action (point at a different repo) that doesn't collapse into Disconnect or Link, and the original friction was about contradictory affordances in the *unlinked* state, which this PR resolves.
+- feedback: pending.
