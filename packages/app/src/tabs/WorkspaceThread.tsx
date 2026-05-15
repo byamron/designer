@@ -784,6 +784,19 @@ export function WorkspaceThread({
   // container's first element child captures both the legacy artifact
   // list (.thread > items) and the chat-v2 stream (.thread__stream
   // inside .thread--phase24) without branching on the flag here.
+  //
+  // `bootReplaying` is in the deps so the observer re-binds when the
+  // chat-v2 surface flips from <LoadingState/> to the populated
+  // <div className="thread__stream">. Without this, a tab that boots
+  // into replay would observe the small LoadingState div and, when it
+  // unmounted, lose the binding — the populated thread arrives
+  // unobserved and the initial pin-to-bottom never fires. Re-running
+  // the effect tears down the old RO and creates a new one; the new
+  // observer's first callback fires with the populated child's size,
+  // which triggers `pinToBottom` while `stickRef` is still its default
+  // `true` value. (UX reviewer caught this on 24H-W1a; the fix is a
+  // single-line dep addition.)
+  const bootReplaying = useChatThreadState((s) => s.bootReplaying);
   useEffect(() => {
     const el = threadRef.current;
     if (!el) return;
@@ -794,7 +807,7 @@ export function WorkspaceThread({
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, [pinToBottom, showChatV2, hasStarted]);
+  }, [pinToBottom, showChatV2, hasStarted, bootReplaying]);
 
   const jumpToLatest = useCallback(() => {
     stickRef.current = true;

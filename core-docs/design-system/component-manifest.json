@@ -121,9 +121,9 @@
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
-      "tokens_referenced": ["space-1", "space-3", "space-4", "type-body-size", "type-body-leading", "type-caption-size", "type-family-sans", "color-foreground", "color-muted", "color-surface-hover", "radius-button", "border-thin", "color-border", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
+      "tokens_referenced": ["space-1", "space-2", "space-3", "space-4", "type-body-size", "type-body-leading", "type-caption-size", "type-family-sans", "color-foreground", "color-muted", "color-surface-hover", "color-surface-overlay", "color-surface-raised", "radius-button", "radius-pill", "border-thin", "color-border", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
       "css_prefix": "workspace-thread__ thread__ suggestion-row__",
-      "last_updated": "2026-05-13"
+      "last_updated": "2026-05-15"
     },
     {
       "name": "PlanTab",

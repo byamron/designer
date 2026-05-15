@@ -555,6 +555,53 @@ describe("Thread scroll stickiness — chat-v2 (24H-W1a)", () => {
     expect(thread.scrollTop).toBe(thread.scrollHeight);
   });
 
+  // T-24H-W1a-6 — boot-replay re-bind. When a tab boots with
+  // persisted chat, ChatStreamRenderer first renders <LoadingState/>
+  // (bootReplaying === true); when replay completes, it switches to
+  // the populated <div className="thread__stream">. The
+  // ResizeObserver effect MUST re-run on that transition so it
+  // re-binds to the new firstElementChild — otherwise the populated
+  // thread arrives unobserved and the initial pin to bottom never
+  // fires. UX-eng review (24H-W1a) caught this; the fix is to include
+  // `bootReplaying` in the RO effect's deps.
+  it("re-binds the ResizeObserver when bootReplaying flips false", async () => {
+    // Boot the tab while `bootReplaying === true`. ChatStreamRenderer
+    // returns <LoadingState/>; no populated stream is observed yet.
+    chatThreadStore.set((s) => ({ ...s, bootReplaying: true }));
+    seedTurnWithText(workspace.id, TAB, "agent reply restored on boot");
+    render(<WorkspaceThread workspace={workspace} tabId={TAB} />);
+    const thread = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(".thread--phase24");
+      if (!el) throw new Error("chat-v2 thread did not mount");
+      return el;
+    });
+    installScrollShim(thread, 0, 400); // LoadingState height — small
+
+    const RO = window.ResizeObserver as unknown as {
+      instances: Array<{ targets: Element[]; __trigger: () => void }>;
+    };
+    const initialObservers = RO.instances.length;
+    expect(initialObservers).toBeGreaterThan(0);
+
+    // Flip bootReplaying false. ChatStreamRenderer unmounts the
+    // LoadingState div and mounts the populated thread__stream. The
+    // RO effect's deps include `bootReplaying`, so it re-runs:
+    // cleanup tears down the old RO; a fresh observer attaches to
+    // the populated child.
+    await act(async () => {
+      chatThreadStore.set((s) => ({ ...s, bootReplaying: false }));
+    });
+
+    // The new observer fires with the populated child's size; since
+    // stickRef.current defaults to true, the callback pins to bottom.
+    installScrollShim(thread, 1200, 400);
+    await act(async () => {
+      triggerResizeObservers();
+    });
+
+    expect(thread.scrollTop).toBe(thread.scrollHeight);
+  });
+
   // T-24H-W1a-5 — the programmatic-scroll guard prevents auto-pin
   // scrolls from flipping stickRef false. Without it, a content-growth
   // re-pin can race a natural scroll event from the layout reflow and
