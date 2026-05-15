@@ -48,6 +48,18 @@ jobs:
 
       - name: cargo test --workspace
         if: matrix.job == 'test'
+        # Exercises every workspace member's unit + integration tests
+        # (test targets under `tests/`). Phase 24I added:
+        #   - apps/desktop/src-tauri/tests/round_trip_e2e.rs — drives
+        #     `cmd_post_message` → scripted ToolUse → `cmd_resolve_approval`
+        #     → AgentTurnEnded + ApprovalGranted via the production
+        #     `InboxPermissionHandler`.
+        #   - crates/designer-core/tests/store_ordering.rs — pins
+        #     `read_all`'s `(timestamp ASC, rowid ASC)` tiebreaker per
+        #     PR #125's flake-fix rationale.
+        # Both are required by virtue of this job being a required
+        # check; do not add a separate "integration-tests" step (the
+        # work would duplicate).
         run: cargo test --workspace --locked
 
       - name: cargo clippy --workspace --all-targets -- -D warnings

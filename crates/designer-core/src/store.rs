@@ -213,6 +213,46 @@ impl SqliteEventStore {
         tx.commit().map_err(StoreError::Sqlite)?;
         Ok(())
     }
+
+    /// Test helper: rewrite the `timestamp` column for one event row.
+    /// Used by the rowid-tiebreaker test (`tests/store_ordering.rs`) to
+    /// force two events into the same RFC3339 instant — `read_all`'s
+    /// `ORDER BY timestamp ASC, rowid ASC` then has to fall through to
+    /// the rowid tiebreaker, pinning insertion order regardless of
+    /// stream.
+    ///
+    /// `#[doc(hidden)] pub` rather than feature-gated because the
+    /// designer-core crate has no `test-support` feature yet and adding
+    /// one would cascade into every reverse dep. The helper is harmless
+    /// outside tests — it only writes to the `events` table and the
+    /// caller has to know an `EventId` to call it.
+    ///
+    /// **`ts` must be a valid RFC3339 string.** No validation is done
+    /// here; an invalid timestamp will be silently written and surface
+    /// as a `parse_rfc3339` failure mid-iteration on the next
+    /// `read_all` or `read_stream` call — a cryptic error pointing at
+    /// `row_to_envelope`. Pass strings of the form
+    /// `"2026-01-01T00:00:00.000000000Z"`.
+    #[doc(hidden)]
+    pub fn force_timestamp_for_test(&self, event_id: EventId, ts: &str) -> Result<()> {
+        let conn = self.conn()?;
+        // `id` is stored as the bare UUID string (see `append`'s insert),
+        // not the prefixed `evt_<uuid>` Display form.
+        let event_id_str = event_id.as_uuid().to_string();
+        let updated = conn
+            .execute(
+                "UPDATE events SET timestamp = ?1 WHERE id = ?2",
+                params![ts, event_id_str],
+            )
+            .map_err(StoreError::Sqlite)?;
+        if updated == 0 {
+            return Err(StoreError::Append(format!(
+                "force_timestamp_for_test: no row for event {event_id_str}"
+            ))
+            .into());
+        }
+        Ok(())
+    }
 }
 
 fn row_to_envelope(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventEnvelope> {
