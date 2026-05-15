@@ -15,8 +15,9 @@ export type AppDialog = "settings" | "help" | "create-project" | null;
 
 /**
  * Which "no workspace" surface to render in the main pane. Mirrors the
- * top-level sidebar tabs (Home, Archived). When `activeWorkspace` is
- * non-null this is ignored — the workspace owns the main pane.
+ * top-level sidebar tabs (Home, Archived, Friction). When
+ * `activeWorkspace` is non-null this is ignored — the workspace owns
+ * the main pane.
  */
 export type ProjectView = "home" | "archived" | "friction";
 
@@ -111,7 +112,7 @@ export interface AppState {
   activeWorkspace: WorkspaceId | null;
   /**
    * Which project-level view to render when no workspace is selected.
-   * Driven by the sidebar's Home / Archived tabs.
+   * Driven by the sidebar's Home / Archived / Friction tabs.
    */
   activeView: ProjectView;
   activeTabByWorkspace: Record<WorkspaceId, TabId>;

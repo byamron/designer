@@ -704,6 +704,10 @@ export function FrictionTriageSection({
       try {
         const list = await ipcClient().listFriction();
         if (cancelled) return;
+        // Entries with a null project_id are "orphan" — captured without
+        // project context. They intentionally never surface in a
+        // project-scoped view; only Settings → Friction (where projectId
+        // is undefined) shows them. Per PR #138 staff-review.
         const scoped = projectId
           ? list.filter((e) => e.project_id === projectId)
           : list;

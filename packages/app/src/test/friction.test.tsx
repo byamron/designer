@@ -444,6 +444,47 @@ describe("FrictionTriageSection — onStoreChanged re-fetch", () => {
     }
   });
 
+  it("filters entries by projectId when the prop is set (frc_019dea6d)", async () => {
+    // Three entries spanning two projects and one orphan (null project_id).
+    // The orphan must NOT appear in either project-scoped view — it
+    // surfaces only in the global Settings view.
+    const entries: FrictionEntry[] = [
+      makeEntry({
+        friction_id: "frc_a_in_project_x",
+        title: "Project X row",
+        project_id: "project-x" as FrictionEntry["project_id"],
+      }),
+      makeEntry({
+        friction_id: "frc_b_in_project_y",
+        title: "Project Y row",
+        project_id: "project-y" as FrictionEntry["project_id"],
+      }),
+      makeEntry({
+        friction_id: "frc_c_orphan",
+        title: "Orphan row",
+        project_id: null,
+      }),
+    ];
+    __setIpcClient(
+      stubClient({ listFriction: () => Promise.resolve(entries) }),
+    );
+
+    const { unmount } = render(
+      <FrictionTriageSection projectId="project-x" />,
+    );
+
+    await screen.findByText("Project X row");
+    expect(screen.queryByText("Project Y row")).toBeNull();
+    expect(screen.queryByText("Orphan row")).toBeNull();
+    unmount();
+
+    // Re-mount with no projectId → all three rows visible (global view).
+    render(<FrictionTriageSection />);
+    await screen.findByText("Project X row");
+    await screen.findByText("Project Y row");
+    await screen.findByText("Orphan row");
+  });
+
   it("bulk copy button is disabled (no count flicker) while the projection is still loading", async () => {
     // Hold the projection promise open so the section sits in its
     // loading state through the assertion. The button must read

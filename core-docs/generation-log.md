@@ -1077,3 +1077,23 @@ Polish pass after the consolidation landed; covers everything that happened betw
 - files: `packages/app/src/home/HomeTabA.tsx` (Disconnect button wrapped in `{hasLinkedWorkspace && (...)}` instead of `disabled={!hasLinkedWorkspace}`), `core-docs/component-manifest.json` (HomeTabA purpose + last_updated).
 - deviations: none. Staff-review UX raised whether Re-link should also hide in the linked state to reach a strict "one button per state" model; concluded no — Re-link is a distinct useful action (point at a different repo) that doesn't collapse into Disconnect or Link, and the original friction was about contradictory affordances in the *unlinked* state, which this PR resolves.
 - feedback: pending.
+
+
+## 2026-05-13T23:55:00Z — manual (frc_019dea6d: per-project Friction sidebar tab)
+
+- prompt: "friction should be a tab in the workspace sidebar in each project (because i should access my friction items per project — they should not be mixed)" — friction report frc_019dea6d.
+- trigger: manual (new view wrapper + sidebar entry; extends the existing FrictionTriageSection with project scoping)
+- archetype-reused: none
+- components-reused: FrictionTriageSection (now takes optional projectId prop and filters list locally), TabLayout
+- components-new: FrictionView (thin wrapper that mounts FrictionTriageSection inside a project-scoped header)
+- components-removed: none
+- css-new: none
+- css-modified: none (reuses existing `.sidebar-home`, `.sidebar-footer`, `.archived-view__head` rules)
+- tokens-new: none
+- tokens-referenced: unchanged from existing surfaces
+- invariants: 6/6 pass on packages/app/src
+- typecheck: clean
+- tests: 249/249 frontend (vitest) pass. Added one new test in `friction.test.tsx` pinning the `projectId` filter: a project-scoped view shows only entries whose `project_id` matches; orphan entries (null project_id) hide; the global view (no prop) shows everything.
+- files: `packages/app/src/home/FrictionView.tsx` (new), `packages/app/src/layout/MainView.tsx` (route new view), `packages/app/src/layout/SettingsPage.tsx` (FrictionTriageSection prop + filter + comment), `packages/app/src/layout/WorkspaceSidebar.tsx` (footer button), `packages/app/src/store/app.ts` (ProjectView + selectFrictionView), `packages/app/src/test/friction.test.tsx` (filter test), `core-docs/component-manifest.json` (FrictionView entry; WorkspaceSidebar last_updated bump).
+- deviations: (1) Reuse `.home-a` class in FrictionView (it's currently the only home-side wrapper that gives the right max-width + flex column behavior). Filed as a follow-up consideration if FrictionView grows or other per-project views appear. (2) Staff-review UX flagged that the empty state could read as "friction is broken" when a fresh project has no entries. Resolved by adding a project-scoped header above the triage section ("Friction · ${project.name}") with a subtitle explaining the scope, so an empty list reads as "you haven't filed anything in this project yet". (3) Staff-review UX flagged ambiguity in the shared description "Reports persist as local markdown files in the linked repo" (workspace-scoped statement shown in a project-scoped view). The new header above the description makes the filtering scope explicit, so the shared description still reads correctly. (4) Orphan entries (null project_id) intentionally never appear in project-scoped views — they surface only in Settings → Friction. Inline comment documents the intent.
+- feedback: pending.
