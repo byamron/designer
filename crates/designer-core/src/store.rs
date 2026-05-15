@@ -226,6 +226,13 @@ impl SqliteEventStore {
     /// one would cascade into every reverse dep. The helper is harmless
     /// outside tests — it only writes to the `events` table and the
     /// caller has to know an `EventId` to call it.
+    ///
+    /// **`ts` must be a valid RFC3339 string.** No validation is done
+    /// here; an invalid timestamp will be silently written and surface
+    /// as a `parse_rfc3339` failure mid-iteration on the next
+    /// `read_all` or `read_stream` call — a cryptic error pointing at
+    /// `row_to_envelope`. Pass strings of the form
+    /// `"2026-01-01T00:00:00.000000000Z"`.
     #[doc(hidden)]
     pub fn force_timestamp_for_test(&self, event_id: EventId, ts: &str) -> Result<()> {
         let conn = self.conn()?;

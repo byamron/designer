@@ -110,6 +110,12 @@ impl IntegrationHarness {
     /// Boot a fresh AppCore + typed mock orchestrator + message coalescer
     /// + production inbox permission handler installed on the mock.
     ///
+    /// **Runtime.** Callers must run inside a tokio runtime
+    /// (`#[tokio::test(flavor = "multi_thread")]` is the convention).
+    /// The coalescer and the orchestrator both spawn via
+    /// `tauri::async_runtime`, which is a Tokio shim — a non-Tokio
+    /// executor would mismatch.
+    ///
     /// **Why the coalescer.** `AppCore::boot_with_orchestrator` does not
     /// auto-spawn the message coalescer — that's a `main.rs` setup step
     /// in production. The coalescer is the broadcast → store bridge for
@@ -124,6 +130,20 @@ impl IntegrationHarness {
     /// We re-attach it post-boot so scripted `ToolUse` blocks park on
     /// the production handler (the same handler `cmd_resolve_approval`
     /// resolves).
+    ///
+    /// **One harness per test binary.** The `InboxPermissionHandler` is
+    /// a `OnceCell` in `core_safety.rs`; the first `boot()` wins and
+    /// every subsequent `boot()` in the same process reuses that
+    /// handler — which points at the first AppCore's event store. If
+    /// the first core is dropped, a second harness's scripted
+    /// `ToolUse` blocks will park on a handler whose store is gone.
+    /// Cargo isolates one test binary per `tests/*.rs` file, so one
+    /// `#[tokio::test]` per `tests/` file is the safe convention.
+    /// Adding a second test in the same file requires either
+    /// serializing via a static mutex or accepting that all tests in
+    /// that binary share the first boot's state. The failure mode is
+    /// silent: events appended by `decide()` land in the dropped
+    /// store, no panic, no assertion fail.
     pub async fn boot() -> Self {
         let data_dir = tempfile::tempdir().expect("tempdir for data");
         let project_root = tempfile::tempdir().expect("tempdir for project root");
