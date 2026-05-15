@@ -26,6 +26,8 @@ pub use inbox_permission::{
     PROCESS_RESTART_REASON, TIMEOUT_REASON,
 };
 pub use mock::MockOrchestrator;
+#[doc(hidden)]
+pub use mock::{ScriptedBlock, ScriptedTurn};
 pub use orchestrator::{
     ActivityState, Orchestrator, OrchestratorError, OrchestratorEvent, OrchestratorResult,
     TaskAssignment, TeamSpec,
