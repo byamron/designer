@@ -11,9 +11,20 @@
  */
 const MAX_WORDS = 5;
 const MAX_CHARS = 30;
+const MIN_CHARS_FOR_SINGLE_WORD = 6;
 const DEFAULT_WORKSPACE_NAME = /^Workspace \d+$/;
 const DEFAULT_TAB_NAME = /^Tab \d+$/;
 
+/**
+ * Derive a short title from a first-message body. Returns null when the
+ * input has no usable signal — whitespace only, emoji only, punctuation
+ * only, or a single short word like "hi" / "ok" / "test" / "/help" that
+ * would make a weak title (per PR #139 staff-review UX feedback). The
+ * minimum-signal floor (≥2 words OR ≥6 chars for a single word) responds
+ * to the friction report's "good signal" language without deferring to
+ * later messages — message #1 is still the trigger when the signal is
+ * strong.
+ */
 export function deriveTitle(text: string): string | null {
   const cleaned = text
     .normalize("NFKC")
@@ -24,10 +35,19 @@ export function deriveTitle(text: string): string | null {
   if (words.length === 0) return null;
   let title = words.join(" ");
   if (title.length > MAX_CHARS) {
+    // Word-boundary truncation. The fallback (single word longer than
+    // MAX_CHARS) slices mid-word, which is acceptable for the rare
+    // pathological case — better than rejecting the message entirely.
     title = title.slice(0, MAX_CHARS).replace(/\s+\S*$/u, "").trim();
     if (!title) title = words[0]?.slice(0, MAX_CHARS) ?? "";
   }
   if (!/\p{L}|\p{N}/u.test(title)) return null;
+  // Minimum-signal floor: a single short word ("Hi", "ok", "test") makes
+  // a weak title. Require ≥2 words OR ≥MIN_CHARS_FOR_SINGLE_WORD chars
+  // for a single word.
+  if (words.length < 2 && title.length < MIN_CHARS_FOR_SINGLE_WORD) {
+    return null;
+  }
   return title.charAt(0).toUpperCase() + title.slice(1);
 }
 

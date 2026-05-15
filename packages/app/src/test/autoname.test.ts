@@ -40,6 +40,28 @@ describe("deriveTitle (frc_019dea6a-9278)", () => {
       "Review my React component",
     );
   });
+
+  // Minimum-signal floor — added per PR #139 staff-review UX feedback.
+  it("rejects single short words that would make weak titles", () => {
+    expect(deriveTitle("Hi")).toBeNull();
+    expect(deriveTitle("ok")).toBeNull();
+    expect(deriveTitle("test")).toBeNull();
+    expect(deriveTitle("yes")).toBeNull();
+  });
+
+  it("strips leading slashes then applies the single-word floor", () => {
+    expect(deriveTitle("/help")).toBeNull();
+    expect(deriveTitle("/clear")).toBeNull();
+  });
+
+  it("accepts a single word when it carries enough signal", () => {
+    expect(deriveTitle("Quickstart")).toBe("Quickstart");
+    expect(deriveTitle("debugging")).toBe("Debugging");
+  });
+
+  it("accepts two short words even if each is short", () => {
+    expect(deriveTitle("fix bug")).toBe("Fix bug");
+  });
 });
 
 describe("planAutoName", () => {
@@ -101,6 +123,20 @@ describe("planAutoName", () => {
       workspaceName: "Workspace 1",
       tabTitle: null,
       text: "Help me debug",
+    });
+    expect(plan?.renameWorkspace).toBe(true);
+    expect(plan?.renameTab).toBe(false);
+  });
+
+  // Documented behavior: a user who manually names a workspace
+  // "Workspace 42" hits the same default-name regex and will get
+  // auto-renamed on the next first message. Small risk, acceptable
+  // tradeoff vs. carrying an is_auto_named flag through the schema.
+  it("treats manually-typed 'Workspace 42' as default (known collision)", () => {
+    const plan = planAutoName({
+      workspaceName: "Workspace 42",
+      tabTitle: "Plan",
+      text: "Help me debug this auth flow",
     });
     expect(plan?.renameWorkspace).toBe(true);
     expect(plan?.renameTab).toBe(false);

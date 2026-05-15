@@ -117,13 +117,13 @@
     {
       "name": "WorkspaceThread",
       "path": "packages/app/src/tabs/WorkspaceThread.tsx",
-      "purpose": "The single tab body for every workspace tab post-Phase 13.1 (spec Decision 36). One continuous scrollable thread of typed artifact blocks (resolved via the block registry) plus a docked ComposeDock. Per-tab `hasStarted` state — fresh tabs render context-aware suggestions sourced from the workspace's recent artifacts; first send flips to thread mode. Subscribes to `artifact_*` stream events filtered to the production wire format `workspace:<uuid>` (also tolerates the bare-uuid mock format) for live refresh. Phase 13.D wired `onSend` to `ipcClient().postMessage` with synchronous `useRef` re-entry guard against double-dispatch, draft restoration via the ComposeDock imperative handle on failure, and typed `IpcError` translation via `ipc/error.ts` (cost-cap-exceeded / scope-denied / etc. each get their own copy).",
+      "purpose": "The single tab body for every workspace tab post-Phase 13.1 (spec Decision 36). One continuous scrollable thread of typed artifact blocks (resolved via the block registry) plus a docked ComposeDock. Per-tab `hasStarted` state — fresh tabs render context-aware suggestions sourced from the workspace's recent artifacts; first send flips to thread mode. Subscribes to `artifact_*` stream events filtered to the production wire format `workspace:<uuid>` (also tolerates the bare-uuid mock format) for live refresh. Phase 13.D wired `onSend` to `ipcClient().postMessage` with synchronous `useRef` re-entry guard against double-dispatch, draft restoration via the ComposeDock imperative handle on failure, and typed `IpcError` translation via `ipc/error.ts` (cost-cap-exceeded / scope-denied / etc. each get their own copy). frc_019dea6a-9278 (2026-05-13): after a successful postMessage, fire-and-forget auto-rename via planAutoName + renameWorkspace/renameTab IPCs; a session-level `autoRenamedRef` Set guards against the second-message race, and a polite `RenameAnnouncement` sr-only live region keeps SR users in parity with the visible sidebar text swap.",
       "status": "managed",
       "native_wrapped": false,
       "primitives_used": [],
       "tokens_referenced": ["space-1", "space-3", "space-4", "type-body-size", "type-body-leading", "type-caption-size", "type-family-sans", "color-foreground", "color-muted", "color-surface-hover", "radius-button", "border-thin", "color-border", "motion-interactive", "focus-outline-width", "focus-outline-offset", "focus-outline-color"],
       "css_prefix": "workspace-thread__ thread__ suggestion-row__",
-      "last_updated": "2026-05-09"
+      "last_updated": "2026-05-13"
     },
     {
       "name": "PlanTab",

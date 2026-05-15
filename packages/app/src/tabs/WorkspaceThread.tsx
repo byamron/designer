@@ -97,6 +97,7 @@ async function autoRenameOnFirstMessage(args: {
   tabId: TabId | undefined;
   tabTitle: string | null;
   text: string;
+  onAnnounce?: (title: string) => void;
 }): Promise<void> {
   const plan = planAutoName({
     workspaceName: args.workspaceName,
@@ -121,6 +122,10 @@ async function autoRenameOnFirstMessage(args: {
   }
   if (tasks.length === 0) return;
   await Promise.all(tasks);
+  // Polite SR announcement so users who can't see the sidebar update
+  // hear that the rename happened (per PR #139 staff-review UX BLOCKER).
+  // Sighted users see the sidebar text swap; this restores parity.
+  args.onAnnounce?.(plan.title);
   try {
     const projectId = appStore.get().activeProject;
     if (projectId) await refreshWorkspaces(projectId);
@@ -342,6 +347,40 @@ export function WorkspaceThread({
       if (current === value) return prev;
       return { ...prev, [key]: value };
     });
+  // frc_019dea6a-9278 — session-level guard against the second-message
+  // race surfaced in PR #139 staff-review. The closure inside onSend
+  // captures workspace.name; if the user sends a second message before
+  // the first rename's refreshWorkspaces propagates, the closure still
+  // sees "Workspace 1" and the default-name regex gate would fire a
+  // second rename with the second message's derived title. This ref
+  // short-circuits the call before it reaches the gate, ensuring auto-
+  // rename runs at most once per workspace / tab per session.
+  const autoRenamedRef = useRef<Set<string>>(new Set());
+  // frc_019dea6a-9278 — polite SR announcement when auto-rename
+  // fires. Sighted users see the sidebar text swap from
+  // "Workspace N" to the derived title; this restores parity for
+  // screen-reader users. Cleared after 1.5s so the same string
+  // doesn't linger on unrelated re-renders.
+  const [renameAnnouncement, setRenameAnnouncement] = useState("");
+  const renameAnnouncementTimerRef = useRef<number | null>(null);
+  const announceAutoRename = useCallback((title: string) => {
+    setRenameAnnouncement(`Renamed to ${title}.`);
+    if (renameAnnouncementTimerRef.current) {
+      window.clearTimeout(renameAnnouncementTimerRef.current);
+    }
+    renameAnnouncementTimerRef.current = window.setTimeout(() => {
+      setRenameAnnouncement("");
+      renameAnnouncementTimerRef.current = null;
+    }, 1500);
+  }, []);
+  useEffect(
+    () => () => {
+      if (renameAnnouncementTimerRef.current) {
+        window.clearTimeout(renameAnnouncementTimerRef.current);
+      }
+    },
+    [],
+  );
   const onSend = useCallback(
     async (payload: ComposeSendPayload) => {
       if (!payload.text.trim() && payload.attachments.length === 0) return;
@@ -401,13 +440,19 @@ export function WorkspaceThread({
         // default-name gate makes this idempotent — once renamed
         // (either manually or by this path), subsequent messages
         // skip the call.
-        void autoRenameOnFirstMessage({
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          tabId,
-          tabTitle: workspace.tabs.find((t) => t.id === tabId)?.title ?? null,
-          text: payload.text,
-        });
+        const autoRenameKey = `${workspace.id}:${tabId ?? ""}`;
+        if (!autoRenamedRef.current.has(autoRenameKey)) {
+          autoRenamedRef.current.add(autoRenameKey);
+          void autoRenameOnFirstMessage({
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+            tabId,
+            tabTitle:
+              workspace.tabs.find((t) => t.id === tabId)?.title ?? null,
+            text: payload.text,
+            onAnnounce: announceAutoRename,
+          });
+        }
       } catch (err) {
         setSendErrorFor(sendKey, describeIpcError(err));
         // ComposeDock clears its own draft synchronously after onSend
@@ -440,7 +485,7 @@ export function WorkspaceThread({
         void refresh();
       }
     },
-    [workspace.id, tabId, stateKey, refresh],
+    [workspace.id, tabId, stateKey, refresh, announceAutoRename],
   );
 
   // Phase 24 §5.4 — auto-dispatch the queued message when the
@@ -843,6 +888,18 @@ export function WorkspaceThread({
           data-component="QueueAnnouncement"
         >
           {queueAnnouncement}
+        </span>
+        {/* frc_019dea6a-9278 — sr-only live region for auto-rename.
+            Sighted users see the sidebar text swap; this announces it
+            for screen-reader users so they hear the workspace / tab
+            title change after their first message. */}
+        <span
+          className="sr-only"
+          role="status"
+          aria-live="polite"
+          data-component="RenameAnnouncement"
+        >
+          {renameAnnouncement}
         </span>
         {/* Phase 24 §5.7 — assertive announcement on
             AgentTurnEnded { stop_reason: Interrupted }. Spec table:
