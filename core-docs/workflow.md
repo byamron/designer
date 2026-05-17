@@ -10,8 +10,20 @@ Before starting any work (~1 minute):
 
 1. **Read `plan.md`** — check current focus and handoff notes.
 2. **Scan `feedback.md`** — absorb recent user direction, especially new entries.
-3. **Spot-check the spec** — if relying on an architectural or UX claim, verify it against `spec.md`, not memory.
+3. **Spot-check the spec** — if relying on an architectural or UX claim, verify it against `spec.md`, not memory. When working on UI-visible surfaces, also spot-check `vision.md` for positioning alignment.
 4. **Pick your primary agent** — see agent table below.
+
+### First-time sessions (zero prior context)
+
+If you're new to the project (human or fresh-context agent), also read `core-docs/README.md` and follow the *Read-order paths* there — Path 1 for general onboarding, Path 2 for picking up a task. The README is the topic index for the full doc set.
+
+### Before architectural decisions
+
+If the session involves an architectural decision, a new surface, or anything that changes scope:
+
+- Check `core-docs/research/critique.md` — does the decision intersect with an open validation task? If yes, either complete the validation or explicitly accept the risk in the decision record.
+- Invoke `integrate-or-replicate` (`.claude/skills/integrate-or-replicate/`) per CLAUDE.md §How to Work item 9 — does the new surface overlap with an existing tool we should integrate with rather than replicate?
+- Scan recent ADRs (especially `adr/0010-…` for current strategic positioning) for any reversed or sharpened decisions.
 
 ## This document is living
 
@@ -25,7 +37,7 @@ Every PR follows this five-step sequence. The earlier the loop catches an issue,
 
 Open the spec section the PR implements. Could be:
 - A `core-docs/<phase>.md` file (e.g. `phase-24-pass-through-chat.md` §5.4).
-- An ADR (e.g. `core-docs/adr/0009-trustworthy-shipping.md` §1.B).
+- An ADR (e.g. `core-docs/architecture/adr/0009-trustworthy-shipping.md` §1.B).
 - A roadmap sub-bullet (`core-docs/roadmap.md` § Phase 24H).
 
 For each numbered/bulleted requirement in the section:

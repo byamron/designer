@@ -2,7 +2,7 @@
 
 Phases that are deferred — not deleted. Each entry has a friction-driven primary trigger and a time-based fallback. When a trigger fires, the phase moves back to active in `roadmap.md`.
 
-See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract for this file.
+See `core-docs/architecture/adr/0009-trustworthy-shipping.md` for the rationale and contract for this file.
 
 ## How to read this file
 
@@ -37,12 +37,23 @@ See `core-docs/adr/0009-trustworthy-shipping.md` for the rationale and contract 
 
 ### Phase 21.A2 — Designer-Noticed detectors past the active one
 
-- **Deferred:** 2026-05-04
-- **Reason:** All 8 detectors in `crates/designer-learn/src/detectors/` are shipped at the foundation layer (events emit, fixtures pass), but only ONE has a polished end-to-end loop. Surfacing 8 simultaneously dilutes the trust signal — the user can't tell which detector is reliable. Pick the friction-driven leader; defer the rest until proven.
-- **Primary trigger:** User accepts ≥3 proposals from the active detector (visible as `ProposalAccepted` artifacts in the event log) AND files a friction report or in-chat ask requesting a second detector by name (e.g., "I want Designer to also notice cost spikes" / "watch for scope creep").
+> **Note (2026-05-16):** Superseded by the broader Designer Noticed cut from v1 per ADR 0010 §3.10. The full portfolio (Phase 21.A foundation, Phase 26 first end-to-end detector, and the remaining detectors in this entry) is now parked under one umbrella. See the *Designer Noticed — entire portfolio* entry below for the broader rationale and trigger; this entry is retained for the original per-detector specs.
+
+- **Deferred:** 2026-05-04 (originally); superseded by broader portfolio cut 2026-05-16
+- **Reason:** All 8 detectors in `crates/designer-learn/src/detectors/` are shipped at the foundation layer (events emit, fixtures pass), but only ONE has a polished end-to-end loop. Surfacing 8 simultaneously dilutes the trust signal — the user can't tell which detector is reliable. Pick the friction-driven leader; defer the rest until proven. Now also superseded by the structural cut below.
+- **Primary trigger:** User accepts ≥3 proposals from the active detector (visible as `ProposalAccepted` artifacts in the event log) AND files a friction report or in-chat ask requesting a second detector by name (e.g., "I want Designer to also notice cost spikes" / "watch for scope creep"). **Now also gated on the broader portfolio re-activation trigger** (see *Designer Noticed — entire portfolio* entry).
 - **Time fallback:** Reassess after Phase 28 ships.
 - **Source:** `roadmap.md` §"Phase 21.A2 — Detector squad" — detector list and per-detector specs preserved verbatim.
-- **Unhide path:** In-app Settings toggle per detector. Detectors continue to emit `FindingRecorded`/`ProposalEmitted` events while UI is hidden (per ADR 0009 §3 frozen-contract pattern).
+- **Unhide path:** In-app Settings toggle per detector. Detectors continue to emit `FindingRecorded`/`ProposalEmitted` events while UI is hidden (per ADR 0009 §3 frozen-contract pattern). Now additionally requires re-activation of the broader portfolio per the entry below.
+
+### Designer Noticed — entire portfolio (Phase 21.A foundation, Phase 26 first detector, Phase 21.A2 remainder)
+
+- **Deferred (cut from v1):** 2026-05-16
+- **Reason:** ADR 0010 §3.10 cut Designer Noticed from v1 entirely. The strategic narrowing repositioned Designer as router-mode-first — a hub that sits above the user's existing AI-build tools rather than driving execution itself. In router-mode, Designer does not host Claude Code session transcripts, which is exactly what Forge-style workflow-pattern detection needs as input. Without transcripts, the detector portfolio would ship without its data source — vestigial. Forge (the user's Claude Code plugin, separate product) is the working version of session-transcript pattern detection and remains the right home for that capability until Designer's surface area changes.
+- **Primary trigger:** Designer hosts work surfaces of its own (prototyping, in-app codification authoring with session capture, embedded chat sessions where transcripts live in Designer's event store, or similar) where session-pattern analysis would apply, AND ≥3 friction reports or explicit asks for Forge-style pattern detection on Designer-hosted work.
+- **Time fallback:** Reassess after v1.0 ships (the first stable release of router-mode Designer).
+- **Source:** `core-docs/architecture/adr/0010-intent-preservation-positioning.md` §3.10 (v1 disposition table — Designer Noticed row marked *Cut from v1*) and §7 (roadmap implications — Designer Noticed moved from *Reshaped* to *Cut from v1*).
+- **Unhide path:** Author a new ADR (likely 0011+) that decides what work-surface-pattern detection looks like *at Designer's altitude* (judgment moments, codification candidates, taste-drift attention calls) — distinct from Forge's *Claude-Code-session* altitude. The existing `crates/designer-learn/src/detectors/` foundation may be partially repurposable; the detector portfolio itself almost certainly needs to be redesigned around taste-altitude signals rather than coding-workflow signals. Re-promote Phase 21.A foundation + Phase 26 first end-to-end loop to active sequence with the new altitude scope.
 
 ### Phase 15.H — Inline commenting & element annotation
 
