@@ -9,10 +9,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
   workflow_dispatch:
 
+# Scope by event_name so a PR run and its corresponding merge_group run don't
+# cancel each other. Without `${{ github.event_name }}` in the key, queueing
+# the same head would race the PR-context run against the queue-context run
+# and drop required-check signals on the floor.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

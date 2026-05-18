@@ -1,0 +1,31 @@
+version: 2
+
+# Dependabot config — Phase 1 of merge-queue + CI infra setup (FB-0040).
+#
+# Policy: routine version bumps are SUPPRESSED via `open-pull-requests-limit: 0`.
+# Security advisories flow independently through GitHub's "Dependabot security
+# updates" toggle (repo Settings → Code security and analysis) and are NOT
+# affected by this limit — expect security PRs to appear regardless.
+#
+# This mirrors the sister project (md-manager) so both repos under
+# `by-dev-tools` share the same maintenance cadence. Cargo is added here vs.
+# md-manager because Designer's core is a Rust workspace.
+
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0

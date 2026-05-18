@@ -33,6 +33,27 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0040: Merge-queue + CI infrastructure aligned with sister project (md-manager)
+**Date:** 2026-05-15
+**Source:** user direction (merge-queue rollout, sister-app cohesion)
+
+**What was said:** md-manager (sister project under `by-dev-tools`) shipped a GitHub merge-queue + CI setup that eliminates the manual rebase-wait-merge dance when concurrent agent PRs race on shared docs. On Designer, those shared docs are `core-docs/history.md` and `core-docs/plan.md` — both rewritten by the `docs` agent at the end of every work item per `core-docs/workflow.md`. ADR 0010's reorg (research/, architecture/, phases/, design-system/ subdirs) and any future product-arc work expand that cross-cutting surface further. Designer should adopt md-manager's merge-queue shape so both repos share maintenance cadence, but adapt to Designer's existing richer CI (rust matrix + frontend + design-system + visual-regression + supply-chain) rather than replace it.
+
+**Synthesized rule:** Four load-bearing decisions for Designer's merge-queue + CI setup:
+
+1. **HTTPS remotes, not SSH.** Already in place on Designer. Reason: ephemeral agent workspaces (Conductor, etc.) don't have per-environment SSH keys; `gh auth`-backed HTTPS works everywhere with equivalent security. Mirrors md-manager FB-0022.
+2. **Sister-app cohesion under `by-dev-tools`.** When the org transfer phase lands, Designer moves from `byamron/designer` to `by-dev-tools/designer`. Both projects under the same org keeps merge-queue, branch protection, and Secret Protection policies symmetric.
+3. **Squash-only merges, linear `main`.** One commit per PR. Disable merge commits and rebase merging at the repo-settings level when the cleanup phase lands.
+4. **Dependabot routine suppression, security passthrough.** `open-pull-requests-limit: 0` on every ecosystem suppresses version-bump noise; GitHub's separate "Dependabot security updates" toggle still fires HIGH/CRITICAL PRs through. Three ecosystems wired: npm, github-actions, cargo (cargo is Designer-specific — md-manager doesn't have it).
+
+Adaptations from md-manager's defaults (each defensible, logged here so the next agent doesn't re-litigate):
+- **Required-check names follow Designer's existing jobs** (`rust / test`, `rust / clippy`, `rust / fmt`, `frontend`, `design-system`, `visual-regression`), not md-manager's `typecheck`/`build`/`test`. Designer's CI is richer; the queue should gate on what already exists.
+- **Concurrency keys scoped by `github.event_name`.** A PR-context run and its corresponding `merge_group`-context run share the same `github.ref`; without `event_name` in the key, `cancel-in-progress: true` would race them and drop required-check signals. Applies to `ci.yml` and `supply-chain.yml`.
+- **No standalone `build` job added.** `frontend` already runs `typecheck` + `test`; the Tauri build is heavy and currently un-gated by design. Don't add gates for hypothetical regressions.
+- **`actions/setup-node@v5` and `actions/checkout@v5` kept** (md-manager is on v4). Designer is more current; alignment goes upward, not downward.
+
+**Applies to:** ci, infrastructure, workflow, dogfood cohesion
+
 ### FB-0039: Don't spread class instances when building IPC test mocks
 **Date:** 2026-05-02
 **Source:** review feedback (release-review session, surfaced by ComposeDock's new `getFeatureFlags()` call)

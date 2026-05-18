@@ -17,13 +17,16 @@ on:
     branches: [main]
   push:
     branches: [main]
+  merge_group:
   schedule:
     # 07:17 UTC daily — odd minute to dodge the top-of-hour cron herd.
     - cron: '17 7 * * *'
   workflow_dispatch:
 
+# Scope by event_name so a PR run and its corresponding merge_group run don't
+# cancel each other (see ci.yml for full rationale).
 concurrency:
-  group: supply-chain-${{ github.ref }}
+  group: supply-chain-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
