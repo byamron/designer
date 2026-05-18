@@ -26,6 +26,47 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
   });
 }
 
+// jsdom doesn't ship `ResizeObserver`. The chat-v2 scroll-stickiness
+// path in WorkspaceThread subscribes to inner-content growth via RO
+// (streaming deltas extend an open text block without changing any
+// useLayoutEffect dep). The shim is a no-op observer with a static
+// `instances` collection + a `__trigger()` test hook so a test can
+// synthesize a resize without a real layout engine.
+if (
+  typeof window !== "undefined" &&
+  typeof window.ResizeObserver !== "function"
+) {
+  class MockResizeObserver {
+    static instances: MockResizeObserver[] = [];
+    private cb: ResizeObserverCallback;
+    targets: Element[] = [];
+    constructor(cb: ResizeObserverCallback) {
+      this.cb = cb;
+      MockResizeObserver.instances.push(this);
+    }
+    observe(el: Element) {
+      this.targets.push(el);
+    }
+    unobserve(el: Element) {
+      this.targets = this.targets.filter((t) => t !== el);
+    }
+    disconnect() {
+      this.targets = [];
+    }
+    /** Test-only: fire the callback. Pass an empty entries list — the
+     *  production callback in WorkspaceThread doesn't read entry
+     *  payloads, only `stickRef.current`. */
+    __trigger() {
+      this.cb(
+        [] as unknown as ResizeObserverEntry[],
+        this as unknown as ResizeObserver,
+      );
+    }
+  }
+  (window as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
+    MockResizeObserver as unknown as typeof ResizeObserver;
+}
+
 // crypto.randomUUID polyfill for jsdom environments that lack it.
 if (!("randomUUID" in globalThis.crypto)) {
   // @ts-expect-error augment

@@ -709,6 +709,15 @@ export function WorkspaceThread({
   // and rendering rounding can flip stickiness on every micro-scroll.
   const threadRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
+  // Programmatic-scroll guard. We flip this ref true around any scrollTop
+  // assignment we initiate, then drop it on the next microtask after the
+  // scroll event has dispatched. The legacy path got away without this
+  // because writes happened inside useLayoutEffect (pre-paint, single
+  // flush boundary); chat-v2 streams via store-subscription updates and
+  // ResizeObserver callbacks that don't share the same flush, so a
+  // natural scroll event from a re-pin can race a content-growth event
+  // and flip stickRef false. Bail in onThreadScroll when the guard is up.
+  const programmaticScrollRef = useRef(false);
   const [behind, setBehind] = useState(false);
   // CC2 — suppress the per-child arrival animation for the very first
   // paint of this thread instance, and again whenever the active tab
@@ -733,6 +742,7 @@ export function WorkspaceThread({
   }, [tabId]);
 
   const onThreadScroll = useCallback(() => {
+    if (programmaticScrollRef.current) return;
     const el = threadRef.current;
     if (!el) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -741,25 +751,68 @@ export function WorkspaceThread({
     setBehind(!atBottom);
   }, []);
 
+  const pinToBottom = useCallback(() => {
+    const el = threadRef.current;
+    if (!el) return;
+    programmaticScrollRef.current = true;
+    el.scrollTop = el.scrollHeight;
+    setBehind(false);
+    // Clear the guard on the next microtask, after the synchronous
+    // scroll event (if any) has dispatched. Using queueMicrotask
+    // rather than setTimeout keeps the guard tight — we don't want
+    // to swallow real user scroll events that arrive on the same tick.
+    queueMicrotask(() => {
+      programmaticScrollRef.current = false;
+    });
+  }, []);
+
   // useLayoutEffect runs synchronously after DOM mutations but before
   // the browser paints — the right hook for scroll positioning since it
-  // avoids a visible flash at the wrong scroll position.
+  // avoids a visible flash at the wrong scroll position. The legacy
+  // (artifact-list) path triggers on artifact arrival; chat-v2 height
+  // changes within a streaming block are caught by the ResizeObserver
+  // below since artifact-list deps don't observe store updates inside
+  // a single chat row.
   useLayoutEffect(() => {
+    if (stickRef.current) pinToBottom();
+  }, [artifacts?.length, hasStarted, sending, pinToBottom]);
+
+  // ResizeObserver pins on inner-content height growth. Required for
+  // chat-v2 streaming: AgentContentBlockDelta extends an open block's
+  // text without changing any value WorkspaceThread subscribes to, so
+  // useLayoutEffect above can't catch it. Observing the scroll
+  // container's first element child captures both the legacy artifact
+  // list (.thread > items) and the chat-v2 stream (.thread__stream
+  // inside .thread--phase24) without branching on the flag here.
+  //
+  // `bootReplaying` is in the deps so the observer re-binds when the
+  // chat-v2 surface flips from <LoadingState/> to the populated
+  // <div className="thread__stream">. Without this, a tab that boots
+  // into replay would observe the small LoadingState div and, when it
+  // unmounted, lose the binding — the populated thread arrives
+  // unobserved and the initial pin-to-bottom never fires. Re-running
+  // the effect tears down the old RO and creates a new one; the new
+  // observer's first callback fires with the populated child's size,
+  // which triggers `pinToBottom` while `stickRef` is still its default
+  // `true` value. (UX reviewer caught this on 24H-W1a; the fix is a
+  // single-line dep addition.)
+  const bootReplaying = useChatThreadState((s) => s.bootReplaying);
+  useEffect(() => {
     const el = threadRef.current;
     if (!el) return;
-    if (stickRef.current) {
-      el.scrollTop = el.scrollHeight;
-      setBehind(false);
-    }
-  }, [artifacts?.length, hasStarted, sending]);
+    const content = el.firstElementChild;
+    if (!(content instanceof Element)) return;
+    const ro = new ResizeObserver(() => {
+      if (stickRef.current) pinToBottom();
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [pinToBottom, showChatV2, hasStarted, bootReplaying]);
 
   const jumpToLatest = useCallback(() => {
-    const el = threadRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
     stickRef.current = true;
-    setBehind(false);
-  }, []);
+    pinToBottom();
+  }, [pinToBottom]);
 
   return (
     <div
@@ -769,21 +822,39 @@ export function WorkspaceThread({
     >
       {showChatV2 ? (
         // Phase 24 chat surface. The new renderer subscribes to the
-        // per-tab chatThreadStore directly; the artifact-list scroll
-        // affordances above are intentionally not threaded through
-        // here — the new surface owns its own layout. ComposeDock
-        // remains shared between modes (rendered below).
-        <div
-          className="thread thread--phase24"
-          role="log"
-          aria-live="polite"
-          aria-relevant="additions"
-          aria-label="Workspace thread"
-        >
-          <ChatStreamRenderer
-            workspaceId={workspace.id}
-            tabId={(tabId ?? stateKey) as TabId}
-          />
+        // per-tab chatThreadStore directly. Scroll-stickiness + the
+        // Jump-to-latest pill are threaded through here at the
+        // container altitude (same pattern as the legacy branch
+        // below) so chat-v2 doesn't regress against the affordance
+        // users learned in v1. ComposeDock is rendered below and is
+        // shared between modes.
+        <div className="thread-wrap">
+          <div
+            ref={threadRef}
+            className="thread thread--phase24"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
+            aria-label="Workspace thread"
+            onScroll={onThreadScroll}
+          >
+            <ChatStreamRenderer
+              workspaceId={workspace.id}
+              tabId={(tabId ?? stateKey) as TabId}
+            />
+          </div>
+          {behind && (
+            <button
+              type="button"
+              className="thread__jump-latest"
+              data-component="JumpToLatest"
+              onClick={jumpToLatest}
+              aria-label="Jump to latest message"
+            >
+              <ArrowDown size={14} strokeWidth={1.75} aria-hidden="true" />
+              <span>Jump to latest</span>
+            </button>
+          )}
         </div>
       ) : showSuggestions ? (
         <div
