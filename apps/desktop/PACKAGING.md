@@ -199,7 +199,7 @@ path that the signed bundle guarantees.
 If the helper binary is missing, fails a 750ms boot ping, or is disabled via
 `DESIGNER_DISABLE_HELPER=1`, Designer continues with on-device features
 disabled and surfaces a structured `fallback_reason` through the
-`helper_status` IPC. See `core-docs/integration-notes.md` §12.B for the full
+`helper_status` IPC. See `core-docs/architecture/integration-notes.md` §12.B for the full
 taxonomy and the recovery routing (`user` / `reinstall` / `none`).
 
 ## Crash reports

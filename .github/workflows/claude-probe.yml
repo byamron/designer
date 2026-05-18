@@ -2,7 +2,7 @@ name: claude-probe
 
 # Tier 3 — scheduled contract probe. Re-runs scripts/probe-claude.sh
 # (Phase A only: no-cost inventory) and diffs the captured CLI surface and
-# home-dir layout against what core-docs/integration-notes.md pins. On drift,
+# home-dir layout against what core-docs/architecture/integration-notes.md pins. On drift,
 # opens a GitHub issue so the translator rewrite doesn't silently rot when
 # Anthropic ships a new Claude Code version.
 #
@@ -56,7 +56,7 @@ jobs:
         id: diff
         run: |
           set -euo pipefail
-          PINNED_VER="$(awk -F'|' '/^\| Claude Code version \|/ { gsub(/^[ ]+|[ ]+$/, "", $3); print $3 }' core-docs/integration-notes.md)"
+          PINNED_VER="$(awk -F'|' '/^\| Claude Code version \|/ { gsub(/^[ ]+|[ ]+$/, "", $3); print $3 }' core-docs/architecture/integration-notes.md)"
           OBSERVED_VER="$(awk '{print $1; exit}' .context/probe-output/claude-version.txt)"
           printf 'pinned=%s\n' "$PINNED_VER" >> "$GITHUB_OUTPUT"
           printf 'observed=%s\n' "$OBSERVED_VER" >> "$GITHUB_OUTPUT"
@@ -75,13 +75,13 @@ jobs:
             const body = [
               `Scheduled probe detected a version change.`,
               ``,
-              `- Pinned in \`core-docs/integration-notes.md\`: \`${{ steps.diff.outputs.pinned }}\``,
+              `- Pinned in \`core-docs/architecture/integration-notes.md\`: \`${{ steps.diff.outputs.pinned }}\``,
               `- Observed on the self-hosted runner: \`${{ steps.diff.outputs.observed }}\``,
               ``,
               `Next steps:`,
               `1. Re-run \`scripts/probe-claude.sh --live\` locally against the new version.`,
               `2. Diff \`.context/probe-output/\` vs. the previous capture.`,
-              `3. Update \`core-docs/integration-notes.md\` and the translator (\`crates/designer-claude/src/stream.rs\`) if any shapes moved.`,
+              `3. Update \`core-docs/architecture/integration-notes.md\` and the translator (\`crates/designer-claude/src/stream.rs\`) if any shapes moved.`,
               `4. Run \`cargo test --features claude_live -p designer-claude --test claude_live\` before closing this issue.`,
             ].join('\n');
             // De-dup: if an open issue with the same title exists, skip.

@@ -5,7 +5,7 @@ description: When a design-language axiom or token value changes, propagate the 
 
 # propagate-language-update
 
-**Purpose:** When `core-docs/design-language.md` changes (especially an axiom), surface everywhere the change must land and apply it with user consent. See plan §8.5. Brownfield rule (§4.5): never silently modify `status: legacy` components.
+**Purpose:** When `core-docs/design-system/design-language.md` changes (especially an axiom), surface everywhere the change must land and apply it with user consent. See plan §8.5. Brownfield rule (§4.5): never silently modify `status: legacy` components.
 
 ## When this skill fires
 
@@ -26,7 +26,7 @@ Should NOT fire on:
 ### Step 1 — Read the change
 
 Two inputs:
-1. `core-docs/design-language.md` current state.
+1. `core-docs/design-system/design-language.md` current state.
 2. Git diff (or user-provided description) of what changed.
 
 Classify the change:
@@ -58,12 +58,12 @@ If a change is semantically ambiguous (e.g., an axiom change that cascades to a 
 
 ### Step 4 — Apply
 
-On user approval, write the changes. Update `core-docs/component-manifest.json` `last_updated` for every touched component.
+On user approval, write the changes. Update `core-docs/design-system/component-manifest.json` `last_updated` for every touched component.
 
 ### Step 5 — Update logs
 
-- Append to `core-docs/pattern-log.md`: one entry per significant propagation event, explaining the trigger and scope.
-- Append to `core-docs/generation-log.md`: one entry per propagation firing (same schema as other skills; `trigger: propagate-language-update`).
+- Append to `core-docs/design-system/pattern-log.md`: one entry per significant propagation event, explaining the trigger and scope.
+- Append to `core-docs/design-system/generation-log.md`: one entry per propagation firing (same schema as other skills; `trigger: propagate-language-update`).
 
 ## Outputs
 

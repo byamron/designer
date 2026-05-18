@@ -104,7 +104,7 @@ Ship behind a feature flag (`DESIGNER_SINGLE_SUBPROCESS=1`) for one dogfood week
 
 ## References
 
-- `core-docs/adr/0001-claude-runtime-primitive.md`
+- `core-docs/architecture/adr/0001-claude-runtime-primitive.md`
 - `core-docs/roadmap.md` Phase 23.E
 - `core-docs/history.md` — "Phase 23.E — per-tab Claude subprocess"
 - This branch's bug-fix PR — adds `Orchestrator::kill` and the orphan-tab filter; both become legacy if this ADR ships.

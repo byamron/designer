@@ -137,7 +137,7 @@ const ART_USER: ArtifactSummary = {
   kind: "message",
   title: "User message",
   summary:
-    "Add a pending-approval card to the workspace thread. Should match the spec in core-docs/spec.md §6.",
+    "Add a pending-approval card to the workspace thread. Should match the spec in core-docs/architecture/spec.md §6.",
   author_role: "user",
   version: 1,
   created_at: minutesAgo(35),
@@ -151,7 +151,7 @@ const ART_AGENT_REPLY: ArtifactSummary = {
   kind: "message",
   title: "Agent reply",
   summary:
-    "Looking at `core-docs/spec.md` now. The approval card is described in §6.2 — block-level chrome, **Grant** / **Deny** actions, and live state via the stream listener.",
+    "Looking at `core-docs/architecture/spec.md` now. The approval card is described in §6.2 — block-level chrome, **Grant** / **Deny** actions, and live state via the stream listener.",
   author_role: "claude",
   version: 1,
   created_at: minutesAgo(33),
@@ -163,7 +163,7 @@ const ART_TOOL_READ: ArtifactSummary = {
   id: "art_tool_1",
   workspace_id: FIXTURE_WORKSPACE_ID,
   kind: "report",
-  title: "Read core-docs/spec.md",
+  title: "Read core-docs/architecture/spec.md",
   summary: "Read 412 lines from the canonical spec.",
   author_role: "claude",
   version: 1,

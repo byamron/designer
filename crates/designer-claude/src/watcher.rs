@@ -1,7 +1,7 @@
 //! Claude Code file watcher.
 //!
 //! **Role in the event pipeline:** secondary feed. Per ADR 0001 and
-//! `core-docs/integration-notes.md`, the lead's `stream-json` output is the
+//! `core-docs/architecture/integration-notes.md`, the lead's `stream-json` output is the
 //! primary lifecycle signal; the watcher catches out-of-band state that the
 //! stream might miss — the initial `config.json` write, inbox deltas from
 //! teammates, and shared task-list edits.

@@ -42,7 +42,7 @@ See `tools/invariants/README.md`.
 
 ### Step 2 — Context-aware checks (on top of the script)
 
-Read `core-docs/design-language.md` and `core-docs/component-manifest.json`. Additional checks:
+Read `core-docs/design-system/design-language.md` and `core-docs/design-system/component-manifest.json`. Additional checks:
 
 - **Token exists.** Every `var(--<token>)` reference resolves to a token defined in `web/tokens.css` (or the design language). Dangling references (`var(--accent-13)` when only 1–12 exist) are violations.
 - **Primitive use over raw div.** A bare `<div style={{ padding: ... }}>` in a component is a reuse-check failure: it should be `<Box padding={...} />`. Flag and suggest.
@@ -55,7 +55,7 @@ Per file, show:
 - Context violations (from step 2).
 - Recommended fix for each: token to use, primitive/archetype to substitute.
 
-If invoked as part of a generation (follow-up to `generate-ui`), write the summary to `core-docs/generation-log.md`. Otherwise stdout only.
+If invoked as part of a generation (follow-up to `generate-ui`), write the summary to `core-docs/design-system/generation-log.md`. Otherwise stdout only.
 
 ## Outputs
 

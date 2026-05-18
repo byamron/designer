@@ -243,7 +243,7 @@ Not a tooltip-only affordance — the text must be present in the DOM for screen
 
 Initial Phase 12.B plan had the Swift helper installed to `$HOME/.designer/bin/designer-foundation-helper`. Industry-conventions pass replaced that with the Chrome/Electron/VS Code pattern: production binary lives inside `Contents/MacOS/designer-foundation-helper` alongside the main executable. Reasons: (1) single `codesign --deep` pass covers both binaries; (2) app + helper version are atomically bound — never skew across updates; (3) hardened-runtime compatible without an explicit entitlement to exec an unsigned sibling; (4) no install step for the user and no pre-flight path-resolution in the updater. Dev keeps the binary at `helpers/foundation/.build/release/designer-foundation-helper` where `swift build` puts it; `AppConfig::default_in_home()` detects `.app`-bundle vs. Cargo-dev context via `std::env::current_exe().ancestors()` and resolves the correct path automatically. Phase 16 packaging will copy the release artifact into the bundle during `cargo tauri build`.
 
-<!-- "Supervisor fails fast" was here. Moved to `core-docs/integration-notes.md` §12.B per UX review: it's a code contract, not a UX decision pattern. -->
+<!-- "Supervisor fails fast" was here. Moved to `core-docs/architecture/integration-notes.md` §12.B per UX review: it's a code contract, not a UX decision pattern. -->
 
 ## 2026-04-21 — Helper events fan-out via broadcast, not event-stream
 

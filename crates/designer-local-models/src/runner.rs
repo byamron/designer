@@ -576,7 +576,7 @@ impl FoundationHelper for SwiftFoundationHelper {
 /// the user as if it were real helper output; 13.F surfaces that consume
 /// `LocalOps::*` results must check `HelperStatusResponse.kind == "fallback"`
 /// and render a skeleton / empty state instead. See
-/// `core-docs/integration-notes.md` §12.B for the forward contract.
+/// `core-docs/architecture/integration-notes.md` §12.B for the forward contract.
 pub struct NullHelper {
     warned: parking_lot::Mutex<bool>,
 }

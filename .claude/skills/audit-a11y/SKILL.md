@@ -89,7 +89,7 @@ Produce a markdown report per file with:
 - Per violation: location (file:line), rule, current value, recommended fix.
 - Summary table: total issues, blocker issues (contrast failures, missing keyboard paths), warning issues (suggestions).
 
-Append a compact summary to `core-docs/generation-log.md` if invoked by the user after a generation event; otherwise don't pollute the log.
+Append a compact summary to `core-docs/design-system/generation-log.md` if invoked by the user after a generation event; otherwise don't pollute the log.
 
 ## Outputs
 

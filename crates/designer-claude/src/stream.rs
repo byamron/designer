@@ -8,7 +8,7 @@
 //! UUID is the v5 namespace, so the same Claude ID within the same workspace
 //! always maps to the same internal ID across restarts.
 //!
-//! Event shapes are captured in `core-docs/integration-notes.md`; fixtures in
+//! Event shapes are captured in `core-docs/architecture/integration-notes.md`; fixtures in
 //! `tests/fixtures/stream_json/` cover every variant this module translates.
 
 use crate::orchestrator::{ActivityState, OrchestratorEvent};
@@ -1926,7 +1926,7 @@ mod tests {
     // ---------- Phase 24 (ADR 0008) ---------------------------------
     //
     // Fixtures for the three §2.2 scenarios in
-    // `core-docs/phase-24-pass-through-chat.md`. Each asserts the
+    // `core-docs/phases/phase-24-pass-through-chat.md`. Each asserts the
     // `AgentTurn*` projection of a coarse stream-json envelope batch.
     // Per-token streaming via `stream_event` lines is layered in by a
     // follow-up consumer; the renderer's per-block accumulator is

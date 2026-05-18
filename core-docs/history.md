@@ -65,7 +65,7 @@ A "sequencing note" blockquote at the top of each affected section is cheaper th
 
 Closed out Phase 24's Build cycle. Three concurrent changes:
 
-1. **A1–A12 acceptance audit.** Added §6.1 "Test-coverage map" to `core-docs/phase-24-pass-through-chat.md` pinning each of the 12 acceptance criteria to the specific test(s) that satisfy it. Eight criteria are covered by unit / fixture tests landed in PRs #119–#133 (the reducer, translator, projection, detector, and humanize-copy layers). A4 (streaming jitter) is documented as a live-only manual test per spec. A5 cross-tab queue auto-dispatch, A9 boot-replay end-to-end, A11 incremental-streaming-then-stabilize, and the §5.6 marker render-altitude tests are explicitly noted as Phase 24H follow-ups — belt-and-suspenders against the contract-level coverage, not load-bearing for the flag flip.
+1. **A1–A12 acceptance audit.** Added §6.1 "Test-coverage map" to `core-docs/phases/phase-24-pass-through-chat.md` pinning each of the 12 acceptance criteria to the specific test(s) that satisfy it. Eight criteria are covered by unit / fixture tests landed in PRs #119–#133 (the reducer, translator, projection, detector, and humanize-copy layers). A4 (streaming jitter) is documented as a live-only manual test per spec. A5 cross-tab queue auto-dispatch, A9 boot-replay end-to-end, A11 incremental-streaming-then-stabilize, and the §5.6 marker render-altitude tests are explicitly noted as Phase 24H follow-ups — belt-and-suspenders against the contract-level coverage, not load-bearing for the flag flip.
 
 2. **`show_chat_v2` flipped default ON.** Changed `apps/desktop/src-tauri/src/settings.rs:118` from `#[serde(default)]` (defaults to `false`) to `#[serde(default = "default_show_chat_v2")]` returning `true`. Existing settings.json files predating the flip de-serialize through the new default; users who explicitly set `"show_chat_v2": false` keep their override. Doc-comment rewritten to reflect the new default, the audit citation, and the chat-v1-arms cleanup status.
 
@@ -73,7 +73,7 @@ Closed out Phase 24's Build cycle. Three concurrent changes:
 
 **Why:**
 
-Phase 24's workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1) ends with step 13 — *"Migrate tests — fixture-based stream-translator tests, frontend chat-thread tests, integration tests for A1–A12."* The contract-level test work was already complete across PRs #119–#133; what step 13 actually needed was an audit confirming each criterion has a covering test, plus the flag flip that lets the new chat surface become the default dogfood path.
+Phase 24's workspace sequence (`core-docs/phases/phase-24-pass-through-chat.md` §11.1) ends with step 13 — *"Migrate tests — fixture-based stream-translator tests, frontend chat-thread tests, integration tests for A1–A12."* The contract-level test work was already complete across PRs #119–#133; what step 13 actually needed was an audit confirming each criterion has a covering test, plus the flag flip that lets the new chat surface become the default dogfood path.
 
 The release-per-phase convention closes a real friction the previous "release per Harden" pattern produced: under the old convention, Phase 24 Build's eight months of feature work (PRs #119–#133, behind a flag default OFF) would have continued sitting on `main` unreleased until Phase 24H Harden completed. Dogfood was already half-using the new path via manual settings.json overrides — a clear signal that the convention was lagging the actual workflow.
 
@@ -126,7 +126,7 @@ Backend, `apps/desktop/src-tauri/src/core_agents.rs`: updated `humanize_dispatch
 
 **Why:**
 
-Step 12 of the Phase 24 workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1): *"Error-state copy mapping (§5.6) implemented in `WorkspaceThread` and `ComposeDock` error surfaces."* Spec §5.6 enumerates six error states; pre-Step-12 the chat-v2 surfaces silently dropped four of them on the floor: `stop_reason: error_during_execution`, `stop_reason: max_tokens`, approval-expired, and subprocess-crash-restart-failed all had no user-visible explanation. The existing tool-error path (`AgentToolResult { is_error: true }` → ToolUseBlock prefix) and cost-cap-reached path (`describeIpcError` → cost_cap_exceeded branch) were already wired and matched spec close-enough to leave untouched.
+Step 12 of the Phase 24 workspace sequence (`core-docs/phases/phase-24-pass-through-chat.md` §11.1): *"Error-state copy mapping (§5.6) implemented in `WorkspaceThread` and `ComposeDock` error surfaces."* Spec §5.6 enumerates six error states; pre-Step-12 the chat-v2 surfaces silently dropped four of them on the floor: `stop_reason: error_during_execution`, `stop_reason: max_tokens`, approval-expired, and subprocess-crash-restart-failed all had no user-visible explanation. The existing tool-error path (`AgentToolResult { is_error: true }` → ToolUseBlock prefix) and cost-cap-reached path (`describeIpcError` → cost_cap_exceeded branch) were already wired and matched spec close-enough to leave untouched.
 
 **Design decisions:**
 
@@ -187,7 +187,7 @@ Added 3 chat-v2 tests + 6 helper-module tests:
 
 **Why:**
 
-Step 11 of the Phase 24 workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1): *"Update detectors in `crates/designer-learn/src/detectors/` to recognize both shapes (§4.1)."* Under chat-v2, the translator no longer emits `ArtifactCreated{kind:Report}` for tool calls — the new family is `AgentContentBlockStarted{ToolUse}` + `AgentContentBlockDelta` + `AgentContentBlockEnded` + `AgentToolResult` per ADR 0008. Without this step, `multi_step_tool_sequence` would silently produce zero findings once `show_chat_v2` defaults ON.
+Step 11 of the Phase 24 workspace sequence (`core-docs/phases/phase-24-pass-through-chat.md` §11.1): *"Update detectors in `crates/designer-learn/src/detectors/` to recognize both shapes (§4.1)."* Under chat-v2, the translator no longer emits `ArtifactCreated{kind:Report}` for tool calls — the new family is `AgentContentBlockStarted{ToolUse}` + `AgentContentBlockDelta` + `AgentContentBlockEnded` + `AgentToolResult` per ADR 0008. Without this step, `multi_step_tool_sequence` would silently produce zero findings once `show_chat_v2` defaults ON.
 
 **Design decisions:**
 
@@ -244,7 +244,7 @@ A latent bug surfaced during testing: the `phase24Open` selector returned a fres
 
 **Why:**
 
-Step 10 of the Phase 24 workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1): *"Wire activity indicator as render-time observable (§5.2). Preserve elapsed-time chip."* The render-time computation (subprocess running AND turn open, no wall-clock recency check) was already wired in PR #120. The two remaining items — fade on AgentTurnEnded and monochrome pulse — are spec-mandated UX-blocker fixes that need to land before `show_chat_v2` flips ON.
+Step 10 of the Phase 24 workspace sequence (`core-docs/phases/phase-24-pass-through-chat.md` §11.1): *"Wire activity indicator as render-time observable (§5.2). Preserve elapsed-time chip."* The render-time computation (subprocess running AND turn open, no wall-clock recency check) was already wired in PR #120. The two remaining items — fade on AgentTurnEnded and monochrome pulse — are spec-mandated UX-blocker fixes that need to land before `show_chat_v2` flips ON.
 
 **Design decisions:**
 
@@ -284,7 +284,7 @@ Tightened the `AppCore::post_message` doc-comment with an explicit "user-only di
 
 **Why:**
 
-Step 4 of the Phase 24 workspace sequence (`core-docs/phase-24-pass-through-chat.md` §11.1): "Update `cmd_post_message` to dispatch user messages with `MessagePosted{author: User}` only. Reader handles agent side via `AgentTurn*`." At the code level this was already true — the user post path emits only user events; the agent side flows through the orchestrator broadcast → coalescer (chat-v1) / `AgentTurn*` bridge (chat-v2) in `spawn_message_coalescer`. The remaining work was contract-pinning: lock the invariant with a test so a future refactor that accidentally re-couples agent emission to the user post path fails CI, and surface the contract in the doc-comment so future readers don't need to triangulate from the broadcast bridge code.
+Step 4 of the Phase 24 workspace sequence (`core-docs/phases/phase-24-pass-through-chat.md` §11.1): "Update `cmd_post_message` to dispatch user messages with `MessagePosted{author: User}` only. Reader handles agent side via `AgentTurn*`." At the code level this was already true — the user post path emits only user events; the agent side flows through the orchestrator broadcast → coalescer (chat-v1) / `AgentTurn*` bridge (chat-v2) in `spawn_message_coalescer`. The remaining work was contract-pinning: lock the invariant with a test so a future refactor that accidentally re-couples agent emission to the user post path fails CI, and surface the contract in the doc-comment so future readers don't need to triangulate from the broadcast bridge code.
 
 **Design decisions:**
 
@@ -354,7 +354,7 @@ The next agent picking up Phase 24 was about to re-derive state from PR commit m
 
 Phase 1A of taste-loop consolidation. After PR #123 propagated cycles 1–5 design-language + product-decision content into Designer's canonical, this PR moves the loop's per-project substrate into Designer itself so future cycles run natively here instead of in the Mini × Taste monorepo.
 
-Vendors four skills (`drain-feedback`, `distill-feedback`, `uncommon-care`, `taste-staff-review`), `core-docs/foundations.md`, and `tools/feedback-status.mjs`. Migrates the cycle ledger (`core-docs/taste/feedback/`), tensions, and reference captures. Relocates the variant showcase to `mockups/taste-showcase/` and rewires it to render against Designer's actual `packages/ui/` tokens instead of the monorepo fixtures.
+Vendors four skills (`drain-feedback`, `distill-feedback`, `uncommon-care`, `taste-staff-review`), `core-docs/design-system/foundations.md`, and `tools/feedback-status.mjs`. Migrates the cycle ledger (`core-docs/taste/feedback/`), tensions, and reference captures. Relocates the variant showcase to `mockups/taste-showcase/` and rewires it to render against Designer's actual `packages/ui/` tokens instead of the monorepo fixtures.
 
 **Design decisions:**
 
@@ -566,14 +566,14 @@ Staff-review pre-merge spot-check caught a bug worth memory-saving: a selector r
 
 Restructures the active roadmap around a new fifth Product Principle ("Shipped state is trustworthy") with two coupled mechanisms: **Build/Harden alternation** in the active sequence, and a **parking lot** that defers (does not delete) ambition with friction-driven primary triggers + time-based fallbacks.
 
-- **`core-docs/adr/0009-trustworthy-shipping.md` (NEW)** — principle, alternation rules, parking-lot mechanism, hidden-but-emitting events convention, verification (checked-in golden-path screencast + Playwright binding at every release tag).
+- **`core-docs/architecture/adr/0009-trustworthy-shipping.md` (NEW)** — principle, alternation rules, parking-lot mechanism, hidden-but-emitting events convention, verification (checked-in golden-path screencast + Playwright binding at every release tag).
 - **`core-docs/parking-lot.md` (NEW)** — index + ten parked entries (Phase 15.H, 17, 18, 19, 20, 21.A2 remaining detectors, Phase 22 unshipped sub-phases, 23.E.f3 memory chip, `core_*/commands_*` reorg, macOS Playwright CI runner). Phase 22 entry parks only 22.C/D/E/H/M/N/N.1; 22.A/B/G/I shipped and stay.
 - **CLAUDE.md** — fifth Product Principle; fifth Quality Bar item ("Trustworthy"); Build/Harden alternation + parking-lot reference in How to Work; parking-lot row in Core Documents.
-- **`core-docs/spec.md`** — Decision 64 in the Decisions Log.
+- **`core-docs/architecture/spec.md`** — Decision 64 in the Decisions Log.
 - **`core-docs/roadmap.md`** — active-sequence callout at top (Phase 24 → 24H → 24I → 25 → 25H → 26 → 26H); detail sections for the seven active phases inserted before Milestones; Parked callouts on 15.H / 17 / 18 / 19 / 20 / 21.A2 / 22.
 - **`core-docs/plan.md`** — rewrite (517 → 43 lines). Pre-rewrite content preserved in `core-docs/history.md`.
 - **`core-docs/history.md`** — 22 PR entries backfilled (#95, #98, #99, #100–#119) with provenance preambles per the convention PR #100 established. Net +431 lines of preserved context.
-- **`core-docs/generation-log.md`** — process-change entry per Mini procedure.
+- **`core-docs/design-system/generation-log.md`** — process-change entry per Mini procedure.
 
 **Why:**
 
@@ -601,7 +601,7 @@ Pure docs change; no code paths touched; no CI gates affected. Net +608 / -504 l
 **Branch:** phase-24-chat-pass-through
 **Commit:** PR #119 (54bae6a5) — same PR as Step 1 above; this entry covers the subsequent commits on the branch (translator + bridge) that the original Step 1 entry did not document.
 
-> _Backfilled 2026-05-05 from PR #119 commit history. Source-of-truth for the design is `core-docs/phase-24-pass-through-chat.md` + ADR 0008._
+> _Backfilled 2026-05-05 from PR #119 commit history. Source-of-truth for the design is `core-docs/phases/phase-24-pass-through-chat.md` + ADR 0008._
 
 **What was done:**
 
@@ -658,7 +658,7 @@ Staff-engineer review caught that the findings doc's "Implementation sketch" cla
 
 **What was done:**
 
-Diagnoses the chat plumbing as fighting Claude Code's runtime and proposes a structural subtraction pass: drop the 120 ms coalescer, the `MessagePosted`/`ArtifactProduced` split, synthesized activity state, and custom session-id minting. Aligns chat-domain events 1:1 with Anthropic Messages API content-block model. Keeps approvals, cost extraction, file-system artifact extraction. Send-while-streaming becomes a queue, not an interleave. ESC interrupts. Spec landed at `core-docs/phase-24-pass-through-chat.md`; ADR 0008 captures the contract resolution.
+Diagnoses the chat plumbing as fighting Claude Code's runtime and proposes a structural subtraction pass: drop the 120 ms coalescer, the `MessagePosted`/`ArtifactProduced` split, synthesized activity state, and custom session-id minting. Aligns chat-domain events 1:1 with Anthropic Messages API content-block model. Keeps approvals, cost extraction, file-system artifact extraction. Send-while-streaming becomes a queue, not an interleave. ESC interrupts. Spec landed at `core-docs/phases/phase-24-pass-through-chat.md`; ADR 0008 captures the contract resolution.
 
 **Why:**
 
@@ -692,7 +692,7 @@ Interim fix. Phase 24 removes the artifact-transform pipeline for chat entirely;
 **Branch:** phase-22i-shipping-history
 **Commit:** PR #114 (d9f6f518)
 
-> _Backfilled 2026-05-05 from PR #114 commit message + the existing `core-docs/generation-log.md` entry for 22.I (which captures the design-engineering detail)._
+> _Backfilled 2026-05-05 from PR #114 commit message + the existing `core-docs/design-system/generation-log.md` entry for 22.I (which captures the design-engineering detail)._
 
 **What was done:**
 
@@ -1034,11 +1034,11 @@ Re-key the orchestrator's teams map and session-id derivation by `(workspace_id,
 
 **What was done:**
 
-Additively extended `crates/designer-core` with the chat-domain event vocabulary defined in ADR 0008 (`core-docs/adr/0008-phase-24-event-vocabulary.md`). Six new `EventPayload` variants — `AgentTurnStarted`, `AgentContentBlockStarted`, `AgentContentBlockDelta`, `AgentContentBlockEnded`, `AgentToolResult`, `AgentTurnEnded` — projecting Claude Code's stream-json content-block model 1:1 onto Designer's event log. Five supporting types in `domain.rs`: `ClaudeMessageId`, `ClaudeSessionId` (transparent newtypes around the strings Claude emits — Designer does not mint either), `AgentContentBlockKind` (Text / ToolUse / Thinking), `AgentStopReason` (EndTurn / ToolUse / MaxTokens / Interrupted / Error), `TokenUsage`. `CostRecorded` gained additive `tab_id` / `turn_id` fields so per-turn cost can attribute correctly when the new emission path lights up. `EventEnvelope.version` bumped 2 → 3. Round-trip serde tests + a legacy `cost_recorded` decode test pin the additive contract.
+Additively extended `crates/designer-core` with the chat-domain event vocabulary defined in ADR 0008 (`core-docs/architecture/adr/0008-phase-24-event-vocabulary.md`). Six new `EventPayload` variants — `AgentTurnStarted`, `AgentContentBlockStarted`, `AgentContentBlockDelta`, `AgentContentBlockEnded`, `AgentToolResult`, `AgentTurnEnded` — projecting Claude Code's stream-json content-block model 1:1 onto Designer's event log. Five supporting types in `domain.rs`: `ClaudeMessageId`, `ClaudeSessionId` (transparent newtypes around the strings Claude emits — Designer does not mint either), `AgentContentBlockKind` (Text / ToolUse / Thinking), `AgentStopReason` (EndTurn / ToolUse / MaxTokens / Interrupted / Error), `TokenUsage`. `CostRecorded` gained additive `tab_id` / `turn_id` fields so per-turn cost can attribute correctly when the new emission path lights up. `EventEnvelope.version` bumped 2 → 3. Round-trip serde tests + a legacy `cost_recorded` decode test pin the additive contract.
 
 **Why:**
 
-Foundation step for the architectural chat pass-through pass (`core-docs/phase-24-pass-through-chat.md`). Phase 24 replaces the bespoke `MessagePosted` + `ArtifactProduced{kind:Report}` two-event split + 120 ms coalescer + synthesized `Idle/Working` state with a typed projection of Claude Code's stream-json — every subsequent step (translator rewrite, coalescer deletion, renderer rewrite) needs these variants to exist before it can emit them.
+Foundation step for the architectural chat pass-through pass (`core-docs/phases/phase-24-pass-through-chat.md`). Phase 24 replaces the bespoke `MessagePosted` + `ArtifactProduced{kind:Report}` two-event split + 120 ms coalescer + synthesized `Idle/Working` state with a typed projection of Claude Code's stream-json — every subsequent step (translator rewrite, coalescer deletion, renderer rewrite) needs these variants to exist before it can emit them.
 
 **Design decisions:**
 
@@ -1078,7 +1078,7 @@ Foundation step for the architectural chat pass-through pass (`core-docs/phase-2
 
 **Why:**
 
-Pass-through chat (PR #63 / DP-B) had compact tool-use rows but no way to inspect what `Read core-docs/spec.md` actually returned, so a manager couldn't audit what the agent saw. The friction was filed within hours of dogfooding the post-DP-B chat surface. Phase 23.C as scoped in `roadmap.md` was a small frontend half-day; the trail grew because three rounds of staff-perspective review surfaced issues progressively (each round fixed earlier-round blockers, then found new ones at the next layer of polish).
+Pass-through chat (PR #63 / DP-B) had compact tool-use rows but no way to inspect what `Read core-docs/architecture/spec.md` actually returned, so a manager couldn't audit what the agent saw. The friction was filed within hours of dogfooding the post-DP-B chat surface. Phase 23.C as scoped in `roadmap.md` was a small frontend half-day; the trail grew because three rounds of staff-perspective review surfaced issues progressively (each round fixed earlier-round blockers, then found new ones at the next layer of polish).
 
 **Design decisions:**
 
@@ -2160,7 +2160,7 @@ Designer had been terminal-build-only — every dogfood session required `cargo 
 
 **What was done:**
 
-Folded the home-page spec into the roadmap as **Phase 22** — a three-surface project Home tab (Recent Reports / Roadmap / Designer Noticed). Pure roadmap/spec/plan, no code. Decomposed into 8 independently shippable sub-phases (22.G color, 22.B reports, 22.A roadmap canvas, 22.I track completion, 22.D edit & proposal, 22.E adjacent attention, 22.H click-into-agent, 22.C origination). 23 new entries (40–62) in `core-docs/spec.md`. 37 acceptance tests gated per-sub-phase.
+Folded the home-page spec into the roadmap as **Phase 22** — a three-surface project Home tab (Recent Reports / Roadmap / Designer Noticed). Pure roadmap/spec/plan, no code. Decomposed into 8 independently shippable sub-phases (22.G color, 22.B reports, 22.A roadmap canvas, 22.I track completion, 22.D edit & proposal, 22.E adjacent attention, 22.H click-into-agent, 22.C origination). 23 new entries (40–62) in `core-docs/architecture/spec.md`. 37 acceptance tests gated per-sub-phase.
 
 **Why:**
 
@@ -2203,7 +2203,7 @@ Project Home was a placeholder pane — no clear axis between "what shipped," "w
 
 **What was done:**
 
-User reported 8 issues running Designer for the first time. Branch ships a focused fix per issue plus a conversational-polish pass. 107 tests pass (was 60); production build clean; Mini design invariants clean on every touched file. Audit, root causes, fix plan, and updated test taxonomy live in `core-docs/chat-ui-audit.md`.
+User reported 8 issues running Designer for the first time. Branch ships a focused fix per issue plus a conversational-polish pass. 107 tests pass (was 60); production build clean; Mini design invariants clean on every touched file. Audit, root causes, fix plan, and updated test taxonomy live in `core-docs/phases/chat-ui-audit.md`.
 
 **Bug fixes (14):** re-entry guard on tab open; visible active/inactive tab font-weight + opaque-fill delta; project-home contract test (no `role=tab` when on home); `data-author` wired on message blocks (user bubble + agent flat distinct); `ToolCallGroup` coalesces consecutive `report` artifacts into one disclosure; sticky-scroll thread + jump-to-latest pill; activity indicator with idle/submitting/stuck states + 15s stuck timeout; global ⌘T shortcut wired; tab titles use `max + 1` so closes don't produce duplicate "Tab 3"; closing a tab moves focus to the next tab or new-tab button; send button disables + `aria-busy` while in flight; compose form (not textarea) carries `aria-busy`; `aria-relevant="additions"` on the live region.
 
@@ -2246,7 +2246,7 @@ First-run user testing surfaced 8 issues that broke the "this feels like real-ti
 
 Audits-only scope of Phase 16.S — adds blocking supply-chain CI gates without taking on signing, SLSA L3 provenance, updater dual-key, or `cargo-vet` calibration (those are 16.R / follow-up 16.S work).
 
-`.github/workflows/supply-chain.yml` runs five jobs on PRs to `main`, pushes to `main`, daily 07:17 UTC drift schedule, and `workflow_dispatch`: `cargo audit` (HIGH/CRITICAL block, MEDIUM/LOW + unmaintained warn), `cargo deny check`, CycloneDX SBOM (one BOM per workspace member, uploaded as artifact), `npm audit --omit=dev --audit-level=high`, and `lockfile-lint`. A `drift-issue` job opens or updates a stable-titled tracking Issue when the daily cron run fails. `deny.toml` at workspace root pins the policy: macOS-only targets, license allowlist matching the resolved tree, GPL/AGPL/LGPL excluded. `core-docs/security.md` §16.S new "Supply-chain CI policy" subsection documents the severity gate and exemption discipline.
+`.github/workflows/supply-chain.yml` runs five jobs on PRs to `main`, pushes to `main`, daily 07:17 UTC drift schedule, and `workflow_dispatch`: `cargo audit` (HIGH/CRITICAL block, MEDIUM/LOW + unmaintained warn), `cargo deny check`, CycloneDX SBOM (one BOM per workspace member, uploaded as artifact), `npm audit --omit=dev --audit-level=high`, and `lockfile-lint`. A `drift-issue` job opens or updates a stable-titled tracking Issue when the daily cron run fails. `deny.toml` at workspace root pins the policy: macOS-only targets, license allowlist matching the resolved tree, GPL/AGPL/LGPL excluded. `core-docs/architecture/security.md` §16.S new "Supply-chain CI policy" subsection documents the severity gate and exemption discipline.
 
 **Why:**
 
@@ -3514,8 +3514,8 @@ The flat three-pane register (sidebars, main, spine all on the same background s
    - Full workspace: 44 tests pass; `cargo clippy --workspace --all-targets -- -D warnings` clean.
 
 3. **Docs.**
-   - `core-docs/integration-notes.md` — source-of-truth for Claude Code 2.1.117's real surface: CLI flags, `~/.claude/` layout, config/inbox/task schemas, stream-json event types with representative shapes, rate-limit event structure, Conductor comparison, known-limitations catalog.
-   - `core-docs/adr/0001-claude-runtime-primitive.md` — first ADR. Native teams primitive adopted; spike resolved (option (a) — non-tty in-process works cleanly); alternatives rejected; reversal triggers documented.
+   - `core-docs/architecture/integration-notes.md` — source-of-truth for Claude Code 2.1.117's real surface: CLI flags, `~/.claude/` layout, config/inbox/task schemas, stream-json event types with representative shapes, rate-limit event structure, Conductor comparison, known-limitations catalog.
+   - `core-docs/architecture/adr/0001-claude-runtime-primitive.md` — first ADR. Native teams primitive adopted; spike resolved (option (a) — non-tty in-process works cleanly); alternatives rejected; reversal triggers documented.
    - `.claude/agents/track-lead.md` + `.claude/agents/teammate-default.md` — committed minimum subagent definitions.
    - `.claude/prompts/workspace-lead.md` — reserved stub (per D4; wired in Phase 13.D).
 
@@ -3641,7 +3641,7 @@ The three-lens plan caught the right strategic calls but the first-pass implemen
 **Commit:** pending
 
 **What was done:**
-Reviewed Phase 12.B through three lenses (staff UX designer, staff engineer, staff designer engineer), captured the plan at `.context/phase-12b-plan.md` with an optimization pass applied, then implemented the backend half. Shipped: (1) Swift helper polish — `--version` flag, `unknown-request` handling, `localizedDescription`-wrapped Foundation-Models errors. (2) `HelperSupervisor` — async with 5-step exponential backoff `[250, 500, 1000, 2000, 5000]` ms, permanent demotion to `NullHelper` after 5 consecutive failures, 2 KB bounded stderr ring drained by a background task, fail-fast on in-flight failures (no UI blocking), configurable `HelperTuning` for tests. (3) `AppConfig::helper_binary_path` with priority-ordered resolution: `DESIGNER_HELPER_BINARY` env → `.app` bundle sibling in `Contents/MacOS/` → Cargo workspace dev path. `DESIGNER_DISABLE_HELPER=1` kill-switch. (4) `select_helper()` with structured `FallbackReason` variants, 750ms boot probe. (5) `AppCore.local_ops: Arc<dyn LocalOps>` wired at boot — `FoundationLocalOps<H: ?Sized>` relaxed for trait objects. (6) `cmd_helper_status` IPC + flat `HelperStatusResponse` DTO in `designer-ipc`. (7) Stub helper at `crates/designer-local-models/src/bin/stub_helper.rs` — CLI-arg driven, parallel-test-safe, modes: `ok`, `slow_ping`, `die_after_ping`, `always_die`, `panic_to_stderr`, `bad_frame`. (8) 6 new `runner_boot.rs` integration tests + 6 `real_helper.rs` tests (env-gated silent skip). (9) `scripts/build-helper.sh` — swift build + smoke `--version` check. (10) Docs: new `core-docs/integration-notes.md` §12.B, `apps/desktop/PACKAGING.md` helper section with Phase-16 `externalBin` plan, `plan.md` / `pattern-log.md` / `generation-log.md` updates. Zero UI changes.
+Reviewed Phase 12.B through three lenses (staff UX designer, staff engineer, staff designer engineer), captured the plan at `.context/phase-12b-plan.md` with an optimization pass applied, then implemented the backend half. Shipped: (1) Swift helper polish — `--version` flag, `unknown-request` handling, `localizedDescription`-wrapped Foundation-Models errors. (2) `HelperSupervisor` — async with 5-step exponential backoff `[250, 500, 1000, 2000, 5000]` ms, permanent demotion to `NullHelper` after 5 consecutive failures, 2 KB bounded stderr ring drained by a background task, fail-fast on in-flight failures (no UI blocking), configurable `HelperTuning` for tests. (3) `AppConfig::helper_binary_path` with priority-ordered resolution: `DESIGNER_HELPER_BINARY` env → `.app` bundle sibling in `Contents/MacOS/` → Cargo workspace dev path. `DESIGNER_DISABLE_HELPER=1` kill-switch. (4) `select_helper()` with structured `FallbackReason` variants, 750ms boot probe. (5) `AppCore.local_ops: Arc<dyn LocalOps>` wired at boot — `FoundationLocalOps<H: ?Sized>` relaxed for trait objects. (6) `cmd_helper_status` IPC + flat `HelperStatusResponse` DTO in `designer-ipc`. (7) Stub helper at `crates/designer-local-models/src/bin/stub_helper.rs` — CLI-arg driven, parallel-test-safe, modes: `ok`, `slow_ping`, `die_after_ping`, `always_die`, `panic_to_stderr`, `bad_frame`. (8) 6 new `runner_boot.rs` integration tests + 6 `real_helper.rs` tests (env-gated silent skip). (9) `scripts/build-helper.sh` — swift build + smoke `--version` check. (10) Docs: new `core-docs/architecture/integration-notes.md` §12.B, `apps/desktop/PACKAGING.md` helper section with Phase-16 `externalBin` plan, `plan.md` / `pattern-log.md` / `generation-log.md` updates. Zero UI changes.
 
 **Why:**
 Phase 12.B blocks 13.F (local-model surfaces). Today's work landed everything that doesn't need the Apple Intelligence hardware — the supervisor, config wiring, fallback diagnostics, IPC surface, and a stub-based test harness that exercises the supervisor on any host. The final validation (run on an AI-capable Mac, confirm the SDK call shape) is a manual follow-up that updates `integration-notes.md` with observed deltas.
@@ -3777,7 +3777,7 @@ Phase 12.C was the single gate unblocking every track in Phase 13 — the fronte
 **Commit:** pending
 
 **What was done:**
-Installed Mini design system at `packages/ui/` via Mini's `install.sh`. Installed 6 design-system skills at `.claude/skills/` (`elicit-design-language`, `generate-ui`, `check-component-reuse`, `enforce-tokens`, `audit-a11y`, `propagate-language-update`), the invariant runner at `tools/invariants/`, and Mini templates at `templates/`. Ran greenfield elicitation against the prior `design-language.draft.md`; produced the final `core-docs/design-language.md` with all 10 axioms set and the draft's Core Principles / Depth Model / Review Checklist carried through. Seeded `core-docs/component-manifest.json`, `core-docs/pattern-log.md`, and `core-docs/generation-log.md`. Appended a marker-delimited Mini section to `CLAUDE.md` and extended the Core Documents table to list the new docs. Updated `packages/ui/styles/tokens.css` to reflect elicited values: fonts Geist + Geist Mono, radii 3/6/10/14, gray→mauve alias, accent→gray monochrome binding (dropped indigo + crimson imports). Synced Mini pin to `83df0b2` (latest; adds worktree-safe install check).
+Installed Mini design system at `packages/ui/` via Mini's `install.sh`. Installed 6 design-system skills at `.claude/skills/` (`elicit-design-language`, `generate-ui`, `check-component-reuse`, `enforce-tokens`, `audit-a11y`, `propagate-language-update`), the invariant runner at `tools/invariants/`, and Mini templates at `templates/`. Ran greenfield elicitation against the prior `design-language.draft.md`; produced the final `core-docs/design-system/design-language.md` with all 10 axioms set and the draft's Core Principles / Depth Model / Review Checklist carried through. Seeded `core-docs/design-system/component-manifest.json`, `core-docs/design-system/pattern-log.md`, and `core-docs/design-system/generation-log.md`. Appended a marker-delimited Mini section to `CLAUDE.md` and extended the Core Documents table to list the new docs. Updated `packages/ui/styles/tokens.css` to reflect elicited values: fonts Geist + Geist Mono, radii 3/6/10/14, gray→mauve alias, accent→gray monochrome binding (dropped indigo + crimson imports). Synced Mini pin to `83df0b2` (latest; adds worktree-safe install check).
 
 **Why:**
 Designer's design-language scaffolding needed to become real before any surface ships. Mini is the intended substrate; installing it now — before Phase 8 frontend wiring — means the tokens, axioms, skills, and invariants are ready and the design decisions are made when real UI work starts. Elicitation converts the draft's prose principles into Mini's axiom → token cascade.
@@ -3814,7 +3814,7 @@ Designer's design-language scaffolding needed to become real before any surface 
 **Commit:** pending
 
 **What was done:**
-Moved the repo from a single placeholder `SPEC.md` (policy and compliance framing only) to a full product specification plus the `core-docs/` template structure. `SPEC.md` content is now integrated into `core-docs/spec.md` alongside vision, product architecture, UX model, agent model, tech stack, decisions log, and open questions. Added `CLAUDE.md` at repo root. Populated `core-docs/plan.md` with the build roadmap, `core-docs/feedback.md` with captured user direction, `core-docs/workflow.md` as the session guide, and `core-docs/design-language.md` as scaffolding for future design work.
+Moved the repo from a single placeholder `SPEC.md` (policy and compliance framing only) to a full product specification plus the `core-docs/` template structure. `SPEC.md` content is now integrated into `core-docs/architecture/spec.md` alongside vision, product architecture, UX model, agent model, tech stack, decisions log, and open questions. Added `CLAUDE.md` at repo root. Populated `core-docs/plan.md` with the build roadmap, `core-docs/feedback.md` with captured user direction, `core-docs/workflow.md` as the session guide, and `core-docs/design-system/design-language.md` as scaffolding for future design work.
 
 **Why:**
 The prior `SPEC.md` covered only the Anthropic compliance model — enough to avoid bad patterns, not enough to build against. A week of collaborative spec'ing produced 28 architectural and product decisions. The project needed a durable home for those decisions plus the conventional `core-docs/` shape so future agents can load context predictably.

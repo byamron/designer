@@ -222,7 +222,7 @@ Both rows are clickable (`role="menuitem"` inside `role="menu"`); each row shows
 
 **Feature flag.** Stop-and-send is gated behind `show_compose_stop_and_send` (default ON when `show_chat_v2` is on, but available as a kill-switch if the alternate flow surfaces issues during dogfood). Queue ships unconditionally inside the chat-v2 surface — it's the must-have default. The flag exists so we can ship Phase 24 with queue and disable stop-and-send if the interrupt round-trip latency is poor against real claude.
 
-**Implementation note.** The hover menu reuses or introduces a small `HoverMenu` Mini primitive (TBD: check `core-docs/component-manifest.json` for an existing fit before generating). The menu mounts in a Portal anchored to the Send button so it can render over the activity row without z-index gymnastics. Click-outside detection uses the existing focus-trap utility from `lib/modal.ts` (already used by `RepoLinkModal`).
+**Implementation note.** The hover menu reuses or introduces a small `HoverMenu` Mini primitive (TBD: check `core-docs/design-system/component-manifest.json` for an existing fit before generating). The menu mounts in a Portal anchored to the Send button so it can render over the activity row without z-index gymnastics. Click-outside detection uses the existing focus-trap utility from `lib/modal.ts` (already used by `RepoLinkModal`).
 
 **Out of scope for this step:** mobile/touch (Phase 18 parking lot — long-press would replace hover); the §5.4.2 SIGINT mechanism upgrade (orthogonal — stop-and-send works against today's `control_request` primitive and will benefit from §5.4.2 transparently when that lands).
 
@@ -237,7 +237,7 @@ ESC is overloaded. Resolution order, top to bottom — first match consumes the 
 5. If a turn is currently open in the focused tab (`AgentTurnStarted` without matching `AgentTurnEnded`), send `SIGINT` to the subprocess (subject to the verification in §11 prerequisites).
 6. Otherwise, no-op.
 
-Documented in `core-docs/pattern-log.md` so future ESC-consuming surfaces know the chain.
+Documented in `core-docs/design-system/pattern-log.md` so future ESC-consuming surfaces know the chain.
 
 ### 5.4.2 Interrupt UX
 
@@ -420,9 +420,9 @@ This is a single workspace, not parallelizable. Every layer touches every other.
 
 ### 11.2 Procedural artifacts (Mini)
 
-- `core-docs/component-manifest.json` — mark `ToolCallGroup`, `MessageBlock` (agent variant), `ArtifactReferenceBlock` (tool_use variant) as `retired` with comment linking Phase 24. Add `ChatStreamRenderer` (or whatever the renderer ends up named), `QueuedMessageChip`, `InterruptedMarker`. Update `BlockRenderers` purpose field.
-- `core-docs/generation-log.md` — append entry per CLAUDE.md procedure step 7.
-- `core-docs/pattern-log.md` — entries for D1 (coalescer drop), D3 (observable activity), D5 (model-switch resume), D6 (queue not interleave). Each entry documents the rationale that won't be obvious from the diff.
+- `core-docs/design-system/component-manifest.json` — mark `ToolCallGroup`, `MessageBlock` (agent variant), `ArtifactReferenceBlock` (tool_use variant) as `retired` with comment linking Phase 24. Add `ChatStreamRenderer` (or whatever the renderer ends up named), `QueuedMessageChip`, `InterruptedMarker`. Update `BlockRenderers` purpose field.
+- `core-docs/design-system/generation-log.md` — append entry per CLAUDE.md procedure step 7.
+- `core-docs/design-system/pattern-log.md` — entries for D1 (coalescer drop), D3 (observable activity), D5 (model-switch resume), D6 (queue not interleave). Each entry documents the rationale that won't be obvious from the diff.
 
 ### 11.3 Quality gates before PR
 

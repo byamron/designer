@@ -1,6 +1,6 @@
 # Mini — platform defaults
 
-> What ships in `tokens.css`, `axioms.css`, and the primitive/archetype CSS — and *why*. Mini is headless in principle (plan §3 principle 1), but shipping default values is itself an opinion. This file records those defaults honestly. Consumers override freely via `core-docs/design-language.md` in their project.
+> What ships in `tokens.css`, `axioms.css`, and the primitive/archetype CSS — and *why*. Mini is headless in principle (plan §3 principle 1), but shipping default values is itself an opinion. This file records those defaults honestly. Consumers override freely via `core-docs/design-system/design-language.md` in their project.
 
 ## Why document defaults
 
@@ -8,7 +8,7 @@
 - **Transparency.** An undocumented default is still an opinion — adopters should know what they're getting.
 - **Propagation.** When a default changes, this file is the change log; consumers can diff to decide whether to inherit.
 
-These defaults are *not* a design language. `core-docs/design-language.md` is the per-project design language. Mini-as-a-repo has no product surface yet, so no design language of its own — but the defaults below will seed one when the docs site and `archetype-matrix` fixture come online.
+These defaults are *not* a design language. `core-docs/design-system/design-language.md` is the per-project design language. Mini-as-a-repo has no product surface yet, so no design language of its own — but the defaults below will seed one when the docs site and `archetype-matrix` fixture come online.
 
 ## Per-token rationale
 
@@ -59,7 +59,7 @@ These defaults are *not* a design language. `core-docs/design-language.md` is th
 
 ## Overriding
 
-In your project, declare axiom values in `core-docs/design-language.md`, then rebind in a layered `tokens.css` override:
+In your project, declare axiom values in `core-docs/design-system/design-language.md`, then rebind in a layered `tokens.css` override:
 
 ```css
 /* your-project/styles/overrides.css — loaded after mini's tokens.css */

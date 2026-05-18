@@ -310,7 +310,7 @@ addressing the reader, rewrite.
 - **Spec:** `core-docs/roadmap.md` §"Phase 21.A — Frontloadable
   detectors". Frozen contracts are §"Locked contracts (frozen by
   21.A1)". Lane 0 ADR is §"Lane 0 — ADR addendum".
-- **ADR:** `core-docs/adr/0002-v1-scoping-decisions.md` — §"Addendum
+- **ADR:** `core-docs/architecture/adr/0002-v1-scoping-decisions.md` — §"Addendum
   (2026-04-26)" governs additive `EventPayload` variants.
 - **Track 13.K (Friction):** shares the `Anchor` enum and the
   Settings IA section ("Activity → Friction" + "Activity → Designer

@@ -45,7 +45,7 @@ Everything else (writes, arbitrary bash, publishes, deploys, merges) is **denied
 
 **Applies to:** 13.D (default), 13.G (replaces default).
 
-**Status (2026-04-25, PR #19):** 13.G ships the `InboxPermissionHandler` and `AppCore::boot` installs it on `ClaudeCodeOrchestrator` via `with_permission_handler`. `AutoAcceptSafeTools` stays the default for the mock-orchestrator path so existing tests don't have to wait on a never-arriving user resolve. The handler emits `ApprovalRequested` + `ArtifactCreated{kind:"approval"}`, parks the agent on a `oneshot` with a 5-minute deadline, and resolves via `cmd_resolve_approval` (single-writer per id; resolution events land on the workspace stream). See `core-docs/integration-notes.md` §13.G for operational detail.
+**Status (2026-04-25, PR #19):** 13.G ships the `InboxPermissionHandler` and `AppCore::boot` installs it on `ClaudeCodeOrchestrator` via `with_permission_handler`. `AutoAcceptSafeTools` stays the default for the mock-orchestrator path so existing tests don't have to wait on a never-arriving user resolve. The handler emits `ApprovalRequested` + `ArtifactCreated{kind:"approval"}`, parks the agent on a `oneshot` with a 5-minute deadline, and resolves via `cmd_resolve_approval` (single-writer per id; resolution events land on the workspace stream). See `core-docs/architecture/integration-notes.md` §13.G for operational detail.
 
 The `PermissionHandler` trait shape stays frozen as specified here. The struct it takes — `PermissionRequest` — gained one additive field, `workspace_id: Option<WorkspaceId>` with `#[serde(default)]`. `AutoAcceptSafeTools` ignores it; `InboxPermissionHandler` requires it (fails closed when `None`, emitting an `ApprovalDenied{reason:"missing_workspace"}` audit row). When 13.D wires the stdio reader against the swapped-in handler, that wiring must populate `workspace_id` per prompt — a missing value is a wiring bug, not a runtime fallback.
 
@@ -79,8 +79,8 @@ Thresholds read from the `rate_limit_event` payload Claude Code emits (`status: 
 
 ## References
 
-- `core-docs/spec.md` Decisions 3, 19, 30–35.
-- `core-docs/adr/0001-claude-runtime-primitive.md` — first ADR (Claude runtime primitive).
+- `core-docs/architecture/spec.md` Decisions 3, 19, 30–35.
+- `core-docs/architecture/adr/0001-claude-runtime-primitive.md` — first ADR (Claude runtime primitive).
 - `core-docs/roadmap.md` Phase 13.0, 13.D, 13.E, 13.F, 13.G, 18, 19.
 
 ## Addendum (2026-04-26): additive `EventPayload` extensions

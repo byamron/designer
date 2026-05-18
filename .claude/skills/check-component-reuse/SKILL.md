@@ -31,7 +31,7 @@ If so: the answer is the archetype wrapper. No new component needed. Return this
 
 ### Step 1 — Search the manifest
 
-Read `core-docs/component-manifest.json`. For each component:
+Read `core-docs/design-system/component-manifest.json`. For each component:
 - Compare `purpose` field against the user's stated need (semantic match, not just string match).
 - Surface any component whose purpose overlaps.
 

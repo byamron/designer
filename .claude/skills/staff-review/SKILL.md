@@ -46,7 +46,7 @@ Specifically asks:
 - Are tests covering the actual contracts the PR claims, or are they shallow? Look at branch coverage in the changed code paths, not just whether *a* test exists.
 - Are there latent panics, leaks, lock-order issues, or `tokio::spawn`-without-runtime hazards? (PR #23 fixed one of these in `spawn_message_coalescer`; the same class can recur.)
 - Does the change respect the parallel-track conventions in `CLAUDE.md` §"Parallel track conventions" — staying in its assigned `core_*.rs` + `commands_*.rs` pair, not extending frozen contracts (event vocabulary, IPC DTOs, `PermissionHandler` trait, `Anchor` enum, `Detector` trait) without an ADR?
-- Compliance invariants in `core-docs/spec.md` §5 — never touching Claude OAuth tokens, never running Claude Code anywhere but the user's machine, no Designer-owned network egress except updater + opt-in crash-report.
+- Compliance invariants in `core-docs/architecture/spec.md` §5 — never touching Claude OAuth tokens, never running Claude Code anywhere but the user's machine, no Designer-owned network egress except updater + opt-in crash-report.
 
 ### Staff UX designer
 
@@ -65,10 +65,10 @@ Specifically asks:
 Hunts: Mini token fidelity, motion craft, palette + contrast across light/dark, archetype reuse vs. one-off chrome, perceptual quality across window sizes, implementation-vs-intent gaps, performance of any new visual layer.
 
 Specifically asks:
-- Does the visible craft match the design intent? (Read `core-docs/design-language.md` for the axioms; the Mini procedure in `CLAUDE.md` for the token rules.)
+- Does the visible craft match the design intent? (Read `core-docs/design-system/design-language.md` for the axioms; the Mini procedure in `CLAUDE.md` for the token rules.)
 - Are tokens used for every spatial / colour / motion / radius value, or are there raw `px` / `hex` / `ms` / `rgba(` / `z-index:` literals in changed CSS / TSX / Rust-emitted markup? Run `node tools/invariants/check.mjs <changed files>` if available.
 - Does any new component compose Mini primitives (Box, Stack, Cluster, Sidebar, Center, Container, Frame, Overlay) instead of bespoke layouts?
-- Was `core-docs/component-manifest.json` updated for new/modified components? Is there a `core-docs/generation-log.md` entry per the Mini procedure step 7?
+- Was `core-docs/design-system/component-manifest.json` updated for new/modified components? Is there a `core-docs/design-system/generation-log.md` entry per the Mini procedure step 7?
 - Does motion respect `prefers-reduced-motion` with a colour-space-correct static fallback?
 - Where applicable, does the change appear in screenshots (or could it)? If the PR ships UI, the user expects to see it; mention if this would benefit from a screenshot.
 
@@ -146,13 +146,13 @@ A single tool message with three `Agent` calls, each `subagent_type: Explore`. E
 
 - **The lens** (engineer / UX / design engineer) and what to hunt for (perspective sections below).
 - **The diff path** (`/tmp/pr-diff.patch`) and the changed-file list (`/tmp/pr-files.txt`).
-- **The relevant spec section** — when the PR implements a specific spec (e.g. Phase 24 §5.4.2), point reviewers at that section explicitly: *"Read `core-docs/phase-24-pass-through-chat.md` §5.4.2 in full; verify every numbered requirement is implemented or filed."* Reviewers find findings against memory of the spec; the more concrete the pointer, the sharper the findings.
+- **The relevant spec section** — when the PR implements a specific spec (e.g. Phase 24 §5.4.2), point reviewers at that section explicitly: *"Read `core-docs/phases/phase-24-pass-through-chat.md` §5.4.2 in full; verify every numbered requirement is implemented or filed."* Reviewers find findings against memory of the spec; the more concrete the pointer, the sharper the findings.
 - **Recent-failure callouts.** When the past 1–3 PRs surfaced specific BLOCKER patterns, name them in the prompt so reviewers check them first. Examples that recurred during Phase 24:
   - "Verify every `var(--…)` token reference in changed CSS resolves to a definition in `packages/ui/styles/tokens.css` / `packages/app/src/styles/app.css` / `packages/app/src/styles/blocks.css`. Fallback chains can paper over undefined tokens; the manifest's `tokens_referenced` must list tokens that actually resolve."
   - "If the PR adds a state-change UX (queue chip, banner, marker), check whether the spec calls for an `aria-live` announcement on dispatch and verify the announcement is both wired and cleared."
   - "Spot-check `cargo clippy` against orphaned doc comments after any merge resolution."
 - **PR-claim verification.** If the PR body claims a property (e.g. *"token-only CSS"*, *"no breaking changes"*, *"all 11 tests passing"*), instruct the reviewer to *verify the claim by grepping or running the relevant tool*, not just trust it.
-- **Standard cross-reference docs.** `CLAUDE.md` (Product Principles, How-to-Work item 6, Quality Bar), `core-docs/spec.md` §5 compliance, `core-docs/feedback.md` if relevant, `core-docs/design-language.md` for the design-eng lens, `core-docs/component-manifest.json` for the design-eng lens.
+- **Standard cross-reference docs.** `CLAUDE.md` (Product Principles, How-to-Work item 6, Quality Bar), `core-docs/architecture/spec.md` §5 compliance, `core-docs/feedback.md` if relevant, `core-docs/design-system/design-language.md` for the design-eng lens, `core-docs/design-system/component-manifest.json` for the design-eng lens.
 - **Output format.** Findings classified as **BLOCKER / NIT / FOLLOW-UP**, each with file:line citations and proposed fixes. Cap at ~1200 words per review.
 
 If a perspective genuinely has nothing to look at (a pure-Rust IPC change has no design surface), tell that reviewer to say so explicitly rather than manufacture findings.

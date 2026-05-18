@@ -64,7 +64,7 @@ Phases are independent except where noted. Phase 1 lands the highest-leverage it
   ```
   ⚠️  Manifest drift detected
     New file with no manifest entry: packages/app/src/components/FooBar.tsx
-    Add an entry to core-docs/component-manifest.json (template:
+    Add an entry to core-docs/design-system/component-manifest.json (template:
     tools/manifest/sync.mjs packages/app/src/components/FooBar.tsx),
     or mark `status: "untracked"` with a rationale.
   ```
@@ -195,7 +195,7 @@ Phases are independent except where noted. Phase 1 lands the highest-leverage it
 - Add fields:
   - `skill-version`: version of generate-ui in effect at this firing (so historical entries don't drift with skill rewrites).
   - `reuse-considered: [list of components/archetypes Claude evaluated before composing]`.
-- Update `core-docs/generation-log.md` header to document the new schema.
+- Update `core-docs/design-system/generation-log.md` header to document the new schema.
 - **Migration:** existing 52 entries grandfathered (no retro-fill). New entries follow the new schema. Validator (3.2) only enforces on entries after a cutoff date.
 
 **3.2 Generation-log schema validator**
@@ -218,7 +218,7 @@ Phases are independent except where noted. Phase 1 lands the highest-leverage it
 - Bundled with the optional pre-commit hook from 1.4. Non-blocking.
 - Prints when UI files are staged without a generation-log diff. Specific copy:
   ```
-  Heads up — UI files staged but core-docs/generation-log.md not updated.
+  Heads up — UI files staged but core-docs/design-system/generation-log.md not updated.
   If you ran generate-ui's procedure, run step 6 to add the entry
   (template: tools/mini/log-entry-template.md). If you skipped the procedure
   (trivial edit?), no action needed.
@@ -311,7 +311,7 @@ Phases are independent except where noted. Phase 1 lands the highest-leverage it
 **Phase 5 success criteria:**
 - Interaction axioms documented and referenced from at least one reuse-decision block per substantive PR.
 - `audit-craft` runs as part of `generate-ui` on substantive generations; warnings appear in the response.
-- Baseline experiment (5.4) completed; results published in `core-docs/pattern-log.md` or a new `mini-quality-baseline.md`.
+- Baseline experiment (5.4) completed; results published in `core-docs/design-system/pattern-log.md` or a new `mini-quality-baseline.md`.
 
 ---
 

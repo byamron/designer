@@ -6,8 +6,8 @@ name: claude-live
 # gates on the `claude` label so GitHub never routes this job to a hosted VM
 # (which wouldn't have auth anyway).
 #
-# See core-docs/adr/0001-claude-runtime-primitive.md and
-# core-docs/spec.md Decision 33 for the auth compliance rationale.
+# See core-docs/architecture/adr/0001-claude-runtime-primitive.md and
+# core-docs/architecture/spec.md Decision 33 for the auth compliance rationale.
 
 on:
   pull_request:

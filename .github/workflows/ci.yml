@@ -2,7 +2,7 @@ name: ci
 
 # Tier 1 — hermetic tests. No $HOME/.claude reads, no real `claude`
 # subprocess. Runs on GitHub-hosted macOS (matches the target platform).
-# See core-docs/adr/0001-claude-runtime-primitive.md for the three-tier
+# See core-docs/architecture/adr/0001-claude-runtime-primitive.md for the three-tier
 # design.
 
 on:

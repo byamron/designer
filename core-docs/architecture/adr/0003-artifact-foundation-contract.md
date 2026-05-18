@@ -33,7 +33,7 @@ Each track owns one Rust sibling pair (`core_X.rs` + `commands_X.rs`) and the ar
 | **13.D — Agent wire** | `core_agents.rs` + `commands_agents.rs` | `MessagePosted` thread events, `ArtifactCreated { kind: "message" }`, agent-produced `diagram` / `report` artifacts, partial-message coalescer | 12.A + 12.C + 13.1 |
 | **13.E — Track primitive + git wire** | `core_git.rs` + `commands_git.rs` | `TrackStarted / TrackCompleted / PullRequestOpened`, `ArtifactCreated { kind: "code-change" }` per semantic edit batch, `ArtifactCreated { kind: "pr" }` on PR open | 12.C + 13.1 |
 | **13.F — Local-model surfaces** | `core_local.rs` + `commands_local.rs` | `LocalOps::summarize_row` write-time hook (per-track debounce), `ArtifactCreated { kind: "report" }` for recaps, `ArtifactCreated { kind: "comment" }` for audit verdicts. Wires existing `PrototypePreview` into `PrototypeBlock`. | 12.B + 12.C + 13.1 |
-| **13.G — Safety surfaces + Keychain** ✅ landed 2026-04-25 (PR #19) | `core_safety.rs` + `commands_safety.rs` | `ApprovalRequested / Granted / Denied` (resolutions on the workspace stream, single-writer per id), `ArtifactCreated { kind: "approval" }` with inline JSON payload carrying `approval_id` for the block to wire, `ArtifactCreated { kind: "comment" }` on scope-deny anchored to the offending change. `security-framework` Keychain (read-only — never reads contents, never writes; Decision 26). Cost chip in topbar (off by default per Decision 34, persisted in `settings.json`). `InboxPermissionHandler` swapped in for `AutoAcceptSafeTools` via `with_permission_handler`; boot-time orphan sweep + cost replay. See `core-docs/integration-notes.md` §13.G. | 12.C + 13.1 |
+| **13.G — Safety surfaces + Keychain** ✅ landed 2026-04-25 (PR #19) | `core_safety.rs` + `commands_safety.rs` | `ApprovalRequested / Granted / Denied` (resolutions on the workspace stream, single-writer per id), `ArtifactCreated { kind: "approval" }` with inline JSON payload carrying `approval_id` for the block to wire, `ArtifactCreated { kind: "comment" }` on scope-deny anchored to the offending change. `security-framework` Keychain (read-only — never reads contents, never writes; Decision 26). Cost chip in topbar (off by default per Decision 34, persisted in `settings.json`). `InboxPermissionHandler` swapped in for `AutoAcceptSafeTools` via `with_permission_handler`; boot-time orphan sweep + cost replay. See `core-docs/architecture/integration-notes.md` §13.G. | 12.C + 13.1 |
 | **13.H — Safety enforcement** | (no new track files; modifies safety crate) | GA gate per `security.md` | 13.G |
 
 ### Compatibility notes (additions made by downstream tracks)
@@ -166,7 +166,7 @@ Each track ships:
 - Green `cargo clippy --workspace --all-targets -- -D warnings`
 - Green `cargo fmt --check`
 - Green frontend `vitest` + `tsc --noEmit`
-- A new generation-log entry in `core-docs/generation-log.md`
+- A new generation-log entry in `core-docs/design-system/generation-log.md`
 
 A track that finds itself wanting to add a new `ArtifactKind` should:
 1. PR the kind enum entry + emitter + renderer + manifest update + design-language change-log line, all in the same PR.
