@@ -272,7 +272,7 @@ describe("ToolUseLine expand-to-payload (Phase 23.C)", () => {
   });
 
   function makeReport() {
-    return reportArtifact("Read core-docs/architecture/spec.md", {
+    return reportArtifact("Read core-docs/spec.md", {
       summary: "Read 412 lines from the canonical spec.",
     });
   }
