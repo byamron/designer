@@ -5,7 +5,7 @@
 # Phase B (--live):  burns tokens. Actually spawns a tiny agent team.
 #
 # Outputs land under .context/probe-output/ (gitignored scratch). The
-# distilled findings get promoted into core-docs/integration-notes.md by
+# distilled findings get promoted into core-docs/architecture/integration-notes.md by
 # hand after review.
 #
 # Usage:

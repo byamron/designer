@@ -42,7 +42,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # Gates integration tests that spawn a real `claude` subprocess. Off by
 # default; hermetic CI (Tier 1) never enables it. Self-hosted-runner CI
 # (Tier 2) and local dev runs enable via `--features claude_live`. See
-# core-docs/adr/0001-claude-runtime-primitive.md and spec Decision 33.
+# core-docs/architecture/adr/0001-claude-runtime-primitive.md and spec Decision 33.
 # Also gates the Phase 24 P2 SIGINT spike binary so a normal
 # `cargo build --workspace` never compiles it.
 claude_live = ["dep:anyhow"]

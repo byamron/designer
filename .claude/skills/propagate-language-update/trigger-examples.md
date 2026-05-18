@@ -12,7 +12,7 @@ Per plan §13.6.
 
 ## Should NOT fire
 
-1. "Update core-docs/design-language.md with a new accent." *(→ elicit-design-language)*
+1. "Update core-docs/design-system/design-language.md with a new accent." *(→ elicit-design-language)*
 2. "Generate a new card component." *(→ generate-ui)*
 3. "Audit this component for token usage." *(→ enforce-tokens)*
 4. "Which components use --radius-card?" *(→ check-component-reuse — it's a reuse/inventory query)*

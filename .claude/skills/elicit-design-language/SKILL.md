@@ -5,7 +5,7 @@ description: Produce or maintain a Mini design language for this project. Use wh
 
 # elicit-design-language
 
-**Purpose:** Produce and maintain this project's `core-docs/design-language.md`. The design language is the source of truth for every token and axiom; every other Mini skill reads from it. See plan §8.1.
+**Purpose:** Produce and maintain this project's `core-docs/design-system/design-language.md`. The design language is the source of truth for every token and axiom; every other Mini skill reads from it. See plan §8.1.
 
 ## Modes
 
@@ -13,9 +13,9 @@ The skill has three modes. It auto-selects based on project state.
 
 | State | Mode | What it does |
 |---|---|---|
-| No `core-docs/design-language.md` AND no existing UI code | **greenfield** | Structured interview; produces the initial language from user answers. |
-| No `core-docs/design-language.md` AND existing UI code | **archaeology** (default for brownfield — plan §4.5) | Scans the codebase, proposes a language, confirms with user. |
-| `core-docs/design-language.md` exists | **amendment** | Reads `generation-log.md` for recurring deviations; proposes axiom/token changes. |
+| No `core-docs/design-system/design-language.md` AND no existing UI code | **greenfield** | Structured interview; produces the initial language from user answers. |
+| No `core-docs/design-system/design-language.md` AND existing UI code | **archaeology** (default for brownfield — plan §4.5) | Scans the codebase, proposes a language, confirms with user. |
+| `core-docs/design-system/design-language.md` exists | **amendment** | Reads `generation-log.md` for recurring deviations; proposes axiom/token changes. |
 
 If the user wants to force a mode, they can say "run amendment mode explicitly" or similar.
 
@@ -41,7 +41,7 @@ See `trigger-examples.md` for the Phase 3 audit record.
 
 ### Step 0 — Determine mode
 
-1. Check `core-docs/design-language.md`. Present ? → amendment mode. Absent → step 2.
+1. Check `core-docs/design-system/design-language.md`. Present ? → amendment mode. Absent → step 2.
 2. Check project for existing UI (non-empty `src/`, `app/`, `components/`, `styles/`, or `*.tsx`/`*.swift` files outside tests/config). Present → archaeology mode. Absent → greenfield mode.
 
 ### Greenfield mode
@@ -59,14 +59,14 @@ Run the structured interview. Walk through all 10 design axioms (`core/design-ax
 9. **Radius personality.** "Sharp (2–4px), soft (6–8px default), or pillowy (12–16px)?"
 10. **Focus style.** "Ring-outside (default, most accessible), ring-inside, or highlight?"
 
-After every answer, compute derived tokens and show the cascade so the user sees the implications. On completion, write the result to `core-docs/design-language.md` using `templates/design-language.md`.
+After every answer, compute derived tokens and show the cascade so the user sees the implications. On completion, write the result to `core-docs/design-system/design-language.md` using `templates/design-language.md`.
 
 ### Archaeology mode
 
 Run the scan from the thin Phase-2 procedure (below) and produce the proposal. Differences from Phase 2 version:
 
-- Seed `core-docs/component-manifest.json` from the component inventory (each with `status: legacy` per amendment #10).
-- Seed `core-docs/pattern-log.md` and `core-docs/generation-log.md` as empty-but-valid files.
+- Seed `core-docs/design-system/component-manifest.json` from the component inventory (each with `status: legacy` per amendment #10).
+- Seed `core-docs/design-system/pattern-log.md` and `core-docs/design-system/generation-log.md` as empty-but-valid files.
 - Write CLAUDE.md per plan §13.5 (marker-delimited append).
 
 **Scan details:**
@@ -85,7 +85,7 @@ Produce the proposal. Mark any ambiguous axiom as `[NEEDS CONFIRMATION]` with ev
 
 ### Amendment mode
 
-Triggered when `core-docs/design-language.md` exists. Input: `core-docs/generation-log.md` + `core-docs/pattern-log.md`.
+Triggered when `core-docs/design-system/design-language.md` exists. Input: `core-docs/design-system/generation-log.md` + `core-docs/design-system/pattern-log.md`.
 
 1. **Read the log.** Parse the last N entries (default: all entries since the last change-log entry in `design-language.md`).
 2. **Cluster deviations.** Group recurring deviations by kind:
@@ -95,7 +95,7 @@ Triggered when `core-docs/design-language.md` exists. Input: `core-docs/generati
    - Etc. Map each cluster to the axiom it implicates (per `core/design-axioms.md`).
 3. **Cluster rejections.** If the log shows repeated `feedback: rejected` on the same component type, this is a taste signal worth surfacing — user may want to amend the relevant axiom.
 4. **Propose amendments.** Present cluster → proposed axiom/token change → evidence (log entries).
-5. **Apply with consent.** On approval, edit `core-docs/design-language.md`, bump the change log, and suggest running `propagate-language-update` if any derived tokens changed.
+5. **Apply with consent.** On approval, edit `core-docs/design-system/design-language.md`, bump the change log, and suggest running `propagate-language-update` if any derived tokens changed.
 6. **Do not automatically propagate.** That's a separate skill (plan §8.5). Emit the next step, don't run it.
 
 ## CLAUDE.md integration (plan §13.5)
@@ -110,10 +110,10 @@ Integration algorithm:
 
 ## Outputs
 
-- `core-docs/design-language.md` — new (greenfield/archaeology) or amended (amendment mode).
-- `core-docs/component-manifest.json` — seeded in archaeology mode; unchanged in other modes.
-- `core-docs/pattern-log.md` — seeded on first run.
-- `core-docs/generation-log.md` — seeded on first run.
+- `core-docs/design-system/design-language.md` — new (greenfield/archaeology) or amended (amendment mode).
+- `core-docs/design-system/component-manifest.json` — seeded in archaeology mode; unchanged in other modes.
+- `core-docs/design-system/pattern-log.md` — seeded on first run.
+- `core-docs/design-system/generation-log.md` — seeded on first run.
 - `CLAUDE.md` — appended with Mini section in greenfield/archaeology modes.
 
 ## Failure modes

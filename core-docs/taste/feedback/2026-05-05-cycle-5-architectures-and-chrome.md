@@ -35,7 +35,7 @@ Three threads ran in parallel:
 
 ### Chat-source principle candidates (cycle 5's main contribution)
 
-These are candidates surfaced through chat conversation. Distillation will evaluate which to promote and check each against `core-docs/foundations.md` for citations.
+These are candidates surfaced through chat conversation. Distillation will evaluate which to promote and check each against `core-docs/design-system/foundations.md` for citations.
 
 - **`[principle?]` *(chat)*** Click never leaves a focus ring. Recurs across rail items, diff toggle, "throughout the designer app itself."
   - *Interpretation:* Visible focus is reserved for keyboard navigation. Mouse clicks fire actions but don't leave persistent focus indicators. This is a Designer-wide pattern, not just a showcase issue (user explicitly said: "The focused state issue is present throughout the designer app itself — on the compose box, main tab, and elsewhere").
@@ -77,7 +77,7 @@ These are candidates surfaced through chat conversation. Distillation will evalu
 
 - **`[meta]` *(chat)*** Foundations doc requested. "Do deep research into common foundational UX principles and principles of visual design such as gestalt."
   - *Interpretation:* The taste-loop was at risk of re-inventing named principles (proximity, prägnanz, etc.). A working reference connects the project's vocabulary to established literature. User explicitly wanted it referenceable AND challengeable.
-  - *Action:* Wrote `core-docs/foundations.md` (~5,000 words) — Gestalt, UX laws, visual fundamentals, Norman's interaction, A11y / WCAG, motion, cognitive load, when to break a principle. Wired into CLAUDE.md (consult during distillation/deviation) and into `distill-feedback` (citation-check before promoting candidates as novel).
+  - *Action:* Wrote `core-docs/design-system/foundations.md` (~5,000 words) — Gestalt, UX laws, visual fundamentals, Norman's interaction, A11y / WCAG, motion, cognitive load, when to break a principle. Wired into CLAUDE.md (consult during distillation/deviation) and into `distill-feedback` (citation-check before promoting candidates as novel).
 
 - **`[meta]` *(chat)*** "Make sure that in addition to agentation annotations, comments in this chat (and others) are added into our understanding of the design language."
   - *Interpretation:* Chat reactions were at risk of being captured less rigorously than MCP annotations. User explicitly elevated chat-source feedback to equal rank.
@@ -118,7 +118,7 @@ These are candidates surfaced through chat conversation. Distillation will evalu
 
 ## Principle candidates surfaced this cycle
 
-(Gathered for distillation. Each will be evaluated against `core-docs/foundations.md` and recurrence threshold before promotion.)
+(Gathered for distillation. Each will be evaluated against `core-docs/design-system/foundations.md` and recurrence threshold before promotion.)
 
 - **Click never leaves a focus ring.** Recurs across 3+ surfaces in this session and was named explicitly as Designer-wide. Strong promote.
 - **Less is more — earn presence.** Four independent occurrences in one session. Strong promote.

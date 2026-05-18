@@ -2,7 +2,7 @@ name: supply-chain
 
 # Phase 16.S — supply-chain CI gates (audits + SBOM only).
 #
-# Severity policy (mirrors core-docs/security.md §16.S "Supply-chain CI policy"):
+# Severity policy (mirrors core-docs/architecture/security.md §16.S "Supply-chain CI policy"):
 #   - HIGH/CRITICAL advisories block the PR.
 #   - MEDIUM/LOW warn but don't block.
 #   - Daily scheduled run drifts against newly-published advisories; on failure
@@ -294,7 +294,7 @@ jobs:
 
           Latest run: $RUN_URL
 
-          Per \`core-docs/security.md\` §16.S "Supply-chain CI policy", a
+          Per \`core-docs/architecture/security.md\` §16.S "Supply-chain CI policy", a
           previously-passing dep has developed a new advisory or otherwise
           drifted. Triage: pull the failing job log, decide whether to
           upgrade, ignore-list with a citation in \`deny.toml\`, or accept

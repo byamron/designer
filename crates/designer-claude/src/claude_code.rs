@@ -3,7 +3,7 @@
 //! Spawns `claude` as a long-lived subprocess per workspace as a plain
 //! pass-through chat session, drives it through `--input-format stream-json`,
 //! translates its `--output-format stream-json` back into `OrchestratorEvent`s
-//! via [`ClaudeStreamTranslator`]. See `core-docs/integration-notes.md` for
+//! via [`ClaudeStreamTranslator`]. See `core-docs/architecture/integration-notes.md` for
 //! the exact CLI surface and event shapes we code against.
 //!
 //! **Chat philosophy.** This path is intentionally minimal: we forward the

@@ -62,7 +62,7 @@ Result: **(a) works cleanly.**
 
 - The `Orchestrator` trait absorbs the real primitive with zero shape change. Nothing downstream (`AppCore`, projector, `MockOrchestrator`, frontend) changes.
 - Coordination (shared task list, mailbox, hook firing, teammate-to-teammate messaging) is Claude's responsibility, not Designer's. We inherit ~hundreds of lines of work not done.
-- The integration-notes doc (`core-docs/integration-notes.md`) gives the translator a concrete, tested contract to code against.
+- The integration-notes doc (`core-docs/architecture/integration-notes.md`) gives the translator a concrete, tested contract to code against.
 - `rate_limit_event` in the stream-json provides the capacity signal Decision 34 needs — no parallel tracking layer required.
 
 ### Negative / accepted costs
@@ -99,12 +99,12 @@ Reopen this ADR if any of:
 - A future phase discovers that the workspace-level coordinator (per spec §"Workspace lead") needs a primitive the agent-teams surface doesn't support.
 - `claude team` ships as an actual CLI subcommand with a significantly cleaner shape than the natural-language interaction model.
 
-In each case, re-run `scripts/probe-claude.sh --live`, update `core-docs/integration-notes.md`, and revise this ADR with a new `Status: superseded by ADR NNNN` pointer.
+In each case, re-run `scripts/probe-claude.sh --live`, update `core-docs/architecture/integration-notes.md`, and revise this ADR with a new `Status: superseded by ADR NNNN` pointer.
 
 ## References
 
-- `core-docs/integration-notes.md` — full probe findings
-- `core-docs/spec.md` Decisions 8, 26, 29–34
+- `core-docs/architecture/integration-notes.md` — full probe findings
+- `core-docs/architecture/spec.md` Decisions 8, 26, 29–34
 - `core-docs/feedback.md` FB-0016, FB-0017
 - <https://code.claude.com/docs/en/agent-teams> — canonical docs
 - `scripts/probe-claude.sh` — reproducible probe

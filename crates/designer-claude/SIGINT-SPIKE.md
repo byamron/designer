@@ -144,7 +144,7 @@ Use **SIGINT via `libc::kill(child_pid, SIGINT)`** for §5.4.2's
      `AgentTurnEnded { stop_reason: Interrupted }` event for that
      subtype.
    - `AgentTurnEnded` and `stop_reason: Interrupted` themselves are
-     part of the Phase 24 event vocabulary (`core-docs/adr/0008-phase-24-event-vocabulary.md`)
+     part of the Phase 24 event vocabulary (`core-docs/architecture/adr/0008-phase-24-event-vocabulary.md`)
      and do not exist in `designer-core/src/event.rs` yet. They land
      when the Phase 24 implementation track does, so D7 either
      follows that track or co-introduces the variants.

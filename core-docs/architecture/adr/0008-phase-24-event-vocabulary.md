@@ -2,12 +2,12 @@
 
 **Status:** proposed
 **Date:** 2026-05-03
-**Deciders:** user, after staff-perspective review of `core-docs/phase-24-pass-through-chat.md` (PR #116) flagged the original "delete chat-domain variants" framing as a frozen-contract violation
+**Deciders:** user, after staff-perspective review of `core-docs/phases/phase-24-pass-through-chat.md` (PR #116) flagged the original "delete chat-domain variants" framing as a frozen-contract violation
 **Supersedes:** none. Builds on ADR 0002 addendum (additive `EventPayload` extensions, 2026-04-26) and the 13.L precedent for non-additive payload changes via `EventEnvelope.version` bump.
 
 ## Context
 
-Phase 24 (`core-docs/phase-24-pass-through-chat.md`) replaces the chat-domain plumbing with a pass-through layer aligned 1:1 to Claude Code's stream-json output. The chat surface today represents a single agent turn as two parallel event streams — `MessagePosted{author_role: AGENT|TEAM_LEAD}` for assistant text, `ArtifactProduced{kind: Report}` for every `tool_use` block, plus a synthesized `ActivityChanged{state: Idle|Working}` enum for the UI activity indicator.
+Phase 24 (`core-docs/phases/phase-24-pass-through-chat.md`) replaces the chat-domain plumbing with a pass-through layer aligned 1:1 to Claude Code's stream-json output. The chat surface today represents a single agent turn as two parallel event streams — `MessagePosted{author_role: AGENT|TEAM_LEAD}` for assistant text, `ArtifactProduced{kind: Report}` for every `tool_use` block, plus a synthesized `ActivityChanged{state: Idle|Working}` enum for the UI activity indicator.
 
 This split has produced three classes of dogfood failure:
 
@@ -230,8 +230,8 @@ A pre-Phase-24 dogfood event log + a post-Phase-24 dogfood event log become the 
 
 ## References
 
-- `core-docs/phase-24-pass-through-chat.md` (the spec)
-- `core-docs/adr/0002-v1-scoping-decisions.md` §"Addendum (2026-04-26): additive `EventPayload` extensions"
-- `core-docs/adr/0007-single-claude-subprocess.md` (per-tab subprocess context)
+- `core-docs/phases/phase-24-pass-through-chat.md` (the spec)
+- `core-docs/architecture/adr/0002-v1-scoping-decisions.md` §"Addendum (2026-04-26): additive `EventPayload` extensions"
+- `core-docs/architecture/adr/0007-single-claude-subprocess.md` (per-tab subprocess context)
 - 13.L precedent: `crates/designer-core/src/event.rs:308–356` (legacy `FrictionLinked` decode + `version: 2` records)
 - Anthropic Messages API stream-json reference (consulted for §2.2 of the spec)

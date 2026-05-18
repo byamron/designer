@@ -109,7 +109,7 @@ pub struct FeatureFlags {
     /// event family from the stream translator and route the renderer
     /// through the Phase 24 chat surface. **Default ON as of Step 13
     /// (2026-05-12)** — the A1–A12 contract-level coverage audit
-    /// (`core-docs/phase-24-pass-through-chat.md` §6.1) pinned each
+    /// (`core-docs/phases/phase-24-pass-through-chat.md` §6.1) pinned each
     /// criterion to its test, and PRs #119–#133 shipped every
     /// behavioral piece (translator, bridge, renderer, queue, ESC +
     /// SIGINT, dispatch contract, render-time activity indicator,

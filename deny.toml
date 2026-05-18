@@ -1,6 +1,6 @@
 # cargo-deny configuration — Phase 16.S supply-chain gates.
 #
-# Severity policy mirrors `core-docs/security.md` §16.S "Supply-chain CI policy":
+# Severity policy mirrors `core-docs/architecture/security.md` §16.S "Supply-chain CI policy":
 # blocking on HIGH/CRITICAL advisories, warning on MEDIUM/LOW. cargo-deny does
 # not encode CVSS severity itself; we surface every advisory as a warning here
 # and let the workflow's post-processing step apply the block-vs-warn split
@@ -12,7 +12,7 @@
 
 [graph]
 # Designer ships only on macOS for v1; Linux/Windows targets are spec-deferred
-# (see core-docs/spec.md §"Platform"). Restricting cargo-deny to the macOS
+# (see core-docs/architecture/spec.md §"Platform"). Restricting cargo-deny to the macOS
 # triples we actually build for keeps the dep graph honest — Linux-only
 # transitives (gtk, glib, atk, x11-dl, …) and Windows-only ones (windows-*,
 # wry's webview2 path) drop out of the license + advisory checks.
@@ -30,7 +30,7 @@ version = 2
 yanked = "deny"
 # Vulnerability advisories (RUSTSEC CVEs) are always denied — block at the
 # `cargo audit` step, where the post-processing step applies the HIGH/CRITICAL
-# severity gate per `core-docs/security.md` §16.S.
+# severity gate per `core-docs/architecture/security.md` §16.S.
 #
 # `unmaintained = "workspace"` only fails when a workspace crate *directly*
 # depends on an unmaintained crate. Transitive unmaintained advisories

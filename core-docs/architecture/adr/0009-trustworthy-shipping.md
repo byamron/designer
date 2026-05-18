@@ -141,10 +141,10 @@ This is deliberate. Hidden-but-emitting is not dead code; it is a decoupling bet
 
 In order, all in this PR:
 
-1. Create `core-docs/adr/0009-trustworthy-shipping.md` (this file).
+1. Create `core-docs/architecture/adr/0009-trustworthy-shipping.md` (this file).
 2. Create `core-docs/parking-lot.md` with entries for the 10 deferred phases.
 3. Append the principle to `CLAUDE.md` §Product Principles. Add a fifth Quality Bar item (Trustworthy). Note Build/Harden alternation in §How to Work.
-4. Append a Decision-Log entry to `core-docs/spec.md` referencing this ADR.
+4. Append a Decision-Log entry to `core-docs/architecture/spec.md` referencing this ADR.
 5. Restructure `core-docs/roadmap.md`: active section shrinks to Phase 24 → 26H; deferred phases tagged inline with a `**Parked: see parking-lot.md**` callout (verbatim content preserved); Build/Harden alternation made explicit.
 6. Rewrite `core-docs/plan.md` Current Focus as one line per active phase, capped at ≤100 lines. Detail moves to `history.md`.
 7. Append a generation-log entry per the Mini procedure (process change with documentation impact).

@@ -31,7 +31,7 @@ Run inline. Do not delegate to sibling skills — this skill *is* the pipeline p
 
 ### Step 1 — Check component reuse
 
-Read `core-docs/component-manifest.json`. For the requested UI:
+Read `core-docs/design-system/component-manifest.json`. For the requested UI:
 
 1. **Native archetype first.** If the requested surface matches a platform-native archetype (Dialog, Menu, Popover, Tooltip, Tabs, etc. — see `core/archetypes.md`), use the Mini archetype wrapper (`web/archetypes/<name>.tsx` or Swift equivalent). Do not custom-build.
 2. **Existing component next.** Grep the manifest for components with matching purpose. Prefer extending an existing component (new prop/variant) over creating a new one.
@@ -41,7 +41,7 @@ If choosing option 3, explain briefly why the existing options didn't fit. Log i
 
 ### Step 2 — Read the design language
 
-Open `core-docs/design-language.md`. Load:
+Open `core-docs/design-system/design-language.md`. Load:
 - Axioms (all 10).
 - Token inventory.
 - Approved patterns section.
@@ -83,11 +83,11 @@ This is the inline version of `audit-a11y`. For deep checks (contrast iteration 
 
 ### Step 6 — Update manifest and generation-log
 
-**Manifest:** For every new or modified component, update `core-docs/component-manifest.json`:
+**Manifest:** For every new or modified component, update `core-docs/design-system/component-manifest.json`:
 - Add a new entry for new components with `status: managed`, populated per `templates/component-manifest.schema.json`.
 - Update `last_updated`, `tokens_referenced`, `primitives_used`, `archetypes_used`, `props`, `variants` on modified components.
 
-**Generation log:** Append an entry to `core-docs/generation-log.md`:
+**Generation log:** Append an entry to `core-docs/design-system/generation-log.md`:
 
 ```markdown
 ## <ISO-timestamp> — generate-ui

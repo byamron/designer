@@ -29,7 +29,7 @@ A "processed" entry is one that has a `Distilled in YYYY-MM-DD` footer added by 
 - `projects/<name>/decisions.md`
 - `projects/<name>/tensions.md`
 - `core-docs/mini-gaps.md`
-- `core-docs/foundations.md` — the established-vocabulary reference. Used in step 3 to check whether a candidate principle echoes a known foundation before promoting it as novel.
+- `core-docs/design-system/foundations.md` — the established-vocabulary reference. Used in step 3 to check whether a candidate principle echoes a known foundation before promoting it as novel.
 
 ### 2. Find the patterns
 
@@ -43,7 +43,7 @@ Look for:
 
 ### 3. Draft promotion proposals
 
-**Before drafting, check foundations.** For each candidate principle, scan `core-docs/foundations.md` to see whether the pattern echoes an established foundation (Gestalt, UX laws, visual design fundamentals, Norman's interaction principles, etc.). Three possible outcomes:
+**Before drafting, check foundations.** For each candidate principle, scan `core-docs/design-system/foundations.md` to see whether the pattern echoes an established foundation (Gestalt, UX laws, visual design fundamentals, Norman's interaction principles, etc.). Three possible outcomes:
 
 - **Direct echo of a foundation.** Don't promote as a novel LP — instead, write the project-specific application *citing the foundation*. Example: "LP-XXXX: Group toggles with their stats indicators (proximity principle, see `foundations.md`)." This keeps the project's language doc connected to the broader vocabulary instead of re-inventing names.
 - **Refinement of a foundation.** The pattern adds project-specific shape on top of an established principle. Promote with the citation: "LP-XXXX: <project-specific rule>. Refines the <foundation name> principle by <specific application>."
@@ -59,7 +59,7 @@ Then for each pattern, draft one of:
 
 For each proposal include:
 - The pattern observed (which cycles, which annotations)
-- Foundation citation (if any) from `core-docs/foundations.md`
+- Foundation citation (if any) from `core-docs/design-system/foundations.md`
 - The proposed promotion (target file, exact text to add)
 - The reasoning (why this beats not-promoting)
 - The cost of being wrong (what changes if we promote and it turns out to be one-off)
@@ -91,7 +91,7 @@ This prevents re-distilling the same content twice and gives the trail.
 
 ### 7. Propagation note
 
-For any promotion to `decisions.md` that has `**Propagated to canonical:** pending`, list the pending propagations in the chat report. The user decides when to push them back into `~/Desktop/coding/designer/core-docs/design-language.md` (which is the production-Mini consumer).
+For any promotion to `decisions.md` that has `**Propagated to canonical:** pending`, list the pending propagations in the chat report. The user decides when to push them back into `~/Desktop/coding/designer/core-docs/design-system/design-language.md` (which is the production-Mini consumer).
 
 ### 8. Verify with the status script
 

@@ -2,7 +2,7 @@
 
 **Status:** Deferred (2026-04-27)
 **Deciders:** user (long-term technical direction) + design-system audit
-**Related:** `core-docs/design-language.md` (Mini contract), `core-docs/pattern-log.md` "Mini primitives deferred" (2026-04-21), `packages/ui/src/primitives/`
+**Related:** `core-docs/design-system/design-language.md` (Mini contract), `core-docs/design-system/pattern-log.md` "Mini primitives deferred" (2026-04-21), `packages/ui/src/primitives/`
 
 ## Context
 
@@ -65,7 +65,7 @@ Revisit this ADR when **any one** of the following is true. The first to fire is
 - The primitives package stays in the repo (sync target via `scripts/sync-mini.sh`) but is not imported by app code.
 - New components ship using the existing CSS-class pattern. Convention is enforced by:
   - `tools/invariants/check.mjs` (CI-gated as of 2026-04-27 per Stage 1) — no arbitrary px/hex/ms/z-index.
-  - Manifest coverage check (CI-gated) — every component file appears in `core-docs/component-manifest.json`.
+  - Manifest coverage check (CI-gated) — every component file appears in `core-docs/design-system/component-manifest.json`.
   - Per-component CSS files after Stage 2 splits `app.css` — bounded surface area for review.
 - `pattern-log.md`'s "Mini primitives deferred" entry is superseded by this ADR. The "Mini primitives" line in the manifest schema (`primitives_used` array, enum of eight names) stays defined; entries can leave it empty without violating the schema.
 

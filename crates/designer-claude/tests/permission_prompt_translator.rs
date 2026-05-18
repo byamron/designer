@@ -1,7 +1,7 @@
 //! Fixture-based round-trip tests for `--permission-prompt-tool stdio`
 //! (Phase 13.H/F1). The fixtures under `tests/fixtures/permission_prompt/`
 //! were captured from real `claude` 2.1.119 invocations — see
-//! `core-docs/integration-notes.md` §12.A.
+//! `core-docs/architecture/integration-notes.md` §12.A.
 
 use designer_claude::orchestrator::OrchestratorEvent;
 use designer_claude::{ClaudeStreamTranslator, TranslatorOutput};

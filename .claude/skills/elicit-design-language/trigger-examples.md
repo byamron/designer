@@ -8,7 +8,7 @@ Per plan §13.6. 10 example prompts: 5 should-fire, 5 should-not-fire. Iterate t
 2. "Initialize the design system for this repo."
 3. "Scan my codebase and extract tokens into a design language."
 4. "Our generation-log has a lot of recurring hex values — propose updates to our tokens."
-5. "Run archaeology on the existing components and create core-docs/design-language.md."
+5. "Run archaeology on the existing components and create core-docs/design-system/design-language.md."
 
 ## Should NOT fire
 

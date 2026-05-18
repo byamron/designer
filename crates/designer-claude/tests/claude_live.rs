@@ -4,7 +4,7 @@
 //! **Gate:** `--features claude_live` + a working Claude Code install with a
 //! valid subscription login (`claude auth status` OK). Without the feature
 //! flag this entire file compiles to an empty module so hermetic CI stays
-//! green. See `core-docs/adr/0001-claude-runtime-primitive.md`.
+//! green. See `core-docs/architecture/adr/0001-claude-runtime-primitive.md`.
 //!
 //! **Cost:** one short team spawn — typically $0.05–$0.50 per run depending
 //! on the coordinator model Claude picks.

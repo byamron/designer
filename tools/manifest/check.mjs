@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Component-manifest coverage check. Every .tsx file under the
 // component-bearing directories must have at least one entry in
-// core-docs/component-manifest.json with a matching `path`.
+// core-docs/design-system/component-manifest.json with a matching `path`.
 //
 // Usage:
 //   node tools/manifest/check.mjs                  human-readable
@@ -20,7 +20,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
 const ROOT = process.cwd();
-const MANIFEST_PATH = "core-docs/component-manifest.json";
+const MANIFEST_PATH = "core-docs/design-system/component-manifest.json";
 const SCHEMA_PATH = "templates/component-manifest.schema.json";
 
 // Directories whose .tsx files are component sources.

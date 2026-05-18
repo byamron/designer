@@ -3,7 +3,7 @@
 //! Claude Code emits permission prompts over stdio when a tool use would
 //! touch something requiring user confirmation (writes, destructive bash,
 //! etc.) — see `--permission-prompt-tool stdio` in
-//! `core-docs/integration-notes.md` §12.A. `ClaudeCodeOrchestrator` consults
+//! `core-docs/architecture/integration-notes.md` §12.A. `ClaudeCodeOrchestrator` consults
 //! the installed [`PermissionHandler`] on every prompt. The default
 //! [`AutoAcceptSafeTools`] auto-accepts read-only tools so Phase 13.D can
 //! ship before Phase 13.G's approval inbox lands; 13.G replaces the default

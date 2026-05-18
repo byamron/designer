@@ -436,7 +436,7 @@ Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–H; 16.R / 
 **Blocks:** 13.D.
 **Needs:** a working Claude Code install + auth on the dev machine.
 
-**Actual outcome** (historical record of what shipped; see `history.md` and `core-docs/adr/0001-claude-runtime-primitive.md` for the full story):
+**Actual outcome** (historical record of what shipped; see `history.md` and `core-docs/architecture/adr/0001-claude-runtime-primitive.md` for the full story):
 
 - Initial probe revealed that the placeholder's `claude team init/task/message` CLI subcommands don't exist. A follow-up web check confirmed agent teams are a real, env-var-gated, natural-language-driven feature; file paths in the placeholder were correct.
 - Pivoted to the native agent-teams primitive. `Orchestrator` trait shape unchanged.
@@ -447,7 +447,7 @@ Tracks within a phase share a name prefix (12.A / 12.B / 12.C; 13.D–H; 16.R / 
 - Live integration test `tests/claude_live.rs` behind `--features claude_live` — spawns a real team end-to-end through `ClaudeCodeOrchestrator`, observes events, shuts down cleanly. Passes in ~28s against Claude 2.1.117.
 - 44 workspace tests pass; `cargo clippy --workspace --all-targets -- -D warnings` clean.
 - CI workflows in `.github/workflows/`: Tier 1 hermetic (`ci.yml`), Tier 2 self-hosted-runner live integration (`claude-live.yml`), Tier 3 scheduled drift probe (`claude-probe.yml`).
-- Docs: `core-docs/integration-notes.md` (reproducible source-of-truth), `core-docs/adr/0001-claude-runtime-primitive.md` (decision record), `.claude/agents/track-lead.md` + `teammate-default.md` (subagent definitions), `.claude/prompts/workspace-lead.md` (reserved stub).
+- Docs: `core-docs/architecture/integration-notes.md` (reproducible source-of-truth), `core-docs/architecture/adr/0001-claude-runtime-primitive.md` (decision record), `.claude/agents/track-lead.md` + `teammate-default.md` (subagent definitions), `.claude/prompts/workspace-lead.md` (reserved stub).
 
 **Deferred into Phase 13** (not blocking 13.D start):
 - `designer-hook` binary as secondary feed (hooks are visible in stream-json; file-based backup is a 13.G concern when approval-gate file triggers arrive).
@@ -547,7 +547,7 @@ All three tracks complete, with the integration tests passing. Phase 13 tracks c
 - Introduce `TrackStarted { workspace_id, track_id, worktree_path, branch }` and `TrackCompleted { track_id }` events; projector tracks a `tracks: Vec<TrackState>` field per workspace. Reserve (do not implement) `WorkspaceForked`, `WorkspacesReconciled`, `TrackArchived`.
 - Extend `create_workspace` to append `WorkspaceCreated` plus a first `TrackStarted` event; `GitOps::init_worktree` creates the worktree for the new track.
 - Surface the track in the workspace sidebar meta as a status badge (not a navigation primitive); the user sees "the workspace," not "the track," by default.
-- On first workspace create, seed `core-docs/spec.md` / `plan.md` / `history.md` / `design-language.md` in the user's repo if absent (per Decision 28).
+- On first workspace create, seed `core-docs/architecture/spec.md` / `plan.md` / `history.md` / `design-language.md` in the user's repo if absent (per Decision 28).
 - Wire "Request merge" in `BuildTab` to `GitOps::open_pr` via a new command; feed `gh pr create --json` output back as `PullRequestOpened { track_id, pr_number }`. On merge, emit `TrackCompleted`.
 - Auto-cleanup: `TrackCompleted` removes the track's worktree (branch stays until the user archives). `WorkspaceArchived` cleans up all remaining tracks.
 
@@ -854,7 +854,7 @@ Lives in `crates/designer-ipc/src/lib.rs`, alphabetical with existing commands.
 | `apps/desktop/src-tauri/src/commands.rs` + `ipc.rs` | `cmd_report_friction(req) -> ReportFrictionResponse`, `cmd_list_friction()`, `cmd_resolve_friction(id)`, `cmd_retry_file_friction(id)`. |
 | `crates/designer-ipc/src/lib.rs` | New `ReportFrictionRequest` / `ReportFrictionResponse` / `FrictionEntry` DTOs. New `IpcError::ExternalToolFailed { tool, message }` variant. |
 | `crates/designer-core/src/event.rs` | `FrictionReported` / `FrictionLinked` / `FrictionFileFailed` / `FrictionResolved` variants per Lane 0 ADR. |
-| `core-docs/pattern-log.md` | Append: "bottom-right reserved for Friction; dev panels go bottom-left." Append: "Anchor enum lives in `lib/anchor.ts` + `core/anchor.rs`; reused across Friction (13.K), inline comments (15.H), finding evidence (21)." |
+| `core-docs/design-system/pattern-log.md` | Append: "bottom-right reserved for Friction; dev panels go bottom-left." Append: "Anchor enum lives in `lib/anchor.ts` + `core/anchor.rs`; reused across Friction (13.K), inline comments (15.H), finding evidence (21)." |
 
 #### Settings IA (locked)
 
@@ -887,7 +887,7 @@ The user can `⌘⇧F`, hover any UI element (with snap to component), paste a s
 **Steps (each ~half-day, batchable into one PR):**
 
 - **F5+1 — Tool-use → tool-result correlation.** Stateful translator field that maps `tool_use_id` to the originating `Report` artifact id; on the next user-turn's `tool_result`, emit `ArtifactUpdated` with the result's summary so the "Read CLAUDE.md" card gains a result line in place. ~50 LOC; flagged in `stream.rs::translate_assistant` as `TODO(13.H+1)`.
-- **ADR addendum on `ClaudeSignal` trait leak.** ✅ landed as ADR 0005 (2026-04-26): adopt option (b) — introduce `OrchestratorSignal` as the neutral trait surface with `pub type ClaudeSignal = OrchestratorSignal;` as a one-release-cycle alias. Implementation PR is mechanical (move + rename + alias). See `core-docs/adr/0005-orchestrator-signal-shape.md`.
+- **ADR addendum on `ClaudeSignal` trait leak.** ✅ landed as ADR 0005 (2026-04-26): adopt option (b) — introduce `OrchestratorSignal` as the neutral trait surface with `pub type ClaudeSignal = OrchestratorSignal;` as a one-release-cycle alias. Implementation PR is mechanical (move + rename + alias). See `core-docs/architecture/adr/0005-orchestrator-signal-shape.md`.
 - **Live `permission_prompt_round_trip` test.** Gated by `--features claude_live` on the self-hosted runner. Single user message → tool prompt → grant → tool result round-trip against real `claude` 2.1.119+. Confirms the response wire shape (`subtype: "success"`, nested `response.response.behavior`) hasn't drifted. Probe-captured fixtures + the in-app dogfood walk are the current proxies.
 - **`spawn_cost_subscriber` ↔ `build_event_bridge` unification.** Both are `tokio::spawn` + `loop { rx.recv() match Ok / Lagged(continue or warn) / Closed(break) }` over a `broadcast::Receiver`. Extract `forward_broadcast<T>(rx, handler: impl FnMut(T))` so the `Lagged`/`Closed` arms aren't duplicated. ~10 LOC saved; lives in `core.rs`. **Landed:** PR [#31](https://github.com/byamron/designer/pull/31). Two follow-up call sites surfaced (`apps/desktop/src-tauri/src/events.rs::spawn_event_bridge` and `core::spawn_projector_task`) — kept out of scope to honor the single-file constraint; first is a clean migration, second needs a separate Lagged-triggered resync design.
 - ~~**F4 test reuse `boot_with_helper_status`.**~~ ✅ Shipped as PR [#32](https://github.com/byamron/designer/pull/32). `core_local::tests` is `pub(crate)`; `boot_with_helper_status` and a new `boot_with_local_ops` variant are exposed; `apps/desktop/src-tauri/src/test_support.rs` hosts `CountingOps`. F4 test shrunk ~83 LOC. `CountingHandler`/`RecordingHandler` were *not* moved — single-use within `crates/designer-claude/`, no actual duplication to consolidate.
@@ -1872,7 +1872,7 @@ Each sub-phase has its own goal, deliverables, and gate. Phases A, B, G can run 
 
 ### Procedure (applies to every UI sub-phase)
 
-Per CLAUDE.md §"Procedure for UI tasks": before generating any new component for Phase 22, check `core-docs/component-manifest.json`. Existing components Phase 22 must extend (not parallel-invent):
+Per CLAUDE.md §"Procedure for UI tasks": before generating any new component for Phase 22, check `core-docs/design-system/component-manifest.json`. Existing components Phase 22 must extend (not parallel-invent):
 
 - `WorkspaceStatusIcon` → status-circle treatment for nodes (extend with conic-arc states; do not introduce a new dot component).
 - `SegmentedToggle` → "Hide completed" toggle on the canvas header (do not roll a new segmented control).
@@ -1899,7 +1899,7 @@ Token namespacing for 22.G: new tokens are `--team-1`..`--team-16` (light + dark
 - Wrap behavior past 16 workspaces with a small lightness shift.
 - Workspace color picker in project settings; team color persists per `(project_id, team_id)`.
 - Pulse-rate generator: each team's dot pulses at its own rate in the 1.4–2.0 s range, deliberately incommensurate so dots drift in and out of phase rather than syncing. Honors `prefers-reduced-motion` (renders as a static dot).
-- `core-docs/design-language.md` axiom #3 amendment + entry in `core-docs/pattern-log.md` (semantic vs identity color separation rationale).
+- `core-docs/design-system/design-language.md` axiom #3 amendment + entry in `core-docs/design-system/pattern-log.md` (semantic vs identity color separation rationale).
 
 **Where team color appears:** row tints on claimed nodes, status circles for In Progress / In Review states, team-label dots, attention-card pills.
 
@@ -2401,7 +2401,7 @@ These tests are the gate. PR review for each sub-phase asserts every test in its
 - **Tab-strip badge**: when `state != Idle` for a tab the user isn't currently viewing, the tab button in the tab strip shows a small `●` badge (uses `--color-accent` for `Working`, `--color-warning` for `AwaitingApproval`). Same `prefers-reduced-motion` handling as the dock pulse — solid dot, no animation.
 - **Reduced-motion**: project-wide `axioms.css` already sets `animation-duration: 0.01ms !important` under `@media (prefers-reduced-motion: reduce)`, which collapses the `--motion-pulse` keyframe effectively to a static dot. Acceptance test T-23B-3 must accept this *or* explicitly add `.compose-dock-activity-row__pulse { animation: none; }` under the same media query to satisfy the strict `animation: none` assertion. Pick one and document the choice; do not ship both.
 - No "Stop" button in v1 — Designer can't actually interrupt claude mid-turn yet without a wider protocol change. v2 adds it; v1 ships honest read-only. **Known tradeoff**: a "Working… 0:47" indicator with no Stop affordance can read as "frozen but I can't act on it" for users who habitually interrupt; revisit if dogfood surfaces this as its own friction.
-- **Mini procedure**: append a `core-docs/generation-log.md` entry covering the activity row + tab-badge pattern; append a `core-docs/pattern-log.md` entry for the `OrchestratorEvent` additive-variant precedent. Update the `ComposeDock` entry in `core-docs/component-manifest.json` to include the activity row in its purpose; if `ComposeDockActivityRow` is a separately-extractable component, give it its own manifest entry with the tokens it references.
+- **Mini procedure**: append a `core-docs/design-system/generation-log.md` entry covering the activity row + tab-badge pattern; append a `core-docs/design-system/pattern-log.md` entry for the `OrchestratorEvent` additive-variant precedent. Update the `ComposeDock` entry in `core-docs/design-system/component-manifest.json` to include the activity row in its purpose; if `ComposeDockActivityRow` is a separately-extractable component, give it its own manifest entry with the tokens it references.
 
 **Acceptance tests:**
 - T-23B-1 — state transitions. Translator fixtures: assert each (input event → emitted ActivityChanged) pair.
@@ -2422,7 +2422,7 @@ These tests are the gate. PR review for each sub-phase asserts every test in its
 - Expanded body renders `payload.body` as `<pre>` with `--type-family-mono`, `--space-4` left padding, `--color-muted` foreground. **Wrapping**: `white-space: pre-wrap` so long lines wrap inside the parent's max-width (`.tool-line` already caps at `min(48rem, 100%)`); horizontal scroll is acceptable on overflow rather than the row stretching the whole thread.
 - Long output (>40 lines) truncates to 40 with a "Show full" disclosure that drops the cap. (40 lines mirrors a typical terminal viewport at common laptop sizes; revisit if dogfood says it's wrong.)
 - Visual snapshot test against existing fixture; new test for "expand fetches and renders payload."
-- **Mini procedure**: append a `core-docs/generation-log.md` entry for the tool-use expand-to-payload pattern; no new pattern-log entry needed (the disclosure pattern is already established).
+- **Mini procedure**: append a `core-docs/design-system/generation-log.md` entry for the tool-use expand-to-payload pattern; no new pattern-log entry needed (the disclosure pattern is already established).
 
 **Acceptance tests:**
 - T-23C-1 — expand triggers payload fetch (mock IPC asserts `getArtifact` called once per artifact).
@@ -2530,7 +2530,7 @@ Phase 23.E (per-tab Claude subprocess; PR #95) and its follow-up PR #98 (migrati
 
 - ~~**23.E.f1 — Detection-signal brittleness on `PreTabSessionBanner`.**~~ ✅ Shipped in PR (#TBD) by reframing the banner copy. The migration-era framing ("your existing chats start fresh") was inaccurate for fresh-install users who created a workspace post-23.E. Tightening the detection signal would have required a new IPC for "any pre-23.E MessagePosted exists," disproportionate to the false-positive's blast radius. The reframe — title "Each tab is its own conversation," body about parallel claude agents — is true for both upgraders and fresh-install users; the migration-specific detail (session memory was reset) lives in release notes.
 
-- **23.E.f2 — Banner archetype consolidation.** `UpdatePrompt` (bottom-left auto-updater pill) and `PreTabSessionBanner` (top-center tutorial notice) are the codebase's two floating notice surfaces today. Both are bespoke `<div>` chrome with parallel CSS structures (overlay surface, pill radius, dismiss button, raised z-index). Two instances is below the abstraction threshold; consolidating now would be premature. Trigger for the consolidation: the first PR that ships a third banner-like surface. The right shape at that point is a shared `<Banner>` component or a `Notice` archetype registered in `core-docs/component-manifest.json`, with the existing two refactored to use it. ~½ day frontend at trigger time.
+- **23.E.f2 — Banner archetype consolidation.** `UpdatePrompt` (bottom-left auto-updater pill) and `PreTabSessionBanner` (top-center tutorial notice) are the codebase's two floating notice surfaces today. Both are bespoke `<div>` chrome with parallel CSS structures (overlay surface, pill radius, dismiss button, raised z-index). Two instances is below the abstraction threshold; consolidating now would be premature. Trigger for the consolidation: the first PR that ships a third banner-like surface. The right shape at that point is a shared `<Banner>` component or a `Notice` archetype registered in `core-docs/design-system/component-manifest.json`, with the existing two refactored to use it. ~½ day frontend at trigger time.
 
 - **23.E.f3 — Per-workspace memory chip / topbar readout.** Phase 23.E's per-tab subprocess model means every tab is a full claude (~50–200 MB resident); a workspace with ten tabs runs about 1 GB of headroom. Pattern-log captures the cost. A topbar chip ("8 tabs · ~800 MB") would let the user see when their workspace approaches the OS pressure threshold and prompt them to close unused tabs. Pending dogfood signal — if no one reports memory pressure, the chip would be cognitive load without value. Revisit after the first dogfood week with multi-tab workflows. Owner: future Phase 23 polish PR or Phase 24 if the signal lands later. ~1 day full-stack (Rust subprocess RSS read + topbar component).
 
@@ -2550,7 +2550,7 @@ PR #104 bundled three cosmetic friction fixes (focus-visible compose, dark-mode 
 
 Architectural rewrite of the chat plumbing per ADR 0008. Replaces the bespoke `MessagePosted{author:Agent}` + `ArtifactProduced{kind:Report}` + synthesized `ActivityChanged` triple with a 1:1 typed projection of Claude's stream-json (`AgentTurnStarted` + per-content-block `Started/Delta/Ended` + `AgentToolResult` + `AgentTurnEnded`). All 13 workspace steps shipped: PR #119 (foundation), #120 (renderer bundle), #124 (queue + stop-and-send), #125 (SIGINT + Esc), #130 (user-only dispatch contract), #131 (render-time activity indicator), #132 (dual-shape detectors), #133 (§5.6 error-state copy), #134 (A1–A12 audit + `show_chat_v2` flag default ON + release-per-phase convention).
 
-Detail: `core-docs/phase-24-pass-through-chat.md`. ADR: `core-docs/adr/0008-phase-24-event-vocabulary.md`.
+Detail: `core-docs/phases/phase-24-pass-through-chat.md`. ADR: `core-docs/architecture/adr/0008-phase-24-event-vocabulary.md`.
 
 **Done:** `show_chat_v2` defaults ON; A1–A12 acceptance criteria pinned to existing tests per the §6.1 audit; coalescer chat-v1-specific arms filed for 24H cleanup (`spawn_message_coalescer` stays load-bearing as the broadcast→store bridge for chat-v2 `AgentTurn*` events). Release tag cut at phase close per ADR 0009 §1.E.
 

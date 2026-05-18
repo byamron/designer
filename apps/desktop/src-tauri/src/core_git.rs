@@ -228,7 +228,7 @@ const SEED_DOC_SOURCES: &[(&str, &str)] = &[
         "# Plan\n\n_What this track is doing now._\n",
     ),
     (
-        "core-docs/spec.md",
+        "core-docs/architecture/spec.md",
         "# Spec\n\n_The decisions this track is anchored to._\n",
     ),
     (

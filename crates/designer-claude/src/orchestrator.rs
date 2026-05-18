@@ -176,7 +176,7 @@ pub enum OrchestratorEvent {
     /// `since` is wall-clock at the state transition; the frontend
     /// renders `now - since` as the elapsed counter. Because this is
     /// broadcast-only, ADR 0002's `EventPayload` freeze does **not**
-    /// apply — see `core-docs/pattern-log.md` for the precedent.
+    /// apply — see `core-docs/design-system/pattern-log.md` for the precedent.
     ActivityChanged {
         workspace_id: WorkspaceId,
         tab_id: TabId,

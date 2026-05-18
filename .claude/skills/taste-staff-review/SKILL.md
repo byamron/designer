@@ -42,11 +42,11 @@ Each perspective is invoked as a separate `Agent` call (subagent type `Explore`)
 
 ### Staff engineer
 
-Hunts: code correctness in the showcase (TypeScript, React, vite config), correctness of `tools/*.mjs` scripts, skill-procedure correctness (do the steps reference real files? do the cited tools exist?), broken cross-references between docs (a `decisions.md` entry citing a tension ID that doesn't exist; a `language.md` LP citing `core-docs/foundations.md §X` that's actually §Y), accessibility implementation in the showcase (focus-visible vs focus, keyboard path, ARIA), missing or stale `**Distilled:**` footers on cycle ledger entries, missing or stale `**Propagated to canonical:**` fields on decisions / LPs.
+Hunts: code correctness in the showcase (TypeScript, React, vite config), correctness of `tools/*.mjs` scripts, skill-procedure correctness (do the steps reference real files? do the cited tools exist?), broken cross-references between docs (a `decisions.md` entry citing a tension ID that doesn't exist; a `language.md` LP citing `core-docs/design-system/foundations.md §X` that's actually §Y), accessibility implementation in the showcase (focus-visible vs focus, keyboard path, ARIA), missing or stale `**Distilled:**` footers on cycle ledger entries, missing or stale `**Propagated to canonical:**` fields on decisions / LPs.
 
 Specifically asks:
 - Does each migrating decision in `decisions.md` cite a real tension or feedback entry?
-- Does each LP in `language.md` cite a foundation that actually exists in `core-docs/foundations.md`? Spot-check by grepping `foundations.md` for the cited concept.
+- Does each LP in `language.md` cite a foundation that actually exists in `core-docs/design-system/foundations.md`? Spot-check by grepping `foundations.md` for the cited concept.
 - Do the skills (`drain-feedback`, `distill-feedback`, `uncommon-care`, `staff-review`) reference files / tools / paths that exist? Run a quick spot-check.
 - Does `tools/feedback-status.mjs` still classify correctly across edge cases (zero cycles, all distilled, mixed states)? Run it.
 - For showcase changes: does `npm run build` (or `tsc --noEmit`) pass? Are there raw `px` / `hex` / `ms` literals snuck in where tokens belong (with the showcase-specific exception for revealing Mini gaps)?
@@ -104,7 +104,7 @@ git diff <base>...HEAD --name-only > /tmp/pr-files.txt
 
 ### 3. Launch the three reviews in parallel
 
-A single tool message with three `Agent` calls, each `subagent_type: Explore`. Each prompt names its lens, the diff path, the changed files, the relevant docs to read (`CLAUDE.md`, `core-docs/foundations.md`, `core-docs/mini-gaps.md`, the cycle ledger entries, `language.md`, `decisions.md`, `tensions.md`, the propagation prompt at `.context/designer-propagation-prompt.md` if present), and asks for findings classified as **BLOCKER / NIT / FOLLOW-UP**. Cap each review at ~1200 words.
+A single tool message with three `Agent` calls, each `subagent_type: Explore`. Each prompt names its lens, the diff path, the changed files, the relevant docs to read (`CLAUDE.md`, `core-docs/design-system/foundations.md`, `core-docs/mini-gaps.md`, the cycle ledger entries, `language.md`, `decisions.md`, `tensions.md`, the propagation prompt at `.context/designer-propagation-prompt.md` if present), and asks for findings classified as **BLOCKER / NIT / FOLLOW-UP**. Cap each review at ~1200 words.
 
 ### 4. Triage the findings
 
@@ -197,7 +197,7 @@ The `gh pr merge` command is not part of this skill. The skill ends with a PR op
 
 - **Reviewers don't see the diff path automatically.** Each prompt must include the path to the saved diff and the list of changed files.
 
-- **Reviewers can be confidently wrong.** Past pattern: a reviewer claims a foundation citation is wrong when it's actually correct under a different name. Spot-check high-impact findings against `core-docs/foundations.md` directly before acting.
+- **Reviewers can be confidently wrong.** Past pattern: a reviewer claims a foundation citation is wrong when it's actually correct under a different name. Spot-check high-impact findings against `core-docs/design-system/foundations.md` directly before acting.
 
 - **Grep finds what reviewers miss.** Three reviewers can collectively miss a stale `Propagated to canonical: pending` field on an entry that should have been updated, or a tension that's been resolved but never moved to decisions. After the reviews, run focused greps:
   - `Propagated to canonical: pending` against entries that should have been updated this PR

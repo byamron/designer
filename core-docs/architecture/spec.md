@@ -6,28 +6,32 @@ This is the full product spec, architecture, UX model, compliance framing, and d
 
 ## Vision
 
-Designer is the cockpit for a new kind of product worker: a clear thinker with domain expertise who orchestrates a team of AI agents to take ideas from intent to shipped product. The user sets direction, reviews outcomes, and makes judgment calls. Agents handle execution. Git, branches, and PRs are plumbing that the user does not need to see to trust the work is happening.
+> **Designer is the judgment layer for software built by agents.**
 
-Success looks like: a designer, product manager, or founder can run a full end-to-end product loop — idea, spec, wireframe, prototype, implementation, PR, shipped feature — inside one local application, without opening a terminal.
+Designer is the interface for the human function in AI-built software — the cockpit where humans hold the line on taste as more of the software-creation pipeline gets automated. It preserves design intent through the increasing number of agent-to-agent handoffs, hosts the act of judgment and codifies it into the development process so each act compounds, and as a result helps AI-built software still feel human.
+
+**Canonical positioning lives in `core-docs/vision.md` §1.** This section is a summary; for the full chord (interface for the human function, preserve intent, facilitate judgment, feel human), the day-in-the-life narrative, and the negative-space (what Designer is not), see vision.md. The strategic decision is captured in `core-docs/architecture/adr/0010-intent-preservation-positioning.md`. The prior framing of this section ("cockpit for a new kind of product worker who orchestrates a team of AI agents…") is superseded — the orchestration framing was the May 4 2026 positioning before ADR 0010's May 15–16 reshape.
 
 ## Problem
 
-Today, orchestrating AI agents means tab-switching between the orchestrator, project management, the repo, design tools, communication, and a terminal. Status models are tied to git primitives (PRs, branches), not to the mental model of a manager. Trust infrastructure — cost caps, approval gates, audit logs — is vibes-based. Design exploration is an afterthought in engineering-first tools.
+As AI automates building, the human's contribution narrows but intensifies: taste and judgment. Today, no tool occupies the interface category for that contribution. Trackers (Linear, Jira, GitHub Projects) handle coordination but not judgment. IDEs (Cursor, VS Code) handle code-writing but not taste. Design tools (Figma, Subframe) handle creation but not judgment-across-tools. Agent orchestrators (Conductor, Devin, Charlie) serve developers running agent fleets, not humans applying taste to what agents produced. Each handoff in the pipeline leaks intent; the leakage compounds as more handoffs run agent-to-agent.
 
-The bottleneck has shifted from execution to three human problems: **context** (does the agent understand the goal?), **coordination** (do agents understand each other?), and **trust** (can I walk away?). These are design problems, and the tool that solves them becomes the primary interface for a new kind of work.
+**Canonical case for why this is undeniable lives in `core-docs/vision.md` §2** — five sub-arguments framed around the structural inevitability of a new interface category for each automation wave's surviving human function (word processors for writing, spreadsheets for calculating, IDEs for programming, design tools for designing — Designer for *taste and judgment* in AI-built software).
 
 ## Solution
 
-A local-first macOS app that orchestrates the user's locally installed Claude Code, layered with:
+Designer is a local-first macOS app that sits above the user's existing AI-build tools as the hub for taste and judgment. It hosts six native surfaces:
 
-- **A manager-of-agents metaphor** — persistent team lead per workspace, ephemeral subagents, role-based identities (no human names)
-- **A cockpit UX** — project switcher + workspace sidebar + tab primitive + activity spine
-- **A trust layer** — approval gates, cost caps, sandboxed previews, audit log, auditor integration
-- **A learning layer** — Forge-style pattern detection, context optimization, digests
-- **A design layer** — component lab, prototype browser, variant exploration, annotation
-- **Local models for the ops layer** — audit, context, patterns, recap — so Claude tokens are spent on creative work
+1. **Inbox** — cross-tool attention router; the home tab where judgment moments surface from every connected source.
+2. **Item viewer frame** — a thin Designer-side shell that embeds the right best-in-class tool per moment (Variant for variant comparison, Agentation for annotation, Figma for design files + comments, browser webview for live URLs and dev-server previews, Linear/Inflight for issue or review context).
+3. **AI taste companion** — Designer-native agent that lives in context (on a judgment moment, codification doc, embedded artifact view, or brief in progress). Helps draft redirections, translates critique into the right register per downstream tool, proposes codification candidates. Linear-agent pattern: the moat is the loaded taste context, not the chat interface.
+4. **Codification engine + living docs** — the *drain → distill → propose → propagate* loop over the user's repo `.md` files (`voice.md`, `principles.md`, `decisions.md`, `tensions.md`). Approved codifications push to every connected agent runtime so the next round of generation inherits the user's stance.
+5. **Lightweight in-context writing surface** — short briefs that emerge from chat with the companion and promote into the user's writing tool (Notion / Linear / Google Docs) on publish.
+6. **Source-tool integration adapters** — bidirectional plugins for Linear, GitHub, Figma, Agentation in v1; Variant, Inflight, Cursor, Lovable in the second wave. *Pulls* judgment moments from each source; *pushes* codified taste back so external generation incorporates it.
 
-Claude Code is the runtime. Designer is the orchestration and workspace layer on top. We never handle Claude auth, never proxy Claude through a backend, never replace the model.
+Everything else is embedded or passthrough. **Designer hosts only what no existing tool does well; everything else integrates rather than replicates.** Building a worse version of Variant, Inflight, Agentation, Figma, or Notion would be the canonical scope-creep failure mode and is refused on principle.
+
+**Canonical day-in-the-life narrative and the full v1 disposition (hosted / embedded / passthrough / cut per primitive) live in `core-docs/vision.md` §3 and `core-docs/architecture/adr/0010-intent-preservation-positioning.md` §3.10.** Older drafts of this section described a wider primitive set (manager-of-agents metaphor, cockpit UX with project strip + workspace sidebar + activity spine, learning layer, design layer with prototype browser, etc.) — those framings are superseded by the May 16 2026 narrowing in ADR 0010 §3.10.
 
 ## Features
 
@@ -370,23 +374,20 @@ Mostly invisible. Subtle surfacing confirms the system is optimizing ("Noticed a
 
 ## Strategic Moat
 
-The moat is **workflow, opinion, and trust** — not the model. This gets stronger as models improve.
+The moat is the **cockpit-grade interaction pattern for giving taste in a system** — not the model, not the backend automation. The codification engine and integration adapters are table stakes (a competent builder could replicate them with OpenClaw plus APIs); the defensible thing is the six-surfaces-designed-together cockpit that hosts the act of giving taste.
 
-Defensible territory:
+**Canonical argument lives in `core-docs/vision.md` §2.5.** The wider undeniability case — the lineage of human-function interface tools (word processors, spreadsheets, IDEs, design tools, Designer); why incumbents (Linear, Cursor, Figma) can't take this position without alienating their existing users; why value compounds with model improvement; why the cockpit is what's hard to retrofit — is in §2 of vision.md.
 
-1. Non-technical operator cockpit — Anthropic targets developers.
-2. Multi-agent coordination primitives — project-level state, cross-workspace, conflict detection. Anthropic explicitly does not ship these.
-3. Trust and safety infrastructure — not Anthropic's R&D focus.
-4. Design and iteration surfaces — outside Anthropic's lane.
+The prior framing of this section listed defensible territory as *non-technical operator cockpit / multi-agent coordination primitives / trust and safety infrastructure / design and iteration surfaces.* Of those: the non-technical operator cockpit is still right (and sharpened to "interface for the human function"); multi-agent coordination has been deprioritized in router-mode v1 (the user's existing tools handle delegation); trust and safety infrastructure remains relevant (codifications require human approval, propagation is auditable); design and iteration surfaces are now mostly *embedded* rather than Designer-hosted (per ADR 0010 §3.10).
 
 ---
 
 ## Non-Goals
 
-- Replace Claude Code with a custom runtime.
-- Offer Anthropic login or subscription access in-app.
-- Depend on Anthropic API credits as the business model.
-- Recreate Figma-level vector design. Canvas belongs to Paper/Pencil; we own component-lab and prototype-browser surfaces.
+- Replace Claude Code or any other agent runtime with a Designer-owned runtime. Per updated CLAUDE.md principle: *the user's chosen runtime is the runtime.*
+- Offer Anthropic login or subscription access in-app. (Compliance invariant; see "Hard invariants" below.)
+- Depend on any one model provider's API credits as the business model.
+- Recreate Figma-level vector design, Variant-grade variant comparison, Agentation-grade canvas annotation, Inflight-grade structured review, Notion-grade doc-writing, Loom-grade screencast playback, or any third-party tool's strength. Designer is the *hub* that embeds best-in-class tools per judgment moment; it does not build its own version of any tool that already exists and is good. See ADR 0010 §3.10 for the per-primitive hosted-vs-embedded disposition.
 - Hosted multi-tenant cloud agent service.
 - Human-named agent personas.
 
