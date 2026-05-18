@@ -1,6 +1,6 @@
 # Plan
 
-Near-term focus and active work items. See `roadmap.md` for the full phased sequence; see `spec.md` for architectural decisions; see `parking-lot.md` for deferred phases with re-activation triggers; see `history.md` for shipped-work detail (every entry referenced below has a fuller record there).
+Near-term focus and active work items. See `roadmap.md` for the full phased sequence; see `architecture/spec.md` for architectural decisions; see `parking-lot.md` for deferred phases with re-activation triggers; see `history.md` for shipped-work detail (every entry referenced below has a fuller record there). For *why* the current direction is right and *what's fragile about it*, see `research/rationale.md` and `research/critique.md`.
 
 ## Operating principle
 
@@ -26,6 +26,16 @@ Per ADR 0009, these ship with a "What's new" card on the Phase-24H release expla
 - **7 of 8 Designer-Noticed detector UIs** hidden via in-app Settings toggle. Detectors keep emitting events (frozen-contract additive); UI surfaces one at a time as proposals earn user acceptance.
 - **Model selector** hidden behind a flag until per-message subprocess respawn is robust (frame as "behind flag," not removed).
 - **Settings cull** — dev escape hatches move to ⌥-click Advanced pane; user-facing toggles users shouldn't think about removed.
+
+## Pending validation (gates next architecture decision)
+
+Before the roadmap rewrite and the iterate-vs-start-over architecture decision, three Tier 1 validation tasks should be completed. All three are captured in `research/critique.md` with full rationale and "what would change my confidence" criteria. Summary:
+
+1. **Persona-validation conversations** (3+ calls, ~30 min each). The personas in `research/personas.md` are dogfood-informed but unvalidated against non-dogfood users. Talk to a designer-founder of a non-SaaS consumer app (Maya analog), a design lead at a 50–100-person team (Jordan analog), and an AI-coding-fluent indie maker (Sam analog). Ask specifically whether their pain matches the convergence-to-mean framing (Framing 1) or the intent-elicitation framing (Framing 2 — see `critique.md §A`). See `research/critique.md §1.1` for full task spec.
+2. **Distill-step prototype** (1–2 days). The codification engine's distill step is an open ML problem and the load-bearing technical risk. Take 30–50 real redirections from the project lead's own GitHub history and run a local model + Claude on each to produce codification candidates. Evaluate against a held-out set. See `research/critique.md §1.2`.
+3. **Spec-driven dev close-read** (a few hours). Kiro / Tessl / Intent / Spec Kit handle living specs more like Designer's codification primitive than the rationale acknowledged. Read one user's actual flow with one of them. Look for: do they want taste-shaped intent that the tool doesn't support, or is technical-spec scope enough? See `research/critique.md §1.3`.
+
+Estimated total: ~1–2 weeks of cheap diligence. **The architecture decision (iterate / start-over / quarantine-and-extend) and the roadmap rewrite should both wait until these are complete** — see `critique.md §Summary: what to do before more strategic work` for the rationale.
 
 ## Parked (see `parking-lot.md`)
 
