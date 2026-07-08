@@ -5,8 +5,11 @@ name: supply-chain
 # Severity policy (mirrors core-docs/architecture/security.md §16.S "Supply-chain CI policy"):
 #   - HIGH/CRITICAL advisories block the PR.
 #   - MEDIUM/LOW warn but don't block.
-#   - Daily scheduled run drifts against newly-published advisories; on failure
-#     we open / update a tracking Issue so the dep tree doesn't silently rot.
+#
+# NOTE (2026-07-06): the daily `schedule:` cron was removed while the project is
+# dormant — an inactive repo has no dep changes to drift against, and the
+# unattended run only generated failure-email noise on newly-published
+# advisories. Restore the cron block below when the project is active again.
 #
 # Each tool is its own job so a single-source failure is diagnosable in
 # isolation. Out of scope here: signing, SLSA L3 provenance, updater dual-key
@@ -17,9 +20,6 @@ on:
     branches: [main]
   push:
     branches: [main]
-  schedule:
-    # 07:17 UTC daily — odd minute to dodge the top-of-hour cron herd.
-    - cron: '17 7 * * *'
   workflow_dispatch:
 
 concurrency:
