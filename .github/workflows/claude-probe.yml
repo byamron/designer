@@ -1,17 +1,19 @@
 name: claude-probe
 
-# Tier 3 — scheduled contract probe. Re-runs scripts/probe-claude.sh
+# Tier 3 — contract probe. Re-runs scripts/probe-claude.sh
 # (Phase A only: no-cost inventory) and diffs the captured CLI surface and
 # home-dir layout against what core-docs/architecture/integration-notes.md pins. On drift,
 # opens a GitHub issue so the translator rewrite doesn't silently rot when
 # Anthropic ships a new Claude Code version.
 #
 # Runs on the self-hosted runner because it needs a real `claude` binary.
+#
+# NOTE (2026-07-06): the daily `schedule:` cron was removed while the project is
+# dormant — a dormant repo isn't tracking upstream Claude Code changes, so the
+# unattended probe only generated noise. Trigger manually via workflow_dispatch,
+# or restore the cron block below when the project is active again.
 
 on:
-  schedule:
-    # 13:00 UTC daily ≈ 06:00 PT. Aligns with pre-start-of-day triage.
-    - cron: '0 13 * * *'
   workflow_dispatch:
 
 concurrency:

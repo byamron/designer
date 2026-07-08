@@ -37,6 +37,30 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### ci: disable Actions + drop scheduled crons while project is dormant
+**Date:** 2026-07-06
+**Branch:** claude/compassionate-hypatia-5b0451
+**Commit:** (this PR)
+
+**What was done:**
+- Disabled all six GitHub Actions workflows on the repo (`gh workflow disable`): `ci`, `claude-live`, `claude-probe`, `regenerate-visual-baselines`, `release`, `supply-chain`. This is a GitHub-side toggle (state `disabled_manually`), not a code change.
+- Removed the daily `schedule:` cron blocks from the two workflows that had them: `supply-chain` (was `17 7 * * *`) and `claude-probe` (was `0 13 * * *`). `claude-probe` is now `workflow_dispatch`-only; `supply-chain` retains its push/PR/dispatch triggers.
+- Updated the header comments in both workflow files to record why the cron was removed and how to restore it.
+
+**Why:**
+The project is dormant. The `supply-chain` daily cron was failing on newly-published Rust advisories against pinned deps and emailing run-failure notifications; `claude-probe` also ran daily. On an inactive repo there are no dep changes or upstream Claude Code changes to drift against, so the unattended runs produced only noise.
+
+**Design decisions:**
+- Two layers, deliberately. The `gh workflow disable` toggle stops *everything now* (all triggers, immediately, reversibly). Removing the `schedule:` blocks in-code makes the "no unattended cron runs" state durable — it survives clones and can't drift from a stale doc, and protects against the GitHub gotcha where editing a workflow file can silently re-activate an inactivity-disabled workflow.
+
+**Tradeoffs discussed:**
+- Considered a plain history.md note vs. a visible in-file marker vs. removing the triggers. Chose trigger removal because the desired state then lives in the code and is self-documenting, rather than depending on a doc nobody re-reads.
+
+**Lessons learned:**
+- Disabling via API is invisible in the repo tree — a future reader sees live-looking workflow files. Encoding the intent in the `on:` block + header comments is what makes the state legible.
+
+**To fully re-activate later:** re-add the `schedule:` blocks (preserved in the header comments) and run `for w in ci claude-live claude-probe regenerate-visual-baselines release supply-chain; do gh workflow enable "$w"; done`.
+
 ### docs: reorder Phase 24I before 24H
 **Date:** 2026-05-13
 **Branch:** docs-phase-24i-before-24h-reorder
