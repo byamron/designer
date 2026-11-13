@@ -10,5 +10,6 @@ The previous Designer app (Tauri/Rust/React) is preserved in git history at the
 tag `designer-final`. Browse it with `git show designer-final:<path>`.
 
 - [docs/plan.md](docs/plan.md): scope, architecture, milestones
+- [docs/product.md](docs/product.md): who it is for and how it differs from other harnesses
 - [docs/inspirations.md](docs/inspirations.md): what we learned from other projects, and the license rules we follow
 - [docs/archive/](docs/archive/): kept from the old project (vision, critique)
