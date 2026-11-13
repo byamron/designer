@@ -36,13 +36,20 @@ and the chat is secondary.
 - Feedback payload: comments should reach the agent as structured context (element selector, rect, text, optional cropped screenshot) rendered into one normal user message, so chat stays pass-through.
 - The M0 chat quality work (scroll, streaming, tool traces) still stands; chat is secondary in space, not in quality.
 
-## Proposed milestone order (draft)
-- M0 chat UI + fake adapter (unchanged).
-- M1 Claude adapter.
-- M2 shell: workspaces (worktrees), session tabs, resizable chat/preview split.
-- M3 preview + pinned comments + send-to-agent loop (the differentiator; consider pulling earlier).
-- M4 Codex adapter; review button; agent-to-agent tool.
-- M5 harden.
+## Phasing principle: build the tool with the tool
+Get to a usable core first, then add features incrementally using the tool itself.
+Every phase ends usable and shippable to ourselves; no phase leaves visible stubs.
+Real Claude comes before polish: a fake adapter is only a short-lived test aid, not a milestone.
+
+## Milestone order (draft)
+- **P0 Usable core (dogfood threshold).** Local server + web UI, started with one command, working out of the box. Pick a folder, chat with Claude Code through the Agent SDK on the user's subscription, streaming, tool traces, approvals, stop, resume after restart, sessions listed and persisted. Chat scroll/streaming must be solid from day one, since it is what you live in. Exit test: we can do real work on this repo with it. Until then we keep using Conductor to build.
+- **P1 Workspaces.** Git worktrees in a left sidebar, multiple session tabs per worktree. Opened from the same server; no shell decision needed yet.
+- **P2 Preview pane.** Resizable split with a live preview (local dev server or HTML file) beside the chat; swappable panes. Quote-and-reply in chat.
+- **P3 Comment loop.** Pinned comments on the preview, sent to the agent as structured context in a normal message. This is the differentiator; iterate on it heavily.
+- **P4 More agents and orchestration.** Codex adapter, per-session model choice, review button with configurable prompt, agent-to-agent tool.
+- **P5 Harden and extend.** Variants/compare, dictation, terminal, Paper/Figma integration, desktop wrapper if wanted.
+
+The server + web UI split keeps the shell decision (browser tab vs desktop wrapper) open; a wrapper can host the same UI later. P3 is where that decision actually bites.
 
 ## Open questions
 - Desktop wrapper (Electron/Tauri) vs browser tab + proxy?
