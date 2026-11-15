@@ -2,11 +2,26 @@
 
 Status: research done, nothing built. Ideas only from T3 Code, Paseo, Orca; no code copied, no fork. Rules and trace ledger: [inspirations.md](inspirations.md).
 
+## P0 status (built)
+Server (Node 22, `ws`, JSONL store), Claude Agent SDK adapter, React UI. Verified against real Claude:
+multi-turn streaming, tool calls, approvals (deny blocks the write), interrupt, resume after server restart.
+Browser tests (fake provider) cover follow/detach scroll, jump-to-latest, tool groups, approvals, Esc, replay.
+
+Known gaps / next:
+- Not yet verified on a real subscription login: this cloud container authenticates differently, so
+  `apiKeySource` showed `none` here. The adapter strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` and warns
+  if the SDK reports a key source other than a login. Confirm on the owner's Mac.
+- After Stop, Claude can still emit one short reply before the turn ends (SDK behavior); review.
+- Code blocks are plain `<pre>` (no syntax highlighting yet). `AskUserQuestion` is declined with a
+  message asking the model to ask in plain text. No attachments, no multi-provider yet.
+- Auth to the local server is Host/Origin checking on a localhost-only bind.
+
 ## Decisions so far
 - Built in this repo; old app preserved at git tag `designer-final`.
 - Server: Node 22 (T3 Code and Paseo both run on Node; per web summaries, not yet verified in source).
 - UI: React + TypeScript.
-- Next: file-level read of T3 Code's adapter/event layer (logged in the ledger), then M0.
+- Shell: decide Tauri vs Electron with a spike at the start of P2; server and UI stay separate until then.
+- No code or files from T3 Code, Paseo or Orca were read for P0; nothing to log in the ledger yet.
 
 ## Goal
 A local, single-user chat app that drives the user's own **Claude Code (Agent SDK)** and **Codex (`codex app-server`)** using their existing subscription logins. No API keys. Small, fast, boring. The coding harness is built on top later.

@@ -4,7 +4,32 @@ A lean, local, single-user chat app that drives your own Claude Code (Agent SDK)
 and Codex (`codex app-server`) using your existing subscription logins. No API
 keys. Small, fast, boring; a coding harness gets built on top later.
 
-Status: planning. Nothing is built yet. See [docs/plan.md](docs/plan.md).
+Status: P0 (usable core) is built: local server + web UI over Claude Code.
+See [docs/plan.md](docs/plan.md) for the roadmap.
+
+## Run
+
+Requires Node 22+ and a logged-in `claude` (run `claude login` once; no API key needed).
+
+```sh
+npm install
+npm start            # builds the UI, serves http://localhost:4317
+# or, while developing:
+npm run dev          # server on :4317
+npm run dev -w @designer/web   # UI with hot reload on :5173
+```
+
+Env: `PORT`, `DESIGNER_DATA` (thread logs, default `~/.designer-chat`), `DESIGNER_CWD` (default folder in
+the new-chat form), `DESIGNER_FAKE=1` (scripted provider, no Claude).
+
+## Test
+
+```sh
+npm run typecheck
+npm test                                   # server unit tests
+DESIGNER_FAKE=1 npm start & node e2e/ui.e2e.mjs   # browser tests (needs Playwright)
+```
+
 
 The previous Designer app (Tauri/Rust/React) is preserved in git history at the
 tag `designer-final`. Browse it with `git show designer-final:<path>`.
