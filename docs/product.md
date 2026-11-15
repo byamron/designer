@@ -51,9 +51,16 @@ Real Claude comes before polish: a fake adapter is only a short-lived test aid, 
 
 The server + web UI split keeps the shell decision (browser tab vs desktop wrapper) open; a wrapper can host the same UI later. P3 is where that decision actually bites.
 
+## Decisions
+- **Shell:** web first (local server + browser UI), desktop wrapper later. The wrapper is needed for commenting on arbitrary external pages (see below), not for localhost or HTML files.
+- **Canvas:** one surface for web pages, HTML files, and localhost pages, seamlessly. Paper: v1 at most loads it as a web page in the window; a closer integration is later and not in v1.
+- **Variants:** side-by-side exploration and comparison when there are design decisions to make. Goal, phased after the comment loop.
+- **Dictation:** system dictation (the owner uses an app shortcut). In-app dictation only if needed later.
+- **Auth:** no sign-in flow in the app. The local server launches the user's own logged-in Claude Code / Codex; the browser UI only talks to localhost.
+
+## Browser limits that shape this
+- Local HTML files and localhost dev servers: we can serve or proxy them and inject a comment overlay, so this works in a plain browser tab.
+- External sites (including Paper on the web): most send headers that block embedding in an iframe, and we cannot inject scripts across origins. Showing and commenting on those needs a desktop webview.
+
 ## Open questions
-- Desktop wrapper (Electron/Tauri) vs browser tab + proxy?
-- What exactly is "canvas": the agent's HTML output only, or also Paper files / Figma via integration?
-- Dictation: rely on OS dictation, or build in?
-- Variants: side-by-side compare of multiple versions? (likely wanted; not yet specified)
 - From the old app: nothing carried over by default. Revisit `docs/archive/` only for specific ideas.
