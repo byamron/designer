@@ -1,6 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AgentEvent, StoredEvent, ThreadMeta } from '@designer/shared';
+import type { AgentEvent, StoredEvent, ThreadMeta, Workspace } from '@designer/shared';
 
 /** Append-only JSONL log per thread plus a small meta.json. No DB. */
 export class Store {
@@ -11,6 +11,18 @@ export class Store {
   private dir(id: string) {
     if (!/^[\w-]+$/.test(id)) throw new Error('bad thread id');
     return join(this.root, 'threads', id);
+  }
+  listWorkspaces(): Workspace[] {
+    try {
+      return JSON.parse(readFileSync(join(this.root, 'workspaces.json'), 'utf8'));
+    } catch {
+      return [];
+    }
+  }
+  saveWorkspaces(list: Workspace[]) {
+    const f = join(this.root, 'workspaces.json');
+    writeFileSync(f + '.tmp', JSON.stringify(list, null, 2));
+    renameSync(f + '.tmp', f); // atomic: never leave a half-written index
   }
   listThreads(): ThreadMeta[] {
     const base = join(this.root, 'threads');

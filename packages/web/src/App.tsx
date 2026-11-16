@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import type { PermissionMode, ThreadMeta } from '@designer/shared';
+import type { PermissionMode, ThreadMeta, Workspace } from '@designer/shared';
 import { store, useStore, type Item } from './store';
 import { Markdown } from './markdown';
 import { useStick } from './useStick';
@@ -16,50 +16,100 @@ export function App() {
 }
 
 function Sidebar() {
+  const workspaces = useStore((s) => s.workspaces);
   const threads = useStore((s) => s.threads);
-  const activeId = useStore((s) => s.activeId);
+  const activeWs = useStore((s) => s.threads.find((t) => t.id === s.activeId)?.workspaceId);
   const defaultCwd = useStore((s) => s.defaultCwd);
   const [adding, setAdding] = useState(false);
-  const [cwd, setCwd] = useState('');
-  useEffect(() => setCwd((c) => c || defaultCwd), [defaultCwd]);
+  const [path, setPath] = useState('');
+  useEffect(() => setPath((c) => c || defaultCwd), [defaultCwd]);
   const submit = () => {
-    if (!cwd.trim()) return;
-    store.createThread(cwd.trim());
+    if (!path.trim()) return;
+    store.addFolder(path.trim());
     setAdding(false);
   };
+  // group by repo: the main folder first, then its worktrees
+  const projects = useMemo(() => {
+    const by = new Map<string, Workspace[]>();
+    for (const w of workspaces) by.set(w.repoPath ?? w.path, [...(by.get(w.repoPath ?? w.path) ?? []), w]);
+    return [...by].map(([key, list]) => ({ key, list: list.sort((a, b) => (a.kind === 'folder' ? -1 : 0) - (b.kind === 'folder' ? -1 : 0) || a.createdAt - b.createdAt) }));
+  }, [workspaces]);
+  const running = (wid: string) => threads.some((t) => t.workspaceId === wid && !t.archived && t.status === 'running');
+  const firstSession = (wid: string) => threads.find((t) => t.workspaceId === wid && !t.archived);
   return (
     <aside className="sidebar">
-      <button className="new" onClick={() => setAdding((a) => !a)}>New chat</button>
+      <button className="new" onClick={() => setAdding((a) => !a)}>Add folder</button>
       {adding && (
         <div className="newform">
           <label>
-            Folder
-            <input value={cwd} onChange={(e) => setCwd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} autoFocus spellCheck={false} />
+            Folder path
+            <input value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} autoFocus spellCheck={false} />
           </label>
-          <button onClick={submit}>Start</button>
+          <button onClick={submit}>Add</button>
         </div>
       )}
-      <nav className="threads" aria-label="Chats">
-        {threads.map((t) => (
-          <ThreadRow key={t.id} t={t} active={t.id === activeId} />
+      <nav className="projects" aria-label="Workspaces">
+        {projects.map((p) => (
+          <Project key={p.key} name={p.key.split('/').filter(Boolean).slice(-1)[0] ?? p.key} list={p.list} activeWs={activeWs} running={running} onOpen={(wid) => { const t = firstSession(wid); t ? store.open(t.id) : store.newSession(wid); }} />
         ))}
-        {!threads.length && <p className="empty-side">No chats yet.</p>}
+        {!projects.length && <p className="empty-side">Add a folder to start.</p>}
       </nav>
     </aside>
   );
 }
 
-const ThreadRow = memo(function ThreadRow({ t, active }: { t: ThreadMeta; active: boolean }) {
+function Project({ name, list, activeWs, running, onOpen }: { name: string; list: Workspace[]; activeWs?: string; running: (id: string) => boolean; onOpen: (id: string) => void }) {
+  const [making, setMaking] = useState(false);
+  const [wt, setWt] = useState('');
+  const base = list.find((w) => w.kind === 'folder') ?? list[0];
+  const create = () => {
+    if (!wt.trim()) return;
+    store.createWorktree(base.id, wt.trim());
+    setMaking(false);
+    setWt('');
+  };
   return (
-    <button className={`thread${active ? ' active' : ''}`} onClick={() => store.open(t.id)} aria-current={active}>
-      <span className="thread-title">{t.title}</span>
-      <span className="thread-sub">
-        {t.status === 'running' && <span className="dot" aria-label="running" />}
-        {t.cwd.split('/').filter(Boolean).slice(-1)[0] ?? t.cwd}
-      </span>
-    </button>
+    <section className="project">
+      <div className="project-head">
+        <span className="project-name">{name}</span>
+        <button className="icon" title="New worktree" aria-label={`New worktree in ${name}`} onClick={() => setMaking(!making)}>⎇ +</button>
+      </div>
+      {making && (
+        <div className="newform">
+          <input value={wt} placeholder="worktree name" onChange={(e) => setWt(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} autoFocus spellCheck={false} aria-label="Worktree name" />
+        </div>
+      )}
+      {list.map((w) => (
+        <div key={w.id} className={`ws${w.id === activeWs ? ' active' : ''}`}>
+          <button className="ws-main" onClick={() => onOpen(w.id)} aria-current={w.id === activeWs}>
+            <span className="ws-name">{w.kind === 'folder' ? 'Main folder' : w.name}</span>
+            {w.branch && <span className="ws-branch">{w.branch}</span>}
+            {running(w.id) && <span className="dot" aria-label="running" />}
+          </button>
+          <button className="icon x" title={w.kind === 'worktree' ? 'Remove worktree (only if it has no uncommitted changes)' : 'Forget folder (files are not deleted)'} aria-label={`Remove ${w.name}`} onClick={() => store.removeWorkspace(w.id)}>✕</button>
+        </div>
+      ))}
+    </section>
   );
-});
+}
+
+function Tabs({ thread }: { thread: ThreadMeta }) {
+  const tabs = useStore((s) => s.threads.filter((t) => t.workspaceId === thread.workspaceId && !t.archived).sort((a, b) => a.createdAt - b.createdAt));
+  return (
+    <div className="tabs" role="tablist" aria-label="Sessions">
+      {tabs.map((t) => (
+        <div key={t.id} className={`tab${t.id === thread.id ? ' active' : ''}`} role="presentation">
+          <button role="tab" aria-selected={t.id === thread.id} className="tab-main" onClick={() => store.open(t.id)}>
+            {t.status === 'running' && <span className="dot" aria-label="running" />}
+            <span className="tab-title">{t.title}</span>
+          </button>
+          <button className="icon x" aria-label={`Close ${t.title}`} onClick={() => store.closeSession(t.id)}>✕</button>
+        </div>
+      ))}
+      <button className="icon" aria-label="New session" title="New session" onClick={() => store.newSession(thread.workspaceId)}>+</button>
+    </div>
+  );
+}
 
 function Main() {
   const activeId = useStore((s) => s.activeId);
@@ -68,16 +118,16 @@ function Main() {
   if (!activeId || !thread) {
     return (
       <main className="main empty">
-        <p>Pick a chat or start a new one.</p>
+        <p>Add a folder, then pick a workspace.</p>
       </main>
     );
   }
   return (
     <main className="main">
       <header className="top">
-        <span className="top-title">{thread.title}</span>
         <span className="top-cwd">{thread.cwd}</span>
       </header>
+      <Tabs thread={thread} />
       {notice && <div className="notice" role="alert" onClick={() => store.open(activeId)}>{notice}</div>}
       <Chat key={activeId} thread={thread} />
     </main>

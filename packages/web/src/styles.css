@@ -22,6 +22,21 @@ button { cursor: pointer; }
 .thread { background: none; border: 0; border-radius: 8px; padding: 8px 10px; text-align: left; display: grid; gap: 2px; }
 .thread:hover { background: var(--user); }
 .thread.active { background: var(--user); }
+.projects { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.project-head { display: flex; justify-content: space-between; align-items: center; padding: 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.icon { background: none; border: 0; color: var(--muted); border-radius: 6px; padding: 2px 6px; }
+.icon:hover { background: var(--user); color: var(--text); }
+.ws { display: flex; align-items: center; border-radius: 8px; }
+.ws:hover, .ws.active { background: var(--user); }
+.ws .x { visibility: hidden; } .ws:hover .x, .ws .x:focus-visible { visibility: visible; }
+.ws-main { flex: 1; min-width: 0; background: none; border: 0; padding: 7px 10px; text-align: left; display: flex; align-items: baseline; gap: 8px; }
+.ws-name { font-weight: 500; white-space: nowrap; } .ws-branch { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabs { display: flex; align-items: center; gap: 2px; padding: 6px 12px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tab { display: flex; align-items: center; border-radius: 8px 8px 0 0; max-width: 220px; }
+.tab.active { background: var(--user); }
+.tab-main { background: none; border: 0; padding: 6px 4px 6px 10px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.tab .x { opacity: 0; } .tab:hover .x, .tab.active .x, .tab .x:focus-visible { opacity: 1; }
 .thread-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .thread-sub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 .empty-side { color: var(--muted); font-size: 13px; padding: 8px; }

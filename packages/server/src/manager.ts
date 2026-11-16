@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
-import type { AgentEvent, ClientMsg, Decision, PermissionMode, ServerMsg, ThreadMeta } from '@designer/shared';
+import { basename, join } from 'node:path';
+import type { AgentEvent, ClientMsg, Decision, PermissionMode, ServerMsg, ThreadMeta, Workspace } from '@designer/shared';
 import type { ProviderAdapter, Session } from './adapter.js';
+import { addWorktree, removeWorktree, repoRoot } from './git.js';
 import type { Store } from './store.js';
 
 export interface Client {
@@ -18,9 +20,27 @@ export class Manager {
   private flushTimer?: NodeJS.Timeout;
   private modes = new Map<string, PermissionMode>();
 
-  constructor(private store: Store, private adapter: ProviderAdapter) {
-    // A crash can leave threads marked running; nothing is running after a restart.
-    for (const t of store.listThreads()) if (t.status === 'running') store.writeMeta({ ...t, status: 'idle' });
+  private workspaces: Workspace[];
+
+  constructor(private store: Store, private adapter: ProviderAdapter, private worktreeRoot: string) {
+    this.workspaces = store.listWorkspaces();
+    for (const t of store.listThreads()) {
+      let next = t;
+      // A crash can leave threads marked running; nothing is running after a restart.
+      if (t.status === 'running') next = { ...next, status: 'idle' };
+      // Threads from before workspaces existed: group them under a folder workspace by cwd.
+      if (!t.workspaceId) next = { ...next, workspaceId: this.folderWorkspace(t.cwd).id };
+      if (next !== t) store.writeMeta(next);
+    }
+  }
+
+  private folderWorkspace(path: string): Workspace {
+    const found = this.workspaces.find((w) => w.path === path);
+    if (found) return found;
+    const w: Workspace = { id: randomUUID(), name: basename(path) || path, path, kind: 'folder', createdAt: Date.now() };
+    this.workspaces.push(w);
+    this.store.saveWorkspaces(this.workspaces);
+    return w;
   }
 
   addClient(c: Client) {
@@ -34,8 +54,18 @@ export class Manager {
     switch (msg.type) {
       case 'list_threads':
         return c.send({ type: 'threads', threads: this.store.listThreads() });
+      case 'list_workspaces':
+        return c.send({ type: 'workspaces', workspaces: this.workspaces });
+      case 'add_folder':
+        return void this.guard(c, () => this.addFolder(msg.path));
+      case 'create_worktree':
+        return void this.guard(c, () => this.createWorktree(msg.fromWorkspaceId, msg.name));
+      case 'remove_workspace':
+        return void this.guard(c, () => this.removeWorkspace(msg.workspaceId));
       case 'create_thread':
-        return this.create(c, msg.cwd, msg.title);
+        return this.create(c, msg.workspaceId);
+      case 'archive_thread':
+        return this.archive(c, msg.threadId);
       case 'subscribe':
         return this.subscribe(c, msg.threadId, msg.lastSeq);
       case 'send':
@@ -49,16 +79,79 @@ export class Manager {
     }
   }
 
-  private create(c: Client, cwd: string, title?: string) {
+  private async guard(c: Client, fn: () => Promise<void>) {
     try {
-      if (!statSync(cwd).isDirectory()) throw new Error('not a directory');
-    } catch {
-      return c.send({ type: 'error', message: `Folder not found: ${cwd}` });
+      await fn();
+    } catch (e) {
+      c.send({ type: 'error', message: e instanceof Error ? e.message : String(e) });
     }
+  }
+
+  private async addFolder(path: string) {
+    try {
+      if (!statSync(path).isDirectory()) throw new Error();
+    } catch {
+      throw new Error(`Folder not found: ${path}`);
+    }
+    const root = (await repoRoot(path)) ?? path; // inside a repo: use the repo root so worktrees work
+    const existing = this.workspaces.find((w) => w.path === root);
+    const w = existing ?? this.folderWorkspace(root);
+    this.broadcastAll({ type: 'workspace_updated', workspace: w });
+    if (!this.store.listThreads().some((t) => t.workspaceId === w.id && !t.archived)) this.newThread(w);
+  }
+
+  private async createWorktree(fromId: string, name: string) {
+    const base = this.workspaces.find((x) => x.id === fromId);
+    if (!base) throw new Error('Unknown workspace');
+    const repo = base.repoPath ?? (await repoRoot(base.path));
+    if (!repo) throw new Error('That folder is not a git repository, so it cannot have worktrees.');
+    const path = join(this.worktreeRoot, basename(repo), name);
+    if (this.workspaces.some((w) => w.path === path)) throw new Error(`A workspace named "${name}" already exists.`);
+    const branch = await addWorktree(repo, path, name);
+    const w: Workspace = { id: randomUUID(), name, path, kind: 'worktree', repoPath: repo, branch, createdAt: Date.now() };
+    this.workspaces.push(w);
+    this.store.saveWorkspaces(this.workspaces);
+    this.broadcastAll({ type: 'workspace_updated', workspace: w });
+    this.newThread(w);
+  }
+
+  private async removeWorkspace(id: string) {
+    const w = this.workspaces.find((x) => x.id === id);
+    if (!w) return;
+    const live = this.store.listThreads().filter((t) => t.workspaceId === id && t.status === 'running');
+    if (live.length) throw new Error('Stop the running session first.');
+    // Worktrees are removed from disk only if clean; folders are never deleted, only forgotten.
+    if (w.kind === 'worktree' && w.repoPath) await removeWorktree(w.repoPath, w.path);
+    for (const t of this.store.listThreads().filter((x) => x.workspaceId === id)) {
+      this.sessions.get(t.id)?.close();
+      this.sessions.delete(t.id);
+      this.update(t, { archived: true });
+    }
+    this.workspaces = this.workspaces.filter((x) => x.id !== id);
+    this.store.saveWorkspaces(this.workspaces);
+    this.broadcastAll({ type: 'workspace_removed', workspaceId: id });
+  }
+
+  private create(c: Client, workspaceId: string) {
+    const w = this.workspaces.find((x) => x.id === workspaceId);
+    if (!w) return c.send({ type: 'error', message: 'Unknown workspace' });
+    this.newThread(w);
+  }
+
+  private newThread(w: Workspace) {
     const now = Date.now();
-    const meta: ThreadMeta = { id: randomUUID(), title: title?.trim() || 'New chat', cwd, provider: 'claude', status: 'idle', createdAt: now, updatedAt: now };
+    const meta: ThreadMeta = { id: randomUUID(), workspaceId: w.id, title: 'New chat', cwd: w.path, provider: 'claude', status: 'idle', createdAt: now, updatedAt: now };
     this.store.writeMeta(meta);
     this.broadcastAll({ type: 'thread_updated', thread: meta });
+  }
+
+  private archive(c: Client, threadId: string) {
+    const m = this.store.readMeta(threadId);
+    if (!m) return;
+    if (m.status === 'running') return c.send({ type: 'error', message: 'Stop the session before closing it.' });
+    this.sessions.get(threadId)?.close();
+    this.sessions.delete(threadId);
+    this.update(m, { archived: true });
   }
 
   private subscribe(c: Client, threadId: string, lastSeq: number) {

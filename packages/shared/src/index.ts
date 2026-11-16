@@ -20,8 +20,23 @@ export type StoredEvent = AgentEvent & { threadId: string; seq: number; ts: numb
 /** Live-only streaming deltas; coalesced by the server, never written to the log. */
 export type LiveDelta = { type: 'assistant_delta'; threadId: string; messageId: string; text: string };
 
+export interface Workspace {
+  id: string;
+  name: string;
+  /** Directory sessions run in. */
+  path: string;
+  /** 'folder' is any directory used as is; 'worktree' is a git worktree we created. */
+  kind: 'folder' | 'worktree';
+  /** For worktrees: the repo it was created from, and its branch. */
+  repoPath?: string;
+  branch?: string;
+  createdAt: number;
+}
+
 export interface ThreadMeta {
   id: string;
+  workspaceId: string;
+  archived?: boolean;
   title: string;
   cwd: string;
   provider: 'claude';
@@ -34,7 +49,12 @@ export interface ThreadMeta {
 
 export type ClientMsg =
   | { type: 'list_threads' }
-  | { type: 'create_thread'; cwd: string; title?: string }
+  | { type: 'list_workspaces' }
+  | { type: 'add_folder'; path: string }
+  | { type: 'create_worktree'; fromWorkspaceId: string; name: string }
+  | { type: 'remove_workspace'; workspaceId: string }
+  | { type: 'create_thread'; workspaceId: string }
+  | { type: 'archive_thread'; threadId: string }
   | { type: 'subscribe'; threadId: string; lastSeq: number }
   | { type: 'send'; threadId: string; text: string }
   | { type: 'interrupt'; threadId: string }
@@ -43,6 +63,9 @@ export type ClientMsg =
 
 export type ServerMsg =
   | { type: 'hello'; defaultCwd: string }
+  | { type: 'workspaces'; workspaces: Workspace[] }
+  | { type: 'workspace_updated'; workspace: Workspace }
+  | { type: 'workspace_removed'; workspaceId: string }
   | { type: 'threads'; threads: ThreadMeta[] }
   | { type: 'thread_updated'; thread: ThreadMeta }
   | { type: 'event'; event: StoredEvent }

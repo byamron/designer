@@ -27,7 +27,7 @@ the new-chat form), `DESIGNER_FAKE=1` (scripted provider, no Claude).
 ```sh
 npm run typecheck
 npm test                                   # server unit tests
-DESIGNER_FAKE=1 npm start & node e2e/ui.e2e.mjs   # browser tests (needs Playwright)
+# browser tests (needs Playwright): see the header of e2e/ui.e2e.mjs for the one-line setup
 ```
 
 

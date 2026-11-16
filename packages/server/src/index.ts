@@ -17,7 +17,7 @@ const WEB_DIST = resolve(fileURLToPath(new URL('../../web/dist', import.meta.url
 const DEV_PORT = 5173;
 
 const store = new Store(DATA);
-const manager = new Manager(store, process.env.DESIGNER_FAKE ? fakeAdapter : claudeAdapter);
+const manager = new Manager(store, process.env.DESIGNER_FAKE ? fakeAdapter : claudeAdapter, join(DATA, 'worktrees'));
 
 // The server can run commands on this machine, so only the local UI may talk to it:
 // check Host (DNS rebinding) and Origin (other web pages) on every request.
@@ -53,6 +53,7 @@ function connect(ws: WebSocket) {
   };
   manager.addClient(client);
   client.send({ type: 'hello', defaultCwd: process.env.DESIGNER_CWD ?? process.cwd() });
+  manager.handle(client, { type: 'list_workspaces' });
   client.send({ type: 'threads', threads: store.listThreads() });
   ws.on('message', (data) => {
     try {

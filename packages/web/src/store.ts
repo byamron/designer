@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { ClientMsg, Decision, PermissionMode, ServerMsg, StoredEvent, ThreadMeta, ToolStatus } from '@designer/shared';
+import type { ClientMsg, Decision, PermissionMode, ServerMsg, StoredEvent, ThreadMeta, ToolStatus, Workspace } from '@designer/shared';
 
 export type Item =
   | { kind: 'user'; id: string; text: string }
@@ -19,6 +19,7 @@ export interface ThreadView {
 export interface State {
   connected: boolean;
   defaultCwd: string;
+  workspaces: Workspace[];
   threads: ThreadMeta[];
   activeId?: string;
   views: Record<string, ThreadView>;
@@ -51,7 +52,7 @@ function applyEvent(items: Item[], e: StoredEvent): Item[] {
 }
 
 class Store {
-  state: State = { connected: false, defaultCwd: '', threads: [], views: {} };
+  state: State = { connected: false, defaultCwd: '', workspaces: [], threads: [], views: {} };
   private listeners = new Set<() => void>();
   private ws?: WebSocket;
   private retry = 0;
@@ -92,7 +93,27 @@ class Store {
   private onMsg(m: ServerMsg) {
     switch (m.type) {
       case 'hello': return this.set({ defaultCwd: m.defaultCwd });
-      case 'threads': return this.set({ threads: m.threads });
+      case 'workspaces': return this.set({ workspaces: m.workspaces });
+      case 'workspace_updated': {
+        this.set({ workspaces: [...this.state.workspaces.filter((w) => w.id !== m.workspace.id), m.workspace] });
+        // adding a folder that already has sessions just opens one of them
+        const existing = this.pendingOpen && this.state.threads.find((t) => t.workspaceId === m.workspace.id && !t.archived);
+        if (existing) {
+          this.pendingOpen = false;
+          this.open(existing.id);
+        }
+        return;
+      }
+      case 'workspace_removed': return this.set({ workspaces: this.state.workspaces.filter((w) => w.id !== m.workspaceId) });
+      case 'threads': {
+        this.set({ threads: m.threads });
+        if (!this.state.activeId) {
+          const last = this.recall();
+          const t = m.threads.find((x) => x.id === last && !x.archived);
+          if (t) this.open(t.id);
+        }
+        return;
+      }
       case 'thread_updated': {
         const rest = this.state.threads.filter((t) => t.id !== m.thread.id);
         const isNew = rest.length === this.state.threads.length;
@@ -100,6 +121,12 @@ class Store {
         if (isNew && this.pendingOpen) {
           this.pendingOpen = false;
           this.open(m.thread.id);
+        }
+        // closing the tab you are on moves you to a sibling session
+        if (m.thread.archived && m.thread.id === this.state.activeId) {
+          const sib = this.state.threads.find((t) => t.workspaceId === m.thread.workspaceId && !t.archived);
+          if (sib) this.open(sib.id);
+          else this.set({ activeId: undefined });
         }
         // a finished turn lets the next queued message go
         if (m.thread.status === 'idle') this.drainQueue(m.thread.id);
@@ -152,12 +179,30 @@ class Store {
   }
 
   private pendingOpen = false;
-  createThread(cwd: string) {
+  addFolder(path: string) {
     this.pendingOpen = true;
-    this.send({ type: 'create_thread', cwd });
+    this.send({ type: 'add_folder', path });
+  }
+  createWorktree(fromWorkspaceId: string, name: string) {
+    this.pendingOpen = true;
+    this.send({ type: 'create_worktree', fromWorkspaceId, name });
+  }
+  newSession(workspaceId: string) {
+    this.pendingOpen = true;
+    this.send({ type: 'create_thread', workspaceId });
+  }
+  closeSession(threadId: string) {
+    this.send({ type: 'archive_thread', threadId });
+  }
+  removeWorkspace(workspaceId: string) {
+    this.send({ type: 'remove_workspace', workspaceId });
+  }
+  private recall() {
+    try { return localStorage.getItem('designer.active') ?? undefined; } catch { return undefined; }
   }
   open(id: string) {
     this.set({ activeId: id, notice: undefined });
+    try { localStorage.setItem('designer.active', id); } catch { /* private mode */ }
     this.send({ type: 'subscribe', threadId: id, lastSeq: this.state.views[id]?.lastSeq ?? 0 });
   }
   say(id: string, text: string) {

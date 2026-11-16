@@ -7,6 +7,11 @@ Server (Node 22, `ws`, JSONL store), Claude Agent SDK adapter, React UI. Verifie
 multi-turn streaming, tool calls, approvals (deny blocks the write), interrupt, resume after server restart.
 Browser tests (fake provider) cover follow/detach scroll, jump-to-latest, tool groups, approvals, Esc, replay.
 
+P1 (built): workspaces and session tabs. A workspace is a folder or a git worktree the app creates
+(`<data>/worktrees/<repo>/<name>`, branch `designer/<name>`); each workspace has several session tabs.
+Worktrees with uncommitted changes are never removed. Checklist of what still needs the owner's Mac:
+[needs-local-testing.md](needs-local-testing.md).
+
 Known gaps / next:
 - Not yet verified on a real subscription login: this cloud container authenticates differently, so
   `apiKeySource` showed `none` here. The adapter strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` and warns
