@@ -1,8 +1,11 @@
 // Browser tests against the fake provider. Needs Playwright (npx playwright install chromium).
 // Run: R=$(mktemp -d); git -C $R init -q -b main; git -C $R -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
-//      DESIGNER_CWD=$R DESIGNER_FAKE=1 DESIGNER_DATA=$(mktemp -d) npm start &  then  node e2e/ui.e2e.mjs
+//      DESIGNER_CWD=$R DESIGNER_FAKE=1 DESIGNER_DATA=$(mktemp -d) npm start &  then  REPO=$R node e2e/ui.e2e.mjs
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const URL = process.env.URL ?? 'http://localhost:4317';
 
@@ -94,6 +97,105 @@ await page.locator('.ws', { hasText: 'variant-a' }).hover(); // the remove butto
 await page.getByRole('button', { name: /Remove variant-a/ }).click();
 await page.getByText('designer/variant-a').waitFor({ state: 'detached', timeout: 5000 });
 log('worktree removed');
+
+// 10. preview pane: open an HTML file from the workspace, refresh after the agent's next turn
+const REPO = process.env.REPO;
+assert.ok(REPO, 'set REPO to the folder the server was started with');
+writeFileSync(join(REPO, 'demo.html'), '<h1 id="t">Demo v1</h1><button id="b">hi</button>');
+await page.getByRole('button', { name: 'Preview', exact: true }).click();
+await page.getByLabel('Preview address').fill('demo.html');
+await page.keyboard.press('Enter');
+const frame = page.frameLocator('iframe[title=Preview]');
+await frame.locator('#t').waitFor();
+assert.equal(await frame.locator('#t').textContent(), 'Demo v1');
+log('preview shows an HTML file from the workspace');
+writeFileSync(join(REPO, 'demo.html'), '<h1 id="t">Demo v2</h1>');
+await page.getByLabel('Message').fill('hello');
+await page.keyboard.press('Enter');
+await frame.getByText('Demo v2').waitFor({ timeout: 8000 }); // cross-origin iframe: read it through Playwright, not the DOM
+log('preview refreshes when the agent finishes a turn');
+
+// 11. previewed code is on another origin and cannot drive the agent over the app WebSocket
+await page.waitForSelector('.working', { state: 'detached' });
+const handle = await page.locator('iframe[title=Preview]').elementHandle();
+const inner = await handle.contentFrame();
+const wsResult = await inner.evaluate(() => new Promise((res) => {
+  const w = new WebSocket('ws://localhost:4317/ws');
+  w.onopen = () => res('open');
+  w.onerror = () => res('refused');
+  setTimeout(() => res('timeout'), 3000);
+}));
+assert.equal(wsResult, 'refused', 'previewed page must not be able to open the app WebSocket');
+log('previewed page cannot connect to the app WebSocket');
+
+// 12. localhost dev-server style URL, and a site that forbids framing
+const ok = createServer((_, r) => r.end('<title>x</title><h1 id="ext">external ok</h1>')).listen(0);
+const blocked = createServer((_, r) => (r.setHeader('x-frame-options', 'DENY'), r.end('no'))).listen(0);
+await new Promise((r) => setTimeout(r, 100));
+await page.getByLabel('Preview address').fill(`localhost:${ok.address().port}`);
+await page.keyboard.press('Enter');
+await frame.locator('#ext').waitFor();
+log('preview shows a localhost URL');
+await page.getByLabel('Preview address').fill(`http://127.0.0.1:${blocked.address().port}`);
+await page.keyboard.press('Enter');
+await page.getByText(/does not allow being shown/).waitFor();
+assert.equal(await page.locator('iframe[title=Preview]').count(), 0, 'no blank iframe for a blocked site');
+await page.getByLabel('Preview address').fill('localhost:1');
+await page.keyboard.press('Enter');
+await page.getByText(/Cannot reach/).waitFor();
+ok.close(); blocked.close();
+log('blocked and unreachable pages say so instead of showing a blank pane');
+
+// 13. resize, swap, persist
+const width = () => page.$eval('.chat-col', (el) => el.getBoundingClientRect().width);
+const total = await page.$eval('.panes', (el) => el.getBoundingClientRect().width);
+const w0 = await width();
+const sep = await page.locator('.sep').boundingBox();
+await page.mouse.move(sep.x + 3, sep.y + 100);
+await page.mouse.down();
+await page.mouse.move(sep.x - 97, sep.y + 100, { steps: 5 });
+await page.mouse.up();
+const w1 = await width();
+assert.ok(w0 <= total / 2 + 1, `chat starts at most half the width (${w0} of ${total})`);
+assert.ok(w1 < w0 - 50, `dragging left narrows the chat (${w0} -> ${w1})`);
+await page.locator('.sep').focus();
+await page.keyboard.press('ArrowLeft');
+const w2 = await width();
+assert.ok(w2 < w1, 'keyboard resizes too');
+const sep2 = await page.locator('.sep').boundingBox();
+await page.mouse.move(sep2.x + 3, sep2.y + 100);
+await page.mouse.down();
+await page.mouse.move(sep2.x + 900, sep.y + 100, { steps: 5 });
+await page.mouse.up();
+assert.ok((await width()) <= total / 2 + 1, 'chat never exceeds half the width');
+await page.getByRole('button', { name: 'Swap chat and preview' }).click();
+const cx = (await page.locator('.chat-col').boundingBox()).x;
+const px = (await page.locator('.preview-col').boundingBox()).x;
+assert.ok(px < cx, 'preview is on the left after swapping');
+await page.reload();
+await page.locator('.preview-col').waitFor();
+assert.ok((await page.locator('.preview-col').boundingBox()).x < (await page.locator('.chat-col').boundingBox()).x, 'layout persists across reload');
+await page.getByLabel('Preview address').waitFor();
+log('resize (drag + keyboard, capped at half), swap sides, persists across reload');
+
+// 14. quote and reply
+await page.waitForSelector('.msg.assistant p');
+await page.evaluate(() => {
+  const p = document.querySelector('.msg.assistant p');
+  const r = document.createRange();
+  r.selectNodeContents(p);
+  const s = getSelection();
+  s.removeAllRanges();
+  s.addRange(r);
+});
+await page.getByRole('button', { name: 'Quote' }).click();
+await page.waitForFunction(() => document.querySelector('textarea')?.value.startsWith('> '), null, { timeout: 3000 }).catch(() => {});
+const composed = await page.getByLabel('Message').inputValue();
+assert.ok(composed.startsWith('> Here is a scripted reply'), `quoted text lands in the composer: ${composed.slice(0, 40)}`);
+assert.equal(await page.getByRole('button', { name: 'Quote' }).count(), 0, 'quote button goes away');
+await page.keyboard.type('what about this?');
+assert.ok((await page.getByLabel('Message').inputValue()).includes('what about this?'));
+log('quote selected reply text into the composer');
 
 assert.deepEqual(errors, [], 'no page errors');
 await browser.close();

@@ -12,6 +12,13 @@ P1 (built): workspaces and session tabs. A workspace is a folder or a git worktr
 Worktrees with uncommitted changes are never removed. Checklist of what still needs the owner's Mac:
 [needs-local-testing.md](needs-local-testing.md).
 
+P2 (built): preview pane. Resizable split (chat capped at half the width, drag or arrow keys, swap sides,
+persisted), showing an HTML file from the workspace or any http(s)/localhost URL. Files are served from a
+second port (default app port + 1) so previewed code is on another origin and cannot open the app's
+WebSocket (tested). Pages that forbid framing, or are unreachable, show a message instead of a blank pane.
+The preview refreshes when the agent finishes a turn. Selecting text in a reply offers "Quote", which puts it
+in the composer as a blockquote.
+
 Known gaps / next:
 - Not yet verified on a real subscription login: this cloud container authenticates differently, so
   `apiKeySource` showed `none` here. The adapter strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` and warns

@@ -14,11 +14,16 @@ export interface ThreadView {
   lastSeq: number;
   loaded: boolean;
   queue: string[];
+  /** Count of finished turns seen, used to refresh previews. */
+  turns: number;
 }
 
 export interface State {
   connected: boolean;
   defaultCwd: string;
+  previewPort?: number;
+  /** Text the user selected in a reply to quote in the next message. */
+  quote?: { threadId: string; text: string; n: number };
   workspaces: Workspace[];
   threads: ThreadMeta[];
   activeId?: string;
@@ -26,7 +31,7 @@ export interface State {
   notice?: string;
 }
 
-const emptyView = (): ThreadView => ({ items: [], lastSeq: 0, loaded: false, queue: [] });
+const emptyView = (): ThreadView => ({ items: [], lastSeq: 0, loaded: false, queue: [], turns: 0 });
 
 function applyEvent(items: Item[], e: StoredEvent): Item[] {
   const upsert = (it: Item) => {
@@ -92,7 +97,7 @@ class Store {
 
   private onMsg(m: ServerMsg) {
     switch (m.type) {
-      case 'hello': return this.set({ defaultCwd: m.defaultCwd });
+      case 'hello': return this.set({ defaultCwd: m.defaultCwd, previewPort: m.previewPort });
       case 'workspaces': return this.set({ workspaces: m.workspaces });
       case 'workspace_updated': {
         this.set({ workspaces: [...this.state.workspaces.filter((w) => w.id !== m.workspace.id), m.workspace] });
@@ -124,7 +129,8 @@ class Store {
         }
         // closing the tab you are on moves you to a sibling session
         if (m.thread.archived && m.thread.id === this.state.activeId) {
-          const sib = this.state.threads.find((t) => t.workspaceId === m.thread.workspaceId && !t.archived);
+          const live = this.state.threads.filter((t) => !t.archived);
+          const sib = live.find((t) => t.workspaceId === m.thread.workspaceId) ?? live[0];
           if (sib) this.open(sib.id);
           else this.set({ activeId: undefined });
         }
@@ -135,7 +141,7 @@ class Store {
       case 'event': {
         this.flushDeltas();
         const e = m.event;
-        this.setView(e.threadId, (v) => (e.seq <= v.lastSeq ? v : { ...v, items: applyEvent(v.items, e), lastSeq: e.seq }));
+        this.setView(e.threadId, (v) => (e.seq <= v.lastSeq ? v : { ...v, items: applyEvent(v.items, e), lastSeq: e.seq, turns: v.turns + (e.type === 'turn_done' && v.loaded ? 1 : 0) }));
         return;
       }
       case 'delta': {
@@ -219,6 +225,12 @@ class Store {
   }
   dropQueued(id: string, i: number) {
     this.setView(id, (v) => ({ ...v, queue: v.queue.filter((_, j) => j !== i) }));
+  }
+  quote(threadId: string, text: string) {
+    this.set({ quote: { threadId, text, n: (this.state.quote?.n ?? 0) + 1 } });
+  }
+  clearQuote() {
+    this.set({ quote: undefined });
   }
   interrupt(id: string) {
     this.send({ type: 'interrupt', threadId: id });

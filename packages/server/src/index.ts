@@ -8,6 +8,7 @@ import type { ClientMsg, ServerMsg } from '@designer/shared';
 import { claudeAdapter } from './claude.js';
 import { fakeAdapter } from './fake.js';
 import { Manager, type Client } from './manager.js';
+import { listHtml, probe, startPreviewServer } from './preview.js';
 import { Store } from './store.js';
 
 const PORT = Number(process.env.PORT ?? 4317);
@@ -15,6 +16,7 @@ const HOST = '127.0.0.1';
 const DATA = process.env.DESIGNER_DATA ?? join(homedir(), '.designer-chat');
 const WEB_DIST = resolve(fileURLToPath(new URL('../../web/dist', import.meta.url)));
 const DEV_PORT = 5173;
+const PREVIEW_PORT = Number(process.env.PREVIEW_PORT ?? PORT + 1);
 
 const store = new Store(DATA);
 const manager = new Manager(store, process.env.DESIGNER_FAKE ? fakeAdapter : claudeAdapter, join(DATA, 'worktrees'));
@@ -30,11 +32,25 @@ const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javasc
 const http = createServer((req, res) => {
   if (!hostOk(req.headers.host)) return void res.writeHead(403).end('forbidden');
   const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname.startsWith('/api/')) return void api(req, res, url);
   let file = normalize(join(WEB_DIST, url.pathname === '/' ? 'index.html' : url.pathname));
   if (!file.startsWith(WEB_DIST) || !existsSync(file) || !statSync(file).isFile()) file = join(WEB_DIST, 'index.html');
   if (!existsSync(file)) return void res.writeHead(404).end('UI not built. Run `npm run build` (or `npm run dev` and open :5173).');
   res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' }).end(readFileSync(file));
 });
+
+// Same-origin UI calls only: probe() fetches arbitrary URLs, so other web pages must not be able to trigger it.
+async function api(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, url: URL) {
+  const site = req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin') return void res.writeHead(403).end('forbidden');
+  const json = (o: unknown, code = 200) => res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(o));
+  if (url.pathname === '/api/probe') return json(await probe(url.searchParams.get('url') ?? ''));
+  if (url.pathname === '/api/html') {
+    const root = manager.workspacePath(url.searchParams.get('workspace') ?? '');
+    return json(root ? listHtml(root) : []);
+  }
+  json({ error: 'not found' }, 404);
+}
 
 const wss = new WebSocketServer({ noServer: true });
 http.on('upgrade', (req, socket, head) => {
@@ -52,7 +68,7 @@ function connect(ws: WebSocket) {
     send: (m: ServerMsg) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m)),
   };
   manager.addClient(client);
-  client.send({ type: 'hello', defaultCwd: process.env.DESIGNER_CWD ?? process.cwd() });
+  client.send({ type: 'hello', defaultCwd: process.env.DESIGNER_CWD ?? process.cwd(), previewPort: PREVIEW_PORT });
   manager.handle(client, { type: 'list_workspaces' });
   client.send({ type: 'threads', threads: store.listThreads() });
   ws.on('message', (data) => {
@@ -65,6 +81,7 @@ function connect(ws: WebSocket) {
   ws.on('close', () => manager.removeClient(client));
 }
 
+await startPreviewServer(PREVIEW_PORT, (id) => manager.workspacePath(id));
 http.listen(PORT, HOST, () => console.log(`designer-chat on http://localhost:${PORT} (data: ${DATA})${process.env.DESIGNER_FAKE ? ' [fake provider]' : ''}`));
 process.on('SIGINT', () => (manager.shutdown(), process.exit(0)));
 process.on('SIGTERM', () => (manager.shutdown(), process.exit(0)));

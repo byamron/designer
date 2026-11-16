@@ -34,6 +34,10 @@ export class Manager {
     }
   }
 
+  workspacePath(id: string): string | undefined {
+    return this.workspaces.find((w) => w.id === id)?.path;
+  }
+
   private folderWorkspace(path: string): Workspace {
     const found = this.workspaces.find((w) => w.path === path);
     if (found) return found;

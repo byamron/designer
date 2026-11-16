@@ -62,7 +62,7 @@ export type ClientMsg =
   | { type: 'set_mode'; threadId: string; mode: PermissionMode };
 
 export type ServerMsg =
-  | { type: 'hello'; defaultCwd: string }
+  | { type: 'hello'; defaultCwd: string; previewPort: number }
   | { type: 'workspaces'; workspaces: Workspace[] }
   | { type: 'workspace_updated'; workspace: Workspace }
   | { type: 'workspace_removed'; workspaceId: string }

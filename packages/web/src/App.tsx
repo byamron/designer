@@ -1,8 +1,10 @@
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react';
 import type { PermissionMode, ThreadMeta, Workspace } from '@designer/shared';
 import { store, useStore, type Item } from './store';
 import { Markdown } from './markdown';
 import { useStick } from './useStick';
+import { Preview } from './Preview';
+import { MIN_CHAT, clampChat, useLayout } from './layout';
 
 export function App() {
   const connected = useStore((s) => s.connected);
@@ -115,6 +117,8 @@ function Main() {
   const activeId = useStore((s) => s.activeId);
   const thread = useStore((s) => s.threads.find((t) => t.id === s.activeId));
   const notice = useStore((s) => s.notice);
+  const [layout, setLayout] = useLayout();
+  const panes = useRef<HTMLDivElement>(null);
   if (!activeId || !thread) {
     return (
       <main className="main empty">
@@ -122,15 +126,95 @@ function Main() {
       </main>
     );
   }
+  const drag = (e: RPointerEvent<HTMLDivElement>) => {
+    const box = panes.current?.getBoundingClientRect();
+    if (!box || !(e.buttons & 1)) return;
+    const w = layout.side === 'right' ? e.clientX - box.left : box.right - e.clientX;
+    setLayout({ chatW: clampChat(w, box.width) });
+  };
+  const key = (e: KeyboardEvent<HTMLDivElement>) => {
+    const box = panes.current?.getBoundingClientRect();
+    if (!box || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    e.preventDefault();
+    const dir = (e.key === 'ArrowRight' ? 1 : -1) * (layout.side === 'right' ? 1 : -1);
+    setLayout({ chatW: clampChat(layout.chatW + dir * 24, box.width) });
+  };
   return (
     <main className="main">
       <header className="top">
         <span className="top-cwd">{thread.cwd}</span>
+        <span className="top-actions">
+          {layout.open && (
+            <button className="icon" onClick={() => setLayout({ side: layout.side === 'right' ? 'left' : 'right' })} aria-label="Swap chat and preview" title="Swap sides">⇄</button>
+          )}
+          <button className={`icon${layout.open ? ' on' : ''}`} onClick={() => setLayout({ open: !layout.open })} aria-pressed={layout.open} aria-label="Preview" title="Show or hide the preview">Preview</button>
+        </span>
       </header>
-      <Tabs thread={thread} />
       {notice && <div className="notice" role="alert" onClick={() => store.open(activeId)}>{notice}</div>}
-      <Chat key={activeId} thread={thread} />
+      <div className={`panes ${layout.side}`} ref={panes} style={{ ['--chat-w' as string]: `${layout.chatW}px` }}>
+        <section className={`chat-col${layout.open ? '' : ' solo'}`}>
+          <Tabs thread={thread} />
+          <Chat key={activeId} thread={thread} />
+        </section>
+        {layout.open && (
+          <>
+            <div
+              className="sep"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize chat and preview"
+              aria-valuemin={MIN_CHAT}
+              aria-valuenow={layout.chatW}
+              tabIndex={0}
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+              onPointerMove={drag}
+              onKeyDown={key}
+            />
+            <section className="preview-col">
+              <Preview workspaceId={thread.workspaceId} threadId={thread.id} onClose={() => setLayout({ open: false })} />
+            </section>
+          </>
+        )}
+      </div>
     </main>
+  );
+}
+
+function QuoteButton({ threadId }: { threadId: string }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const sel = window.getSelection();
+        const node = sel?.anchorNode instanceof Element ? sel.anchorNode : sel?.anchorNode?.parentElement;
+        if (!sel || sel.isCollapsed || !sel.toString().trim() || !node?.closest('.msg.assistant')) return setPos(null);
+        const r = sel.getRangeAt(0).getBoundingClientRect();
+        setPos({ x: Math.max(8, r.left), y: Math.max(8, r.top - 38) });
+      });
+    };
+    document.addEventListener('selectionchange', check);
+    return () => {
+      document.removeEventListener('selectionchange', check);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+  if (!pos) return null;
+  return (
+    <button
+      className="quote-btn"
+      style={{ left: pos.x, top: pos.y }}
+      onMouseDown={(e) => e.preventDefault()} // keep the selection until we read it
+      onClick={() => {
+        const text = window.getSelection()?.toString().trim();
+        if (text) store.quote(threadId, text);
+        window.getSelection()?.removeAllRanges();
+        setPos(null);
+      }}
+    >
+      Quote
+    </button>
   );
 }
 
@@ -155,6 +239,7 @@ function Chat({ thread }: { thread: ThreadMeta }) {
           </button>
         )}
       </div>
+      <QuoteButton threadId={thread.id} />
       <Composer thread={thread} queue={view?.queue ?? []} />
     </>
   );
@@ -271,6 +356,19 @@ function Composer({ thread, queue }: { thread: ThreadMeta; queue: string[] }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = thread.status === 'running';
   useEffect(() => ta.current?.focus(), [thread.id]);
+  const quote = useStore((s) => s.quote);
+  useEffect(() => {
+    if (!quote || quote.threadId !== thread.id) return;
+    const block = quote.text.split('\n').map((l) => `> ${l}`).join('\n');
+    setText((t) => (t.trim() ? `${t.replace(/\s+$/, '')}\n\n` : '') + block + '\n\n');
+    store.clearQuote();
+    requestAnimationFrame(() => {
+      const el = ta.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }, [quote, thread.id]);
   useEffect(() => {
     const el = ta.current;
     if (!el) return;
