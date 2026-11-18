@@ -72,3 +72,5 @@ export type ServerMsg =
   | { type: 'delta'; delta: LiveDelta }
   | { type: 'replay_done'; threadId: string; lastSeq: number }
   | { type: 'error'; message: string };
+
+export * from './edits.js';
