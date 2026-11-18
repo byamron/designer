@@ -14,6 +14,12 @@ export function useStick(resetKey: string) {
   const attached = useRef(true);
   const [detached, setDetached] = useState(false);
 
+  const anim = useRef(0);
+  const cancelAnim = useCallback(() => {
+    cancelAnimationFrame(anim.current);
+    anim.current = 0;
+  }, []);
+
   const set = useCallback((a: boolean) => {
     if (attached.current === a) return;
     attached.current = a;
@@ -25,10 +31,39 @@ export function useStick(resetKey: string) {
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
+  /**
+   * Animated scroll to the live bottom, so the motion shows which way the view moved.
+   * The target is re-read every frame because streaming keeps growing the content.
+   * The pill disappears immediately; following resumes on arrival.
+   */
   const toBottom = useCallback(() => {
-    set(true);
-    pin();
-  }, [set, pin]);
+    const el = scroller.current;
+    if (!el) return;
+    cancelAnim();
+    const dist = el.scrollHeight - el.clientHeight - el.scrollTop;
+    if (dist < 4 || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      set(true);
+      pin();
+      return;
+    }
+    setDetached(false);
+    const start = el.scrollTop;
+    const dur = Math.min(420, Math.max(180, Math.sqrt(dist) * 12));
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / dur);
+      const target = el.scrollHeight - el.clientHeight;
+      el.scrollTop = start + (target - start) * (1 - Math.pow(1 - t, 3));
+      if (t < 1) anim.current = requestAnimationFrame(step);
+      else {
+        anim.current = 0;
+        attached.current = true;
+        setDetached(false);
+        pin();
+      }
+    };
+    anim.current = requestAnimationFrame(step);
+  }, [set, pin, cancelAnim]);
 
   useEffect(() => {
     const el = scroller.current;
@@ -39,17 +74,23 @@ export function useStick(resetKey: string) {
     let touchY = 0;
 
     const nearBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight <= REATTACH_PX;
+    const detach = () => {
+      cancelAnim();
+      attached.current = false;
+      setDetached(true);
+    };
     const onWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) set(false);
+      if (e.deltaY < 0) detach();
+      else if (anim.current) cancelAnim(); // scrolling down yourself: let go of the animation
     };
     const onTouchStart = (e: TouchEvent) => (touchY = e.touches[0].clientY);
     const onTouchMove = (e: TouchEvent) => {
       const y = e.touches[0].clientY;
-      if (y > touchY + 2) set(false); // finger moving down = content scrolls up
+      if (y > touchY + 2) detach(); // finger moving down = content scrolls up
       touchY = y;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (['PageUp', 'ArrowUp', 'Home'].includes(e.key) && e.target === el) set(false);
+      if (['PageUp', 'ArrowUp', 'Home'].includes(e.key) && e.target === el) detach();
     };
     const onPointerDown = (e: PointerEvent) => {
       // a press on the scrollbar track/thumb targets the scroller itself, right of the content box
@@ -58,12 +99,12 @@ export function useStick(resetKey: string) {
     const onPointerUp = () => (scrollbarDrag = false);
     const onScroll = () => {
       const top = el.scrollTop;
-      if (scrollbarDrag && top < lastTop) set(false);
-      if (!attached.current && nearBottom() && top >= lastTop) set(true);
+      if (scrollbarDrag && top < lastTop) detach();
+      if (!anim.current && !attached.current && nearBottom() && top >= lastTop) set(true);
       lastTop = top;
     };
     const ro = new ResizeObserver(() => {
-      if (attached.current) pin();
+      if (attached.current && !anim.current) pin();
     });
     ro.observe(body);
     ro.observe(el);
@@ -85,13 +126,14 @@ export function useStick(resetKey: string) {
       window.removeEventListener('pointerup', onPointerUp);
       el.removeEventListener('scroll', onScroll);
     };
-  }, [set, pin]);
+  }, [set, pin, cancelAnim]);
 
   // new thread: start attached at the bottom
   useEffect(() => {
+    cancelAnim();
     set(true);
     pin();
-  }, [resetKey, set, pin]);
+  }, [resetKey, set, pin, cancelAnim]);
 
   return { scroller, content, detached, toBottom };
 }

@@ -19,6 +19,19 @@ WebSocket (tested). Pages that forbid framing, or are unreachable, show a messag
 The preview refreshes when the agent finishes a turn. Selecting text in a reply offers "Quote", which puts it
 in the composer as a blockquote.
 
+Polish pass 1 (after owner testing of P0-P2, everything worked; feedback: clunky, streaming slow, focus rings
+cut off, no motion): measured with real Claude first. Our pipeline adds ~50-70 ms between updates (raw SDK
+deltas arrive every ~33 ms, we coalesce to ~33-67 ms); time to first text was ~1.9 s on a first turn and
+~0.8 s after (that is Claude Code itself), so "slow" is mostly latency we cannot remove, plus lumpy arrival we can smooth.
+Done: working indicator with phase label (Thinking / Running X / Writing / Waiting for approval), animated dots
+and a running timer, "Worked for Ns" after each turn; animated Jump to latest (re-reads the bottom each frame,
+cancelled by scrolling up, instant under reduced motion); sending returns you to the bottom; streamed text is
+eased in per frame instead of arriving in lumps, with a caret; entrance, expand and hover transitions; preview
+loading bar; focus rings are inset so scrolling containers cannot clip them (automated check tabs through every
+control). Bug found and fixed along the way: `content-visibility: auto` on finished replies made the view jump
+to the top when a long reply you had scrolled up in finished streaming; removed (re-add only with a measured need).
+Browser suites: `e2e/run.sh` (ui, focus, motion), each on a fresh server.
+
 Known gaps / next:
 - Not yet verified on a real subscription login: this cloud container authenticates differently, so
   `apiKeySource` showed `none` here. The adapter strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` and warns

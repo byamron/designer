@@ -4,6 +4,8 @@ import { store, useStore, type Item } from './store';
 import { Markdown } from './markdown';
 import { useStick } from './useStick';
 import { Preview } from './Preview';
+import { useSmoothText } from './useSmoothText';
+import { fmtElapsed } from './format';
 import { MIN_CHAT, clampChat, useLayout } from './layout';
 
 export function App() {
@@ -218,20 +220,71 @@ function QuoteButton({ threadId }: { threadId: string }) {
   );
 }
 
+function useNow(active: boolean, every = 1000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), every);
+    return () => clearInterval(id);
+  }, [active, every]);
+  return now;
+}
+
+/** What the agent is doing right now, from the tail of the conversation. */
+function phase(items: Item[]): string {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind === 'approval' && !it.resolved) return 'Waiting for your approval';
+    if (it.kind === 'tool' && it.status === 'running') return `Running ${it.name}`;
+    if (it.kind === 'assistant' && it.streaming) return 'Writing';
+    if (it.kind === 'user') break;
+  }
+  return 'Thinking';
+}
+
+function Working({ items, since }: { items: Item[]; since?: number }) {
+  const now = useNow(true);
+  return (
+    <div className="working" role="status">
+      <span className="wave" aria-hidden="true"><i /><i /><i /></span>
+      <span className="shimmer">{phase(items)}</span>
+      {since && <span className="elapsed" aria-hidden="true">{fmtElapsed(now - since)}</span>}
+    </div>
+  );
+}
+
 function Chat({ thread }: { thread: ThreadMeta }) {
   const view = useStore((s) => s.views[thread.id]);
   const items = view?.items ?? [];
   const { scroller, content, detached, toBottom } = useStick(thread.id);
   const groups = useMemo(() => group(items), [items]);
+
+  // Rows that appear after the history has loaded get a short entrance; replayed history does not animate.
+  const fresh = useRef(new Map<string, boolean>());
+  for (const g of groups) if (!fresh.current.has(g.key)) fresh.current.set(g.key, !!view?.loaded);
+
+  // Sending a message always brings you to the bottom, even if you had scrolled up.
+  const lastUser = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const last = [...items].reverse().find((x) => x.kind === 'user')?.id;
+    if (lastUser.current !== undefined && last && last !== lastUser.current && view?.loaded) toBottom();
+    lastUser.current = last;
+  }, [items, view?.loaded, toBottom]);
+
   return (
     <>
       <div className="scroller" ref={scroller} tabIndex={0} aria-label="Conversation" role="log">
         <div className="content" ref={content}>
           {view?.loaded && !items.length && <p className="hint">Send a message to start.</p>}
           {groups.map((g) =>
-            g.type === 'tools' ? <ToolGroup key={g.key} tools={g.items} threadId={thread.id} /> : <Row key={g.key} item={g.item} threadId={thread.id} />,
+            g.type === 'tools' ? (
+              <ToolGroup key={g.key} tools={g.items} fresh={fresh.current.get(g.key)} />
+            ) : (
+              <Row key={g.key} item={g.item} threadId={thread.id} fresh={fresh.current.get(g.key)} />
+            ),
           )}
-          {thread.status === 'running' && <div className="working" aria-live="polite">Working…</div>}
+          {thread.status === 'running' && <Working items={items} since={view?.turnStart} />}
         </div>
         {detached && (
           <button className="jump" onClick={toBottom}>
@@ -256,35 +309,42 @@ function group(items: Item[]): Group[] {
       const last = out.at(-1);
       if (last?.type === 'tools') last.items.push(it);
       else out.push({ type: 'tools', key: `g-${it.id}`, items: [it] });
-    } else if (it.kind === 'done') {
-      continue;
     } else out.push({ type: 'row', key: `${it.kind}-${it.id}`, item: it });
   }
   return out;
 }
 
-const Row = memo(function Row({ item, threadId }: { item: Item; threadId: string }) {
+const Row = memo(function Row({ item, threadId, fresh }: { item: Item; threadId: string; fresh?: boolean }) {
+  const f = fresh ? ' fresh' : '';
   switch (item.kind) {
     case 'user':
-      return <div className="msg user"><div className="bubble">{item.text}</div></div>;
+      return <div className={`msg user${f}`}><div className="bubble">{item.text}</div></div>;
     case 'assistant':
-      return (
-        <div className={`msg assistant${item.streaming ? '' : ' settled'}`}>
-          <Markdown text={item.text} />
-        </div>
-      );
+      return <Assistant item={item} fresh={f} />;
     case 'approval':
-      return <Approval item={item} threadId={threadId} />;
+      return <Approval item={item} threadId={threadId} fresh={f} />;
     case 'error':
-      return <div className="msg err" role="alert">{item.message}</div>;
+      return <div className={`msg err${f}`} role="alert">{item.message}</div>;
+    case 'done':
+      return item.ms && item.ms >= 2000 ? <div className={`turn-note${f}`}>{item.interrupted ? 'Stopped after' : 'Worked for'} {fmtElapsed(item.ms)}</div> : null;
     default:
       return null;
   }
 });
 
-function Approval({ item, threadId }: { item: Extract<Item, { kind: 'approval' }>; threadId: string }) {
+function Assistant({ item, fresh }: { item: Extract<Item, { kind: 'assistant' }>; fresh: string }) {
+  const text = useSmoothText(item.text, item.streaming);
+  const live = item.streaming || text.length < item.text.length;
   return (
-    <div className={`approval${item.resolved ? ' resolved' : ''}`} role="group" aria-label="Permission request">
+    <div className={`msg assistant${live ? ' live' : ' settled'}${fresh}`}>
+      <Markdown text={text} />
+    </div>
+  );
+}
+
+function Approval({ item, threadId, fresh }: { item: Extract<Item, { kind: 'approval' }>; threadId: string; fresh: string }) {
+  return (
+    <div className={`approval${item.resolved ? ' resolved' : ''}${fresh}`} role="group" aria-label="Permission request">
       <div className="approval-q">
         <strong>{item.toolName}</strong> <code>{item.label}</code>
       </div>
@@ -313,24 +373,26 @@ function summarize(tools: ToolItem[]) {
   }).join(', ');
 }
 
-const ToolGroup = memo(function ToolGroup({ tools }: { tools: ToolItem[]; threadId: string }) {
+const ToolGroup = memo(function ToolGroup({ tools, fresh }: { tools: ToolItem[]; fresh?: boolean }) {
   const live = tools.some((t) => t.status === 'running');
   const [open, setOpen] = useState<boolean | undefined>(undefined);
   const expanded = open ?? live; // open while live, collapsed once done unless the user chose
   const failed = tools.some((t) => t.status === 'error');
   return (
-    <div className={`tools${live ? ' live' : ''}`}>
+    <div className={`tools${live ? ' live' : ''}${fresh ? ' fresh' : ''}`}>
       <button className="tools-head" onClick={() => setOpen(!expanded)} aria-expanded={expanded}>
-        <span className="chev">{expanded ? '▾' : '▸'}</span>
+        <span className={`chev${expanded ? ' open' : ''}`} aria-hidden="true">▸</span>
         <span>{summarize(tools)}</span>
         {live && <span className="dot" aria-label="running" />}
         {failed && !live && <span className="fail">failed</span>}
       </button>
-      {expanded && (
-        <ul>
-          {tools.map((t) => <ToolLine key={t.id} t={t} />)}
-        </ul>
-      )}
+      <div className={`tools-body${expanded ? ' open' : ''}`}>
+        <div className="tools-inner">
+          <ul>
+            {tools.map((t) => <ToolLine key={t.id} t={t} />)}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 });
@@ -394,7 +456,7 @@ function Composer({ thread, queue }: { thread: ThreadMeta; queue: string[] }) {
           <button onClick={() => store.dropQueued(thread.id, i)} aria-label="Remove queued message">✕</button>
         </div>
       ))}
-      <div className="box">
+      <div className="box" data-ring-parent>
         <textarea ref={ta} rows={1} value={text} placeholder={running ? 'Type to queue a follow-up…' : 'Message Claude…'} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} aria-label="Message" />
         {running ? (
           <button className="stop" onClick={() => store.interrupt(thread.id)} aria-label="Stop (Esc)">■ Stop</button>

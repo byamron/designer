@@ -15,6 +15,12 @@ export const fakeAdapter: ProviderAdapter = {
         stop = false;
         void (async () => {
           const id = `fake-${++n}`;
+          if (/slow/i.test(text)) {
+            await sleep(1200); // "thinking" before anything happens
+            sink.emit({ type: 'tool_call', id: `${id}-s`, kind: 'command', name: 'Bash', label: 'sleep 2', status: 'running' });
+            await sleep(2200);
+            sink.emit({ type: 'tool_call', id: `${id}-s`, kind: 'command', name: 'Bash', label: 'sleep 2', status: 'done', output: '' });
+          }
           if (/tool/i.test(text)) {
             sink.emit({ type: 'tool_call', id: `${id}-t1`, kind: 'read', name: 'Read', label: 'src/app.ts', status: 'running' });
             await sleep(150);
@@ -25,6 +31,18 @@ export const fakeAdapter: ProviderAdapter = {
             sink.emit({ type: 'approval_request', requestId, toolName: 'Bash', label: 'rm -rf build', input: { command: 'rm -rf build' } });
             const d = await new Promise<Decision>((res) => pending.set(requestId, res));
             sink.emit({ type: 'approval_resolved', requestId, decision: d });
+          }
+          if (/burst/i.test(text)) {
+            // lumpy delivery: 300 characters at a time, 450 ms apart
+            const full = 'word '.repeat(240);
+            for (let i = 0; i < full.length && !stop; i += 300) {
+              sink.delta(`${id}:0`, full.slice(i, i + 300));
+              await sleep(450);
+            }
+            if (!stop) sink.emit({ type: 'assistant_message', messageId: `${id}:0`, text: full });
+            sink.emit({ type: 'turn_done', costUsd: 0, interrupted: stop || undefined });
+            sink.running(false);
+            return;
           }
           const reply = /long/i.test(text) ? LONG.repeat(4) : LONG;
           let i = 0;

@@ -1,5 +1,5 @@
 // Browser tests against the fake provider. Needs Playwright (npx playwright install chromium).
-// Run: R=$(mktemp -d); git -C $R init -q -b main; git -C $R -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+// Easiest: e2e/run.sh ui.  Manual: R=$(mktemp -d); git -C $R init -q -b main; git -C $R -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 //      DESIGNER_CWD=$R DESIGNER_FAKE=1 DESIGNER_DATA=$(mktemp -d) npm start &  then  REPO=$R node e2e/ui.e2e.mjs
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
@@ -38,13 +38,15 @@ const before = await page.$eval('.scroller', (el) => el.scrollTop);
 await page.waitForTimeout(500);
 const after = await page.$eval('.scroller', (el) => el.scrollTop);
 assert.equal(after, before, 'scroll position stable while detached and content grows');
+await page.waitForSelector('.working', { state: 'detached' }); // ...and when the reply finishes (it once jumped to the top here)
+assert.equal(await page.$eval('.scroller', (el) => el.scrollTop), before, 'scroll position stable when the reply settles');
 log('detaches on upward wheel and holds position');
 
 // 3. jump to latest re-attaches
 await page.getByRole('button', { name: /Jump to latest/ }).click();
 await page.waitForFunction(() => !document.querySelector('.jump'));
+await page.waitForFunction(() => { const el = document.querySelector('.scroller'); return el.scrollHeight - el.scrollTop - el.clientHeight <= 2; }, null, { timeout: 3000 }); // the jump is animated
 await page.waitForSelector('.working', { state: 'detached' });
-assert.ok((await dist()) <= 2);
 log('jump to latest re-attaches');
 
 // 4. rendered markdown, no raw HTML injection
@@ -119,12 +121,13 @@ log('preview refreshes when the agent finishes a turn');
 await page.waitForSelector('.working', { state: 'detached' });
 const handle = await page.locator('iframe[title=Preview]').elementHandle();
 const inner = await handle.contentFrame();
-const wsResult = await inner.evaluate(() => new Promise((res) => {
-  const w = new WebSocket('ws://localhost:4317/ws');
+const appPort = new globalThis.URL(URL).port;
+const wsResult = await inner.evaluate((appPort) => new Promise((res) => {
+  const w = new WebSocket(`ws://localhost:${appPort}/ws`);
   w.onopen = () => res('open');
   w.onerror = () => res('refused');
   setTimeout(() => res('timeout'), 3000);
-}));
+}), appPort);
 assert.equal(wsResult, 'refused', 'previewed page must not be able to open the app WebSocket');
 log('previewed page cannot connect to the app WebSocket');
 

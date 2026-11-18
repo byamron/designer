@@ -7,7 +7,7 @@ export type Item =
   | { kind: 'tool'; id: string; name: string; toolKind: string; label: string; status: ToolStatus; output?: string }
   | { kind: 'approval'; id: string; toolName: string; label: string; resolved?: Decision }
   | { kind: 'error'; id: string; message: string }
-  | { kind: 'done'; id: string; costUsd?: number; interrupted?: boolean };
+  | { kind: 'done'; id: string; costUsd?: number; interrupted?: boolean; ms?: number };
 
 export interface ThreadView {
   items: Item[];
@@ -16,6 +16,8 @@ export interface ThreadView {
   queue: string[];
   /** Count of finished turns seen, used to refresh previews. */
   turns: number;
+  /** Timestamp of the latest user message: when the current (or last) turn began. */
+  turnStart?: number;
 }
 
 export interface State {
@@ -33,7 +35,7 @@ export interface State {
 
 const emptyView = (): ThreadView => ({ items: [], lastSeq: 0, loaded: false, queue: [], turns: 0 });
 
-function applyEvent(items: Item[], e: StoredEvent): Item[] {
+function applyEvent(items: Item[], e: StoredEvent, turnStart?: number): Item[] {
   const upsert = (it: Item) => {
     const i = items.findIndex((x) => x.id === it.id && x.kind === it.kind);
     if (i < 0) return [...items, it];
@@ -51,7 +53,7 @@ function applyEvent(items: Item[], e: StoredEvent): Item[] {
     case 'turn_done':
       return [
         ...items.map((x) => (x.kind === 'assistant' && x.streaming ? { ...x, streaming: false } : x)),
-        { kind: 'done', id: `d${e.seq}`, costUsd: e.costUsd, interrupted: e.interrupted },
+        { kind: 'done', id: `d${e.seq}`, costUsd: e.costUsd, interrupted: e.interrupted, ms: turnStart ? e.ts - turnStart : undefined },
       ];
   }
 }
@@ -141,7 +143,7 @@ class Store {
       case 'event': {
         this.flushDeltas();
         const e = m.event;
-        this.setView(e.threadId, (v) => (e.seq <= v.lastSeq ? v : { ...v, items: applyEvent(v.items, e), lastSeq: e.seq, turns: v.turns + (e.type === 'turn_done' && v.loaded ? 1 : 0) }));
+        this.setView(e.threadId, (v) => (e.seq <= v.lastSeq ? v : { ...v, items: applyEvent(v.items, e, v.turnStart), turnStart: e.type === 'user_message' ? e.ts : v.turnStart, lastSeq: e.seq, turns: v.turns + (e.type === 'turn_done' && v.loaded ? 1 : 0) }));
         return;
       }
       case 'delta': {

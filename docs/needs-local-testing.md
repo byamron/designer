@@ -4,7 +4,7 @@ Built and tested in a Linux cloud container. These are things that container can
 when checked on a real machine; do not build further on an unchecked item without saying so.
 
 ## Verified in the container (for reference)
-Server unit tests (15), browser tests against a scripted provider, real Claude through the server (streaming,
+Server unit tests (16), browser tests against a scripted provider, real Claude through the server (streaming,
 tool calls, approval deny, interrupt, resume after restart), real `git worktree` create/remove.
 
 ## To verify locally
@@ -34,6 +34,14 @@ tool calls, approval deny, interrupt, resume after restart), real `git worktree`
       that span several paragraphs or code blocks.
 - [ ] **Sites that block framing** (Paper, Figma, most SaaS): confirm the message appears and "Open in new tab"
       works. Showing them inline needs the desktop shell (later).
+
+- [ ] **How the motion and speed actually feel.** The container can check that animations run, in what order,
+      and that text is revealed over several frames; it cannot judge whether the easing, durations and the
+      reveal speed feel right. Tell us which feel too slow, too fast or distracting.
+- [ ] **Timer and indicator on a real long task** (a multi-minute run): does the phase label stay accurate,
+      does the timer survive a page reload mid-run (it is measured from your message's timestamp).
+- [ ] **Jump to latest with a trackpad**, including momentum scrolling right after the click.
+- [ ] **Focus rings in Safari** (the automated check runs in Chromium; Safari draws outlines slightly differently).
 
 ## Not buildable or testable here (later phases)
 - macOS desktop shell (Tauri vs Electron spike), signing, webview comment overlay.

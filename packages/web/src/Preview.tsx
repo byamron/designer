@@ -15,6 +15,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
   const [files, setFiles] = useState<string[]>([]);
   const [probe, setProbe] = useState<Probe>({ state: 'idle' });
   const [reload, setReload] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   // switching workspace restores that workspace's last preview
   useEffect(() => {
@@ -59,6 +60,8 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
     return () => { live = false; };
   }, [target, external, reload]);
 
+  useEffect(() => setLoading(!!src), [src, reload]); // a new document is loading until the iframe says otherwise
+
   const go = (v: string) => {
     const t = v.trim();
     setTarget(t);
@@ -85,6 +88,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
         <button className="icon" onClick={onClose} aria-label="Close preview" title="Close preview">✕</button>
       </div>
       <div className="preview-body">
+        {loading && (probe.state === 'ok' || !external) && <div className="loadbar" role="progressbar" aria-label="Loading preview" />}
         {!target && (
           <div className="preview-empty">
             <p>Show a page next to the chat.</p>
@@ -106,7 +110,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
           </div>
         )}
         {src && (!external || probe.state === 'ok') && (
-          <iframe key={`${src}|${reload}`} src={src} title="Preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" />
+          <iframe key={`${src}|${reload}`} src={src} title="Preview" onLoad={() => setLoading(false)} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" />
         )}
       </div>
     </div>

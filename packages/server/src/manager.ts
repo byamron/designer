@@ -11,7 +11,7 @@ export interface Client {
   subs: Set<string>;
 }
 
-const FLUSH_MS = 50;
+const FLUSH_MS = 33;
 
 export class Manager {
   private sessions = new Map<string, Session>();
