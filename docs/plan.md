@@ -32,6 +32,29 @@ control). Bug found and fixed along the way: `content-visibility: auto` on finis
 to the top when a long reply you had scrolled up in finished streaming; removed (re-add only with a measured need).
 Browser suites: `e2e/run.sh` (ui, focus, motion), each on a fresh server.
 
+Permissions: modes are Ask / Auto / Auto-accept edits / Full access. Auto uses Claude Code's own classifier
+(`permissionMode: 'auto'`); calls it cannot decide still reach our Allow/Deny cards. Verified in the cloud container
+(bash and a file write ran with no prompts; the SDK lists which models support it). The app shows a notice if the SDK
+runs in a different mode than requested. Not yet verified on the owner's account/plan; default stays "Ask".
+Chat logs are written owner-only (0700 dirs, 0600 files).
+
+Security gaps we know about (not yet done): the local server has no per-launch token, so another local process or
+user on the same machine can talk to 127.0.0.1:4317 (Host/Origin checks only stop web pages); agents are not
+sandboxed beyond Claude Code's own permissions; inspector reports can carry text from untrusted pages into a message.
+
+Roadmap additions (owner, 2026-11):
+- Inspector / visual properties panel (in progress): select elements the same way comments will, edit visually,
+  Copy changes -> paste to the agent. Page agent injected into served HTML; opt-in proxy for localhost and website URLs.
+- Paste/attach images in chat (next after the inspector).
+- Handoff to Devin: build interactively with Claude, then hand the work to Devin to build on its own. Shape:
+  a "Hand off" action runs a handoff-brief turn in the session (spec, decisions, acceptance criteria, files,
+  inspector edits), pushes the worktree branch, creates a Devin session via Devin's API with that brief and the
+  repo/branch, then shows its status and PR link in the workspace. Auth: Devin service-user API key supplied through an
+  environment variable (the app never stores credentials). Unverified until built: request schema of the current API
+  version, plan/API access, whether Devin's GitHub integration can see the pushed branch. Cannot be tested here
+  without a Devin account; build against a fake server, verify live on the owner's machine.
+- Later: Codex via ChatGPT login (same adapter interface); agent-to-agent messaging; review button.
+
 Known gaps / next:
 - Not yet verified on a real subscription login: this cloud container authenticates differently, so
   `apiKeySource` showed `none` here. The adapter strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` and warns

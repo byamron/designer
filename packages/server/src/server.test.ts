@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ServerMsg } from '@designer/shared';
 import { Store } from './store.js';
 import { Manager, type Client } from './manager.js';
 import { fakeAdapter } from './fake.js';
-import { cleanEnv, describeTool } from './claude.js';
+import { cleanEnv, describeTool, sessionOptions } from './claude.js';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'dc-'));
 
@@ -184,4 +184,28 @@ test('worktrees: a repo with no commits gets a clear error, not git\'s raw one',
   h.mgr.handle(h.c, { type: 'create_worktree', fromWorkspaceId: t.workspaceId, name: 'try-1' });
   await until(() => h.msgs.some((m) => m.type === 'error' && /no commits yet/.test(m.message)));
   assert.equal(h.store.listWorkspaces().some((w) => w.kind === 'worktree'), false);
+});
+
+test('session options: modes map through, bypass carries the SDK acknowledgement, API-key env is stripped, resume is passed', () => {
+  const env = { ANTHROPIC_API_KEY: 'k', PATH: '/bin' };
+  const auto = sessionOptions({ cwd: '/x', permissionMode: 'auto' }, undefined, env);
+  assert.equal(auto.permissionMode, 'auto');
+  assert.equal('allowDangerouslySkipPermissions' in auto, false);
+  assert.equal('resume' in auto, false);
+  assert.equal((auto.env as any).ANTHROPIC_API_KEY, undefined);
+  const full = sessionOptions({ cwd: '/x', permissionMode: 'bypassPermissions', resumeId: 'r' }, 'sess-1', env);
+  assert.equal(full.allowDangerouslySkipPermissions, true);
+  assert.equal(full.resume, 'sess-1');
+  assert.equal(sessionOptions({ cwd: '/x', permissionMode: 'default' }, undefined, env).permissionMode, 'default');
+});
+
+test('store files are private to the owner', () => {
+  const dir = tmp();
+  const s = new Store(dir);
+  s.writeMeta({ id: 'p1', workspaceId: 'w', title: 't', cwd: '/', provider: 'claude', status: 'idle', createdAt: 1, updatedAt: 1 });
+  s.append('p1', { type: 'user_message', text: 'secret' });
+  const mode = (p: string) => statSync(p).mode & 0o777;
+  assert.equal(mode(join(dir, 'threads', 'p1')), 0o700);
+  assert.equal(mode(join(dir, 'threads', 'p1', 'events.jsonl')), 0o600);
+  assert.equal(mode(join(dir, 'threads', 'p1', 'meta.json')), 0o600);
 });

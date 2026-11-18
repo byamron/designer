@@ -6,7 +6,7 @@ import type { AgentEvent, StoredEvent, ThreadMeta, Workspace } from '@designer/s
 export class Store {
   private seqs = new Map<string, number>();
   constructor(private root: string) {
-    mkdirSync(join(root, 'threads'), { recursive: true });
+    mkdirSync(join(root, 'threads'), { recursive: true, mode: 0o700 }); // chats can contain secrets from tool output: owner only
   }
   private dir(id: string) {
     if (!/^[\w-]+$/.test(id)) throw new Error('bad thread id');
@@ -21,7 +21,7 @@ export class Store {
   }
   saveWorkspaces(list: Workspace[]) {
     const f = join(this.root, 'workspaces.json');
-    writeFileSync(f + '.tmp', JSON.stringify(list, null, 2));
+    writeFileSync(f + '.tmp', JSON.stringify(list, null, 2), { mode: 0o600 });
     renameSync(f + '.tmp', f); // atomic: never leave a half-written index
   }
   listThreads(): ThreadMeta[] {
@@ -39,8 +39,8 @@ export class Store {
     }
   }
   writeMeta(meta: ThreadMeta) {
-    mkdirSync(this.dir(meta.id), { recursive: true });
-    writeFileSync(join(this.dir(meta.id), 'meta.json'), JSON.stringify(meta, null, 2));
+    mkdirSync(this.dir(meta.id), { recursive: true, mode: 0o700 });
+    writeFileSync(join(this.dir(meta.id), 'meta.json'), JSON.stringify(meta, null, 2), { mode: 0o600 });
   }
   readEvents(id: string, afterSeq = 0): StoredEvent[] {
     const f = join(this.dir(id), 'events.jsonl');
@@ -63,8 +63,8 @@ export class Store {
     seq += 1;
     this.seqs.set(id, seq);
     const stored = { ...ev, threadId: id, seq, ts: Date.now() } as StoredEvent;
-    mkdirSync(this.dir(id), { recursive: true });
-    appendFileSync(join(this.dir(id), 'events.jsonl'), JSON.stringify(stored) + '\n');
+    mkdirSync(this.dir(id), { recursive: true, mode: 0o700 });
+    appendFileSync(join(this.dir(id), 'events.jsonl'), JSON.stringify(stored) + '\n', { mode: 0o600 });
     return stored;
   }
 }

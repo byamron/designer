@@ -59,6 +59,19 @@ function stringifyResult(c: unknown): string {
   return s.length > OUTPUT_CAP ? s.slice(0, OUTPUT_CAP) + '\n… (truncated)' : s;
 }
 
+/** Options for one Claude session (pure, so it can be tested). Callbacks are added by the session. */
+export function sessionOptions(opts: StartOpts, nativeId: string | undefined, env: NodeJS.ProcessEnv = process.env) {
+  return {
+    cwd: opts.cwd,
+    env: cleanEnv(env),
+    includePartialMessages: true,
+    permissionMode: opts.permissionMode,
+    // the SDK requires this explicit acknowledgement for the no-prompts mode
+    ...(opts.permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
+    ...(nativeId ? { resume: nativeId } : {}),
+  };
+}
+
 class ClaudeSession implements Session {
   private input = new InputQueue();
   private q?: Query;
@@ -80,11 +93,7 @@ class ClaudeSession implements Session {
     this.q = query({
       prompt: this.input,
       options: {
-        cwd: this.opts.cwd,
-        env: cleanEnv(process.env),
-        includePartialMessages: true,
-        permissionMode: this.opts.permissionMode,
-        ...(this.nativeId ? { resume: this.nativeId } : {}),
+        ...sessionOptions(this.opts, this.nativeId),
         canUseTool: (toolName, input, o) => this.askUser(toolName, input, o.signal),
       },
     });
@@ -131,6 +140,9 @@ class ClaudeSession implements Session {
         if (m.subtype === 'init') {
           this.nativeId = m.session_id;
           this.sink.nativeId(m.session_id);
+          if (m.permissionMode && m.permissionMode !== this.opts.permissionMode) {
+            this.sink.emit({ type: 'error', message: `Permission mode "${this.opts.permissionMode}" is not available here; Claude is running in "${m.permissionMode}" mode.` });
+          }
           if (m.apiKeySource && m.apiKeySource !== 'none' && m.apiKeySource !== 'oauth' && m.apiKeySource !== '/login managed key') {
             this.sink.emit({ type: 'error', message: `Claude is using "${m.apiKeySource}" instead of your subscription login. Run \`claude login\` in a terminal.` });
           }
@@ -224,7 +236,11 @@ class ClaudeSession implements Session {
 
   async setPermissionMode(mode: PermissionMode) {
     this.opts.permissionMode = mode;
-    await this.q?.setPermissionMode(mode);
+    try {
+      await this.q?.setPermissionMode(mode);
+    } catch (e) {
+      this.sink.emit({ type: 'error', message: `Could not switch to "${mode}" mode: ${e instanceof Error ? e.message : String(e)}` });
+    }
   }
 
   close() {

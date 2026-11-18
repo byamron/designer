@@ -436,7 +436,12 @@ function ToolLine({ t }: { t: ToolItem }) {
   );
 }
 
-const MODES: [PermissionMode, string][] = [['default', 'Ask before edits & commands'], ['acceptEdits', 'Auto-accept edits'], ['bypassPermissions', 'Full access (no prompts)']];
+const MODES: [PermissionMode, string][] = [
+  ['default', 'Ask before edits & commands'],
+  ['auto', 'Auto: Claude decides, asks when unsure'],
+  ['acceptEdits', 'Auto-accept edits'],
+  ['bypassPermissions', 'Full access (no prompts)'],
+];
 
 function Composer({ thread, queue }: { thread: ThreadMeta; queue: string[] }) {
   const [text, setText] = useState('');

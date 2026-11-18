@@ -43,8 +43,15 @@ tool calls, approval deny, interrupt, resume after restart), real `git worktree`
 - [ ] **Jump to latest with a trackpad**, including momentum scrolling right after the click.
 - [ ] **Focus rings in Safari** (the automated check runs in Chromium; Safari draws outlines slightly differently).
 
+- [ ] **Auto mode on your account.** Pick "Auto: Claude decides" and ask for a bash command and a file edit; check it
+      runs without prompts for ordinary work and still asks for something risky. If your plan/model does not support
+      it, you should see a notice saying which mode Claude is actually in.
+- [ ] **Full access mode.** We now pass the SDK's explicit acknowledgement flag; confirm it starts without errors
+      (the container is a hosted session, where the SDK behaves differently).
+
 ## Not buildable or testable here (later phases)
 - macOS desktop shell (Tauri vs Electron spike), signing, webview comment overlay.
 - Embedding and commenting on Paper or other external sites.
 - System dictation into the composer.
 - Codex adapter: needs a Codex login; the container has none.
+- Devin handoff: needs a Devin account and API key; build against a fake server first, verify live on the owner's machine.

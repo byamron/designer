@@ -1,6 +1,6 @@
 // Normalized events and wire protocol shared by server and web UI.
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
+export type PermissionMode = 'default' | 'auto' | 'acceptEdits' | 'bypassPermissions';
 export type ToolKind = 'command' | 'file_change' | 'read' | 'search' | 'other';
 export type ToolStatus = 'running' | 'done' | 'error';
 export type Decision = 'allow' | 'deny';
