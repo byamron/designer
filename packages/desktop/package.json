@@ -1,0 +1,9 @@
+{
+  "name": "@designer/desktop",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "description": "Designer desktop shell: starts the local server and shows the app in a locked-down window",
+  "scripts": { "start": "electron ." },
+  "devDependencies": { "electron": "^45.3.0" }
+}

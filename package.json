@@ -11,6 +11,7 @@
     "start": "npm run build && npm run start -w @designer/server",
     "typecheck": "tsc -b packages/shared packages/server packages/web",
     "test": "npm test -w @designer/server",
-    "dev-instance": "node scripts/dev-instance.mjs"
+    "dev-instance": "node scripts/dev-instance.mjs",
+    "app": "npm run build && electron packages/desktop"
   }
 }
