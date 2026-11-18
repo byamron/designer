@@ -27,7 +27,7 @@ confidence in security you have running Claude Code in a terminal or Conductor.
 | R2 | **Self-hosting runbook + script**: `scripts/dev-instance` runs a worktree's code on free ports with its own data dir; written "stable copy / dev copy" rules | S | script + tests | one real change to Designer made through Designer | you ship one small change this way |
 | R3 | **Inspector** (in progress): visual properties panel, Copy changes, Add to message; page agent + opt-in proxy for localhost and website URLs (agent and proxy are built and tested; panel is next) | M | yes | feel of selecting/editing; real dev server | select, edit, copy on an HTML file and a localhost page; pasted report lets Claude apply it |
 | R4 | **Images in chat**: paste/drop screenshots, thumbnails, passed to Claude as images | S-M | yes (fake + real Claude) | clipboard paste behaviour | paste a screenshot, Claude describes it |
-| R5 | **Desktop shell spike**: Electron vs Tauri, time-boxed; measure idle memory, startup, in-process server, webview injection. Record the decision | S | Electron can run here under a virtual display; Tauri cannot | memory/feel on macOS | decision recorded with numbers |
+| R5 | **Electron shell, decided** (owner, 2026-11). Short feasibility pass instead of a comparison: server in the main process, a webview that can inject the page agent, idle memory and startup measured; revisit only if the numbers are bad | S | Electron can run here under a virtual display | memory/feel on macOS | numbers recorded; go/no-go on the shell design |
 | R6 | **Designer.app v0**: window, server lifecycle, token handled inside the app (no link), app data in Application Support, menus and shortcuts, links open in your browser, single instance, crash recovery; unsigned local build script | M-L | most (Electron) | launch, dock, menus, quit stops agents | you use the app for a full day of real work |
 | R7 | **Native preview + comments** (P3): a real webview (no proxy needed, Paper loads inline); pinned comments on any page using the same selection layer as the inspector; structured feedback to the agent | L | partly | webview behaviour, external sites | comment on a localhost page and on Paper; agent applies it |
 | R8 | **Harden**: long-session reliability, error states, logs, review button, diff/commit view if chat is not enough, release notes per tag | M | yes | days of real use | no known blocker for daily use; tag a release |
@@ -38,9 +38,13 @@ building Designer in Designer after R2, in the browser version, before any deskt
 (terminal, link, local build) rather than unlock the ability.
 
 ## Decisions to make
-- **R5:** Electron or Tauri. Electron runs the Agent SDK directly and I can test it here; Tauri is lighter but needs a Node
-  helper process for the SDK and cannot be tested in this container. Decide with measurements.
+- **R5 (decided): Electron.** T3 Code, Paseo (moved from Tauri in March 2026) and Orca are all Electron; it runs the Agent SDK
+  directly and can be tested in this container. A native Swift shell is not planned: it would mean rewriting the UI and could not be
+  verified here. Keep the server/UI split so a native shell stays possible later if measurements demand it.
 - **R6:** whether the app bundles Node or relies on the installed one; where worktrees live by default.
+
+- **Optional Swift helper** (small CLI, macOS 26+, Apple Intelligence Macs only) exposing Apple's on-device Foundation Models for
+  light features such as session titles and turn summaries. Behind a flag; verified only on your Mac.
 
 ## Parked (revisit later; each has a note in plan.md)
 - **Hand off to Devin** (build with Claude, then hand the brief and branch to Devin via its API). Needs your Devin API
