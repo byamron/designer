@@ -42,19 +42,6 @@ try {
   await page.getByText('scripted reply').first().waitFor({ timeout: 15000 });
   log('chat works in the desktop window');
 
-  // locked down: the window only shows the app; other links go to the OS browser (recorded here instead of opened)
-  await page.evaluate(() => { location.href = 'https://example.com/nav'; });
-  await sleep(800);
-  assert.equal(new globalThis.URL(page.url()).origin, u.origin, 'the window did not navigate away');
-  await page.evaluate(() => window.open('https://example.com/popup'));
-  await page.evaluate(() => window.open('file:///etc/passwd'));
-  await sleep(500);
-  const opened = readFileSync(externalLog, 'utf8').trim().split('\n');
-  assert.ok(opened.includes('https://example.com/nav') && opened.includes('https://example.com/popup'), `web links open outside: ${opened}`);
-  assert.ok(!opened.some((l) => l.startsWith('file:')), 'file: links are never opened');
-  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1, 'no extra windows');
-  log('navigation locked to the app; web links go to the browser; file: links refused');
-
   // permissions are denied, and nothing in the page can reach Node
   const perm = await page.evaluate(async () => ({ notif: await Notification.requestPermission(), node: typeof require, proc: typeof process }));
   assert.equal(perm.notif, 'denied');
@@ -87,6 +74,19 @@ try {
   assert.notEqual(code, 'timeout', 'the second instance exits by itself');
   assert.equal(Number(readFileSync(join(data, 'desktop-server.pid'), 'utf8')), pid2, 'and did not start another server');
   log('a second launch exits and leaves the running app alone');
+
+  // locked down (last of the page checks: a cancelled navigation leaves Playwright waiting for a navigation that never commits): the window only shows the app; other links go to the OS browser (recorded here instead of opened)
+  await page.evaluate(() => { location.href = 'https://example.com/nav'; });
+  await sleep(800);
+  assert.equal(new globalThis.URL(page.url()).origin, u.origin, 'the window did not navigate away');
+  await page.evaluate(() => window.open('https://example.com/popup'));
+  await page.evaluate(() => window.open('file:///etc/passwd'));
+  await sleep(500);
+  const opened = readFileSync(externalLog, 'utf8').trim().split('\n');
+  assert.ok(opened.includes('https://example.com/nav') && opened.includes('https://example.com/popup'), `web links open outside: ${opened}`);
+  assert.ok(!opened.some((l) => l.startsWith('file:')), 'file: links are never opened');
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1, 'no extra windows');
+  log('navigation locked to the app; web links go to the browser; file: links refused');
 
   // window position is remembered
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ x: 40, y: 30, width: 1000, height: 700 }));
