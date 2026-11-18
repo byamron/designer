@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
-import { createReadStream, existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { extname, join, relative, resolve, sep } from 'node:path';
+import { AGENT_PATH, agentSource, injectAgent } from './agent.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -58,11 +59,12 @@ export function listHtml(root: string, maxDepth = 3, limit = 200): string[] {
  * wrote cannot reach the app's WebSocket (the app only accepts its own origin), so previewed code
  * cannot drive the agent.
  */
-export function startPreviewServer(port: number, workspacePath: (id: string) => string | undefined): Promise<Server> {
+export function startPreviewServer(port: number, workspacePath: (id: string) => string | undefined, appOrigins: () => string[] = () => []): Promise<Server> {
   const server = createServer((req, res) => {
     const actual = (server.address() as { port: number } | null)?.port;
     if (!req.headers.host || ![`localhost:${actual}`, `127.0.0.1:${actual}`].includes(req.headers.host)) return void res.writeHead(403).end('forbidden');
     const url = new URL(req.url ?? '/', 'http://x');
+    if (url.pathname === AGENT_PATH) return void res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }).end(agentSource());
     const m = /^\/([\w-]+)\/(.*)$/.exec(url.pathname) ?? /^\/([\w-]+)$/.exec(url.pathname);
     const root = m && workspacePath(m[1]);
     if (!m || !root) return void res.writeHead(404).end('not found');
@@ -73,11 +75,14 @@ export function startPreviewServer(port: number, workspacePath: (id: string) => 
       file = undefined;
     }
     if (!file || !existsSync(file)) return void res.writeHead(404).end('not found');
-    res.writeHead(200, {
-      'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
-      'cache-control': 'no-store',
-      'x-content-type-options': 'nosniff',
-    });
+    const type = MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
+    const headers = { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
+    if (/^\.html?$/i.test(extname(file))) {
+      // HTML gets the Designer page agent (inert unless the Designer app talks to it)
+      const body = Buffer.from(injectAgent(readFileSync(file, 'utf8'), appOrigins()), 'utf8');
+      return void res.writeHead(200, { ...headers, 'content-length': body.length }).end(body);
+    }
+    res.writeHead(200, headers);
     createReadStream(file).pipe(res);
   });
   return new Promise((ok, fail) => {

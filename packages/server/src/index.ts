@@ -9,6 +9,7 @@ import { claudeAdapter } from './claude.js';
 import { fakeAdapter } from './fake.js';
 import { Manager, type Client } from './manager.js';
 import { listHtml, probe, startPreviewServer } from './preview.js';
+import { ProxyPool } from './proxy.js';
 import { Store } from './store.js';
 
 const PORT = Number(process.env.PORT ?? 4317);
@@ -25,6 +26,7 @@ const manager = new Manager(store, process.env.DESIGNER_FAKE ? fakeAdapter : cla
 // check Host (DNS rebinding) and Origin (other web pages) on every request.
 const okHosts = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `localhost:${DEV_PORT}`, `127.0.0.1:${DEV_PORT}`]);
 const okOrigins = new Set([...okHosts].map((h) => `http://${h}`));
+const proxies = new ProxyPool(() => [...okOrigins]);
 const hostOk = (h?: string) => !!h && okHosts.has(h);
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2' };
@@ -45,6 +47,16 @@ async function api(req: import('node:http').IncomingMessage, res: import('node:h
   if (site && site !== 'same-origin') return void res.writeHead(403).end('forbidden');
   const json = (o: unknown, code = 200) => res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(o));
   if (url.pathname === '/api/probe') return json(await probe(url.searchParams.get('url') ?? ''));
+  if (url.pathname === '/api/proxy') {
+    // Show a page we do not serve with the Designer agent injected; returns the local address to frame.
+    try {
+      const target = new URL(url.searchParams.get('url') ?? '');
+      const p = await proxies.get(target);
+      return json({ port: p.port, path: target.pathname + target.search + target.hash });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : 'bad url' }, 400);
+    }
+  }
   if (url.pathname === '/api/html') {
     const root = manager.workspacePath(url.searchParams.get('workspace') ?? '');
     return json(root ? listHtml(root) : []);
@@ -81,7 +93,8 @@ function connect(ws: WebSocket) {
   ws.on('close', () => manager.removeClient(client));
 }
 
-await startPreviewServer(PREVIEW_PORT, (id) => manager.workspacePath(id));
+await startPreviewServer(PREVIEW_PORT, (id) => manager.workspacePath(id), () => [...okOrigins]);
 http.listen(PORT, HOST, () => console.log(`designer-chat on http://localhost:${PORT} (data: ${DATA})${process.env.DESIGNER_FAKE ? ' [fake provider]' : ''}`));
-process.on('SIGINT', () => (manager.shutdown(), process.exit(0)));
-process.on('SIGTERM', () => (manager.shutdown(), process.exit(0)));
+const stop = () => (manager.shutdown(), proxies.closeAll(), process.exit(0));
+process.on('SIGINT', stop);
+process.on('SIGTERM', stop);

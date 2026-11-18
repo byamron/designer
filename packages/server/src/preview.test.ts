@@ -45,15 +45,18 @@ test('listHtml skips node_modules and dotdirs', () => {
   assert.deepEqual(listHtml(root), ['index.html', join('sub', 'page.html')]);
 });
 
-test('preview server: serves files with types, 404s escapes and unknown workspaces, checks Host', async () => {
+test('preview server: serves files with types, 404s escapes and unknown workspaces, checks Host', async (t) => {
   const root = site();
   const srv = await startPreviewServer(0, (id) => (id === 'ws1' ? root : undefined));
+  t.after(() => (srv.closeAllConnections(), srv.close())); // closed even when an assertion fails
   const port = (srv.address() as AddressInfo).port;
   const get = (path: string, host?: string) => fetch(`http://127.0.0.1:${port}${path}`, host ? { headers: { host } } : {});
   const ok = await get('/ws1/index.html');
   assert.equal(ok.status, 200);
   assert.match(ok.headers.get('content-type')!, /text\/html/);
-  assert.equal(await ok.text(), '<h1>home</h1>');
+  const served = await ok.text();
+  assert.ok(served.startsWith('<h1>home</h1>'), 'the page content is intact');
+  assert.match(served, /data-designer-agent/, 'HTML carries the page agent');
   assert.match((await get('/ws1/style.css')).headers.get('content-type')!, /text\/css/);
   assert.equal((await get('/ws1/')).status, 200);
   assert.equal((await get('/nope/index.html')).status, 404);
@@ -63,8 +66,6 @@ test('preview server: serves files with types, 404s escapes and unknown workspac
     request({ host: '127.0.0.1', port, path: '/ws1/index.html', headers: { host: 'evil.example' } }, (r) => (r.resume(), res(r.statusCode ?? 0))).end();
   });
   assert.equal(status, 403);
-  srv.closeAllConnections();
-  srv.close();
 });
 
 test('probe: reachable page is framable; X-Frame-Options and CSP frame-ancestors are not; dead port is unreachable', async () => {
