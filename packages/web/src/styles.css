@@ -23,6 +23,9 @@ button { cursor: pointer; }
 .thread:hover { background: var(--user); }
 .thread.active { background: var(--user); }
 .projects { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.project { display: flex; flex-direction: column; gap: 2px; }
+.field-row { display: flex; gap: 4px; align-items: center; }
+.field-row input { flex: 1; min-width: 0; }
 .project-head { display: flex; justify-content: space-between; align-items: center; padding: 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .icon { background: none; border: 0; color: var(--muted); border-radius: 6px; padding: 2px 6px; }
 .icon:hover { background: var(--user); color: var(--text); }

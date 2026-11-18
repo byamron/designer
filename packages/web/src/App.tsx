@@ -42,12 +42,21 @@ function Sidebar() {
   const firstSession = (wid: string) => threads.find((t) => t.workspaceId === wid && !t.archived);
   return (
     <aside className="sidebar">
-      <button className="new" onClick={() => setAdding((a) => !a)}>Add folder</button>
+      <button className="new" onMouseDown={(e) => e.preventDefault()} onClick={() => setAdding((a) => !a)}>Add folder</button>
       {adding && (
-        <div className="newform">
+        <div
+          className="newform"
+          // clicking away dismisses it unless you have typed something other than the suggested path
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null) && (!path.trim() || path === defaultCwd)) setAdding(false);
+          }}
+        >
           <label>
             Folder path
-            <input value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} autoFocus spellCheck={false} />
+            <span className="field-row">
+              <input value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => (e.key === 'Enter' ? submit() : e.key === 'Escape' && setAdding(false))} autoFocus spellCheck={false} />
+              <button className="icon x" aria-label="Cancel add folder" onClick={() => setAdding(false)}>✕</button>
+            </span>
           </label>
           <button onClick={submit}>Add</button>
         </div>
@@ -76,11 +85,27 @@ function Project({ name, list, activeWs, running, onOpen }: { name: string; list
     <section className="project">
       <div className="project-head">
         <span className="project-name">{name}</span>
-        <button className="icon" title="New worktree" aria-label={`New worktree in ${name}`} onClick={() => setMaking(!making)}>⎇ +</button>
+        <button className="icon" title="New worktree" aria-label={`New worktree in ${name}`} onMouseDown={(e) => e.preventDefault()} onClick={() => setMaking(!making)}>⎇ +</button>
       </div>
       {making && (
-        <div className="newform">
-          <input value={wt} placeholder="worktree name" onChange={(e) => setWt(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} autoFocus spellCheck={false} aria-label="Worktree name" />
+        <div
+          className="newform"
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null) && !wt.trim()) setMaking(false); // nothing typed: click away cancels
+          }}
+        >
+          <span className="field-row">
+            <input
+              value={wt}
+              placeholder="worktree name"
+              onChange={(e) => setWt(e.target.value)}
+              onKeyDown={(e) => (e.key === 'Enter' ? create() : e.key === 'Escape' && (setMaking(false), setWt('')))}
+              autoFocus
+              spellCheck={false}
+              aria-label="Worktree name"
+            />
+            <button className="icon x" aria-label="Cancel new worktree" onClick={() => { setMaking(false); setWt(''); }}>✕</button>
+          </span>
         </div>
       )}
       {list.map((w) => (

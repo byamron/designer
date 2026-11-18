@@ -86,13 +86,42 @@ await page.waitForSelector('.msg.user');
 assert.equal(await page.locator('.bubble', { hasText: 'second session' }).count(), 0, 'sessions do not leak into each other');
 log('multiple session tabs per workspace');
 
+// 7b. the new-worktree and add-folder boxes can be dismissed without creating anything
+{
+  const open = () => page.getByRole('button', { name: /New worktree in/ }).click();
+  const box = page.getByLabel('Worktree name');
+  await open(); await box.waitFor(); await page.keyboard.press('Escape');
+  await box.waitFor({ state: 'detached' });
+  await open(); await box.waitFor(); await page.getByRole('button', { name: 'Cancel new worktree' }).click();
+  await box.waitFor({ state: 'detached' });
+  await open(); await box.waitFor(); await page.locator('.top').click(); // click away while empty
+  await box.waitFor({ state: 'detached' });
+  await open(); await box.fill('keep-me'); await page.locator('.top').click(); // typed text is never thrown away by a stray click
+  await page.waitForTimeout(150);
+  assert.equal(await box.count(), 1, 'a named worktree box stays open when you click away');
+  await page.keyboard.press('Escape'); // (focus is not in the box any more) close it via the cancel button
+  await page.getByRole('button', { name: 'Cancel new worktree' }).click();
+  await box.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Add folder' }).click();
+  await page.getByLabel('Folder path').waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Folder path').waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Add folder' }).click();
+  await page.getByLabel('Folder path').waitFor();
+  await page.locator('.top').click(); // untouched suggested path: click away cancels
+  await page.getByLabel('Folder path').waitFor({ state: 'detached' });
+  log('worktree and add-folder boxes dismiss via Esc, the X button and clicking away');
+}
+
 // 8. worktrees appear in the sidebar and run sessions in their own folder
 await page.getByRole('button', { name: /New worktree in/ }).click();
 await page.getByLabel('Worktree name').fill('variant-a');
 await page.keyboard.press('Enter');
 await page.getByText('designer/variant-a').waitFor();
 assert.ok((await page.locator('.top-cwd').textContent()).includes('variant-a'), 'session cwd is the worktree');
-log('worktree created, opened in its own folder');
+const gap = await page.$$eval('.project .ws', (rows) => rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().bottom);
+assert.ok(gap >= 2, `workspace rows have a gap between them (${gap}px)`);
+log('worktree created, opened in its own folder; rows are separated');
 
 // 9. removing a clean worktree works
 await page.locator('.ws', { hasText: 'variant-a' }).hover(); // the remove button only shows on hover
