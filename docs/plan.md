@@ -65,7 +65,10 @@ Known gaps / next:
 - Auth to the local server is Host/Origin checking on a localhost-only bind.
 
 ## Decisions so far
-- Built in this repo; old app preserved at git tag `designer-final`.
+- Built in this repo. **Since 2026-11-18 `main` is the new app** (fast-forwarded from the old Tauri app's last commit; nothing rewritten).
+  The old Tauri app is preserved at branch `archive/tauri-designer` and tag `tauri-final` (both `2195a3d`); the owner's old local `main`
+  work is on a local backup branch and bundle on their Mac. Old release tags `v0.1.1`-`v0.1.3` belong to the Tauri app; new releases
+  must not reuse them.
 - Server: Node 22 (T3 Code and Paseo both run on Node; per web summaries, not yet verified in source).
 - UI: React + TypeScript.
 - Shell: decide Tauri vs Electron with a spike at the start of P2; server and UI stay separate until then.

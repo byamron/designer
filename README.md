@@ -35,7 +35,8 @@ e2e/run.sh                                 # browser tests: ui, focus rings, mot
 
 
 The previous Designer app (Tauri/Rust/React) is preserved in git history at the
-tag `designer-final`. Browse it with `git show designer-final:<path>`.
+branch `archive/tauri-designer` (and tag `tauri-final`, both at commit `2195a3d`). Get it back with
+`git switch archive/tauri-designer`, or read a file with `git show tauri-final:<path>`.
 
 - [docs/self-hosting.md](docs/self-hosting.md): build Designer in Designer (stable copy + dev instance)
 - [docs/parallel-work.md](docs/parallel-work.md): projects that can be built at the same time, with specs and prompts

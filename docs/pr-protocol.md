@@ -3,12 +3,12 @@
 Every project in [parallel-work.md](parallel-work.md) follows this. It exists so an **orchestrator** (a person or an agent)
 can merge several PRs in order without surprises.
 
-Base branch for everything: `claude/designer-ide-status-36fbed-renz2x` ("the base"). Never target `main`.
+Base branch for everything: **`main`** ("the base"). `main` is the single source of truth; the old Tauri app is archived (see README).
 
 ## 1. Set up
 ```sh
 git fetch origin
-git switch -c feat/<project> origin/claude/designer-ide-status-36fbed-renz2x   # or confirm your worktree is already on such a branch
+git switch -c feat/<project> origin/main   # or confirm your worktree is already on such a branch
 npm install
 npm run typecheck && npm test && e2e/run.sh        # baseline BEFORE you change anything
 ```
@@ -25,7 +25,7 @@ Write down any failure that already exists; do not "fix" unrelated failures in y
 - Do not add dependencies unless the spec requires it. If you must, say so in the PR and keep `package-lock.json` changes to exactly that.
 - New CSS goes in a new file under `packages/web/src/styles/` imported from `main.tsx`. Use tokens from `styles.css`.
 - Follow CLAUDE.md: scaffold, don't replace; never read/store/log credentials; chat stays pass-through.
-- Never push to the base branch directly. Never force-push anything except your own feature branch (`--force-with-lease`).
+- Never push to `main` directly; open a PR. Never force-push anything except your own feature branch (`--force-with-lease`).
 
 ## 3. Definition of done (all must be true before the PR leaves draft)
 - [ ] Acceptance tests from the spec exist and pass.
@@ -38,18 +38,18 @@ Write down any failure that already exists; do not "fix" unrelated failures in y
 ## 4. Open the PR
 ```sh
 git push -u origin feat/<project>
-gh pr create --draft --base claude/designer-ide-status-36fbed-renz2x \
+gh pr create --draft --base main \
   --title "[<project>] <one-line summary>" --body-file <your filled-in copy of .github/pull_request_template.md>
 ```
 If `gh` is not available, push and give the compare URL
-`https://github.com/byamron/designer/compare/claude/designer-ide-status-36fbed-renz2x...feat/<project>` and the PR text to paste.
+`https://github.com/byamron/designer/compare/main...feat/<project>` and the PR text to paste.
 Mark ready for review only when section 3 is all ticked. **Do not merge. Do not enable auto-merge.**
 The PR body must contain the fenced `orchestrator` block from the template, filled in (it is machine-read).
 
 ## 5. When the orchestrator asks you to update
 ```sh
 git fetch origin
-git rebase origin/claude/designer-ide-status-36fbed-renz2x
+git rebase origin/main
 npm install && npm run typecheck && npm test && e2e/run.sh
 git push --force-with-lease
 ```

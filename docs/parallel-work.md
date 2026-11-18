@@ -4,8 +4,7 @@ Written 2026-11. Each project below is independent enough to run in its own loca
 while other projects run. The desktop shell stays with the cloud session because Electron can be tested there.
 
 ## Ground rules (for every project)
-- **Base:** branch from `claude/designer-ide-status-36fbed-renz2x` (run `git pull` first). Name yours `feat/<project>`.
-  Merge back into that branch, not into `main` (main still holds the old app).
+- **Base:** branch from `main` (run `git pull` first). Name yours `feat/<project>`. Open the PR against `main`.
 - **Stay in your files.** Each project lists files it owns and files to avoid. Small edits elsewhere are fine; if you need a
   bigger change in someone else's file, stop and say so.
 - **Tests first.** Write the acceptance tests in the spec, then the code. Before you finish: `npm run typecheck`,

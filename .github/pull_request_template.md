@@ -23,8 +23,8 @@
 ```orchestrator
 project: <id>
 merge-order: <n>
-base: claude/designer-ide-status-36fbed-renz2x
-base-sha: <output of git rev-parse origin/claude/designer-ide-status-36fbed-renz2x>
+base: main
+base-sha: <output of git rev-parse origin/main>
 depends-on: []            # project ids that must merge first
 owns: []                  # files/dirs you created or substantially changed
 touched-outside-owned: [] # small edits in other files

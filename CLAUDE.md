@@ -16,4 +16,5 @@ Codex (`codex app-server`). Read `docs/plan.md` first.
 - Chat is pass-through: no middleware on the message path beyond normalization into our ~8 events. Approvals are the only intercept point.
 - Unfinished features are removed or flagged off, never shipped as visible stubs.
 - Do not copy code from other projects. Follow `docs/inspirations.md`: log every borrowed idea with project, pinned commit, file and lines. Anything adapted from code needs a `THIRD_PARTY_NOTICES.md` entry first.
-- The old app is at git tag `designer-final`; read it for ideas, don't resurrect it wholesale.
+- The old Tauri app is on branch `archive/tauri-designer` (tag `tauri-final`); read it for ideas, don't resurrect it wholesale.
+- `main` is the single source of truth. Work happens on `feat/<name>` branches and lands through pull requests (see `docs/pr-protocol.md`). Do not reuse the old app's `v0.1.x` version tags.
