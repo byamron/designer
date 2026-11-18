@@ -49,7 +49,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
     if (!external) return setProbe({ state: 'idle' });
     let live = true;
     setProbe({ state: 'checking' });
-    api(`/api/probe?url=${encodeURIComponent(target)}`)
+    api(`/api/probe?url=${encodeURIComponent(target)}&parent=${encodeURIComponent(location.origin)}`)
       .then((r) => r.json())
       .then((p: { ok: boolean; framable: boolean; reason?: string }) => {
         if (!live) return;

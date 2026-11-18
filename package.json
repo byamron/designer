@@ -2,12 +2,15 @@
   "name": "designer",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run dev -w @designer/server",
     "build": "npm run build -w @designer/web",
     "start": "npm run build && npm run start -w @designer/server",
     "typecheck": "tsc -b packages/shared packages/server packages/web",
-    "test": "npm test -w @designer/server"
+    "test": "npm test -w @designer/server",
+    "dev-instance": "node scripts/dev-instance.mjs"
   }
 }

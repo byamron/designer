@@ -37,6 +37,7 @@ e2e/run.sh                                 # browser tests: ui, focus rings, mot
 The previous Designer app (Tauri/Rust/React) is preserved in git history at the
 tag `designer-final`. Browse it with `git show designer-final:<path>`.
 
+- [docs/self-hosting.md](docs/self-hosting.md): build Designer in Designer (stable copy + dev instance)
 - [docs/roadmap.md](docs/roadmap.md): the path to a desktop app you can build Designer in
 - [docs/security.md](docs/security.md): threat model and parity with Claude Code in a terminal
 - [docs/plan.md](docs/plan.md): scope, architecture, history of what was built

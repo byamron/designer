@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { listHtml, probe, resolveInside, startPreviewServer } from './preview.js';
+import { ancestorsAllow, listHtml, probe, resolveInside, startPreviewServer } from './preview.js';
 
 const tmp = () => realpathSync(mkdtempSync(join(tmpdir(), 'pv-')));
 
@@ -86,4 +86,27 @@ test('probe: reachable page is framable; X-Frame-Options and CSP frame-ancestors
   assert.match(dead.reason!, /Cannot reach/);
   assert.equal((await probe('file:///etc/passwd')).ok, false);
   assert.equal((await probe('not a url')).ok, false);
+});
+
+test('frame-ancestors is judged against the app that wants to show the page', async () => {
+  const target = new URL('http://localhost:4500/');
+  const app = 'http://localhost:4317';
+  assert.equal(ancestorsAllow(`${app} http://127.0.0.1:4317`, app, target), true, 'the app is listed');
+  assert.equal(ancestorsAllow('http://localhost:9999', app, target), false, 'someone else is listed');
+  assert.equal(ancestorsAllow("'none'", app, target), false);
+  assert.equal(ancestorsAllow("'self'", app, target), false, 'self means the page itself, not the app');
+  assert.equal(ancestorsAllow("'self'", target.origin, target), true);
+  assert.equal(ancestorsAllow('*', undefined, target), true);
+  assert.equal(ancestorsAllow(app, undefined, target), false, 'unknown parent: do not guess');
+  const srv = createServer((_, res) => {
+    res.setHeader('content-security-policy', `frame-ancestors ${app}`);
+    res.end('<html></html>');
+  });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/`;
+  assert.equal((await probe(url, app)).framable, true, 'allowed for the listed app');
+  assert.equal((await probe(url, 'http://localhost:1234')).framable, false, 'blocked for any other app');
+  assert.equal((await probe(url)).framable, false, 'blocked when the app is unknown');
+  srv.closeAllConnections();
+  srv.close();
 });

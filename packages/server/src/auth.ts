@@ -31,7 +31,15 @@ export function tokenOk(provided: string | null | undefined, token: string): boo
 }
 
 /** Headers for the app's own pages: no framing (clickjacking), no inline script, no sniffing, nothing leaks via Referer. */
-export function pageHeaders(port: number): Record<string, string> {
+const ORIGIN_RE = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/;
+
+/**
+ * `frameAncestors`: exact origins allowed to show this page in a frame. Empty (the default) means never.
+ * Used only for a dev instance that should appear in the preview pane of the stable app. Wildcards and
+ * anything that is not a plain http(s) origin are dropped.
+ */
+export function pageHeaders(port: number, frameAncestors: string[] = []): Record<string, string> {
+  const ancestors = frameAncestors.filter((o) => ORIGIN_RE.test(o));
   const ws = `ws://localhost:${port} ws://127.0.0.1:${port}`;
   return {
     'content-security-policy': [
@@ -42,12 +50,12 @@ export function pageHeaders(port: number): Record<string, string> {
       "font-src 'self'",
       `connect-src 'self' ${ws}`,
       'frame-src http://localhost:* http://127.0.0.1:*', // previews and proxied pages live on other local ports
-      "frame-ancestors 'none'",
+      `frame-ancestors ${ancestors.length ? ancestors.join(' ') : "'none'"}`,
       "base-uri 'none'",
       "form-action 'none'",
       "object-src 'none'",
     ].join('; '),
-    'x-frame-options': 'DENY',
+    ...(ancestors.length ? {} : { 'x-frame-options': 'DENY' }), // XFO cannot express an allowlist; CSP frame-ancestors carries it
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()',

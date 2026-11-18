@@ -49,6 +49,10 @@ tool calls, approval deny, interrupt, resume after restart), real `git worktree`
 - [ ] **Full access mode.** We now pass the SDK's explicit acknowledgement flag; confirm it starts without errors
       (the container is a hosted session, where the SDK behaves differently).
 
+- [ ] **Self-hosting loop on your Mac** ([self-hosting.md](self-hosting.md)): stable clone, worktree, `npm run dev-instance`,
+      dev instance visible in the Preview pane, one real change merged and promoted. First run of `npm install` in a
+      worktree, and that a real Claude edit shows up after a UI rebuild.
+
 ## Not buildable or testable here (later phases)
 - macOS desktop shell (Tauri vs Electron spike), signing, webview comment overlay.
 - Embedding and commenting on Paper or other external sites.

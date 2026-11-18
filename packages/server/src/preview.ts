@@ -98,7 +98,16 @@ export interface Probe {
 }
 
 /** Can this URL be shown in an iframe? Honest answer instead of a blank pane. */
-export async function probe(raw: string): Promise<Probe> {
+/** Does a CSP frame-ancestors list allow `parent` (the app that wants to show the page) to frame a page at `target`? */
+export function ancestorsAllow(list: string, parent: string | undefined, target: URL): boolean {
+  const tokens = list.trim().split(/\s+/).filter(Boolean);
+  if (tokens.includes("'none'")) return false;
+  if (tokens.includes('*')) return true;
+  if (tokens.includes("'self'") && parent === target.origin) return true;
+  return !!parent && tokens.includes(parent);
+}
+
+export async function probe(raw: string, parent?: string): Promise<Probe> {
   let u: URL;
   try {
     u = new URL(raw);
@@ -113,7 +122,7 @@ export async function probe(raw: string): Promise<Probe> {
     const csp = r.headers.get('content-security-policy') ?? '';
     const fa = /frame-ancestors\s+([^;]+)/i.exec(csp)?.[1]?.trim();
     if (xfo.includes('deny') || xfo.includes('sameorigin')) return { ok: true, framable: false, reason: 'This site does not allow being shown inside another page (X-Frame-Options).' };
-    if (fa && fa !== '*') return { ok: true, framable: false, reason: 'This site does not allow being shown inside another page (frame-ancestors).' };
+    if (fa && !ancestorsAllow(fa, parent, u)) return { ok: true, framable: false, reason: 'This site does not allow being shown inside another page (frame-ancestors).' };
     return { ok: true, framable: true };
   } catch {
     return { ok: false, framable: false, reason: `Cannot reach ${u.origin}. Is the server running?` };

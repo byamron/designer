@@ -21,6 +21,8 @@ const DEV_PORT = 5173;
 const PREVIEW_PORT = Number(process.env.PREVIEW_PORT ?? PORT + 1);
 
 const TOKEN = loadToken(DATA);
+// Only a dev instance sets this, so the stable app can show it in its preview pane. Default: never framed.
+const FRAME_ANCESTORS = (process.env.DESIGNER_FRAME_ANCESTORS ?? '').split(/\s+/).filter(Boolean);
 const store = new Store(DATA);
 const manager = new Manager(store, process.env.DESIGNER_FAKE ? fakeAdapter : claudeAdapter, join(DATA, 'worktrees'));
 
@@ -40,7 +42,7 @@ const http = createServer((req, res) => {
   let file = normalize(join(WEB_DIST, url.pathname === '/' ? 'index.html' : url.pathname));
   if (!file.startsWith(WEB_DIST) || !existsSync(file) || !statSync(file).isFile()) file = join(WEB_DIST, 'index.html');
   if (!existsSync(file)) return void res.writeHead(404).end('UI not built. Run `npm run build` (or `npm run dev` and open :5173).');
-  res.writeHead(200, { ...pageHeaders(PORT), 'content-type': MIME[extname(file)] ?? 'application/octet-stream' }).end(readFileSync(file));
+  res.writeHead(200, { ...pageHeaders(PORT, FRAME_ANCESTORS), 'content-type': MIME[extname(file)] ?? 'application/octet-stream' }).end(readFileSync(file));
 });
 
 // Same-origin UI calls only: probe() fetches arbitrary URLs, so other web pages must not be able to trigger it.
@@ -49,7 +51,10 @@ async function api(req: import('node:http').IncomingMessage, res: import('node:h
   if (site && site !== 'same-origin') return void res.writeHead(403).end('forbidden');
   if (!tokenOk(String(req.headers['x-designer-token'] ?? ''), TOKEN)) return void res.writeHead(401, { 'content-type': 'text/plain' }).end('unauthorized: open the link printed in the terminal');
   const json = (o: unknown, code = 200) => res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(o));
-  if (url.pathname === '/api/probe') return json(await probe(url.searchParams.get('url') ?? ''));
+  if (url.pathname === '/api/probe') {
+    const parent = url.searchParams.get('parent') ?? undefined;
+    return json(await probe(url.searchParams.get('url') ?? '', parent && okOrigins.has(parent) ? parent : undefined));
+  }
   if (url.pathname === '/api/proxy') {
     // Show a page we do not serve with the Designer agent injected; returns the local address to frame.
     try {
