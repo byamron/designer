@@ -25,7 +25,7 @@ confidence in security you have running Claude Code in a terminal or Conductor.
 | R0 | **Done:** chat, approvals, Stop, resume; worktrees + tabs; preview pane + quote; polish pass; Auto mode | - | yes | tested by you; Auto/Full-access flag still open | you reported "everything works" |
 | R1 | **Security parity** (token, CSP/headers, threat model, black-box tests) | S | yes (34 tests, 3 browser suites) | login/auto-mode checks | [security.md](security.md) complete; you opened the tokened link and it works |
 | R2 | **Self-hosting runbook + script (built, confirmed on the owner's Mac)**: `npm run dev-instance -- --worktree <name>` runs a worktree on free ports with its own data and token; the stable app can show it in its preview pane; [self-hosting.md](self-hosting.md) | S | yes (unit, integration and browser tests) | one real change to Designer made through Designer | you ship one small change this way |
-| R2b | **Run button** ([spec](specs/run-button.md)): one click runs a workspace (dev server or static page), shows it in the preview pane with a live log; generic, so Designer's own dev instance is one configuration. Built in the server so the Electron app inherits it | M | yes (fake dev server) | login-shell PATH, a real Vite/Next project, killing a real server tree | build it **in Designer** (first real dogfood feature); click Run on a Designer worktree and see it in the pane |
+| R2b | **One-click previews** ([spec](specs/run-button.md)): Claude starts servers itself; Designer opens local links in the preview pane with one click and offers an "Ask Claude to start it" prompt. No process manager (parked unless Claude-started servers prove unreliable) | S | yes | a real dev server started by Claude | build it **in Designer** (first dogfood feature); a localhost link from Claude opens in the pane in one click |
 | R3 | **Inspector** (in progress): visual properties panel, Copy changes, Add to message; page agent + opt-in proxy for localhost and website URLs (agent and proxy are built and tested; panel is next) | M | yes | feel of selecting/editing; real dev server | select, edit, copy on an HTML file and a localhost page; pasted report lets Claude apply it |
 | R4 | **Images in chat**: paste/drop screenshots, thumbnails, passed to Claude as images | S-M | yes (fake + real Claude) | clipboard paste behaviour | paste a screenshot, Claude describes it |
 | R5 | **Electron shell, decided** (owner, 2026-11). Short feasibility pass instead of a comparison: server in the main process, a webview that can inject the page agent, idle memory and startup measured; revisit only if the numbers are bad | S | Electron can run here under a virtual display | memory/feel on macOS | numbers recorded; go/no-go on the shell design |
@@ -35,14 +35,14 @@ confidence in security you have running Claude Code in a terminal or Conductor.
 | R9 | **Share-ready**: signing, notarization, auto-update | L | no | Apple account, Mac | only if others will install it |
 
 **Priorities (owner, 2026-11): no terminals, and as close to hot reload as possible.** This moves the desktop shell up.
-New critical path: **R2b Run button → R6 Designer.app v0 → R3 Inspector / R4 Images.** Hot reload for the dev copy is done
+New critical path: **R2b One-click previews → R6 Designer.app v0 → R3 Inspector / R4 Images.** Hot reload for the dev copy is done
 (Vite dev server with Fast Refresh; a source edit showed up in about 0.2 s with state kept). Electron 45 runs in the cloud
 container under a virtual display, so the shell can be built and tested here.
 
 What "no terminals" means in practice:
 - Launching: double-click `Designer.app`; it starts the server itself and opens its window. The private token is passed
   inside the app (no link to copy).
-- Running a workspace (including Designer's own dev copy): the Run button (R2b), not a terminal.
+- Running a workspace (including Designer's own dev copy): ask Claude to start it; its link opens in the pane in one click (R2b). No terminal.
 - Updating the app you work in: an in-app **Update & restart** (pull, install, build, relaunch) for the source-checkout
   install, so day-to-day use needs no Terminal. The only Terminal step left is the one-time install.
 - Git (commit, push, PR) via chat, as now.
