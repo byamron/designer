@@ -20,6 +20,8 @@ const WEB_DIST = resolve(fileURLToPath(new URL('../../web/dist', import.meta.url
 const DEV_PORT = Number(process.env.DESIGNER_DEV_PORT ?? 5173); // the hot-reload UI server, when one is used
 const PREVIEW_PORT = Number(process.env.PREVIEW_PORT ?? PORT + 1);
 
+// Anything started from here (including a dev copy Claude launches) can find the app it belongs to.
+process.env.DESIGNER_ORIGIN = `http://localhost:${PORT}`;
 const TOKEN = loadToken(DATA);
 // Only a dev instance sets this, so the stable app can show it in its preview pane. Default: never framed.
 const FRAME_ANCESTORS = (process.env.DESIGNER_FRAME_ANCESTORS ?? '').split(/\s+/).filter(Boolean);

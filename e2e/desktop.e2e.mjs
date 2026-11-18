@@ -20,7 +20,9 @@ const externalLog = join(tmpdir(), `external-${process.pid}.log`);
 writeFileSync(externalLog, '');
 const repo = mkdtempSync(join(tmpdir(), 'desk-repo-'));
 execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
-const env = { ...process.env, PORT: '4800', DESIGNER_DATA: data, DESIGNER_USER_DATA: userData, DESIGNER_FAKE: '1', DESIGNER_CWD: repo, DESIGNER_TEST_EXTERNAL_LOG: externalLog };
+const dialogLog = join(tmpdir(), `dialogs-${process.pid}.log`);
+writeFileSync(dialogLog, '');
+const env = { ...process.env, DESIGNER_NO_UPDATE_CHECK: '1', DESIGNER_TEST_DIALOG: 'OK', DESIGNER_TEST_DIALOG_LOG: dialogLog, PORT: '4800', DESIGNER_DATA: data, DESIGNER_USER_DATA: userData, DESIGNER_FAKE: '1', DESIGNER_CWD: repo, DESIGNER_TEST_EXTERNAL_LOG: externalLog };
 const launch = () => _electron.launch({ executablePath: electronBin, args: ['--no-sandbox', join(root, 'packages', 'desktop')], env, timeout: 90000 });
 
 let app = await launch();
@@ -52,6 +54,23 @@ try {
   const labels = await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.map((i) => i.label));
   assert.ok(labels.includes('Edit') && labels.includes('View') && labels.includes('Window'), `menus: ${labels}`);
   log('standard menus present (Edit has copy/paste)');
+
+  // updates: the menu item exists and runs the check (this checkout is not on a clean main, so it explains instead of changing anything)
+  const items = await app.evaluate(({ Menu }) => {
+    const out = [];
+    const walk = (m) => m?.items.forEach((i) => (out.push(i.label), walk(i.submenu)));
+    walk(Menu.getApplicationMenu());
+    return out;
+  });
+  assert.ok(items.includes('Check for Updates…'), `menu has Check for Updates: ${items}`);
+  await app.evaluate(({ Menu }) => {
+    const find = (m) => m.items.flatMap((i) => [i, ...(i.submenu ? find(i.submenu) : [])]);
+    find(Menu.getApplicationMenu()).find((i) => i.label === 'Check for Updates…').click();
+  });
+  for (let i = 0; i < 100 && !readFileSync(dialogLog, 'utf8'); i++) await sleep(200);
+  const shownDialog = readFileSync(dialogLog, 'utf8');
+  assert.match(shownDialog, /up to date|can't update|available|Couldn't check/, `an answer was shown: ${shownDialog}`);
+  log('Check for Updates is in the menu and answers (and does nothing risky on a copy that is not a clean main)');
 
   // supervision: kill the server; it comes back on the same port and the page reconnects without help
   const pid1 = Number(readFileSync(join(data, 'desktop-server.pid'), 'utf8'));
