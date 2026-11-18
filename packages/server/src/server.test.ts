@@ -175,3 +175,13 @@ test('legacy threads without a workspace are grouped by folder on startup', () =
   assert.equal(t.status, 'idle');
   assert.equal(store.listWorkspaces()[0].path, tmpdir());
 });
+
+test('worktrees: a repo with no commits gets a clear error, not git\'s raw one', async () => {
+  const h = harness();
+  const dir = tmp();
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  const t = await openFolder(h, realpathSync(dir));
+  h.mgr.handle(h.c, { type: 'create_worktree', fromWorkspaceId: t.workspaceId, name: 'try-1' });
+  await until(() => h.msgs.some((m) => m.type === 'error' && /no commits yet/.test(m.message)));
+  assert.equal(h.store.listWorkspaces().some((w) => w.kind === 'worktree'), false);
+});

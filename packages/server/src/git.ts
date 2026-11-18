@@ -33,6 +33,11 @@ export const NAME_RE = /^[a-z0-9][a-z0-9._-]{0,48}$/i;
 
 export async function addWorktree(repo: string, path: string, name: string): Promise<string> {
   if (!NAME_RE.test(name) || name.includes('..')) throw new Error('Use letters, numbers, dots, dashes (max 49 chars).');
+  try {
+    await git(repo, 'rev-parse', '--verify', '-q', 'HEAD');
+  } catch {
+    throw new Error('This repository has no commits yet, so a worktree cannot be created. Make a first commit, then try again.');
+  }
   const branch = `designer/${name}`;
   await git(repo, 'worktree', 'add', '-b', branch, path, 'HEAD');
   return branch;
