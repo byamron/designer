@@ -16,9 +16,9 @@ for s in "${suites[@]}"; do
   # own process group so the whole server tree can be stopped (a stale server would serve old data to the next run)
   PORT=$port DESIGNER_CWD="$repo" DESIGNER_FAKE=1 DESIGNER_DATA="$data" setsid npm run start -w @designer/server >"$data/server.log" 2>&1 &
   pid=$!
-  for _ in $(seq 1 50); do curl -fs "http://localhost:$port/" >/dev/null 2>&1 && break; sleep 0.2; done
+  for _ in $(seq 1 50); do curl -fs "http://localhost:$port/" >/dev/null 2>&1 && [ -s "$data/token" ] && break; sleep 0.2; done
   echo "== $s"
-  URL="http://localhost:$port" REPO="$repo" node "e2e/$s.e2e.mjs" || status=1
+  URL="http://localhost:$port/?t=$(cat "$data/token")" REPO="$repo" node "e2e/$s.e2e.mjs" || status=1
   kill -- -"$pid" 2>/dev/null || true
 done
 exit $status

@@ -16,7 +16,20 @@ page.on('pageerror', (e) => errors.push(String(e)));
 const dist = () => page.$eval('.scroller', (el) => el.scrollHeight - el.scrollTop - el.clientHeight);
 const log = (m) => console.log('ok -', m);
 
+// 0. without the token the page cannot reach the app, and says why
+{
+  const ctx = await browser.newContext();
+  const bare = await ctx.newPage();
+  await bare.goto(new globalThis.URL(URL).origin + '/');
+  await bare.getByText("Can't connect").waitFor({ timeout: 8000 });
+  assert.equal(await bare.getByRole('button', { name: 'Add folder' }).count(), 0, 'no app UI without a token');
+  await bare.goto(new globalThis.URL(URL).origin + '/?t=' + 'f'.repeat(64));
+  await bare.getByText("Can't connect").waitFor({ timeout: 8000 });
+  log('without a valid token: "Can\'t connect" screen, no app');
+  await ctx.close();
+}
 await page.goto(URL);
+assert.ok(!page.url().includes('t='), 'the token is removed from the address bar');
 await page.getByRole('button', { name: 'Add folder' }).click();
 await page.getByRole('button', { name: 'Add', exact: true }).click();
 await page.getByLabel('Message').waitFor();

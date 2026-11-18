@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
+import { api } from './auth';
 
 type Probe = { state: 'idle' } | { state: 'checking' } | { state: 'ok' } | { state: 'blocked' | 'unreachable'; reason: string };
 const isUrl = (s: string) => /^https?:\/\//i.test(s);
@@ -27,7 +28,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
 
   useEffect(() => {
     let live = true;
-    fetch(`/api/html?workspace=${encodeURIComponent(workspaceId)}`).then((r) => r.json()).then((f) => live && setFiles(f)).catch(() => {});
+    api(`/api/html?workspace=${encodeURIComponent(workspaceId)}`).then((r) => r.json()).then((f) => live && setFiles(f)).catch(() => {});
     return () => { live = false; };
   }, [workspaceId, turns]); // new files may appear after the agent finishes a turn
 
@@ -48,7 +49,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
     if (!external) return setProbe({ state: 'idle' });
     let live = true;
     setProbe({ state: 'checking' });
-    fetch(`/api/probe?url=${encodeURIComponent(target)}`)
+    api(`/api/probe?url=${encodeURIComponent(target)}`)
       .then((r) => r.json())
       .then((p: { ok: boolean; framable: boolean; reason?: string }) => {
         if (!live) return;

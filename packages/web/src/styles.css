@@ -174,3 +174,5 @@ button, a, input, select, textarea { transition: background-color .12s ease, bor
   .shimmer { color: var(--muted); background: none; }
   .msg.assistant.live .md > :last-child::after { animation: none; }
 }
+
+.gate { max-width: 460px; padding: 24px; line-height: 1.6; } .gate h1 { font-size: 1.3em; margin: 0 0 8px; } .gate code { background: var(--code); border-radius: 4px; padding: 1px 5px; }

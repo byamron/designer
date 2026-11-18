@@ -5,6 +5,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg, ServerMsg } from '@designer/shared';
+import { loadToken, pageHeaders, tokenOk } from './auth.js';
 import { claudeAdapter } from './claude.js';
 import { fakeAdapter } from './fake.js';
 import { Manager, type Client } from './manager.js';
@@ -19,6 +20,7 @@ const WEB_DIST = resolve(fileURLToPath(new URL('../../web/dist', import.meta.url
 const DEV_PORT = 5173;
 const PREVIEW_PORT = Number(process.env.PREVIEW_PORT ?? PORT + 1);
 
+const TOKEN = loadToken(DATA);
 const store = new Store(DATA);
 const manager = new Manager(store, process.env.DESIGNER_FAKE ? fakeAdapter : claudeAdapter, join(DATA, 'worktrees'));
 
@@ -38,13 +40,14 @@ const http = createServer((req, res) => {
   let file = normalize(join(WEB_DIST, url.pathname === '/' ? 'index.html' : url.pathname));
   if (!file.startsWith(WEB_DIST) || !existsSync(file) || !statSync(file).isFile()) file = join(WEB_DIST, 'index.html');
   if (!existsSync(file)) return void res.writeHead(404).end('UI not built. Run `npm run build` (or `npm run dev` and open :5173).');
-  res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' }).end(readFileSync(file));
+  res.writeHead(200, { ...pageHeaders(PORT), 'content-type': MIME[extname(file)] ?? 'application/octet-stream' }).end(readFileSync(file));
 });
 
 // Same-origin UI calls only: probe() fetches arbitrary URLs, so other web pages must not be able to trigger it.
 async function api(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, url: URL) {
   const site = req.headers['sec-fetch-site'];
   if (site && site !== 'same-origin') return void res.writeHead(403).end('forbidden');
+  if (!tokenOk(String(req.headers['x-designer-token'] ?? ''), TOKEN)) return void res.writeHead(401, { 'content-type': 'text/plain' }).end('unauthorized: open the link printed in the terminal');
   const json = (o: unknown, code = 200) => res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(o));
   if (url.pathname === '/api/probe') return json(await probe(url.searchParams.get('url') ?? ''));
   if (url.pathname === '/api/proxy') {
@@ -67,7 +70,8 @@ async function api(req: import('node:http').IncomingMessage, res: import('node:h
 const wss = new WebSocketServer({ noServer: true });
 http.on('upgrade', (req, socket, head) => {
   const origin = req.headers.origin;
-  if (!hostOk(req.headers.host) || (origin && !okOrigins.has(origin)) || new URL(req.url ?? '/', 'http://x').pathname !== '/ws') {
+  const u = new URL(req.url ?? '/', 'http://x');
+  if (!hostOk(req.headers.host) || (origin && !okOrigins.has(origin)) || u.pathname !== '/ws' || !tokenOk(u.searchParams.get('t'), TOKEN)) {
     socket.destroy();
     return;
   }
@@ -94,7 +98,10 @@ function connect(ws: WebSocket) {
 }
 
 await startPreviewServer(PREVIEW_PORT, (id) => manager.workspacePath(id), () => [...okOrigins]);
-http.listen(PORT, HOST, () => console.log(`designer-chat on http://localhost:${PORT} (data: ${DATA})${process.env.DESIGNER_FAKE ? ' [fake provider]' : ''}`));
+http.listen(PORT, HOST, () => {
+  console.log(`designer-chat on http://localhost:${PORT} (data: ${DATA})${process.env.DESIGNER_FAKE ? ' [fake provider]' : ''}`);
+  console.log(`Open this link once (it remembers you after that): http://localhost:${PORT}/?t=${TOKEN}`);
+});
 const stop = () => (manager.shutdown(), proxies.closeAll(), process.exit(0));
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

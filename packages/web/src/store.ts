@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { getToken } from './auth';
 import type { ClientMsg, Decision, PermissionMode, ServerMsg, StoredEvent, ThreadMeta, ToolStatus, Workspace } from '@designer/shared';
 
 export type Item =
@@ -31,6 +32,8 @@ export interface State {
   activeId?: string;
   views: Record<string, ThreadView>;
   notice?: string;
+  /** Set when the server keeps refusing us: wrong or missing token, or the server is not running. */
+  cannotConnect?: boolean;
 }
 
 const emptyView = (): ThreadView => ({ items: [], lastSeq: 0, loaded: false, queue: [], turns: 0 });
@@ -63,6 +66,7 @@ class Store {
   private listeners = new Set<() => void>();
   private ws?: WebSocket;
   private retry = 0;
+  private opened = false;
   private deltas = new Map<string, string>(); // `${threadId}|${messageId}` -> text
   private raf = 0;
 
@@ -78,17 +82,18 @@ class Store {
   }
 
   connect() {
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?t=${encodeURIComponent(getToken() ?? '')}`);
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;
-      this.set({ connected: true, notice: undefined });
+      this.opened = true;
+      this.set({ connected: true, notice: undefined, cannotConnect: false });
       const id = this.state.activeId;
       if (id) this.send({ type: 'subscribe', threadId: id, lastSeq: this.state.views[id]?.lastSeq ?? 0 });
     };
     ws.onmessage = (m) => this.onMsg(JSON.parse(m.data) as ServerMsg);
     ws.onclose = () => {
-      this.set({ connected: false });
+      this.set({ connected: false, cannotConnect: !this.opened && this.retry >= 2 });
       setTimeout(() => this.connect(), Math.min(5000, 300 * 2 ** this.retry++));
     };
   }

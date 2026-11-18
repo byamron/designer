@@ -13,7 +13,7 @@ Requires Node 22+ and a logged-in `claude` (run `claude login` once; no API key 
 
 ```sh
 npm install
-npm start            # builds the UI, serves http://localhost:4317
+npm start            # builds the UI and prints a link: http://localhost:4317/?t=<private token>
 # or, while developing:
 npm run dev          # server on :4317
 npm run dev -w @designer/web   # UI with hot reload on :5173
@@ -21,6 +21,9 @@ npm run dev -w @designer/web   # UI with hot reload on :5173
 
 Env: `PORT`, `DESIGNER_DATA` (thread logs, default `~/.designer-chat`), `DESIGNER_CWD` (default folder in
 the new-chat form), `DESIGNER_FAKE=1` (scripted provider, no Claude).
+
+The link carries a private token that lets the page talk to the app. Open it once; the browser remembers it
+(then plain `http://localhost:4317` works). See [docs/security.md](docs/security.md).
 
 ## Test
 
@@ -34,7 +37,9 @@ e2e/run.sh                                 # browser tests: ui, focus rings, mot
 The previous Designer app (Tauri/Rust/React) is preserved in git history at the
 tag `designer-final`. Browse it with `git show designer-final:<path>`.
 
-- [docs/plan.md](docs/plan.md): scope, architecture, milestones
+- [docs/roadmap.md](docs/roadmap.md): the path to a desktop app you can build Designer in
+- [docs/security.md](docs/security.md): threat model and parity with Claude Code in a terminal
+- [docs/plan.md](docs/plan.md): scope, architecture, history of what was built
 - [docs/product.md](docs/product.md): who it is for and how it differs from other harnesses
 - [docs/inspirations.md](docs/inspirations.md): what we learned from other projects, and the license rules we follow
 - [docs/archive/](docs/archive/): kept from the old project (vision, critique)
