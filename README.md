@@ -38,6 +38,7 @@ The previous Designer app (Tauri/Rust/React) is preserved in git history at the
 tag `designer-final`. Browse it with `git show designer-final:<path>`.
 
 - [docs/self-hosting.md](docs/self-hosting.md): build Designer in Designer (stable copy + dev instance)
+- [docs/parallel-work.md](docs/parallel-work.md): projects that can be built at the same time, with specs and prompts
 - [docs/roadmap.md](docs/roadmap.md): the path to a desktop app you can build Designer in
 - [docs/security.md](docs/security.md): threat model and parity with Claude Code in a terminal
 - [docs/plan.md](docs/plan.md): scope, architecture, history of what was built
