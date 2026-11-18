@@ -65,7 +65,7 @@ try {
   // hot reload: edit the dev copy's source; the page updates in place, with no reload and without losing what was typed
   await frame.getByLabel('Message').fill('half-written thought');
   await frame.locator('body').evaluate(() => { window.__marker = 'still-here'; });
-  const src = join(copy, 'packages', 'web', 'src', 'App.tsx');
+  const src = join(copy, 'packages', 'web', 'src', 'Sidebar.tsx');
   const before = readFileSync(src, 'utf8');
   assert.ok(before.includes('>Add folder</button>'), 'edit target exists');
   const t0 = Date.now();
