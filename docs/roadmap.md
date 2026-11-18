@@ -46,6 +46,21 @@ building Designer in Designer after R2, in the browser version, before any deskt
 - **Optional Swift helper** (small CLI, macOS 26+, Apple Intelligence Macs only) exposing Apple's on-device Foundation Models for
   light features such as session titles and turn summaries. Behind a flag; verified only on your Mac.
 
+## Why Electron, judged on ceiling (and when to revisit)
+Owner's criterion: highest ceiling for performance and features; rewrite cost is not a factor. Assessment:
+- The product's value lives in **web content** (preview, inspector, comments, side-by-side variants). Chromium gives the
+  higher ceiling there: the DevTools protocol (matched CSS rules with stylesheet origins for the inspector, full-page
+  screenshots, device and touch emulation for responsive checks), network control, and rendering that matches Chrome.
+  WKWebView (Swift or Tauri) has no public equivalent for these.
+- A native Swift shell has the higher ceiling for **memory, battery, startup and macOS integration** (Keychain, App Intents,
+  ScreenCaptureKit, Foundation Models without a helper) and could share code with an iOS app. That is real, but those wins
+  are mostly outside the surface this product is judged on.
+- Mobile does not depend on this choice: the server speaks a JSON event stream, so an iOS client can be written natively later.
+- **Revisit** if measurements on the owner's Mac show unacceptable idle memory or battery with a real workload (several agents
+  plus several preview views), or if a macOS-only feature becomes central. Cheap free experiment now: open the app in Safari
+  and in Chrome and compare Activity Monitor.
+- Electron discipline for security parity: renderers sandboxed, context isolation on, no Node in renderers, validated IPC.
+
 ## Parked (revisit later; each has a note in plan.md)
 - **Hand off to Devin** (build with Claude, then hand the brief and branch to Devin via its API). Needs your Devin API
   access; build against a fake server first.
