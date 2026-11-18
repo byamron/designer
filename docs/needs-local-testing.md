@@ -53,6 +53,9 @@ tool calls, approval deny, interrupt, resume after restart), real `git worktree`
       dev instance visible in the Preview pane, one real change merged and promoted. First run of `npm install` in a
       worktree, and that a real Claude edit shows up after a UI rebuild.
 
+- [ ] **Hot reload feel** (`npm run dev-instance -- --worktree <name>`, now on Vite's dev server): edit the UI through Claude and
+      watch the preview pane update in place; check it keeps what you typed and that server edits restart cleanly.
+
 ## Not buildable or testable here (later phases)
 - macOS desktop shell (Tauri vs Electron spike), signing, webview comment overlay.
 - Embedding and commenting on Paper or other external sites.

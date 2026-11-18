@@ -29,12 +29,25 @@ confidence in security you have running Claude Code in a terminal or Conductor.
 | R3 | **Inspector** (in progress): visual properties panel, Copy changes, Add to message; page agent + opt-in proxy for localhost and website URLs (agent and proxy are built and tested; panel is next) | M | yes | feel of selecting/editing; real dev server | select, edit, copy on an HTML file and a localhost page; pasted report lets Claude apply it |
 | R4 | **Images in chat**: paste/drop screenshots, thumbnails, passed to Claude as images | S-M | yes (fake + real Claude) | clipboard paste behaviour | paste a screenshot, Claude describes it |
 | R5 | **Electron shell, decided** (owner, 2026-11). Short feasibility pass instead of a comparison: server in the main process, a webview that can inject the page agent, idle memory and startup measured; revisit only if the numbers are bad | S | Electron can run here under a virtual display | memory/feel on macOS | numbers recorded; go/no-go on the shell design |
-| R6 | **Designer.app v0**: window, server lifecycle, token handled inside the app (no link), app data in Application Support, menus and shortcuts, links open in your browser, single instance, crash recovery; unsigned local build script | M-L | most (Electron) | launch, dock, menus, quit stops agents | you use the app for a full day of real work |
+| R6 | **Designer.app v0** (next after R2b): window, server lifecycle, token handled inside the app (no link), app data in Application Support, login-shell PATH, menus and shortcuts, links open in your browser, single instance, crash recovery, in-app Update & restart; unsigned local build script | M-L | most (Electron) | launch, dock, menus, quit stops agents | you use the app for a full day of real work |
 | R7 | **Native preview + comments** (P3): a real webview (no proxy needed, Paper loads inline); pinned comments on any page using the same selection layer as the inspector; structured feedback to the agent | L | partly | webview behaviour, external sites | comment on a localhost page and on Paper; agent applies it |
 | R8 | **Harden**: long-session reliability, error states, logs, review button, diff/commit view if chat is not enough, release notes per tag | M | yes | days of real use | no known blocker for daily use; tag a release |
 | R9 | **Share-ready**: signing, notarization, auto-update | L | no | Apple account, Mac | only if others will install it |
 
-**Critical path to "build Designer in Designer": R1 → R2 → R4, in parallel with finishing R3.** You can start
+**Priorities (owner, 2026-11): no terminals, and as close to hot reload as possible.** This moves the desktop shell up.
+New critical path: **R2b Run button → R6 Designer.app v0 → R3 Inspector / R4 Images.** Hot reload for the dev copy is done
+(Vite dev server with Fast Refresh; a source edit showed up in about 0.2 s with state kept). Electron 45 runs in the cloud
+container under a virtual display, so the shell can be built and tested here.
+
+What "no terminals" means in practice:
+- Launching: double-click `Designer.app`; it starts the server itself and opens its window. The private token is passed
+  inside the app (no link to copy).
+- Running a workspace (including Designer's own dev copy): the Run button (R2b), not a terminal.
+- Updating the app you work in: an in-app **Update & restart** (pull, install, build, relaunch) for the source-checkout
+  install, so day-to-day use needs no Terminal. The only Terminal step left is the one-time install.
+- Git (commit, push, PR) via chat, as now.
+
+Earlier critical path, kept for reference: **R1 → R2 → R4, in parallel with finishing R3.** You can start
 building Designer in Designer after R2, in the browser version, before any desktop work. R5/R6 remove the friction
 (terminal, link, local build) rather than unlock the ability.
 

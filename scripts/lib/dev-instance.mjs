@@ -16,7 +16,7 @@ export const USAGE = `Run a copy of Designer (usually a worktree you are editing
   --parent <origin>   app that may show this instance in its preview pane
                       (repeatable; default http://localhost:4317 and http://127.0.0.1:4317)
   --fake              scripted provider instead of real Claude (for trying the UI)
-  --no-watch          do not rebuild/restart on file changes
+  --no-watch          serve a built UI and do not reload on changes (default: hot reload, edits show without a page reload)
   --help
 `;
 
@@ -79,8 +79,18 @@ export async function findPorts(start, tries = 50) {
 }
 
 /** Environment for the dev instance's server. Never forwards a stable instance's data dir or token. */
-export function instanceEnv(base, { port, data, cwd, parents, fake }) {
+export function instanceEnv(base, { port, data, cwd, parents, fake, uiPort }) {
   const env = { ...base, PORT: String(port), DESIGNER_DATA: data, DESIGNER_CWD: cwd, DESIGNER_FRAME_ANCESTORS: parents.join(' ') };
+  if (uiPort) {
+    // hot-reload mode: the page comes from the Vite dev server, which proxies the API/WebSocket to this instance
+    env.DESIGNER_DEV_PORT = String(uiPort);
+    env.DESIGNER_UI_PORT = String(uiPort);
+    env.DESIGNER_API_PORT = String(port);
+  } else {
+    delete env.DESIGNER_DEV_PORT;
+    delete env.DESIGNER_UI_PORT;
+    delete env.DESIGNER_API_PORT;
+  }
   delete env.PREVIEW_PORT; // derive from PORT so the pair stays together
   if (fake) env.DESIGNER_FAKE = '1';
   else delete env.DESIGNER_FAKE;

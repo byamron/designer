@@ -29,8 +29,8 @@ The stable copy never changes while you use it, so it never restarts or breaks i
    ```
    The first run installs that worktree's dependencies (about a minute). It prints a link.
 4. **See it.** Paste that link into the stable app's **Preview** address bar to use the new version inside the preview
-   pane, or open it in its own browser tab. UI edits rebuild automatically (reload the page); server edits restart only
-   the dev instance, never your stable app.
+   pane, or open it in its own browser tab. **Hot reload:** UI edits appear instantly without a page reload and keep what you
+   were typing (about 0.2 s in our test); server edits restart only the dev instance, never your stable app.
 5. Happy? Ask Claude to commit and push the branch, open a pull request, and merge it.
 6. **Promote**: when you want the new version as your daily app, stop the stable app, `git pull` in `~/designer-stable`,
    `npm install`, and `npm start` again.
@@ -45,7 +45,7 @@ The stable copy never changes while you use it, so it never restarts or breaks i
 
 ## Options
 `npm run dev-instance -- --help` lists them: `--dir <path>` for any checkout, `--port`, `--data`, `--cwd`, `--parent`,
-`--fake`, `--no-watch`.
+`--fake`, `--no-watch` (serve a built UI, no hot reload).
 
 ## If something goes wrong
 | You see | Do this |
@@ -55,4 +55,4 @@ The stable copy never changes while you use it, so it never restarts or breaks i
 | The Preview says it can't be shown | you pasted the stable link, or the dev instance is not running; use the link the script printed |
 | "Can't connect" inside the preview | the link has no token; copy the full link including `?t=…` |
 | Port in use | the script picks the next free pair automatically; check it printed a different port |
-| Dev instance feels stale | UI changes need a page reload; server changes restart it by themselves |
+| Dev instance feels stale | UI edits should appear on their own; if not, check the `[ui]` lines in the terminal. Server edits restart the dev instance (its open chats reconnect) |

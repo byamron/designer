@@ -1,9 +1,9 @@
 // The self-hosting loop: a stable Designer shows a dev instance (a separate copy of the code, own ports and data)
-// inside its preview pane, and the dev instance fully works in there.
+// inside its preview pane, the dev instance fully works in there, and editing its source hot-reloads it in place.
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { cpSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -17,7 +17,7 @@ const copy = mkdtempSync(join(tmpdir(), 'selfhost-'));
 cpSync(root, copy, { recursive: true, filter: (p) => !/(^|\/)(node_modules|dist|\.git|\.data)(\/|$)/.test(p.slice(root.length)) });
 symlinkSync(join(root, 'node_modules'), join(copy, 'node_modules'));
 
-const dev = spawn(process.execPath, [join(copy, 'scripts', 'dev-instance.mjs'), '--no-watch', '--fake', '--port', '4700', '--data', mkdtempSync(join(tmpdir(), 'devdata-')), '--parent', stableOrigin], { cwd: copy, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+const dev = spawn(process.execPath, [join(copy, 'scripts', 'dev-instance.mjs'), '--fake', '--port', '4700', '--data', mkdtempSync(join(tmpdir(), 'devdata-')), '--parent', stableOrigin], { cwd: copy, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
 let out = '';
 dev.stdout.on('data', (d) => (out += d));
 dev.stderr.on('data', (d) => (out += d));
@@ -62,12 +62,30 @@ try {
   assert.equal(await frame.locator('.bubble', { hasText: 'stable chat' }).count(), 0, 'the dev instance does not see the stable chat');
   log('stable and dev instances keep separate data');
 
+  // hot reload: edit the dev copy's source; the page updates in place, with no reload and without losing what was typed
+  await frame.getByLabel('Message').fill('half-written thought');
+  await frame.locator('body').evaluate(() => { window.__marker = 'still-here'; });
+  const src = join(copy, 'packages', 'web', 'src', 'App.tsx');
+  const before = readFileSync(src, 'utf8');
+  assert.ok(before.includes('>Add folder</button>'), 'edit target exists');
+  const t0 = Date.now();
+  writeFileSync(src, before.replace('>Add folder</button>', '>Open folder</button>'));
+  await frame.getByRole('button', { name: 'Open folder' }).waitFor({ timeout: 10000 });
+  const ms = Date.now() - t0;
+  assert.equal(await frame.locator('body').evaluate(() => window.__marker), 'still-here', 'the page did not reload');
+  assert.equal(await frame.getByLabel('Message').inputValue(), 'half-written thought', 'component state survived the edit');
+  assert.ok(ms < 5000, `the edit showed up quickly (${ms} ms)`);
+  log(`hot reload: a source edit appeared in ${ms} ms without a reload, and typed text was kept`);
+  writeFileSync(src, before); // put it back
+  await frame.getByRole('button', { name: 'Add folder' }).waitFor({ timeout: 10000 });
+
   // a page that is NOT the allowed parent cannot frame the dev instance
   const evil = await browser.newPage();
-  await evil.route('http://evil.test/**', (r) => r.fulfill({ contentType: 'text/html', body: `<iframe id=f src="http://localhost:4700/"></iframe>` }));
+  const uiOrigin = new globalThis.URL(link).origin;
+  await evil.route('http://evil.test/**', (r) => r.fulfill({ contentType: 'text/html', body: `<iframe id=f src="${uiOrigin}/"></iframe>` }));
   await evil.goto('http://evil.test/');
   await evil.waitForTimeout(1500);
-  const framed = evil.frames().some((f) => f.url().startsWith('http://localhost:4700'));
+  const framed = evil.frames().some((f) => f.url().startsWith(uiOrigin));
   assert.equal(framed, false, 'another site cannot frame the dev instance (the browser refused the frame)');
   log('other sites cannot frame the dev instance');
   await browser.close();

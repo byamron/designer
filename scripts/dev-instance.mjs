@@ -2,6 +2,7 @@
 // Run a copy of Designer next to your stable copy, on its own ports and data, so you can build Designer in Designer.
 // See docs/self-hosting.md.
 import { spawn, spawnSync } from 'node:child_process';
+import { connect } from 'node:net';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -36,11 +37,14 @@ try {
     console.log(`[dev] installing dependencies in ${dir} (a new worktree has none; this takes a minute)…`);
     run('npm', ['install'], dir, 'npm install');
   }
-  console.log('[dev] building the UI…');
-  run('npm', ['run', 'build'], dir, 'npm run build');
+  if (!o.watch) {
+    console.log('[dev] building the UI…');
+    run('npm', ['run', 'build'], dir, 'npm run build');
+  }
 
   const port = await findPorts(o.port);
-  const env = instanceEnv(process.env, { port, data, cwd: o.cwd ?? dir, parents, fake: o.fake });
+  const uiPort = o.watch ? await findPorts(port + 2) : undefined; // hot-reload UI server gets its own port
+  const env = instanceEnv(process.env, { port, data, cwd: o.cwd ?? dir, parents, fake: o.fake, uiPort });
   const bin = (n) => join(dir, 'node_modules', '.bin', n);
   const children = [];
   const start = (name, cmd, args, cwd) => {
@@ -53,21 +57,31 @@ try {
   };
 
   const server = start('server', bin('tsx'), o.watch ? ['watch', 'src/index.ts'] : ['src/index.ts'], join(dir, 'packages', 'server'));
-  if (o.watch) start('ui', bin('vite'), ['build', '--watch', '--logLevel', 'warn'], join(dir, 'packages', 'web'));
+  if (o.watch) start('ui', bin('vite'), [], join(dir, 'packages', 'web'));
+  const listening = (p) =>
+    new Promise((res) => {
+      const tryOnce = (left) => {
+        const c = connect(p, '127.0.0.1', () => (c.destroy(), res(true)));
+        c.on('error', () => (left > 0 ? setTimeout(() => tryOnce(left - 1), 250) : res(false)));
+      };
+      tryOnce(120);
+    });
 
   let printed = false;
-  server.stdout.on('data', (d) => {
-    const m = /(http:\/\/localhost:\d+\/\?t=[0-9a-f]{64})/.exec(String(d));
+  server.stdout.on('data', async (d) => {
+    const m = /http:\/\/localhost:(\d+)\/\?t=([0-9a-f]{64})/.exec(String(d));
     if (!m || printed) return;
     printed = true;
+    if (uiPort && !(await listening(uiPort))) console.error('[dev] the UI server did not start; see the [ui] lines above');
+    const link = `http://localhost:${uiPort ?? m[1]}/?t=${m[2]}`;
     console.log(`
 ────────────────────────────────────────────────────────────
  Designer dev instance (${instanceName(dir)})
  Editing:   ${dir}
  Data:      ${data}   (separate from your stable chats)
- Open:      ${m[1]}
+ Open:      ${link}
  In your stable Designer: Preview → paste the link above to use it inside the preview pane.
- ${o.watch ? 'Watching: UI changes rebuild; reload the page. Server changes restart this instance only.' : 'Not watching: restart to pick up changes.'}
+ ${o.watch ? 'Hot reload: UI edits appear instantly without a reload; server edits restart this instance only.' : 'Not watching: restart to pick up changes.'}
  Stop with Ctrl-C.
 ────────────────────────────────────────────────────────────`);
   });

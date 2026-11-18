@@ -71,6 +71,11 @@ test('dev-instance: ports come in free pairs and skip busy ones; env keeps insta
   assert.equal(env.PREVIEW_PORT, undefined);
   assert.equal(env.DESIGNER_FAKE, undefined);
   assert.equal(lib.instanceEnv({}, { port: 1, data: '', cwd: '', parents: [], fake: true }).DESIGNER_FAKE, '1');
+  // hot-reload mode: the UI server and the API know about each other; otherwise stale values are cleared
+  const hot = lib.instanceEnv({ DESIGNER_UI_PORT: '1' }, { port: 4500, data: '/d', cwd: '/c', parents: [], fake: false, uiPort: 4502 });
+  assert.deepEqual([hot.DESIGNER_DEV_PORT, hot.DESIGNER_UI_PORT, hot.DESIGNER_API_PORT], ['4502', '4502', '4500']);
+  const cold = lib.instanceEnv({ DESIGNER_UI_PORT: '1', DESIGNER_DEV_PORT: '2', DESIGNER_API_PORT: '3' }, { port: 4500, data: '/d', cwd: '/c', parents: [], fake: false });
+  assert.deepEqual([cold.DESIGNER_DEV_PORT, cold.DESIGNER_UI_PORT, cold.DESIGNER_API_PORT], [undefined, undefined, undefined]);
 });
 
 test('dev-instance script: runs the real server on its own ports/data, allows only the stable app to frame it, and stops cleanly', async (t) => {

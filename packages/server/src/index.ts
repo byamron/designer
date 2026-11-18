@@ -17,7 +17,7 @@ const PORT = Number(process.env.PORT ?? 4317);
 const HOST = '127.0.0.1';
 const DATA = process.env.DESIGNER_DATA ?? join(homedir(), '.designer-chat');
 const WEB_DIST = resolve(fileURLToPath(new URL('../../web/dist', import.meta.url)));
-const DEV_PORT = 5173;
+const DEV_PORT = Number(process.env.DESIGNER_DEV_PORT ?? 5173); // the hot-reload UI server, when one is used
 const PREVIEW_PORT = Number(process.env.PREVIEW_PORT ?? PORT + 1);
 
 const TOKEN = loadToken(DATA);
