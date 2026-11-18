@@ -3,6 +3,10 @@
 **Destination:** `Designer.app` on your Mac that you use every day to build Designer itself, with the same
 confidence in security you have running Claude Code in a terminal or Conductor.
 
+**Product principle (owner, 2026-11): scaffold, don't replace.** Light scaffolding so the models do their thing, with the
+UX we want built around it; the app improves for free as models improve. Features are shortcuts that write the chat message
+or render what the model produced, never a second implementation of what the model can do. See CLAUDE.md.
+
 **Rules for getting there**
 - Every phase ends usable. Nothing ships half-built behind a visible stub.
 - Each phase is verified in the cloud container where possible (tests, browser suites, real Claude) and the rest is
@@ -57,8 +61,8 @@ building Designer in Designer after R2, in the browser version, before any deskt
   verified here. Keep the server/UI split so a native shell stays possible later if measurements demand it.
 - **R6:** whether the app bundles Node or relies on the installed one; where worktrees live by default.
 
-- **Optional Swift helper** (small CLI, macOS 26+, Apple Intelligence Macs only) exposing Apple's on-device Foundation Models for
-  light features such as session titles and turn summaries. Behind a flag; verified only on your Mac.
+- **Optional Swift helper** for Apple's on-device Foundation Models: demoted by the scaffold-don't-replace principle; only if a
+  clear UX need appears that Claude itself cannot serve.
 
 ## Why Electron, judged on ceiling (and when to revisit)
 Owner's criterion: highest ceiling for performance and features; rewrite cost is not a factor. Assessment:
@@ -74,6 +78,21 @@ Owner's criterion: highest ceiling for performance and features; rewrite cost is
   plus several preview views), or if a macOS-only feature becomes central. Cheap free experiment now: open the app in Safari
   and in Chrome and compare Activity Monitor.
 - Electron discipline for security parity: renderers sandboxed, context isolation on, no Node in renderers, validated IPC.
+
+## Don't obstruct the model (audit of what we do today, 2026-11)
+Things Designer currently blocks, hides or declines that Claude Code can do. Each is small scaffolding to pass through:
+| Today | Problem | Fix (light) |
+|---|---|---|
+| `AskUserQuestion` is declined with "ask in plain text" | The model asks structured questions (options, multi-select, previews); we refuse | Render question cards; return `answers` (question text → answer, multi-select comma-separated) via the tool input; allow "reply in chat" |
+| Subagent / `Task` messages are dropped | The user cannot see delegated work | Show nested tool runs collapsed under the parent tool call |
+| Plan mode / `ExitPlanMode` shows as a raw approval | The plan is the point | Render the plan as markdown in the approval card |
+| `TodoWrite` / task lists show as generic tool rows | Progress is useful at a glance | Render as a small checklist |
+| Slash commands, skills, hooks, MCP from `~/.claude` | Should just work; unverified in our adapter | Verify on the owner's Mac; pass through, never filter |
+| Model choice | Must not be gated by us | Pass the SDK's own model list/selection through when we add a picker |
+
+Dropped or demoted by this principle: the Designer-managed process runner (parked), the Swift/Foundation Models helper
+(only if a clear UX need appears; session titles can come from Claude itself), any Designer-side planning or orchestration
+layer. Handoff to another agent (Devin) stays as a shortcut: the model writes the brief from a chat message.
 
 ## Parked (revisit later; each has a note in plan.md)
 - **Hand off to Devin** (build with Claude, then hand the brief and branch to Devin via its API). Needs your Devin API
