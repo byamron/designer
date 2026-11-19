@@ -23,7 +23,7 @@ Loads when you touch one of the paths above. A regression here means a bypassed 
 - **`store.ts`** — chat logs on disk are owner-only (0700 dirs, 0600 files).
 - **`packages/desktop/`** — the Electron shell: locked-down window, supervision of the local server.
 
-Chat stays pass-through; approvals are the only intercept point (CLAUDE.md, `.claude/rules` if present).
+Chat stays pass-through; approvals are the only intercept point (CLAUDE.md).
 
 ## Before modifying safety-critical code
 
