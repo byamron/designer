@@ -1,0 +1,12 @@
+{
+  "defaultBranch": "main",
+  "branchPrefix": "feat/",
+  "typecheckCmd": "npm run typecheck",
+  "preflightCmd": "npm run typecheck && npm test",
+  "planPath": "docs/plan.md",
+  "roadmapPath": "docs/roadmap.md",
+  "specPath": "docs/product.md",
+  "referenceGlob": "docs/*.md",
+  "uiSurface": true,
+  "verifyEnabled": true
+}
