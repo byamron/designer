@@ -1,12 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { getToken } from './auth';
-import type { ClientMsg, Decision, PermissionMode, ServerMsg, StoredEvent, ThreadMeta, ToolStatus, Workspace } from '@designer/shared';
+import type { QuestionItem } from './Question';
+import type { AnswerHow, ClientMsg, Decision, PermissionMode, ServerMsg, StoredEvent, ThreadMeta, ToolStatus, Workspace } from '@designer/shared';
 
 export type Item =
   | { kind: 'user'; id: string; text: string }
   | { kind: 'assistant'; id: string; text: string; streaming: boolean }
   | { kind: 'tool'; id: string; name: string; toolKind: string; label: string; status: ToolStatus; output?: string }
   | { kind: 'approval'; id: string; toolName: string; label: string; resolved?: Decision }
+  | QuestionItem
   | { kind: 'error'; id: string; message: string }
   | { kind: 'done'; id: string; costUsd?: number; interrupted?: boolean; ms?: number };
 
@@ -52,6 +54,8 @@ function applyEvent(items: Item[], e: StoredEvent, turnStart?: number): Item[] {
     case 'tool_call': return upsert({ kind: 'tool', id: e.id, name: e.name, toolKind: e.kind, label: e.label, status: e.status, output: e.output });
     case 'approval_request': return upsert({ kind: 'approval', id: e.requestId, toolName: e.toolName, label: e.label });
     case 'approval_resolved': return items.map((x) => (x.kind === 'approval' && x.id === e.requestId ? { ...x, resolved: e.decision } : x));
+    case 'question_request': return upsert({ kind: 'question', id: e.requestId, questions: e.questions });
+    case 'question_answered': return items.map((x) => (x.kind === 'question' && x.id === e.requestId ? { ...x, answered: { answers: e.answers, how: e.how } } : x));
     case 'error': return [...items, { kind: 'error', id: `e${e.seq}`, message: e.message }];
     case 'turn_done':
       return [
@@ -244,6 +248,9 @@ class Store {
   }
   respond(id: string, requestId: string, decision: Decision) {
     this.send({ type: 'respond', threadId: id, requestId, decision });
+  }
+  answer(id: string, requestId: string, answers: Record<string, string>, how: AnswerHow) {
+    this.send({ type: 'answer', threadId: id, requestId, answers, how });
   }
   setMode(id: string, mode: PermissionMode) {
     this.send({ type: 'set_mode', threadId: id, mode });

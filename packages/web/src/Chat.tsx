@@ -28,6 +28,7 @@ export function phase(items: Item[]): string {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
     if (it.kind === 'approval' && !it.resolved) return 'Waiting for your approval';
+    if (it.kind === 'question' && !it.answered) return 'Waiting for your answer';
     if (it.kind === 'tool' && it.status === 'running') return `Running ${it.name}`;
     if (it.kind === 'assistant' && it.streaming) return 'Writing';
     if (it.kind === 'user') break;
