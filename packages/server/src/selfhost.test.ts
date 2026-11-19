@@ -46,6 +46,13 @@ test('dev-instance args: defaults, flags, and clear errors', () => {
   assert.throws(() => lib.parseArgs(['--dir', '/a', '--worktree', 'b']), /not both/);
 });
 
+test('dev-instance: the parent app defaults to the one that launched it', () => {
+  assert.deepEqual(lib.defaultParents({ DESIGNER_ORIGIN: 'http://localhost:4821' }), ['http://localhost:4821', 'http://127.0.0.1:4821']);
+  assert.deepEqual(lib.defaultParents({}), ['http://localhost:4317', 'http://127.0.0.1:4317']);
+  assert.deepEqual(lib.defaultParents({ DESIGNER_ORIGIN: 'javascript:alert(1)' }), ['http://localhost:4317', 'http://127.0.0.1:4317'], 'junk is ignored, never trusted');
+  assert.deepEqual(lib.defaultParents({ DESIGNER_ORIGIN: '*' }), ['http://localhost:4317', 'http://127.0.0.1:4317']);
+});
+
 test('dev-instance: worktree lookup finds exactly one, explains none, refuses ambiguity and bad names', () => {
   const data = tmp();
   mkdirSync(join(data, 'worktrees', 'designer', 'try-1'), { recursive: true });

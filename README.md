@@ -25,11 +25,19 @@ the new-chat form), `DESIGNER_FAKE=1` (scripted provider, no Claude).
 The link carries a private token that lets the page talk to the app. Open it once; the browser remembers it
 (then plain `http://localhost:4317` works). See [docs/security.md](docs/security.md).
 
+## Desktop app
+
+```sh
+npm run app          # builds the UI and opens Designer in its own window (no link to copy)
+```
+Designer > Check for Updates… pulls new versions of itself from `main`. See [docs/updates.md](docs/updates.md).
+
 ## Test
 
 ```sh
 npm run typecheck
 npm test                                   # server unit tests
+xvfb-run -a node e2e/desktop.e2e.mjs        # desktop shell (Linux needs a display; macOS runs it directly)
 e2e/run.sh                                 # browser tests: ui, focus rings, motion (needs Playwright; fresh server per suite)
 ```
 
@@ -39,6 +47,7 @@ branch `archive/tauri-designer` (and tag `tauri-final`, both at commit `2195a3d`
 `git switch archive/tauri-designer`, or read a file with `git show tauri-final:<path>`.
 
 - [docs/self-hosting.md](docs/self-hosting.md): build Designer in Designer (stable copy + dev instance)
+- [docs/updates.md](docs/updates.md): how updates reach the desktop app (Update & Restart, no reinstall)
 - [docs/parallel-work.md](docs/parallel-work.md): projects that can be built at the same time, with specs and prompts
 - [docs/roadmap.md](docs/roadmap.md): the path to a desktop app you can build Designer in
 - [docs/security.md](docs/security.md): threat model and parity with Claude Code in a terminal

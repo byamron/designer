@@ -76,3 +76,14 @@ export function restartDelay(recentCrashes) {
   const delays = [300, 1000, 3000];
   return recentCrashes < delays.length ? delays[recentCrashes] : null;
 }
+
+/**
+ * Environment for the commands the updater runs (npm install / npm run build): your login-shell PATH so npm is found, and never
+ * the Anthropic credentials (install scripts from third-party packages run with this environment).
+ */
+export function updateEnv(base, shellPath) {
+  const env = { ...base, PATH: mergePaths(base.PATH, shellPath) };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  return env;
+}

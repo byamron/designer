@@ -5,8 +5,9 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BrowserWindow, Menu, app, screen, session, shell } from 'electron';
-import { findPort, isSafeExternal, loginShellPath, mergePaths, restartDelay, sameOrigin, sanitizeBounds } from './lib.mjs';
+import { BrowserWindow, Menu, app, dialog, screen, session, shell } from 'electron';
+import { findPort, isSafeExternal, loginShellPath, mergePaths, restartDelay, sameOrigin, sanitizeBounds, updateEnv } from './lib.mjs';
+import { applyUpdate, blocker, checkForUpdate } from './updater.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(here, '..', '..'); // the checkout this app runs from
@@ -113,14 +114,75 @@ function createWindow() {
   void win.loadURL(`${origin}/?t=${readToken()}`); // the page keeps the token in its own storage and removes it from the address
 }
 
+// ---------- updates: pull the new version of this checkout, rebuild, relaunch ----------
+/** A native dialog (so the web page needs no extra powers). Tests answer by button label and record what was shown. */
+async function ask(options) {
+  if (process.env.DESIGNER_TEST_DIALOG) {
+    if (process.env.DESIGNER_TEST_DIALOG_LOG) appendFileSync(process.env.DESIGNER_TEST_DIALOG_LOG, JSON.stringify({ message: options.message, detail: options.detail }) + '\n');
+    const i = options.buttons.indexOf(process.env.DESIGNER_TEST_DIALOG);
+    return i >= 0 ? i : (options.cancelId ?? 0);
+  }
+  const r = await (win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options));
+  return r.response;
+}
+const dismissedFile = () => join(app.getPath('userData'), 'update-dismissed.txt');
+const updatable = () => existsSync(join(ROOT, '.git'));
+
+async function checkUpdates({ interactive }) {
+  if (!updatable()) return interactive ? void (await ask({ type: 'info', message: "Updates aren't available for this install.", buttons: ['OK'] })) : undefined;
+  let c;
+  try {
+    c = await checkForUpdate({ root: ROOT });
+  } catch (e) {
+    return interactive ? void (await ask({ type: 'warning', message: "Couldn't check for updates.", detail: String(e.stderr || e.message).trim().split('\n').slice(-3).join('\n'), buttons: ['OK'] })) : undefined;
+  }
+  const why = blocker(c);
+  if (why) {
+    if (interactive) await ask({ type: why === 'Already up to date.' ? 'info' : 'warning', message: why === 'Already up to date.' ? "You're up to date." : "Designer can't update this copy.", detail: why === 'Already up to date.' ? undefined : why, buttons: ['OK'] });
+    return;
+  }
+  let dismissed;
+  try { dismissed = readFileSync(dismissedFile(), 'utf8').trim(); } catch { /* never dismissed */ }
+  if (!interactive && dismissed === c.remoteHead) return; // do not nag about a version you already said "Later" to
+  const shown = c.commits.slice(0, 10).join('\n') + (c.commits.length > 10 ? `\n…and ${c.commits.length - 10} more` : '');
+  const choice = await ask({
+    type: 'info',
+    message: `A new version of Designer is available (${c.behind} change${c.behind === 1 ? '' : 's'}).`,
+    detail: `${shown}\n\nUpdating restarts Designer. Your chats are kept; a turn that is still running will be stopped.`,
+    buttons: ['Update & Restart', 'Later'], defaultId: 0, cancelId: 1,
+  });
+  if (choice !== 0) {
+    try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(dismissedFile(), c.remoteHead); } catch { /* fine */ }
+    return;
+  }
+  await installUpdate();
+}
+
+async function installUpdate() {
+  const logFile = join(app.getPath('userData'), 'update.log');
+  const log = (t) => { try { appendFileSync(logFile, `${new Date().toISOString()} ${t}\n`); } catch { /* fine */ } };
+  const env = updateEnv(process.env, await loginShellPath()); // no Anthropic credentials for npm install scripts
+  win?.setProgressBar(2); // indeterminate
+  const r = await applyUpdate({ root: ROOT, env, progress: (t) => (log(t), win?.setTitle(`Designer: ${t}`)) });
+  win?.setProgressBar(-1);
+  win?.setTitle('Designer');
+  log(r.ok ? `updated ${r.from} -> ${r.to}` : `failed: ${r.error}`);
+  if (!r.ok) return void (await ask({ type: 'error', message: "Designer couldn't update.", detail: r.error, buttons: ['OK'] }));
+  quitting = true;
+  await stopServer();
+  app.relaunch();
+  app.exit(0);
+}
+
 function buildMenu() {
   const mac = process.platform === 'darwin';
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(mac ? [{ role: 'appMenu' }] : []),
+    ...(mac ? [{ label: 'Designer', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'Check for Updates…', click: () => void checkUpdates({ interactive: true }) }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
     { label: 'File', submenu: [mac ? { role: 'close' } : { role: 'quit' }] },
     { role: 'editMenu' }, // copy and paste must work in the message box
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'forceReload' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
     { role: 'windowMenu' },
+    ...(mac ? [] : [{ label: 'Help', submenu: [{ label: 'Check for Updates…', click: () => void checkUpdates({ interactive: true }) }] }]),
   ]));
 }
 
@@ -156,6 +218,7 @@ app.whenReady().then(async () => {
   try {
     await startServer();
     createWindow();
+    if (!process.env.DESIGNER_NO_UPDATE_CHECK) setTimeout(() => void checkUpdates({ interactive: false }), 5000); // quiet; asks only if something new exists
   } catch (e) {
     createWindow();
     showFatal(e instanceof Error ? e.message : String(e));
