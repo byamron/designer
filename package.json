@@ -10,7 +10,7 @@
     "build": "npm run build -w @designer/web",
     "start": "npm run build && npm run start -w @designer/server",
     "typecheck": "tsc -b packages/shared packages/server packages/web",
-    "test": "npm test -w @designer/server",
+    "test": "npm test -w @designer/server && npm test -w @designer/web",
     "dev-instance": "node scripts/dev-instance.mjs",
     "app": "npm run build && electron packages/desktop"
   }
