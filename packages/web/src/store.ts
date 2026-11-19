@@ -27,6 +27,8 @@ export interface State {
   previewPort?: number;
   /** Text the user selected in a reply to quote in the next message. */
   quote?: { threadId: string; text: string; n: number };
+  /** Text another part of the app (the inspector) wants added to the message box. */
+  draftInsert?: { threadId: string; text: string; n: number };
   workspaces: Workspace[];
   threads: ThreadMeta[];
   activeId?: string;
@@ -238,6 +240,12 @@ class Store {
   }
   clearQuote() {
     this.set({ quote: undefined });
+  }
+  insertDraft(threadId: string, text: string) {
+    this.set({ draftInsert: { threadId, text, n: (this.state.draftInsert?.n ?? 0) + 1 } });
+  }
+  clearDraftInsert() {
+    this.set({ draftInsert: undefined });
   }
   interrupt(id: string) {
     this.send({ type: 'interrupt', threadId: id });

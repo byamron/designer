@@ -4,12 +4,15 @@ import { Preview } from './Preview';
 import { MIN_CHAT, clampChat, useLayout } from './layout';
 import { Tabs } from './Tabs';
 import { Chat } from './Chat';
+import { InspectorPanel } from './inspector/Panel';
+import { useInspector } from './inspector/bridge';
 
 export function Main() {
   const activeId = useStore((s) => s.activeId);
   const thread = useStore((s) => s.threads.find((t) => t.id === s.activeId));
   const notice = useStore((s) => s.notice);
   const [layout, setLayout] = useLayout();
+  const inspecting = useInspector((s) => s.on);
   const panes = useRef<HTMLDivElement>(null);
   if (!activeId || !thread) {
     return (
@@ -43,7 +46,7 @@ export function Main() {
         </span>
       </header>
       {notice && <div className="notice" role="alert" onClick={() => store.open(activeId)}>{notice}</div>}
-      <div className={`panes ${layout.side}`} ref={panes} style={{ ['--chat-w' as string]: `${layout.chatW}px` }}>
+      <div className={`panes ${layout.side}${layout.open && inspecting ? ' inspecting' : ''}`} ref={panes} style={{ ['--chat-w' as string]: `${layout.chatW}px` }}>
         <section className={`chat-col${layout.open ? '' : ' solo'}`}>
           <Tabs thread={thread} />
           <Chat key={activeId} thread={thread} />
@@ -65,6 +68,7 @@ export function Main() {
             <section className="preview-col">
               <Preview workspaceId={thread.workspaceId} threadId={thread.id} onClose={() => setLayout({ open: false })} />
             </section>
+            {inspecting && <InspectorPanel workspaceId={thread.workspaceId} threadId={thread.id} />}
           </>
         )}
       </div>

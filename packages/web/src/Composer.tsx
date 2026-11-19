@@ -27,6 +27,13 @@ export function Composer({ thread, queue }: { thread: ThreadMeta; queue: string[
       el.setSelectionRange(el.value.length, el.value.length);
     });
   }, [quote, thread.id]);
+  const insert = useStore((s) => s.draftInsert);
+  useEffect(() => {
+    if (!insert || insert.threadId !== thread.id) return;
+    setText((t) => (t.trim() ? `${t.replace(/\s+$/, '')}\n\n` : '') + insert.text + '\n');
+    store.clearDraftInsert();
+    requestAnimationFrame(() => ta.current?.focus());
+  }, [insert, thread.id]);
   useEffect(() => {
     const el = ta.current;
     if (!el) return;
