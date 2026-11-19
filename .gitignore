@@ -7,3 +7,6 @@ dist/
 # local thread logs / app data
 .data/
 .DS_Store
+
+# TypeScript incremental build output (rewritten by every typecheck; tracking it causes merge conflicts)
+*.tsbuildinfo
