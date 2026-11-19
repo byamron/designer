@@ -5,6 +5,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg, ServerMsg } from '@designer/shared';
+import { MAX_WS_PAYLOAD } from './attachments.js';
 import { loadToken, pageHeaders, tokenOk } from './auth.js';
 import { claudeAdapter } from './claude.js';
 import { fakeAdapter } from './fake.js';
@@ -71,10 +72,24 @@ async function api(req: import('node:http').IncomingMessage, res: import('node:h
     const root = manager.workspacePath(url.searchParams.get('workspace') ?? '');
     return json(root ? listHtml(root) : []);
   }
+  const att = /^\/api\/attachment\/([\w-]+)\/([0-9a-f]{64})$/.exec(url.pathname);
+  if (att) {
+    // Sent back with a fixed type and locked down so a stored picture can never run as a page.
+    const a = store.readAttachment(att[1], att[2]);
+    if (!a) return void res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
+    return void res.writeHead(200, {
+      'content-type': a.mime,
+      'content-length': a.bytes.length,
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': 'sandbox',
+      'cross-origin-resource-policy': 'same-origin',
+      'cache-control': 'private, max-age=31536000, immutable', // the id is the content hash
+    }).end(a.bytes);
+  }
   json({ error: 'not found' }, 404);
 }
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
 http.on('upgrade', (req, socket, head) => {
   const origin = req.headers.origin;
   const u = new URL(req.url ?? '/', 'http://x');

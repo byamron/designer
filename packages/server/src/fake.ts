@@ -11,7 +11,7 @@ export const fakeAdapter: ProviderAdapter = {
     const pending = new Map<string, (d: Decision) => void>();
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     return {
-      async send(text) {
+      async send(text, images = []) {
         stop = false;
         void (async () => {
           const id = `fake-${++n}`;
@@ -44,7 +44,7 @@ export const fakeAdapter: ProviderAdapter = {
             sink.running(false);
             return;
           }
-          const reply = /long/i.test(text) ? LONG.repeat(4) : LONG;
+          const reply = (images.length ? `Got ${images.length} image${images.length === 1 ? '' : 's'}.\n\n` : '') + (/long/i.test(text) ? LONG.repeat(4) : LONG);
           let i = 0;
           while (i < reply.length && !stop) {
             const step = 3 + Math.floor(Math.random() * 25);
