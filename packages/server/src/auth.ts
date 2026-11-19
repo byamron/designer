@@ -46,7 +46,7 @@ export function pageHeaders(port: number, frameAncestors: string[] = []): Record
       "default-src 'none'",
       "script-src 'self'",
       "style-src 'self' 'unsafe-inline'", // React sets inline style attributes
-      "img-src 'self' data:",
+      "img-src 'self' data: blob:",
       "font-src 'self'",
       `connect-src 'self' ${ws}`,
       'frame-src http://localhost:* http://127.0.0.1:*', // previews and proxied pages live on other local ports

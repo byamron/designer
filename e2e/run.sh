@@ -3,9 +3,9 @@
 # Usage: e2e/run.sh [suite ...]   (default: all)    Needs Playwright (npx playwright install chromium).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-suites=("$@"); [ ${#suites[@]} -eq 0 ] && suites=(ui focus motion selfhost)
+suites=("$@"); [ ${#suites[@]} -eq 0 ] && suites=(ui focus motion selfhost images)
 npm run build >/dev/null
-port=4400
+port=${E2E_PORT_BASE:-4400}
 status=0
 for s in "${suites[@]}"; do
   port=$((port + 2))

@@ -83,7 +83,7 @@ async function api(req: import('node:http').IncomingMessage, res: import('node:h
       'x-content-type-options': 'nosniff',
       'content-security-policy': 'sandbox',
       'cross-origin-resource-policy': 'same-origin',
-      'cache-control': 'private, max-age=31536000, immutable', // the id is the content hash
+      'cache-control': 'no-store', // never answered from the browser cache, so the token is checked every time
     }).end(a.bytes);
   }
   json({ error: 'not found' }, 404);

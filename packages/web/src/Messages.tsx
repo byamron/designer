@@ -4,12 +4,18 @@ import type { Item } from './store';
 import { Markdown } from './markdown';
 import { useSmoothText } from './useSmoothText';
 import { fmtElapsed } from './format';
+import { MessageImages } from './Attachments';
 
 export const Row = memo(function Row({ item, threadId, fresh }: { item: Item; threadId: string; fresh?: boolean }) {
   const f = fresh ? ' fresh' : '';
   switch (item.kind) {
     case 'user':
-      return <div className={`msg user${f}`}><div className="bubble">{item.text}</div></div>;
+      return (
+        <div className={`msg user${f}`}>
+          {item.images?.length ? <MessageImages threadId={threadId} images={item.images} /> : null}
+          {item.text.trim() && <div className="bubble">{item.text}</div>}
+        </div>
+      );
     case 'assistant':
       return <Assistant item={item} fresh={f} />;
     case 'approval':

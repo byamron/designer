@@ -188,7 +188,7 @@ test('claude: message content is plain text without images, text block + image b
     { type: 'text', text: 'what colour?' },
     { type: 'image', source: { type: 'base64', media_type: 'image/png', data: r.toString('base64') } },
   ]);
-  assert.deepEqual(userContent('  ', [up(r, 'image/png')]).map((b: any) => b.type), ['image']);
+  assert.deepEqual((userContent('  ', [up(r, 'image/png')]) as { type: string }[]).map((b) => b.type), ['image']);
 });
 
 // ---- the real server: token, headers, 404s ----
@@ -262,6 +262,7 @@ test('route: send over the real WebSocket, then fetch with the token; headers ar
   assert.equal(ok.headers['content-type'], 'image/png');
   assert.equal(ok.headers['x-content-type-options'], 'nosniff');
   assert.equal(ok.headers['content-security-policy'], 'sandbox');
+  assert.equal(ok.headers['cache-control'], 'no-store');
   assert.equal(ok.body.length, MAX_IMAGE_BYTES);
 
   const h = { 'x-designer-token': token };
