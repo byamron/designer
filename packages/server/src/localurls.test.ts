@@ -31,3 +31,11 @@ test('isLocalUrl accepts only whole local URLs', () => {
   assert.equal(isLocalUrl('http://localhost.evil.com/'), false);
   assert.equal(isLocalUrl('javascript:alert(1)'), false);
 });
+
+test('isLocalUrl rejects userinfo and backslash tricks that would point a "local" link at another host', () => {
+  for (const s of [
+    'http://localhost:3000@evil.com/', 'http://localhost@evil.com/', 'http://localhost\\@evil.com/', 'http://localhost:3000\\.evil.com/',
+    'http://evil.com#@localhost:3000/', 'http://user:pw@localhost:3000/', ' http://localhost:3000/', 'HTTP://LOCALHOST.evil.com/',
+  ]) assert.equal(isLocalUrl(s), false, s);
+  assert.equal(isLocalUrl('HTTP://LOCALHOST:3000/Path'), true);
+});
