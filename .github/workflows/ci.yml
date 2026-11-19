@@ -55,9 +55,10 @@ jobs:
         run: npx playwright install-deps chromium
       - name: Browser suites (ui, focus, motion, selfhost)
         # mktemp -d (used by e2e/run.sh for per-suite data dirs and server logs) honours TMPDIR,
-        # so logs land inside the workspace where the failure upload below can find them.
+        # so logs land in a known place for the failure upload below. It must stay outside the
+        # workspace: the selfhost suite copies the repo into TMPDIR.
         env:
-          TMPDIR: ${{ github.workspace }}/.e2e-tmp
+          TMPDIR: ${{ runner.temp }}/e2e-tmp
         run: mkdir -p "$TMPDIR" && e2e/run.sh
       - name: Upload logs and Playwright artifacts
         if: failure()
@@ -66,7 +67,7 @@ jobs:
           name: browser-failure-artifacts
           if-no-files-found: ignore
           path: |
-            .e2e-tmp/**/*.log
+            ${{ runner.temp }}/e2e-tmp/**/*.log
             test-results/
             playwright-report/
 
