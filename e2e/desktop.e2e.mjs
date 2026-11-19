@@ -3,7 +3,7 @@
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const { _electron } = createRequire(import.meta.url)('playwright');
@@ -22,7 +22,7 @@ const repo = mkdtempSync(join(tmpdir(), 'desk-repo-'));
 execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
 const dialogLog = join(tmpdir(), `dialogs-${process.pid}.log`);
 writeFileSync(dialogLog, '');
-const env = { ...process.env, DESIGNER_NO_UPDATE_CHECK: '1', DESIGNER_TEST_DIALOG: 'OK', DESIGNER_TEST_DIALOG_LOG: dialogLog, PORT: '4800', DESIGNER_DATA: data, DESIGNER_USER_DATA: userData, DESIGNER_FAKE: '1', DESIGNER_CWD: repo, DESIGNER_TEST_EXTERNAL_LOG: externalLog };
+const env = { ...process.env, ANTHROPIC_API_KEY: 'sk-test-must-not-reach-the-server', ANTHROPIC_AUTH_TOKEN: 'tok-test-must-not-reach-the-server', DESIGNER_NO_UPDATE_CHECK: '1', DESIGNER_TEST_DIALOG: 'OK', DESIGNER_TEST_DIALOG_LOG: dialogLog, PORT: '4800', DESIGNER_DATA: data, DESIGNER_USER_DATA: userData, DESIGNER_FAKE: '1', DESIGNER_CWD: repo, DESIGNER_TEST_EXTERNAL_LOG: externalLog };
 const launch = () => _electron.launch({ executablePath: electronBin, args: ['--no-sandbox', join(root, 'packages', 'desktop')], env, timeout: 90000 });
 
 let app = await launch();
@@ -35,6 +35,16 @@ try {
   assert.ok(u.origin.startsWith('http://localhost:48'), `app origin ${u.origin}`);
   assert.ok(!u.search.includes('t='), 'the private token is removed from the address after load');
   log('opens a window with the app; the token is consumed, not left in the URL');
+
+  // safety: the shell's own environment holds Anthropic credentials here, and the server it launches must not (Linux: read its environment)
+  if (process.platform === 'linux') {
+    const serverPid = Number(readFileSync(join(data, 'desktop-server.pid'), 'utf8'));
+    const serverEnv = readFileSync(`/proc/${serverPid}/environ`, 'utf8').split('\0');
+    assert.ok(serverEnv.some((v) => v.startsWith('DESIGNER_DATA=')), 'read the right process environment');
+    assert.ok(!serverEnv.some((v) => /^ANTHROPIC_(API_KEY|AUTH_TOKEN)=/.test(v)), 'no Anthropic credentials in the server environment');
+    assert.equal((statSync(data).mode & 0o777), 0o700, 'data directory is owner-only');
+    log('the server launched by the shell has no Anthropic credentials in its environment; data directory is 0700');
+  }
 
   // chat works end to end inside the shell (token, WebSocket, server)
   await page.getByRole('button', { name: 'Add folder' }).click();

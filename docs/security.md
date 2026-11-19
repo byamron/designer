@@ -22,9 +22,15 @@ not letting that addition widen what can happen.
 | Proxy for localhost/websites | SSRF, token leakage | Opt-in per Inspect; one proxy per target origin; API needs token + same-origin fetch; Host check; no Designer cookies exist to leak | `proxy.test.ts`, `security.test.ts` |
 | Model/page text rendered in the UI | XSS | Markdown rendered to React elements, raw HTML shown as text; links limited to http(s)/mailto | by construction |
 | Chat logs on disk | Secrets in tool output readable by others | Owner-only directories and files (0700/0600) | `server.test.ts` |
+| Desktop shell window | A page (or a link) takes over the app window, or gets Node/permissions | Window may only show the app origin; other links go to the OS browser (http/https/mailto only); `file:` refused; sandboxed renderer, context isolation, no Node, permission prompts denied; no webviews | `e2e/desktop.e2e.mjs`, `desktop.test.ts` |
+| Desktop shell launches the server | Anthropic credentials or loose permissions leak to the server | `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` removed from the server's environment; data directory created 0700 | `e2e/desktop.e2e.mjs` (reads the server's real environment) |
+| Update & Restart (desktop shell) | Running attacker code, or damaging your checkout, via the update path | Only ever asks: nothing is applied without your click on a dialog that lists the incoming changes; fast-forward only from `origin/main` (no merge/rebase/force); refuses on a dirty, non-`main` or diverged copy; rolls back on failure and reports a failed restore; `npm` runs without Anthropic credentials | `desktop.test.ts` (real git repos) |
 | Approvals | Frontend bypass | Enforced in the server via the SDK's `canUseTool`; a UI cannot approve what the CLI did not ask | adapter design |
 
 ## Residual risks (not worse than terminal, but worth knowing)
+- **Update & Restart trusts `origin/main`.** Applying an update runs `npm install` and a build on whatever is on your repository's `main`,
+  the same as `git pull && npm install` in a terminal. It never applies silently and shows the incoming changes first, but anyone with
+  push access to `main` could ship code to you. Keep `main` protected (pull requests, no direct pushes) and review what you merge.
 - **Same-user code.** Anything running as you can read the token file. It could also just run `claude` or any command
   directly, so this is not a new capability.
 - **New input channels for prompt injection.** Text from web pages (inspector reports include element text/HTML) and from

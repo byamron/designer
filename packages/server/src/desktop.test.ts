@@ -90,13 +90,14 @@ function fixture() {
   return { root, publish, publisher, origin };
 }
 /** Real git, fake npm: records the calls, optionally failing one. */
-function stubbed(fail?: string) {
+function stubbed(fail?: string, times = Infinity) {
   const calls: string[] = [];
+  let failures = 0;
   const r = (cmd: string, args: string[], o: unknown) => {
     if (cmd !== 'npm') return updater.run(cmd, args, o);
     const line = args.join(' ');
     calls.push(line);
-    return fail && line.startsWith(fail) ? Promise.reject(Object.assign(new Error('boom'), { stderr: 'build exploded' })) : Promise.resolve('');
+    return fail && line.startsWith(fail) && failures++ < times ? Promise.reject(Object.assign(new Error('boom'), { stderr: 'build exploded' })) : Promise.resolve('');
   };
   return { r, calls };
 }
@@ -136,10 +137,12 @@ test('updater: a failed build puts the checkout back exactly as it was', async (
   const f = fixture();
   const before = sh(f.root, 'rev-parse', 'HEAD');
   f.publish('a.txt', '2', 'breaks the build');
-  const s = stubbed('run build');
+  const s = stubbed('run build', 1); // the new version's build fails once; rebuilding the old one works
   const bad = await updater.applyUpdate({ root: f.root, r: s.r });
   assert.equal(bad.ok, false);
   assert.equal(bad.rolledBack, true);
+  assert.equal(bad.rebuilt, true);
+  assert.deepEqual(s.calls, ['run build', 'run build']);
   assert.match(bad.error, /undone/);
   assert.match(bad.error, /build exploded/);
   assert.equal(sh(f.root, 'rev-parse', 'HEAD'), before, 'back on the previous commit');
@@ -172,4 +175,27 @@ test('updater refuses, and changes nothing, when the copy is dirty, off main, or
   assert.match(r.error, /cannot move forward cleanly/);
   assert.equal(sh(f.root, 'rev-parse', 'HEAD'), mine, 'your local commit is untouched');
   assert.notEqual(head, mine);
+});
+
+test('updater: if the restore itself cannot rebuild, you are told so (nothing is hidden behind "undone")', async () => {
+  const f = fixture();
+  const before = sh(f.root, 'rev-parse', 'HEAD');
+  f.publish('a.txt', '2', 'breaks the build');
+  const bad = await updater.applyUpdate({ root: f.root, r: stubbed('run build').r }); // every build fails
+  assert.equal(bad.ok, false);
+  assert.equal(bad.rolledBack, true);
+  assert.equal(bad.rebuilt, false);
+  assert.doesNotMatch(bad.error, /was undone/);
+  assert.match(bad.error, /rebuilding it failed/);
+  assert.match(bad.error, /npm install && npm run build/);
+  assert.equal(sh(f.root, 'rev-parse', 'HEAD'), before, 'the code is still back on the previous commit');
+});
+
+test('updater env: login-shell PATH is added and Anthropic credentials never reach npm install scripts', () => {
+  const env = lib.updateEnv({ PATH: '/usr/bin', HOME: '/h', ANTHROPIC_API_KEY: 'sk-secret', ANTHROPIC_AUTH_TOKEN: 'tok' }, '/opt/homebrew/bin:/usr/bin');
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, undefined);
+  assert.equal(env.PATH, '/opt/homebrew/bin:/usr/bin');
+  assert.equal(env.HOME, '/h');
+  assert.equal(lib.updateEnv({ PATH: '/usr/bin' }, undefined).PATH, '/usr/bin');
 });

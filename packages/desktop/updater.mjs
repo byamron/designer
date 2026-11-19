@@ -50,15 +50,17 @@ export function blocker(c) {
 export async function applyUpdate({ root, env, r = run, progress = () => {} }) {
   const git = (...a) => r('git', a, { cwd: root, timeout: 120_000 });
   const npm = (...a) => r('npm', a, { cwd: root, env, timeout: 15 * 60_000 });
+  const tail = (e) => String(e.stderr || e.message || e).trim().split('\n').slice(-6).join('\n');
   const check = await checkForUpdate({ root, r });
   const why = blocker(check);
-  if (why) return { ok: false, error: why, rolledBack: false };
+  if (why) return { ok: false, error: why, rolledBack: false, rebuilt: false };
   const from = check.head;
+  let installed = false;
   try {
     progress('Fetching the new version…');
     await git('merge', '--ff-only', `${REMOTE}/${BRANCH}`);
     const changed = (await git('diff', '--name-only', from, 'HEAD')).split('\n');
-    const installed = changed.some((f) => /(^|\/)(package\.json|package-lock\.json)$/.test(f));
+    installed = changed.some((f) => /(^|\/)(package\.json|package-lock\.json)$/.test(f));
     if (installed) {
       progress('Installing new dependencies…');
       await npm('install', '--no-audit', '--no-fund');
@@ -67,18 +69,28 @@ export async function applyUpdate({ root, env, r = run, progress = () => {} }) {
     await npm('run', 'build');
     return { ok: true, from, to: await git('rev-parse', 'HEAD'), installed };
   } catch (e) {
-    // put the checkout back exactly as it was: it was clean and we only fast-forwarded, so this loses nothing
+    // Put the checkout back exactly as it was: it was clean and we only fast-forwarded, so this loses nothing.
+    // Every step is reported; a failed restore is never hidden behind "undone".
     let rolledBack = false;
+    let rebuilt = false;
+    let restore = '';
     try {
       await git('reset', '--hard', from);
       rolledBack = true;
-      progress('Something failed; restoring the previous version…');
-      await npm('install', '--no-audit', '--no-fund').catch(() => {});
-      await npm('run', 'build').catch(() => {});
-    } catch {
-      /* report below */
+    } catch (re) {
+      restore = `\nRestoring the previous version also failed, so ${root} may be in a half-updated state:\n${tail(re)}`;
     }
-    const detail = String(e.stderr || e.message || e).trim().split('\n').slice(-6).join('\n');
-    return { ok: false, error: `The update failed and was undone.\n${detail}`, rolledBack };
+    if (rolledBack) {
+      progress('Something failed; restoring the previous version…');
+      try {
+        if (installed) await npm('install', '--no-audit', '--no-fund');
+        await npm('run', 'build');
+        rebuilt = true;
+      } catch (re) {
+        restore = `\nThe previous code is back, but rebuilding it failed, so the app may not start correctly. Run "npm install && npm run build" in ${root}.\n${tail(re)}`;
+      }
+    }
+    const head = rolledBack && rebuilt ? 'The update failed and was undone.' : 'The update failed.';
+    return { ok: false, error: `${head}\n${tail(e)}${restore}`, rolledBack, rebuilt };
   }
 }

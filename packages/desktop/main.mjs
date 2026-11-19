@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, Menu, app, dialog, screen, session, shell } from 'electron';
-import { findPort, isSafeExternal, loginShellPath, mergePaths, restartDelay, sameOrigin, sanitizeBounds } from './lib.mjs';
+import { findPort, isSafeExternal, loginShellPath, mergePaths, restartDelay, sameOrigin, sanitizeBounds, updateEnv } from './lib.mjs';
 import { applyUpdate, blocker, checkForUpdate } from './updater.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -161,7 +161,7 @@ async function checkUpdates({ interactive }) {
 async function installUpdate() {
   const logFile = join(app.getPath('userData'), 'update.log');
   const log = (t) => { try { appendFileSync(logFile, `${new Date().toISOString()} ${t}\n`); } catch { /* fine */ } };
-  const env = { ...process.env, PATH: mergePaths(process.env.PATH, await loginShellPath()) };
+  const env = updateEnv(process.env, await loginShellPath()); // no Anthropic credentials for npm install scripts
   win?.setProgressBar(2); // indeterminate
   const r = await applyUpdate({ root: ROOT, env, progress: (t) => (log(t), win?.setTitle(`Designer: ${t}`)) });
   win?.setProgressBar(-1);
