@@ -56,6 +56,12 @@ tool calls, approval deny, interrupt, resume after restart), real `git worktree`
 - [ ] **Hot reload feel** (`npm run dev-instance -- --worktree <name>`, now on Vite's dev server): edit the UI through Claude and
       watch the preview pane update in place; check it keeps what you typed and that server edits restart cleanly.
 
+- [ ] **Desktop shell on your Mac** (`npm run app`): window opens with the app, no link to copy, closing and reopening from the Dock,
+      Cmd-Q stops everything, copy/paste in the message box, links open in your browser, a second launch focuses the first.
+- [ ] **PATH from the Dock**: Claude can run `node`, `npm`, `git`, Homebrew tools when the app is launched from the Dock or Spotlight.
+- [ ] **Update flow** ([updates.md](updates.md)): merge a PR on GitHub, then Designer > Check for Updates…, Update & Restart; chats survive; a
+      dirty or non-main copy is refused with a clear message.
+
 ## Not buildable or testable here (later phases)
 - macOS desktop shell (Tauri vs Electron spike), signing, webview comment overlay.
 - Embedding and commenting on Paper or other external sites.

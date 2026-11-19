@@ -14,7 +14,7 @@ export const USAGE = `Run a copy of Designer (usually a worktree you are editing
   --data <path>       data directory for this instance (default ~/.designer-chat-dev/<name>)
   --cwd <path>        folder the new-chat form suggests (default: the copy itself)
   --parent <origin>   app that may show this instance in its preview pane
-                      (repeatable; default http://localhost:4317 and http://127.0.0.1:4317)
+                      (repeatable; default: the app that launched this, from DESIGNER_ORIGIN, else port 4317)
   --fake              scripted provider instead of real Claude (for trying the UI)
   --no-watch          serve a built UI and do not reload on changes (default: hot reload, edits show without a page reload)
   --help
@@ -49,7 +49,12 @@ export function parseArgs(argv, env = process.env, home = homedir()) {
 
 export const isOrigin = (s) => /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/.test(s);
 
-export const defaultParents = () => ['http://localhost:4317', 'http://127.0.0.1:4317'];
+/** The app that may show this instance in its preview pane: the one that launched it (DESIGNER_ORIGIN), else port 4317. */
+export function defaultParents(env = process.env) {
+  const o = env.DESIGNER_ORIGIN;
+  if (o && isOrigin(o)) return [...new Set([o, o.replace('//localhost:', '//127.0.0.1:')])];
+  return ['http://localhost:4317', 'http://127.0.0.1:4317'];
+}
 
 /** <stableData>/worktrees/<repo>/<name>: exactly one match, or a clear error. */
 export function findWorktree(stableData, name) {
