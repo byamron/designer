@@ -2,10 +2,12 @@
 // or the viewport. Same setup as ui.e2e.mjs (REPO, fake provider).
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const URL = process.env.URL ?? 'http://localhost:4317';
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1100, height: 700 } });
+const page = await browser.newPage({ viewport: { width: 1280, height: 760 } });
 await page.goto(URL);
 if (!(await page.getByLabel('Message').count())) {
   await page.getByRole('button', { name: 'Add folder' }).click();
@@ -21,6 +23,18 @@ await page.getByRole('button', { name: 'New session' }).click();
 await page.getByRole('button', { name: 'Preview', exact: true }).click();
 await page.getByLabel('Preview address').waitFor();
 
+// the inspector panel with an element selected (and a text element's Typography section)
+if (process.env.REPO) {
+  writeFileSync(join(process.env.REPO, 'focus.html'), '<body style="margin:0"><p id="p" style="margin:40px;width:200px;height:60px">Focus me</p></body>');
+  await page.getByLabel('Preview address').fill('focus.html');
+  await page.getByLabel('Preview address').press('Enter');
+  await page.getByRole('button', { name: 'Inspect' }).click();
+  await page.locator('aside[aria-label=Inspector]').waitFor();
+  await page.frameLocator('iframe[title=Preview]').locator('#p').click();
+  await page.getByRole('heading', { name: 'Typography' }).waitFor();
+  await page.getByLabel('Font size', { exact: true }).fill('20'); await page.keyboard.press('Enter'); // so the footer buttons are enabled
+  await page.getByRole('button', { name: 'Copy changes' }).waitFor();
+}
 const bad = [];
 const seen = new Set();
 await page.mouse.click(1, 1); // reset the sequential-focus starting point to the top of the page
@@ -31,6 +45,7 @@ for (let i = 0; i < 120; i++) {
   const r = await page.evaluate(() => {
     const el = document.activeElement;
     if (!el || el === document.body) return null;
+    if (el.tagName === 'IFRAME') return null; // focus moves into the previewed page, which draws its own ring
     el.__fid ??= ++window.__fx;
     const cs = getComputedStyle(el);
     const w = parseFloat(cs.outlineWidth) || 0;
@@ -66,5 +81,6 @@ for (let i = 0; i < 120; i++) {
   else if (r.problems.length) bad.push(`${r.name} [${r.cls}]: ${r.problems.join(', ')}`);
 }
 console.log(`checked ${seen.size} focusable controls`);
+if (process.env.REPO && !(seen.size > 40)) { console.log(`inspector controls were not reached (only ${seen.size} controls)`); process.exitCode = 1; }
 if (bad.length) { console.log('FOCUS PROBLEMS:\n - ' + bad.join('\n - ')); process.exitCode = 1; } else console.log('all focus rings fully visible');
 await browser.close();
