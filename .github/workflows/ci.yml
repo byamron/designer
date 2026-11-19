@@ -23,8 +23,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      # build before test: security.test.ts checks the headers on the built app page (a 404 has none)
       - run: npm run build
+      - run: npm test
 
   browser:
     needs: checks
