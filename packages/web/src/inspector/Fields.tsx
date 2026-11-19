@@ -33,6 +33,7 @@ export function NumberField({
   };
   const commit = () => {
     editing.current = false;
+    if (text.trim() === shown) return; // focused and left without typing: not an edit (tabbing must not dirty the page)
     const p = parseLength(text);
     if (!p) return setText(shown);
     if (p.unit && p.unit !== 'px' && !units?.includes(p.unit)) return setText(shown);
@@ -99,6 +100,7 @@ export function ColorField({ name, value, onChange }: { name: string; value: Rgb
   useEffect(() => { if (!editing.current) setText(hex.slice(1).toUpperCase()); }, [hex]);
   const commit = () => {
     editing.current = false;
+    if (text.trim().replace(/^#/, '').toUpperCase() === hex.slice(1).toUpperCase()) return; // untouched: a transparent fill must not turn black just from tabbing through
     const c = parseHexInput(text, keep);
     if (!c) return setText(hex.slice(1).toUpperCase());
     onChange(c);

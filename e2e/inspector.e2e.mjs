@@ -94,6 +94,15 @@ async function run(label, address) {
   await panel.getByRole('navigation').locator('.current').filter({ hasText: 'div#box' }).waitFor();
   log(`${label}: Inspect selects an element and the page's own click handlers do not run`);
 
+  // focusing a field and leaving it without typing is not an edit (it must not move, size or recolour anything)
+  for (const n of ['X', 'Y', 'Rotation', 'Width', 'Height', 'Gap', 'Padding', 'Opacity', 'Corner radius', 'Fill hex', 'Fill opacity', 'Stroke width', 'Stroke hex']) {
+    await field(n).focus();
+    await field(n).blur();
+  }
+  await page.waitForTimeout(200);
+  assert.deepEqual(await page.evaluate(() => window.__log.filter((e) => e.changes.length)), [], `${label}: tabbing through fields without typing makes no edits`);
+  await panel.getByText('No changes yet').waitFor();
+
   // ----- Position
   const rect0 = await frame.locator('#box').evaluate((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y }; });
   assert.equal(Number(await field('X').inputValue()), rect0.x);
