@@ -132,6 +132,7 @@ class ClaudeSession implements Session {
         else resolve({ behavior: 'allow', updatedInput: { ...input, answers } });
       };
       this.questions.set(requestId, settle);
+      if (signal.aborted) return settle({}, 'cancelled');
       signal.addEventListener('abort', () => settle({}, 'cancelled'), { once: true });
     });
   }

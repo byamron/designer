@@ -17,15 +17,21 @@ const STATUS: Record<Exclude<AnswerHow, 'answered'>, string> = { skipped: 'Skipp
 
 export function QuestionCard({ item, threadId, fresh }: { item: QuestionItem; threadId: string; fresh: string }) {
   const live = useStore((s) => s.threads.find((t) => t.id === threadId)?.status === 'running');
+  // A later message from you means the turn that asked has ended (server restarted, crash): nothing will answer it.
+  const superseded = useStore((s) => {
+    const items = s.views[threadId]?.items ?? [];
+    for (let i = items.length - 1; i >= 0 && items[i].id !== item.id; i--) if (items[i].kind === 'user') return true;
+    return false;
+  });
   // No answer and no running turn (Stop, or the server restarted): nothing will ever answer it.
-  const how: AnswerHow | undefined = item.answered?.how ?? (live ? undefined : 'cancelled');
+  const how: AnswerHow | undefined = item.answered?.how ?? (live && !superseded ? undefined : 'cancelled');
   if (how) return <Summary item={item} how={how} fresh={fresh} />;
   return <Pending item={item} threadId={threadId} fresh={fresh} />;
 }
 
 function Summary({ item, how, fresh }: { item: QuestionItem; how: AnswerHow; fresh: string }) {
   return (
-    <div className={`question done${how === 'cancelled' ? ' cancelled' : ''}${fresh}`} role="group" aria-label="Question, answered">
+    <div className={`question done${how === 'cancelled' ? ' cancelled' : ''}${fresh}`} role="group" aria-label={how === 'answered' ? 'Question, answered' : `Question, ${STATUS[how].toLowerCase()}`}>
       {item.questions.map((q) => {
         const a = how === 'answered' ? item.answered?.answers[q.question] ?? '' : STATUS[how];
         return (
