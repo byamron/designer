@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useStore } from './store';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { store, useStore } from './store';
+import { isLocalUrl } from './localUrls';
 import { api } from './auth';
 
 type Probe = { state: 'idle' } | { state: 'checking' } | { state: 'ok' } | { state: 'blocked' | 'unreachable'; reason: string };
 const isUrl = (s: string) => /^https?:\/\//i.test(s);
+export const START_PROMPT = "Start this project's dev server in the background (if it is not already running) and give me the URL.";
+export const restartPrompt = (url: string) => `The preview at ${url} is not responding. Please restart it and give me the URL.`;
+const REACH: Record<string, string> = { checking: 'Checking…', ok: 'Reachable', blocked: 'Reachable, but it cannot be shown here', unreachable: 'Not responding' };
 
 export function Preview({ workspaceId, threadId, onClose }: { workspaceId: string; threadId: string; onClose: () => void }) {
   const previewPort = useStore((s) => s.previewPort);
@@ -17,6 +21,9 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
   const [probe, setProbe] = useState<Probe>({ state: 'idle' });
   const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [recheck, setRecheck] = useState(0);
+  const probed = useRef('');
+  const lastCheck = useRef(0);
 
   // switching workspace restores that workspace's last preview
   useEffect(() => {
@@ -46,9 +53,16 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
   }, [turns]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!external) return setProbe({ state: 'idle' });
+    if (!external) {
+      probed.current = '';
+      return setProbe({ state: 'idle' });
+    }
     let live = true;
-    setProbe({ state: 'checking' });
+    const sig = `${target}|${reload}`;
+    // a recheck of the same page runs quietly so a working iframe is never unmounted by it
+    if (probed.current !== sig) setProbe({ state: 'checking' });
+    probed.current = sig;
+    lastCheck.current = Date.now();
     api(`/api/probe?url=${encodeURIComponent(target)}&parent=${encodeURIComponent(location.origin)}`)
       .then((r) => r.json())
       .then((p: { ok: boolean; framable: boolean; reason?: string }) => {
@@ -59,7 +73,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
       })
       .catch(() => live && setProbe({ state: 'unreachable', reason: 'Could not check this page.' }));
     return () => { live = false; };
-  }, [target, external, reload]);
+  }, [target, external, reload, recheck]);
 
   useEffect(() => setLoading(!!src), [src, reload]); // a new document is loading until the iframe says otherwise
 
@@ -71,8 +85,21 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
     try { localStorage.setItem(key, t); } catch { /* ignore */ }
   };
 
+  // a local link or chip in the chat asks us to show a URL
+  const req = useStore((s) => s.previewReq);
+  useEffect(() => {
+    if (!req || req.workspaceId !== workspaceId) return;
+    go(req.url);
+    store.clearPreviewReq(req.n);
+  }, [req]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // focusing the pane re-checks that the server is still there (at most every couple of seconds)
+  const onFocus = () => {
+    if (external && Date.now() - lastCheck.current > 2000) setRecheck((n) => n + 1);
+  };
+
   return (
-    <div className="preview">
+    <div className="preview" onFocus={onFocus}>
       <div className="preview-bar">
         <input
           list="html-files"
@@ -84,6 +111,9 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
           aria-label="Preview address"
         />
         <datalist id="html-files">{files.map((f) => <option key={f} value={f} />)}</datalist>
+        {external && probe.state !== 'idle' && (
+          <span className={`reach ${probe.state}`} role="img" aria-label={REACH[probe.state]} title={REACH[probe.state]} />
+        )}
         <button className="icon" onClick={() => setReload((n) => n + 1)} disabled={!target} aria-label="Reload preview" title="Reload">↻</button>
         {src && <a className="icon" href={src} target="_blank" rel="noreferrer noopener" aria-label="Open in new tab" title="Open in new tab">↗</a>}
         <button className="icon" onClick={onClose} aria-label="Close preview" title="Close preview">✕</button>
@@ -93,6 +123,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
         {!target && (
           <div className="preview-empty">
             <p>Show a page next to the chat.</p>
+            <button className="ask-start" onClick={() => store.prefill(threadId, START_PROMPT)}>Ask Claude to start it</button>
             {files.length > 0 && (
               <ul>
                 {files.slice(0, 8).map((f) => (
@@ -107,6 +138,9 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
           <div className="preview-empty" role="status">
             <p>{probe.reason}</p>
             {probe.state === 'blocked' && <p className="muted">Open it in a new tab for now. The desktop app will be able to show it here.</p>}
+            {probe.state === 'unreachable' && isLocalUrl(target) && (
+              <button className="ask-start" onClick={() => store.prefill(threadId, restartPrompt(target))}>Ask Claude to start it</button>
+            )}
             <a href={target} target="_blank" rel="noreferrer noopener">Open in new tab ↗</a>
           </div>
         )}

@@ -27,6 +27,18 @@ export function Composer({ thread, queue }: { thread: ThreadMeta; queue: string[
       el.setSelectionRange(el.value.length, el.value.length);
     });
   }, [quote, thread.id]);
+  const prefill = useStore((s) => s.prefill);
+  useEffect(() => {
+    if (!prefill || prefill.threadId !== thread.id) return;
+    setText((t) => (t.trim() ? `${t.replace(/\s+$/, '')}\n\n` : '') + prefill.text);
+    store.clearPrefill();
+    requestAnimationFrame(() => {
+      const el = ta.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }, [prefill, thread.id]);
   useEffect(() => {
     const el = ta.current;
     if (!el) return;

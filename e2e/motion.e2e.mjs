@@ -155,5 +155,17 @@ const idle = (page) => page.waitForSelector('.working', { state: 'detached', tim
   await ctx.close();
 }
 
+// ---- 6. preview chips: a short entrance, none with reduced motion ----
+for (const reduced of [false, true]) {
+  const { ctx, page } = await open(reduced ? { reducedMotion: 'reduce' } : {});
+  await say(page, 'devserver http://localhost:5173/');
+  await page.locator('.msg.assistant .preview-chip').waitFor({ timeout: 8000 });
+  const anim = await page.$eval('.msg.assistant .preview-chip', (el) => getComputedStyle(el.parentElement).animationName);
+  if (reduced) assert.equal(anim, 'none', 'chips do not animate with reduced motion');
+  else assert.notEqual(anim, 'none', 'chips fade in');
+  await ctx.close();
+}
+log('preview chips animate, and stop animating with prefers-reduced-motion');
+
 await browser.close();
 console.log('all passed');

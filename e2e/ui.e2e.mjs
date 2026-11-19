@@ -242,6 +242,79 @@ await page.keyboard.type('what about this?');
 assert.ok((await page.getByLabel('Message').inputValue()).includes('what about this?'));
 log('quote selected reply text into the composer');
 
+// 15. one-click previews: links and chips open the pane, "Ask Claude to start it" fills the composer
+{
+  const dev = createServer((_, r) => r.end('<title>d</title><h1 id="dev">dev server</h1>')).listen(0);
+  await new Promise((r) => setTimeout(r, 100));
+  const devUrl = `http://localhost:${dev.address().port}/`;
+  const short = `localhost:${dev.address().port}`;
+  const bar = page.getByLabel('Preview address');
+  await page.getByLabel('Message').fill('');
+  if (await page.locator('.preview-col').count()) await page.getByRole('button', { name: 'Close preview' }).click();
+  assert.equal(await page.locator('.preview-col').count(), 0, 'pane is closed before the test');
+  await page.getByLabel('Message').fill(`devserver ${devUrl}`);
+  await page.keyboard.press('Enter');
+  const chip = page.locator('.msg.assistant .preview-chip').last();
+  await chip.waitFor({ timeout: 8000 });
+  assert.equal((await chip.textContent()).trim(), `Open ${short} in preview`);
+  assert.equal(await page.locator('.preview-col').count(), 0, 'nothing opens by itself');
+  if (process.env.SHOTS) { await page.waitForTimeout(500); await page.screenshot({ path: join(process.env.SHOTS, 'chip.png') }); }
+  await chip.click();
+  await page.locator('.preview-col').waitFor();
+  await page.frameLocator('iframe[title=Preview]').locator('#dev').waitFor();
+  assert.equal(await bar.inputValue(), devUrl);
+  await page.locator('.reach.ok').waitFor();
+  const remembered = await page.evaluate(() => Object.entries(localStorage).filter(([k]) => k.startsWith('designer.preview.')).map(([, v]) => v));
+  assert.ok(remembered.includes(devUrl), 'the workspace remembers the URL');
+  log('chip opens the pane, loads the local page, shows it reachable, remembers it');
+
+  // links: local opens the pane, external keeps opening in a new tab, modifier-click and the arrow open the browser
+  const ext = page.locator('.msg.assistant a[href="https://example.com/docs"]').last();
+  assert.equal(await ext.getAttribute('target'), '_blank');
+  assert.equal(await ext.getAttribute('class'), null, 'external links are not treated as previews');
+  await page.getByRole('button', { name: 'Close preview' }).click();
+  await page.locator('.msg.assistant a.local-link').last().click();
+  await page.locator('.preview-col').waitFor();
+  await page.frameLocator('iframe[title=Preview]').locator('#dev').waitFor();
+  const arrow = page.locator('.msg.assistant a.local-link-out').last();
+  assert.equal(await arrow.getAttribute('href'), devUrl);
+  assert.equal(await arrow.getAttribute('target'), '_blank');
+  const [popup] = await Promise.all([page.context().waitForEvent('page'), page.locator('.msg.assistant a.local-link').last().click({ modifiers: ['ControlOrMeta'] })]);
+  await popup.waitForLoadState();
+  assert.equal(popup.url(), devUrl, 'modifier-click opens the browser');
+  await popup.close();
+  log('local links open the preview; external links, the arrow and modifier-click open the browser');
+
+  // a command's output with a local URL gets a chip too
+  await page.locator('.tools-head').last().click();
+  assert.ok(await page.locator('.tool .preview-chip').last().isVisible(), 'chip under tool output');
+
+  // empty state: the prompt is put in the composer, never sent
+  await bar.fill('');
+  await page.keyboard.press('Enter');
+  const users = await page.locator('.msg.user').count();
+  await page.getByRole('button', { name: 'Ask Claude to start it' }).click();
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.length > 0, null, { timeout: 3000 }).catch(() => {});
+  assert.equal(await page.getByLabel('Message').inputValue(), "Start this project's dev server in the background (if it is not already running) and give me the URL.");
+  assert.equal(await page.locator('.msg.user').count(), users, 'nothing was sent');
+  await page.getByLabel('Message').fill('');
+
+  // unreachable: the dot turns red and the restart prompt is offered
+  await bar.fill(devUrl);
+  await page.keyboard.press('Enter');
+  await page.locator('.reach.ok').waitFor();
+  dev.closeAllConnections?.();
+  await new Promise((r) => dev.close(r));
+  await page.getByRole('button', { name: 'Reload preview' }).click();
+  await page.locator('.reach.unreachable').waitFor();
+  if (process.env.SHOTS) await page.screenshot({ path: join(process.env.SHOTS, 'unreachable.png') });
+  await page.getByRole('button', { name: 'Ask Claude to start it' }).click();
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.length > 0, null, { timeout: 3000 }).catch(() => {});
+  assert.equal(await page.getByLabel('Message').inputValue(), `The preview at ${devUrl} is not responding. Please restart it and give me the URL.`);
+  assert.equal(await page.locator('.msg.user').count(), users, 'nothing was sent');
+  log('empty and unreachable states prefill the composer without sending');
+}
+
 assert.deepEqual(errors, [], 'no page errors');
 await browser.close();
 console.log('all passed');
