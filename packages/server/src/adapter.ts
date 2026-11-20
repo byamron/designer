@@ -1,4 +1,4 @@
-import type { AgentEvent, Decision, ImageUpload } from '@designer/shared';
+import type { AgentEvent, AnswerHow, Decision, ImageUpload } from '@designer/shared';
 
 import type { PermissionMode } from '@designer/shared';
 export type { PermissionMode };
@@ -17,6 +17,8 @@ export interface Session {
   send(text: string, images?: ImageUpload[]): Promise<void>;
   interrupt(): Promise<void>;
   respond(requestId: string, decision: Decision): void;
+  /** Answer a pending question card (AskUserQuestion). */
+  answer(requestId: string, answers: Record<string, string>, how: AnswerHow): void;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   close(): void;
 }

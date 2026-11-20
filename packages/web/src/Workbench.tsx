@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type PointerEvent as RPointerEvent } from 'react';
 import { store, useStore } from './store';
 import { Preview } from './Preview';
 import { MIN_CHAT, clampChat, useLayout } from './layout';
@@ -11,6 +11,9 @@ export function Main() {
   const notice = useStore((s) => s.notice);
   const [layout, setLayout] = useLayout();
   const panes = useRef<HTMLDivElement>(null);
+  const previewReq = useStore((s) => s.previewReq);
+  // a clicked local link or chip opens the pane; Preview then loads the URL
+  useEffect(() => { if (previewReq) setLayout({ open: true }); }, [previewReq, setLayout]);
   if (!activeId || !thread) {
     return (
       <main className="main empty">

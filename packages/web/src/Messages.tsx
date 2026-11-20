@@ -5,6 +5,8 @@ import { Markdown } from './markdown';
 import { useSmoothText } from './useSmoothText';
 import { fmtElapsed } from './format';
 import { MessageImages } from './Attachments';
+import { QuestionCard } from './Question';
+import { MessageChips } from './PreviewChips';
 
 export const Row = memo(function Row({ item, threadId, fresh }: { item: Item; threadId: string; fresh?: boolean }) {
   const f = fresh ? ' fresh' : '';
@@ -20,6 +22,8 @@ export const Row = memo(function Row({ item, threadId, fresh }: { item: Item; th
       return <Assistant item={item} fresh={f} />;
     case 'approval':
       return <Approval item={item} threadId={threadId} fresh={f} />;
+    case 'question':
+      return <QuestionCard item={item} threadId={threadId} fresh={f} />;
     case 'error':
       return <div className={`msg err${f}`} role="alert">{item.message}</div>;
     case 'done':
@@ -35,6 +39,7 @@ export function Assistant({ item, fresh }: { item: Extract<Item, { kind: 'assist
   return (
     <div className={`msg assistant${live ? ' live' : ' settled'}${fresh}`}>
       <Markdown text={text} />
+      {!live && <MessageChips text={item.text} />}
     </div>
   );
 }

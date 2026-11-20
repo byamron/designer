@@ -1,0 +1,24 @@
+/* One-click previews: local links, suggestion chips, reachability dot, "Ask Claude to start it". Tokens from styles.css only. */
+.md a.local-link-out { margin-left: 3px; font-size: .85em; text-decoration: none; color: var(--muted); border-radius: 4px; }
+.md a.local-link-out:hover { color: var(--accent); }
+
+.preview-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; animation: chip-in .18s ease-out; }
+.tool .preview-chips { margin: 2px 4px 6px; }
+.preview-chip { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 99px; padding: 3px 12px; font-size: 13px; transition: background-color .15s ease, border-color .15s ease; }
+.preview-chip:hover { background: var(--user); border-color: var(--accent); }
+.preview-chip:active { transform: scale(.97); }
+@keyframes chip-in { from { opacity: 0; transform: translateY(2px); } }
+
+.reach { flex: none; width: 8px; height: 8px; margin: 0 4px; border-radius: 50%; background: var(--muted); }
+.reach.ok, .reach.blocked { background: var(--ok); }
+.reach.unreachable { background: var(--bad); }
+.reach.checking { animation: pulse 1.2s ease-in-out infinite; }
+
+.ask-start { border: 1px solid var(--accent); background: var(--bg); color: var(--text); border-radius: 8px; padding: 5px 14px; }
+.ask-start:hover { background: var(--user); }
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-chips, .reach.checking { animation: none; }
+  .preview-chip { transition: none; }
+  .preview-chip:active { transform: none; }
+}

@@ -19,6 +19,10 @@ await page.keyboard.press('Enter');
 await page.getByRole('button', { name: 'Allow' }).waitFor();
 await page.getByRole('button', { name: 'New session' }).click();
 await page.getByRole('button', { name: 'New session' }).click();
+await page.waitForFunction(() => !document.querySelector('.msg') && !document.querySelector('.approval'));
+await page.getByLabel('Message').fill('devserver'); // a reply with a local link, chips and an external link
+await page.keyboard.press('Enter');
+await page.locator('.msg.assistant .preview-chip').waitFor();
 await page.getByRole('button', { name: 'Preview', exact: true }).click();
 await page.getByLabel('Preview address').waitFor();
 await paste(page, [pngFile('a.png')]); // image thumbnails with their remove buttons are in the tab order too
