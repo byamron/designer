@@ -1,0 +1,90 @@
+/* Inspector panel: right column beside the preview. Tokens come from styles.css; the ones below are local sizes. */
+:root {
+  --ins-w: 17.5rem;
+  --ins-gap: 0.5rem;
+  --ins-pad: 0.75rem;
+  --ins-field-h: 1.75rem;
+  --ins-radius: 6px;
+  --ins-small: 0.75rem;
+}
+
+.inspector { color-scheme: light dark; flex: 0 0 var(--ins-w); width: var(--ins-w); min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--line); font-size: var(--ins-small); line-height: 1.4; animation: ins-in .16s ease-out; }
+.panes.left .inspector { border-left: 0; border-right: 1px solid var(--line); }
+@keyframes ins-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+
+.ins-head { padding: var(--ins-gap) var(--ins-pad); border-bottom: 1px solid var(--line); min-height: 2.25rem; display: flex; align-items: center; }
+.ins-title { font-weight: 600; }
+.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.crumb-wrap { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); }
+.crumb { background: none; border: 0; border-radius: var(--ins-radius); padding: 2px 4px; color: var(--muted); max-width: 7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: var(--ins-small); }
+button.crumb:hover { background: var(--user); color: var(--text); }
+.crumb.current { color: var(--text); font-weight: 600; max-width: 100%; }
+
+.ins-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.ins-hint { color: var(--muted); margin: 0; padding: var(--ins-pad); }
+.ins-hint.small { padding: 0; }
+.ins-reset { padding: var(--ins-gap) var(--ins-pad) 0; text-align: right; }
+.ins-sec { padding: var(--ins-pad); border-bottom: 1px solid var(--line); display: grid; gap: var(--ins-gap); }
+.ins-sec h3 { margin: 0; font-size: var(--ins-small); font-weight: 600; display: flex; align-items: center; justify-content: space-between; min-height: var(--ins-field-h); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ins-gap); }
+.row-color { display: grid; grid-template-columns: 1fr 5.5rem; gap: var(--ins-gap); }
+
+/* number field: scrub by dragging the label */
+.nf { display: flex; align-items: center; gap: 4px; height: var(--ins-field-h); background: var(--user); border-radius: var(--ins-radius); padding: 0 6px; min-width: 0; border: 1px solid transparent; }
+.nf:hover { border-color: var(--line); }
+.nf-label { display: inline-flex; align-items: center; justify-content: center; min-width: 1.4rem; color: var(--muted); cursor: ew-resize; user-select: none; touch-action: none; }
+.nf-label:hover { color: var(--text); }
+.nf input, .tf, .cf-hex, .sel select { background: none; border: 0; color: var(--text); min-width: 0; width: 100%; font: inherit; padding: 0 2px; height: 100%; }
+.nf input { font-variant-numeric: tabular-nums; }
+.nf-suffix { color: var(--muted); }
+.tf { background: var(--user); border-radius: var(--ins-radius); height: var(--ins-field-h); padding: 0 8px; }
+.sel { display: block; background: var(--user); border-radius: var(--ins-radius); height: var(--ins-field-h); padding: 0 4px; }
+.sel select { cursor: pointer; }
+
+/* colour field */
+.cf { display: flex; align-items: center; gap: 4px; height: var(--ins-field-h); background: var(--user); border-radius: var(--ins-radius); padding: 0 6px; min-width: 0; border: 1px solid transparent; }
+.cf:hover { border-color: var(--line); }
+.cf-swatch { appearance: none; -webkit-appearance: none; width: 1.1rem; height: 1.1rem; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; cursor: pointer; flex: none; }
+.cf-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+.cf-swatch::-webkit-color-swatch { border: 0; border-radius: 3px; }
+.cf-swatch::-moz-color-swatch { border: 0; border-radius: 3px; }
+.cf-hash { color: var(--muted); }
+.cf-hex { font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; }
+
+/* segmented controls */
+.seg { display: flex; background: var(--user); border-radius: var(--ins-radius); padding: 2px; gap: 2px; min-width: 0; }
+.seg button { flex: 1; min-width: 0; height: calc(var(--ins-field-h) - 4px); display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: 4px; color: var(--muted); padding: 0 4px; font-size: var(--ins-small); }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--bg); color: var(--text); box-shadow: 0 0 0 1px var(--line); }
+
+.chk { display: flex; align-items: center; gap: 6px; color: var(--text); min-height: var(--ins-field-h); }
+.chk input { accent-color: var(--accent); margin: 0; }
+.ins-toggle { display: inline-flex; align-items: center; gap: 6px; background: var(--user); border: 0; border-radius: var(--ins-radius); height: var(--ins-field-h); padding: 0 8px; justify-self: start; color: var(--text); }
+.ins-toggle[aria-pressed="true"] { color: var(--bad); }
+.ins-icon { background: none; border: 0; border-radius: var(--ins-radius); color: var(--muted); width: var(--ins-field-h); height: var(--ins-field-h); display: inline-flex; align-items: center; justify-content: center; }
+.ins-icon:hover { background: var(--user); color: var(--text); }
+.ins-link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
+
+.ins-foot { border-top: 1px solid var(--line); padding: var(--ins-pad); display: grid; gap: var(--ins-gap); background: var(--panel); }
+.ins-count { margin: 0; font-weight: 600; }
+.ins-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ins-btn { border: 1px solid var(--line); background: var(--bg); border-radius: var(--ins-radius); height: var(--ins-field-h); padding: 0 10px; font-size: var(--ins-small); }
+.ins-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.ins-btn:disabled { opacity: .4; cursor: default; }
+.ins-warn { margin: 0; color: var(--bad); }
+.ins-note { margin: 0; color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* notes under the preview bar */
+.preview-note { margin: 0; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--user); color: var(--muted); font-size: var(--ins-small); }
+.preview-note.warn { color: var(--bad); }
+
+@media (prefers-reduced-motion: reduce) {
+  .inspector { animation: none; }
+}
+
+/* with the panel open the chat gives up room before the preview is squeezed out */
+.panes.inspecting .chat-col { flex: 0 1 min(var(--chat-w, 440px), 50%); min-width: 16rem; }
+.panes.inspecting .preview-col { min-width: 12rem; }
+.preview-bar .icon { flex: none; white-space: nowrap; }
+.preview-bar input { min-width: 4rem; }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { store, useStore } from './store';
 import { isLocalUrl } from './localUrls';
 import { api } from './auth';
+import { InspectToggle, usePreviewInspect } from './inspector/usePreviewInspect';
 
 type Probe = { state: 'idle' } | { state: 'checking' } | { state: 'ok' } | { state: 'blocked' | 'unreachable'; reason: string };
 const isUrl = (s: string) => /^https?:\/\//i.test(s);
@@ -47,10 +48,8 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
     return `${location.protocol}//${location.hostname}:${previewPort}/${workspaceId}/${target.split('/').map(encodeURIComponent).join('/')}`;
   }, [target, external, previewPort, workspaceId]);
 
-  // Pages the agent just edited are served from disk: refresh when it finishes a turn.
-  useEffect(() => {
-    if (turns > 0 && target && !external) setReload((n) => n + 1);
-  }, [turns]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Pages the agent just edited are served from disk: refresh when it finishes a turn (unless visual edits are pending).
+  const insp = usePreviewInspect({ target, external, probe: probe.state, src, turns, reload: () => setReload((n) => n + 1) });
 
   useEffect(() => {
     if (!external) {
@@ -75,7 +74,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
     return () => { live = false; };
   }, [target, external, reload, recheck]);
 
-  useEffect(() => setLoading(!!src), [src, reload]); // a new document is loading until the iframe says otherwise
+  useEffect(() => setLoading(!!insp.src), [insp.src, reload]); // a new document is loading until the iframe says otherwise
 
   const go = (v: string) => {
     const t = v.trim();
@@ -111,6 +110,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
           aria-label="Preview address"
         />
         <datalist id="html-files">{files.map((f) => <option key={f} value={f} />)}</datalist>
+        <InspectToggle on={insp.on} reason={insp.reason} onClick={insp.toggle} />
         {external && probe.state !== 'idle' && (
           <span className={`reach ${probe.state}`} role="img" aria-label={REACH[probe.state]} title={REACH[probe.state]} />
         )}
@@ -118,6 +118,14 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
         {src && <a className="icon" href={src} target="_blank" rel="noreferrer noopener" aria-label="Open in new tab" title="Open in new tab">↗</a>}
         <button className="icon" onClick={onClose} aria-label="Close preview" title="Close preview">✕</button>
       </div>
+      {insp.proxied && <p className="preview-note" role="status">Shown through Designer’s proxy so it can be inspected; some sites with logins may not work.</p>}
+      {insp.error && <p className="preview-note warn" role="alert">{insp.error}</p>}
+      {insp.held && (
+        <p className="preview-note" role="status">
+          The agent finished, but the page was not reloaded because you have {insp.pending} unsaved visual edit{insp.pending === 1 ? '' : 's'}.{' '}
+          <button className="ins-link" onClick={insp.reloadAnyway}>Reload and discard edits</button>
+        </p>
+      )}
       <div className="preview-body">
         {loading && (probe.state === 'ok' || !external) && <div className="loadbar" role="progressbar" aria-label="Loading preview" />}
         {!target && (
@@ -134,7 +142,7 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
           </div>
         )}
         {target && probe.state === 'checking' && <div className="preview-empty">Checking {target}…</div>}
-        {target && (probe.state === 'blocked' || probe.state === 'unreachable') && (
+        {target && !insp.proxied && (probe.state === 'blocked' || probe.state === 'unreachable') && !insp.waitingForProxy && (
           <div className="preview-empty" role="status">
             <p>{probe.reason}</p>
             {probe.state === 'blocked' && <p className="muted">Open it in a new tab for now. The desktop app will be able to show it here.</p>}
@@ -144,8 +152,8 @@ export function Preview({ workspaceId, threadId, onClose }: { workspaceId: strin
             <a href={target} target="_blank" rel="noreferrer noopener">Open in new tab ↗</a>
           </div>
         )}
-        {src && (!external || probe.state === 'ok') && (
-          <iframe key={`${src}|${reload}`} src={src} title="Preview" onLoad={() => setLoading(false)} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" />
+        {insp.src && (!external || probe.state === 'ok' || insp.proxied) && (
+          <iframe key={`${insp.src}|${reload}`} ref={insp.frame} src={insp.src} title="Preview" onLoad={() => { setLoading(false); insp.onLoad(); }} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" />
         )}
       </div>
     </div>

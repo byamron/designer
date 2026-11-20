@@ -1,6 +1,8 @@
 // Feedback and motion: working indicator + timer, animated jump-to-latest, smoothed streaming, expand animation.
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { paste, pngFile } from './lib/images.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const URL = process.env.URL ?? 'http://localhost:4317';
@@ -190,6 +192,23 @@ for (const reduced of [false, true]) {
   await ctx.close();
 }
 log('preview chips animate, and stop animating with prefers-reduced-motion');
+// ---- 7. the inspector panel slides in, and does not when motion is reduced ----
+for (const reduced of [false, true]) {
+  const { ctx, page } = await open(reduced ? { reducedMotion: 'reduce' } : {});
+  writeFileSync(join(process.env.REPO, 'motion.html'), '<h1 id="h">Motion</h1>');
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await page.getByLabel('Preview address').fill('motion.html');
+  await page.getByLabel('Preview address').press('Enter');
+  await page.getByRole('button', { name: 'Inspect' }).click();
+  const panel = page.locator('aside[aria-label=Inspector]');
+  await panel.waitFor();
+  const a = await panel.evaluate((el) => ({ name: getComputedStyle(el).animationName, dur: parseFloat(getComputedStyle(el).animationDuration) }));
+  if (reduced) assert.ok(a.name === 'none' || a.dur < 0.001, `inspector panel animation is off with reduced motion (${a.name} ${a.dur}s)`);
+  else assert.ok(a.name !== 'none' && a.dur > 0.05, `inspector panel animates in (${a.name} ${a.dur}s)`);
+  // scrub cursor and hover transitions are the only other motion; the overlay in the page is not animated at all
+  log(reduced ? 'inspector panel: no animation with reduced motion' : 'inspector panel slides in');
+  await ctx.close();
+}
 
 await browser.close();
 console.log('all passed');

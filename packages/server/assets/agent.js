@@ -5,8 +5,11 @@
  * origin) talks to it. Plain JS on purpose: it runs inside arbitrary pages and has no build step.
  *
  * Protocol (postMessage, always tagged { designer: 1 }):
- *   app -> page:  hello | enable {on} | select {id} | deselect | apply {id, props} | reset {id?}
+ *   app -> page:  hello {nonce} | enable {on} | select {id} | deselect | apply {id, props} | reset {id?}
+ *                 place {id, x?, y?}  (page position, as a translate)  |  size {id, w?, h?}  (rendered size)
  *   page -> app:  ready | selected {el} | deselected | log {edits} | hover {el}
+ * The app's `hello` carries a random nonce; every page -> app message echoes it so the app can drop messages a
+ * page script forged without having seen the hello.
  */
 (function () {
   'use strict';
@@ -16,9 +19,11 @@
   var tag = document.currentScript || document.querySelector('script[data-designer-agent]');
   var ORIGINS = ((tag && tag.getAttribute('data-origins')) || '').split(',').filter(Boolean);
   var parentOrigin = null;
+  var nonce = '';
   function send(m) {
     if (!parentOrigin) return;
     m.designer = 1;
+    m.nonce = nonce;
     window.parent.postMessage(m, parentOrigin);
   }
 
@@ -90,11 +95,19 @@
     'opacity', 'visibility', 'border-radius', 'background-color',
     'border-top-width', 'border-top-style', 'border-top-color', 'box-shadow',
     'color', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'text-align',
-    'translate', 'rotate', 'position', 'box-sizing'
+    'translate', 'rotate', 'position', 'box-sizing',
+    // shorthands the panel edits as one control (all four sides at once)
+    'padding', 'border-width', 'border-style', 'border-color'
   ];
+  // when a shorthand's sides differ the browser reports ''; fall back to the first side so "from" is never empty
+  var FIRST_SIDE = { 'padding': 'padding-top', 'border-width': 'border-top-width', 'border-style': 'border-top-style', 'border-color': 'border-top-color' };
   var COLOR = /color$/;
 
-  function computed(el, p) { return getComputedStyle(el).getPropertyValue(p); }
+  function computed(el, p) {
+    var cs = getComputedStyle(el);
+    var v = cs.getPropertyValue(p);
+    return v === '' && FIRST_SIDE[p] ? cs.getPropertyValue(FIRST_SIDE[p]) : v;
+  }
 
   function applyProps(el, props) {
     var rec = edits.get(el);
@@ -102,6 +115,9 @@
       rec = { id: idOf(el), order: order++, origStyleAttr: el.getAttribute('style'), props: new Map() };
       edits.set(el, rec);
     }
+    // set every property first, then read results back: some depend on each other (a border width only
+    // renders once the border has a style)
+    var set = [];
     Object.keys(props).forEach(function (p) {
       var v = props[p];
       var cur = rec.props.get(p);
@@ -111,7 +127,11 @@
         rec.props.set(p, cur);
       }
       el.style.setProperty(p, String(v), 'important');
-      cur.to = p === 'translate' || p === 'rotate' ? String(v) : computed(el, p);
+      set.push(p);
+    });
+    set.forEach(function (p) {
+      var cur = rec.props.get(p);
+      cur.to = p === 'translate' || p === 'rotate' ? String(props[p]) : computed(el, p);
       // an edit that lands back on the original rendering is not a change
       if (cur.to === cur.from) resetProp(el, rec, p);
     });
@@ -140,7 +160,7 @@
       else c.setAttribute('style', rec.origStyleAttr);
     }
     var h = c.outerHTML.replace(/\s+/g, ' ');
-    return h.length > 240 ? h.slice(0, 237) + '…' : h;
+    return h.length > 240 ? h.slice(0, 237) + '\u2026' : h;
   }
   function logPayload() {
     var out = [];
@@ -161,6 +181,11 @@
     return { x: parseFloat(p[0]) || 0, y: parseFloat(p[1]) || 0 };
   }
   function rotOf(el) { return parseFloat(computed(el, 'rotate')) || 0; }
+  function sizeOf(el) {
+    // layout size, unaffected by rotation (the bounding box is not)
+    var r = el.getBoundingClientRect();
+    return { w: el.offsetWidth || r.width, h: el.offsetHeight || r.height };
+  }
   function rectOf(r) { return { x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height }; }
   function describe(el) {
     var style = {};
@@ -170,7 +195,7 @@
     return {
       id: idOf(el), tag: el.tagName.toLowerCase(), label: label(el), selector: selectorFor(el), text: ownText(el), html: cleanHtml(el),
       path: path, rect: rectOf(el.getBoundingClientRect()), parent: el.parentElement ? rectOf(el.parentElement.getBoundingClientRect()) : null,
-      style: style, move: moveOf(el), rot: rotOf(el), hasText: !!ownText(el), childCount: el.children.length
+      size: sizeOf(el), style: style, move: moveOf(el), rot: rotOf(el), hasText: !!ownText(el), childCount: el.children.length
     };
   }
 
@@ -221,7 +246,7 @@
     place(selBox, selected);
     if (selected && selected.isConnected) {
       var r = selected.getBoundingClientRect();
-      pill.textContent = fmt(r.width) + ' × ' + fmt(r.height);
+      pill.textContent = fmt(r.width) + ' \u00d7 ' + fmt(r.height);
     }
     raf = requestAnimationFrame(frame);
   }
@@ -350,10 +375,31 @@
     parentOrigin = e.origin;
     var el;
     switch (m.type) {
-      case 'hello': send({ type: 'ready', url: location.href }); break;
+      case 'hello': nonce = typeof m.nonce === 'string' ? m.nonce : ''; send({ type: 'ready', url: location.href }); break;
       case 'enable': enable(!!m.on); break;
       case 'select': el = elById(m.id); if (el) select(el); break;
       case 'deselect': selected = null; select(null); break;
+      case 'place':
+        // absolute page position per axis, worked out from the element as it is NOW so quick successive edits never clobber each other
+        el = elById(m.id);
+        if (el) {
+          var r = rectOf(el.getBoundingClientRect()), mv = moveOf(el);
+          var nx = typeof m.x === 'number' ? mv.x + (m.x - r.x) : mv.x;
+          var ny = typeof m.y === 'number' ? mv.y + (m.y - r.y) : mv.y;
+          applyProps(el, { translate: Math.round(nx * 100) / 100 + 'px ' + Math.round(ny * 100) / 100 + 'px' });
+          refresh();
+        }
+        break;
+      case 'size':
+        el = elById(m.id);
+        if (el) {
+          var cs = getComputedStyle(el), sz = sizeOf(el), sp = {};
+          if (typeof m.w === 'number') sp.width = Math.max(0, Math.round((parseFloat(cs.width) + (m.w - sz.w)) * 100) / 100) + 'px';
+          if (typeof m.h === 'number') sp.height = Math.max(0, Math.round((parseFloat(cs.height) + (m.h - sz.h)) * 100) / 100) + 'px';
+          applyProps(el, sp);
+          refresh();
+        }
+        break;
       case 'apply': el = elById(m.id); if (el) { applyProps(el, m.props || {}); refresh(); } break;
       case 'reset':
         if (m.id) { el = elById(m.id); if (el) resetEl(el); }

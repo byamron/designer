@@ -3,7 +3,7 @@
 # Usage: e2e/run.sh [suite ...]   (default: all)    Needs Playwright (npx playwright install chromium).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-suites=("$@"); [ ${#suites[@]} -eq 0 ] && suites=(ui focus motion selfhost question images)
+suites=("$@"); [ ${#suites[@]} -eq 0 ] && suites=(ui focus motion selfhost question images inspector)
 npm run build >/dev/null
 port=${E2E_PORT_BASE:-4400}
 status=0
@@ -18,7 +18,7 @@ for s in "${suites[@]}"; do
   pid=$!
   for _ in $(seq 1 50); do curl -fs "http://localhost:$port/" >/dev/null 2>&1 && [ -s "$data/token" ] && break; sleep 0.2; done
   echo "== $s"
-  URL="http://localhost:$port/?t=$(cat "$data/token")" REPO="$repo" node "e2e/$s.e2e.mjs" || status=1
+  URL="http://localhost:$port/?t=$(cat "$data/token")" REPO="$repo" node --import tsx "e2e/$s.e2e.mjs" || status=1
   kill -- -"$pid" 2>/dev/null || true
 done
 exit $status
