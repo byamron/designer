@@ -4,6 +4,7 @@ import { initToken } from './auth';
 import { store } from './store';
 import './styles.css';
 import './styles/questions.css';
+import './styles/previews.css';
 
 initToken();
 store.connect();

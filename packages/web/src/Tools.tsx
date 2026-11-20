@@ -1,5 +1,7 @@
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { Item } from './store';
+import { PreviewChips } from './PreviewChips';
+import { localUrls } from './localUrls';
 
 export type ToolItem = Extract<Item, { kind: 'tool' }>;
 export const VERB: Record<string, [string, string, string]> = {
@@ -41,6 +43,7 @@ export const ToolGroup = memo(function ToolGroup({ tools, fresh }: { tools: Tool
 
 export function ToolLine({ t }: { t: ToolItem }) {
   const [show, setShow] = useState(false);
+  const outputUrls = useMemo(() => (t.output ? localUrls(t.output, { code: true }) : []), [t.output]);
   return (
     <li className={`tool ${t.status}`}>
       <button className="tool-line" onClick={() => t.output && setShow(!show)} disabled={!t.output}>
@@ -49,6 +52,7 @@ export function ToolLine({ t }: { t: ToolItem }) {
         <span className="tool-status">{t.status === 'running' ? '…' : t.status === 'error' ? '✕' : '✓'}</span>
       </button>
       {show && t.output && <pre className="tool-out">{t.output}</pre>}
+      {t.output && t.status !== 'running' && <PreviewChips urls={outputUrls} />}
     </li>
   );
 }

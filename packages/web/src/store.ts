@@ -29,6 +29,10 @@ export interface State {
   previewPort?: number;
   /** Text the user selected in a reply to quote in the next message. */
   quote?: { threadId: string; text: string; n: number };
+  /** A request to show a URL in the preview pane (a clicked local link or chip). Preview clears it once handled. */
+  previewReq?: { workspaceId: string; url: string; n: number };
+  /** Text to put in a session's composer without sending it. */
+  prefill?: { threadId: string; text: string; n: number };
   workspaces: Workspace[];
   threads: ThreadMeta[];
   activeId?: string;
@@ -242,6 +246,22 @@ class Store {
   }
   clearQuote() {
     this.set({ quote: undefined });
+  }
+  /** Show `url` in the preview pane (opens the pane). Defaults to the active session's workspace. */
+  openPreview(url: string, workspaceId?: string) {
+    const ws = workspaceId ?? this.state.threads.find((t) => t.id === this.state.activeId)?.workspaceId;
+    if (!ws) return;
+    this.set({ previewReq: { workspaceId: ws, url, n: (this.state.previewReq?.n ?? 0) + 1 } });
+  }
+  clearPreviewReq(n: number) {
+    if (this.state.previewReq?.n === n) this.set({ previewReq: undefined });
+  }
+  /** Put text in the composer for the user to edit and send. Never sends. */
+  prefill(threadId: string, text: string) {
+    this.set({ prefill: { threadId, text, n: (this.state.prefill?.n ?? 0) + 1 } });
+  }
+  clearPrefill() {
+    this.set({ prefill: undefined });
   }
   interrupt(id: string) {
     this.send({ type: 'interrupt', threadId: id });
