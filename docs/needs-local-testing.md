@@ -68,3 +68,17 @@ tool calls, approval deny, interrupt, resume after restart), real `git worktree`
 - System dictation into the composer.
 - Codex adapter: needs a Codex login; the container has none.
 - Devin handoff: needs a Devin account and API key; build against a fake server first, verify live on the owner's machine.
+
+## From the PRs landed 2026-11-19
+- [ ] **Real dev server started by Claude** (previews): ask Claude to start a dev server from chat; the URL becomes a chip and loads in the pane.
+- [ ] **Does Claude's background server survive long enough?** If it dies with the session, that is where a supervised runner would earn its place.
+- [ ] **Images: macOS clipboard paste** (Cmd-Ctrl-Shift-4, then Cmd-V into the message box).
+- [ ] **Images: drag from Finder / Preview** onto the message box.
+- [ ] **Images: a large Retina screenshot**: check the 5 MB limit message, and that a normal full-screen Retina png is under it or refused clearly. Also try a 4.5-5 MB image with real Claude (the limit may count base64 size).
+- [ ] **Images: Attach button** opens the native file picker and accepts several files. Pasting from Excel/Numbers carries text plus an image of the cells: check which one you get.
+- [ ] **Question cards on a real account**: questions with `preview`, multi-select, and 2-4 question cards; feel of the keyboard flow (arrows, number keys, Tab order, focus on arrival) in the desktop app.
+- [ ] **Inspector feel**: scrubbing number fields and dragging move/resize handles (speed, Shift/Alt modifiers, trackpad).
+- [ ] **Inspector on a real dev server with hot reload** (Vite/Next) through the proxy: make edits, then change source on disk; the page reloads and the panel recovers (pending edits are lost with the reload).
+- [ ] **Inspector on a real website** through the proxy (login, CSP, redirects), including ones that fail.
+- [ ] **Native color picker on macOS** (eyedropper, alpha).
+- [ ] **Scroll up with a trackpad right after "Jump to latest"** and confirm it stays up (race fix, #157).
