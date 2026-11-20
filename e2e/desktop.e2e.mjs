@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 const { _electron } = createRequire(import.meta.url)('playwright');
 const log = (m) => console.log('ok -', m);
 const root = resolve(new globalThis.URL('..', import.meta.url).pathname);
-const electronBin = join(root, 'node_modules', 'electron', 'dist', 'electron');
+const electronBin = join(root, 'node_modules', 'electron', 'dist', ...(process.platform === 'darwin' ? ['Electron.app', 'Contents', 'MacOS', 'Electron'] : ['electron']));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
