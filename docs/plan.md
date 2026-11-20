@@ -2,6 +2,13 @@
 
 Status: research done, nothing built. Ideas only from T3 Code, Paseo, Orca; no code copied, no fork. Rules and trace ledger: [inspirations.md](inspirations.md).
 
+## Landed 2026-11-19 (PRs #151, #153-#158)
+CI on GitHub Actions (typecheck, unit, build, browser suites, audit; `.github/workflows/ci.yml`); one-click previews (local links,
+chips, "Ask Claude to start it"); question cards for `AskUserQuestion`; images in chat; the inspector (Inspect toggle, properties
+panel, Copy changes); a fix for a scroll follow/detach race that made the motion suite flaky; the PR protocol now covers stacked
+PRs and a Safety section. Mac-only checks from these are listed in [needs-local-testing.md](needs-local-testing.md). Known open:
+the `ui` browser suite occasionally fails "pinned to bottom while streaming" (a scroll-follow timing flake; rerun clears it).
+
 ## P0 status (built)
 Server (Node 22, `ws`, JSONL store), Claude Agent SDK adapter, React UI. Verified against real Claude:
 multi-turn streaming, tool calls, approvals (deny blocks the write), interrupt, resume after server restart.
@@ -43,9 +50,9 @@ user on the same machine can talk to 127.0.0.1:4317 (Host/Origin checks only sto
 sandboxed beyond Claude Code's own permissions; inspector reports can carry text from untrusted pages into a message.
 
 Roadmap additions (owner, 2026-11):
-- Inspector / visual properties panel (in progress): select elements the same way comments will, edit visually,
+- Inspector / visual properties panel (built, Mac check pending): select elements the same way comments will, edit visually,
   Copy changes -> paste to the agent. Page agent injected into served HTML; opt-in proxy for localhost and website URLs.
-- Paste/attach images in chat (next after the inspector).
+- Paste/attach images in chat (built, Mac check pending).
 - Handoff to Devin: build interactively with Claude, then hand the work to Devin to build on its own. Shape:
   a "Hand off" action runs a handoff-brief turn in the session (spec, decisions, acceptance criteria, files,
   inspector edits), pushes the worktree branch, creates a Devin session via Devin's API with that brief and the
