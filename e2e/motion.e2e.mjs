@@ -87,6 +87,19 @@ const idle = (page) => page.waitForSelector('.working', { state: 'detached', tim
   await page.waitForFunction(() => { const el = document.querySelector('.scroller'); return el.scrollHeight - el.scrollTop - el.clientHeight <= 2; }, null, { timeout: 2000 }).catch(async () => { throw new Error('did not arrive at the bottom, distance ' + (await page.$eval('.scroller', (el) => el.scrollHeight - el.scrollTop - el.clientHeight))); });
   log('Jump to latest animates downward and lands at the bottom');
 
+  // regression (raced on slow CI machines): a scroll event left over from our own animation arriving right after an upward
+  // wheel must not count as "back at the bottom" and undo the detach. Dispatched here in the bad order, on purpose.
+  await page.evaluate(() => {
+    const el = document.querySelector('.scroller');
+    el.dispatchEvent(new WheelEvent('wheel', { deltaY: -60, bubbles: true }));
+    el.dispatchEvent(new Event('scroll'));
+  });
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('.jump').count(), 1, 'a stale scroll event does not cancel an upward scroll (the pill stays)');
+  await page.getByRole('button', { name: /Jump to latest/ }).click();
+  await page.waitForFunction(() => { const el = document.querySelector('.scroller'); return el.scrollHeight - el.scrollTop - el.clientHeight <= 2 && !document.querySelector('.jump'); }, null, { timeout: 3000 });
+  log('a stale scroll event cannot undo an upward scroll');
+
   // user input during the animation takes over
   await page.mouse.wheel(0, -3000);
   await page.waitForSelector('.jump');
