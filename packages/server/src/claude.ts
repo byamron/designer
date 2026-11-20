@@ -1,6 +1,7 @@
 import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { Decision, ToolKind } from '@designer/shared';
+import type { AnswerHow, Decision, ImageUpload, Question, ToolKind } from '@designer/shared';
 import type { ProviderAdapter, Session, SessionSink, StartOpts, PermissionMode } from './adapter.js';
+import { clientHow, finalAnswers, parseQuestions } from './questions.js';
 
 /** Async-iterable queue used as the streaming-input prompt. */
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -72,10 +73,20 @@ export function sessionOptions(opts: StartOpts, nativeId: string | undefined, en
   };
 }
 
+/** Message content for Claude: the plain string when there are no images, else a text block (if any) plus image blocks. */
+export function userContent(text: string, images: ImageUpload[] = []) {
+  if (!images.length) return text;
+  return [
+    ...(text.trim() ? [{ type: 'text' as const, text }] : []),
+    ...images.map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mime as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp', data: im.data } })),
+  ];
+}
+
 class ClaudeSession implements Session {
   private input = new InputQueue();
   private q?: Query;
   private pending = new Map<string, (d: Decision) => void>();
+  private questions = new Map<string, (answers: Record<string, string>, how: AnswerHow) => void>();
   private tools = new Map<string, { name: string; kind: ToolKind; label: string; input: unknown }>();
   private finalCount = new Map<string, number>(); // api message id -> text blocks seen (final)
   private nativeId?: string;
@@ -101,12 +112,7 @@ class ClaudeSession implements Session {
   }
 
   private askUser(toolName: string, input: Record<string, unknown>, signal: AbortSignal) {
-    if (toolName === 'AskUserQuestion') {
-      return Promise.resolve({
-        behavior: 'deny' as const,
-        message: 'Interactive questions are not available in this client. Ask the user in plain text instead.',
-      });
-    }
+    if (toolName === 'AskUserQuestion') return this.askQuestion(input, signal);
     const requestId = `req-${Date.now()}-${++this.reqCounter}`;
     this.sink.emit({ type: 'approval_request', requestId, toolName, label: describeTool(toolName, input), input });
     return new Promise<{ behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string }>((resolve) => {
@@ -120,6 +126,30 @@ class ClaudeSession implements Session {
     });
   }
 
+  /** AskUserQuestion: show a card, wait for the answer, hand it back to Claude as the tool's input. */
+  private askQuestion(input: Record<string, unknown>, signal: AbortSignal) {
+    const questions = parseQuestions(input);
+    if (!questions) return Promise.resolve({ behavior: 'deny' as const, message: 'The question could not be shown. Ask the user in plain text instead.' });
+    const requestId = `q-${Date.now()}-${++this.reqCounter}`;
+    this.sink.emit({ type: 'question_request', requestId, questions });
+    return new Promise<{ behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string }>((resolve) => {
+      const settle = (given: Record<string, string>, how: AnswerHow) => {
+        if (!this.questions.delete(requestId)) return;
+        const answers = finalAnswers(questions, given, how);
+        this.sink.emit({ type: 'question_answered', requestId, answers, how });
+        if (how === 'cancelled') resolve({ behavior: 'deny', message: 'The user cancelled this question.' });
+        else resolve({ behavior: 'allow', updatedInput: { ...input, answers } });
+      };
+      this.questions.set(requestId, settle);
+      if (signal.aborted) return settle({}, 'cancelled');
+      signal.addEventListener('abort', () => settle({}, 'cancelled'), { once: true });
+    });
+  }
+
+  private cancelQuestions() {
+    for (const settle of [...this.questions.values()]) settle({}, 'cancelled');
+  }
+
   private async pump(q: Query) {
     try {
       for await (const m of q) this.handle(m as any);
@@ -129,6 +159,7 @@ class ClaudeSession implements Session {
       // Process ended (crash, close, or error): next send() restarts with resume.
       if (this.q === q) this.q = undefined;
       for (const settle of [...this.pending.values()]) settle('deny');
+      this.cancelQuestions();
       this.sink.running(false);
     }
   }
@@ -213,16 +244,17 @@ class ClaudeSession implements Session {
     return `${this.currentApiId}:${map.get(index)}`;
   }
 
-  async send(text: string) {
+  async send(text: string, images: ImageUpload[] = []) {
     this.ensureStarted();
     this.interrupted = false;
     this.sink.running(true);
-    this.input.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null } as SDKUserMessage);
+    this.input.push({ type: 'user', message: { role: 'user', content: userContent(text, images) }, parent_tool_use_id: null } as SDKUserMessage);
   }
 
   async interrupt() {
     this.interrupted = true;
     for (const settle of [...this.pending.values()]) settle('deny');
+    this.cancelQuestions();
     try {
       await this.q?.interrupt();
     } catch {
@@ -232,6 +264,10 @@ class ClaudeSession implements Session {
 
   respond(requestId: string, decision: Decision) {
     this.pending.get(requestId)?.(decision);
+  }
+
+  answer(requestId: string, answers: Record<string, string>, how: AnswerHow) {
+    this.questions.get(requestId)?.(answers && typeof answers === 'object' ? answers : {}, clientHow(how));
   }
 
   async setPermissionMode(mode: PermissionMode) {
@@ -245,6 +281,7 @@ class ClaudeSession implements Session {
 
   close() {
     this.closed = true;
+    this.cancelQuestions();
     this.input.end();
     try {
       this.q?.close();

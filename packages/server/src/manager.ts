@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import type { AgentEvent, ClientMsg, Decision, PermissionMode, ServerMsg, ThreadMeta, Workspace } from '@designer/shared';
+import type { AgentEvent, ClientMsg, Decision, ImageUpload, PermissionMode, ServerMsg, ThreadMeta, Workspace } from '@designer/shared';
+import { checkImages } from './attachments.js';
 import type { ProviderAdapter, Session } from './adapter.js';
 import { addWorktree, removeWorktree, repoRoot } from './git.js';
 import type { Store } from './store.js';
@@ -73,13 +74,15 @@ export class Manager {
       case 'subscribe':
         return this.subscribe(c, msg.threadId, msg.lastSeq);
       case 'send':
-        return void this.send(c, msg.threadId, msg.text);
+        return void this.send(c, msg.threadId, msg.text, msg.images);
       case 'interrupt':
         return void this.sessions.get(msg.threadId)?.interrupt();
       case 'set_mode':
         return this.setMode(msg.threadId, msg.mode);
       case 'respond':
         return this.sessions.get(msg.threadId)?.respond(msg.requestId, msg.decision as Decision);
+      case 'answer':
+        return this.sessions.get(msg.threadId)?.answer(msg.requestId, msg.answers ?? {}, msg.how);
     }
   }
 
@@ -165,16 +168,24 @@ export class Manager {
     c.send({ type: 'replay_done', threadId, lastSeq: this.store.readEvents(threadId).at(-1)?.seq ?? 0 });
   }
 
-  private async send(c: Client, threadId: string, text: string) {
+  private async send(c: Client, threadId: string, text: string, uploads?: ImageUpload[]) {
     const meta = this.store.readMeta(threadId);
     if (!meta) return c.send({ type: 'error', message: 'Unknown thread' });
-    if (!text.trim()) return;
-    if (meta.status === 'running') return c.send({ type: 'error', message: 'A turn is already running. Stop it first.' });
-    const title = meta.title === 'New chat' ? text.trim().replace(/\s+/g, ' ').slice(0, 60) : meta.title;
-    this.update(meta, { title, status: 'running' });
-    this.emit(threadId, { type: 'user_message', text });
+    let images;
     try {
-      await this.session(threadId).send(text);
+      images = checkImages(uploads);
+    } catch (e) {
+      return c.send({ type: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+    if (!text.trim() && !images.length) return;
+    if (meta.status === 'running') return c.send({ type: 'error', message: 'A turn is already running. Stop it first.' });
+    for (const im of images) this.store.saveAttachment(threadId, im.id, im.mime, im.bytes);
+    const label = text.trim() || (images.length > 1 ? `${images.length} images` : 'Image');
+    const title = meta.title === 'New chat' ? label.replace(/\s+/g, ' ').slice(0, 60) : meta.title;
+    this.update(meta, { title, status: 'running' });
+    this.emit(threadId, { type: 'user_message', text, ...(images.length ? { images: images.map(({ id, mime }) => ({ id, mime })) } : {}) });
+    try {
+      await this.session(threadId).send(text, images.map((im) => ({ mime: im.mime, data: im.bytes.toString('base64') })));
     } catch (e) {
       this.emit(threadId, { type: 'error', message: e instanceof Error ? e.message : String(e) });
       this.setRunning(threadId, false);

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { paste, pngFile } from './lib/images.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const URL = process.env.URL ?? 'http://localhost:4317';
 const browser = await chromium.launch();
@@ -26,6 +27,8 @@ await page.keyboard.press('Enter');
 await page.locator('.msg.assistant .preview-chip').waitFor();
 await page.getByRole('button', { name: 'Preview', exact: true }).click();
 await page.getByLabel('Preview address').waitFor();
+await paste(page, [pngFile('a.png')]); // image thumbnails with their remove buttons are in the tab order too
+await page.locator('.composer .thumb').waitFor();
 
 // the inspector panel with an element selected (and a text element's Typography section)
 if (process.env.REPO) {

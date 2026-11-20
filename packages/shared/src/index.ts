@@ -4,14 +4,26 @@ export type PermissionMode = 'default' | 'auto' | 'acceptEdits' | 'bypassPermiss
 export type ToolKind = 'command' | 'file_change' | 'read' | 'search' | 'other';
 export type ToolStatus = 'running' | 'done' | 'error';
 export type Decision = 'allow' | 'deny';
+/** An image sent with a message, as it travels over the WebSocket. */
+export interface ImageUpload { mime: string; data: string /* base64 */ }
+/** A stored image: `id` is the SHA-256 of its bytes. Fetched from /api/attachment/<threadId>/<id>. */
+export interface ImageRef { id: string; mime: string }
+
+/** One question from the model's AskUserQuestion tool. */
+export interface QuestionOption { label: string; description: string; preview?: string }
+export interface Question { question: string; header: string; options: QuestionOption[]; multiSelect: boolean }
+/** How a question card ended: picked answers, skipped, "reply in chat instead", or cancelled (Stop, session end). */
+export type AnswerHow = 'answered' | 'skipped' | 'chat' | 'cancelled';
 
 /** Events persisted to the thread log (deltas are live-only, see LiveEvent). */
 export type AgentEvent =
-  | { type: 'user_message'; text: string }
+  | { type: 'user_message'; text: string; images?: ImageRef[] }
   | { type: 'assistant_message'; messageId: string; text: string }
   | { type: 'tool_call'; id: string; kind: ToolKind; name: string; label: string; status: ToolStatus; input?: unknown; output?: string }
   | { type: 'approval_request'; requestId: string; toolName: string; label: string; input: unknown }
   | { type: 'approval_resolved'; requestId: string; decision: Decision }
+  | { type: 'question_request'; requestId: string; questions: Question[] }
+  | { type: 'question_answered'; requestId: string; answers: Record<string, string>; how: AnswerHow }
   | { type: 'error'; message: string }
   | { type: 'turn_done'; costUsd?: number; interrupted?: boolean };
 
@@ -56,9 +68,10 @@ export type ClientMsg =
   | { type: 'create_thread'; workspaceId: string }
   | { type: 'archive_thread'; threadId: string }
   | { type: 'subscribe'; threadId: string; lastSeq: number }
-  | { type: 'send'; threadId: string; text: string }
+  | { type: 'send'; threadId: string; text: string; images?: ImageUpload[] }
   | { type: 'interrupt'; threadId: string }
   | { type: 'respond'; threadId: string; requestId: string; decision: Decision }
+  | { type: 'answer'; threadId: string; requestId: string; answers: Record<string, string>; how: AnswerHow }
   | { type: 'set_mode'; threadId: string; mode: PermissionMode };
 
 export type ServerMsg =
