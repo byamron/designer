@@ -4,7 +4,7 @@
 # Works on Linux and macOS. Each suite gets a free port, so several worktrees can run this at the same time.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-suites=("$@"); [ ${#suites[@]} -eq 0 ] && suites=(ui focus motion selfhost question images inspector)
+suites=("$@"); [ ${#suites[@]} -eq 0 ] && suites=(ui focus motion selfhost question images inspector tabs)
 npm run build >/dev/null
 
 # Start a command in its own process group so the whole server tree can be stopped (a stale server would serve old data to

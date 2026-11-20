@@ -34,8 +34,10 @@ button { cursor: pointer; }
 .ws .x { visibility: hidden; } .ws:hover .x, .ws .x:focus-visible { visibility: visible; }
 .ws-main { flex: 1; min-width: 0; background: none; border: 0; padding: 7px 10px; text-align: left; display: flex; align-items: baseline; gap: 8px; }
 .ws-name { font-weight: 500; white-space: nowrap; } .ws-branch { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tabs { display: flex; align-items: center; gap: 2px; padding: 6px 12px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
-.tab { display: flex; align-items: center; border-radius: 8px 8px 0 0; max-width: 220px; }
+.tabbar { display: flex; align-items: center; gap: 2px; padding: 6px 12px 0; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0; overflow-x: auto; }
+.new-tab { flex: none; }
+.tab { display: flex; align-items: center; border-radius: 8px 8px 0 0; max-width: 220px; flex: 0 1 auto; min-width: 104px; }
 .tab.active { background: var(--user); }
 .tab-main { background: none; border: 0; padding: 6px 4px 6px 10px; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
