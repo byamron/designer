@@ -80,6 +80,8 @@ export class Manager {
         return this.setMode(msg.threadId, msg.mode);
       case 'respond':
         return this.sessions.get(msg.threadId)?.respond(msg.requestId, msg.decision as Decision);
+      case 'answer':
+        return this.sessions.get(msg.threadId)?.answer(msg.requestId, msg.answers ?? {}, msg.how);
     }
   }
 

@@ -4,6 +4,7 @@ import type { Item } from './store';
 import { Markdown } from './markdown';
 import { useSmoothText } from './useSmoothText';
 import { fmtElapsed } from './format';
+import { QuestionCard } from './Question';
 import { MessageChips } from './PreviewChips';
 
 export const Row = memo(function Row({ item, threadId, fresh }: { item: Item; threadId: string; fresh?: boolean }) {
@@ -15,6 +16,8 @@ export const Row = memo(function Row({ item, threadId, fresh }: { item: Item; th
       return <Assistant item={item} fresh={f} />;
     case 'approval':
       return <Approval item={item} threadId={threadId} fresh={f} />;
+    case 'question':
+      return <QuestionCard item={item} threadId={threadId} fresh={f} />;
     case 'error':
       return <div className={`msg err${f}`} role="alert">{item.message}</div>;
     case 'done':
