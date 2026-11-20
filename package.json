@@ -12,7 +12,8 @@
     "typecheck": "tsc -b packages/shared packages/server packages/web",
     "test": "npm test -w @designer/server && npm test -w @designer/web",
     "dev-instance": "node scripts/dev-instance.mjs",
-    "app": "npm run build && electron packages/desktop"
+    "app": "npm run build && electron packages/desktop",
+    "make-app": "node scripts/make-app.mjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

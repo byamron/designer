@@ -1,0 +1,6 @@
+{
+  "name": "designer-shell",
+  "productName": "Designer",
+  "main": "main.cjs",
+  "private": true
+}

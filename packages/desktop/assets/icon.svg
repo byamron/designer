@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4b4fe8"/>
+      <stop offset="1" stop-color="#1f1d5a"/>
+    </linearGradient>
+  </defs>
+  <!-- macOS icon grid: 824 px body centred on a 1024 canvas -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <!-- a selected frame with corner handles: "design" -->
+  <rect x="312" y="332" width="400" height="360" rx="28" fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-width="14"/>
+  <g fill="#ffffff" stroke="#4b4fe8" stroke-width="10">
+    <rect x="286" y="306" width="52" height="52" rx="10"/>
+    <rect x="686" y="306" width="52" height="52" rx="10"/>
+    <rect x="286" y="666" width="52" height="52" rx="10"/>
+    <rect x="686" y="666" width="52" height="52" rx="10"/>
+  </g>
+  <!-- a text caret inside: "chat" -->
+  <rect x="496" y="432" width="32" height="160" rx="16" fill="#ffffff"/>
+</svg>
