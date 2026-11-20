@@ -1,7 +1,18 @@
 # CLAUDE.md
 
 Fresh start of Designer: a lean local chat app over Claude Code (Agent SDK) and
-Codex (`codex app-server`). Read `docs/plan.md` first.
+Codex (`codex app-server`). Read `docs/plan.md` first, and `docs/vision.md` for what the app is for.
+
+## Purpose
+The product is the **feedback loop** between a person (mainly a designer) and the model: increase the speed, quality
+and specificity of the feedback they can give while the model designs and builds. Judge every feature by whether it
+shortens capture (saying what and where) or review (seeing the result). Long-term ideas, such as voice comments,
+live critique mode and meeting mode, are in `docs/vision.md`. Start small; the model does the interpreting.
+
+Do not compete on model/harness capability or on the canvas (rendering, editing, WebGL vs HTML). Use the models and
+harnesses as they are, and host any canvas that runs in a browser (Paper, Subframe, Twombly, Onlook, HTML, localhost).
+We are the glue that makes the user's intent, feedback and context travel between them fast. A feature that only
+works for one canvas or one model belongs in an adapter, not the core loop.
 
 ## Rules
 - **Scaffold, don't replace.** Designer is light scaffolding around the models' own abilities: the experience, UX and
