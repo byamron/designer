@@ -30,12 +30,37 @@ export function patchPlist(xml, values) {
 
 export const electronApp = (checkout) => join(checkout, 'node_modules', 'electron', 'dist', 'Electron.app');
 
-/** The version of the Electron binary that is actually installed (dist/version is written by electron's own installer). */
+/** The Electron version the checkout asks for (npm's package.json for it). This is what the bundle must match. */
 export function electronVersion(checkout) {
   try {
-    return readFileSync(join(checkout, 'node_modules', 'electron', 'dist', 'version'), 'utf8').trim() || undefined;
+    return JSON.parse(readFileSync(join(checkout, 'node_modules', 'electron', 'package.json'), 'utf8')).version || undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** The version of the Electron binary that is actually downloaded (electron 45+ fetches it on first use, not at npm install). */
+export function installedElectronVersion(checkout) {
+  try {
+    return readFileSync(join(checkout, 'node_modules', 'electron', 'dist', 'version'), 'utf8').trim().replace(/^v/, '') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Make sure the Electron binary for the installed package is on disk. electron's own install.js does the work and does
+ * nothing when it is already there, so this is cheap to call every time. `node` may be Electron running as plain Node.
+ */
+export async function ensureElectron({ checkout, node = process.execPath, env = process.env, run: r = run }) {
+  if (installedElectronVersion(checkout) === electronVersion(checkout)) return;
+  const clean = { ...env, ELECTRON_RUN_AS_NODE: '1' };
+  delete clean.ANTHROPIC_API_KEY;
+  delete clean.ANTHROPIC_AUTH_TOKEN;
+  try {
+    await r(node, [join(checkout, 'node_modules', 'electron', 'install.js')], { cwd: checkout, env: clean, timeout: 10 * 60_000 });
+  } catch (e) {
+    throw new Error(`Could not download Electron ${electronVersion(checkout)}: ${String(e.stderr || e.message).trim().split('\n').slice(-3).join('\n')}`);
   }
 }
 
@@ -65,13 +90,15 @@ async function adHocSign(bundle) {
  * Build the bundle at `out`. It is assembled and signed next to its final place and moved in with a rename, so a failure at
  * any step leaves an existing app exactly as it was. Replacing an app that is not a Designer shell app needs `force`.
  */
-export async function buildBundle({ checkout, out, force = false, sign = adHocSign }) {
+export async function buildBundle({ checkout, out, force = false, sign = adHocSign, ensure = ensureElectron }) {
   checkout = resolve(checkout);
   out = resolve(out);
   if (!isCheckout(checkout)) throw new Error(`${checkout} is not a Designer checkout (no package.json named "designer" with packages/desktop).`);
   const src = electronApp(checkout);
   const version = electronVersion(checkout);
-  if (!existsSync(src) || !version) throw new Error(`Electron is not installed in ${checkout}. Run "npm install" there first.`);
+  if (!version) throw new Error(`Electron is not installed in ${checkout}. Run "npm install" there first.`);
+  await ensure({ checkout });
+  if (!existsSync(src) || installedElectronVersion(checkout) !== version) throw new Error(`Electron ${version} is not downloaded in ${checkout}. Run "node node_modules/electron/install.js" there.`);
   if (existsSync(out)) {
     const id = bundleIdentifier(out);
     if (id !== BUNDLE_ID && !force) throw new Error(`${out} already exists and is not a Designer shell app (${id ?? 'no bundle id'}), so it was left alone. Choose another place with --out, or pass --force to replace it.`);

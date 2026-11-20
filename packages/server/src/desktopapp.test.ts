@@ -53,10 +53,18 @@ function checkout(electron = '45.3.4') {
   write(join(app, 'Contents/Resources/default_app.asar'), 'asar');
   write(join(app, 'Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework'), 'fw');
   symlinkSync('A', join(app, 'Contents/Frameworks/Electron Framework.framework/Versions/Current'));
+  write(join(dir, 'node_modules/electron/package.json'), JSON.stringify({ name: 'electron', version: electron }));
   write(join(dir, 'node_modules/electron/dist/version'), electron);
   return dir;
 }
 
+/** npm install moves electron's package.json to the new version; the binary only arrives when install.js runs. */
+const bump = (co: string, v: string) => write(join(co, 'node_modules/electron/package.json'), JSON.stringify({ name: 'electron', version: v }));
+const installed: string[] = [];
+const ensure = async ({ checkout: co }: { checkout: string }) => {
+  const want = JSON.parse(readFileSync(join(co, 'node_modules/electron/package.json'), 'utf8')).version;
+  if (readFileSync(join(co, 'node_modules/electron/dist/version'), 'utf8') !== want) (installed.push(want), write(join(co, 'node_modules/electron/dist/version'), want));
+};
 const signed: string[] = [];
 const sign = async (p: string) => void signed.push(p);
 
@@ -74,7 +82,7 @@ test('bundle layout: a Designer-named copy of Electron whose app code is a shim 
   const co = checkout();
   const out = join(tmp(), 'Designer.app');
   signed.length = 0;
-  const r = await b.buildBundle({ checkout: co, out, sign });
+  const r = await b.buildBundle({ checkout: co, out, sign, ensure });
   assert.equal(r.electron, '45.3.4');
   const c = join(out, 'Contents');
   assert.ok(existsSync(join(c, 'MacOS/Designer')), 'executable renamed');
@@ -114,13 +122,13 @@ test('an app that is not ours is never replaced without --force; ours is replace
   const dir = tmp();
   const out = join(dir, 'Designer.app');
   write(join(out, 'Contents/Info.plist'), PLIST.replace('com.github.Electron', 'com.example.other'));
-  await assert.rejects(b.buildBundle({ checkout: co, out, sign }), /not a Designer shell app/);
+  await assert.rejects(b.buildBundle({ checkout: co, out, sign, ensure }), /not a Designer shell app/);
   assert.match(readFileSync(join(out, 'Contents/Info.plist'), 'utf8'), /com.example.other/, 'left exactly as it was');
-  await b.buildBundle({ checkout: co, out, sign, force: true });
+  await b.buildBundle({ checkout: co, out, sign, ensure, force: true });
   assert.ok(existsSync(join(out, 'Contents/MacOS/Designer')));
   // a second build over our own bundle needs no flag, and picks up a new Electron
-  write(join(co, 'node_modules/electron/dist/version'), '46.0.0');
-  const again = await b.buildBundle({ checkout: co, out, sign });
+  bump(co, '46.0.0');
+  const again = await b.buildBundle({ checkout: co, out, sign, ensure });
   assert.equal(again.electron, '46.0.0');
   assert.deepEqual(readdirSync(dir), ['Designer.app']);
 });
@@ -129,21 +137,45 @@ test('a failed build (for example codesign) leaves the existing app untouched an
   const co = checkout();
   const dir = tmp();
   const out = join(dir, 'Designer.app');
-  await b.buildBundle({ checkout: co, out, sign });
-  write(join(co, 'node_modules/electron/dist/version'), '46.0.0');
-  await assert.rejects(b.buildBundle({ checkout: co, out, sign: async () => { throw new Error('codesign exploded'); } }), /codesign exploded/);
+  await b.buildBundle({ checkout: co, out, sign, ensure });
+  bump(co, '46.0.0');
+  await assert.rejects(b.buildBundle({ checkout: co, out, ensure, sign: async () => { throw new Error('codesign exploded'); } }), /codesign exploded/);
   assert.equal(JSON.parse(readFileSync(join(out, 'Contents/Resources/designer.json'), 'utf8')).electron, '45.3.4', 'still the old working bundle');
   assert.deepEqual(readdirSync(dir), ['Designer.app']);
+});
+
+test('electron 45+ downloads its binary lazily: the builder fetches it when the package moved ahead of the binary, and says so if that fails', async () => {
+  const co = checkout();
+  const out = join(tmp(), 'Designer.app');
+  installed.length = 0;
+  await b.buildBundle({ checkout: co, out, sign, ensure });
+  assert.deepEqual(installed, [], 'binary already current: nothing to download');
+  bump(co, '46.2.0'); // what `npm install` does after a version bump: package.json moves, dist stays
+  assert.equal(b.installedElectronVersion(co), '45.3.4');
+  const r = await b.buildBundle({ checkout: co, out, sign, ensure });
+  assert.deepEqual(installed, ['46.2.0']);
+  assert.equal(r.electron, '46.2.0');
+  // the real step: electron's own install.js, run as plain Node, without Anthropic credentials
+  const calls: any[] = [];
+  bump(co, '46.3.0');
+  await b.ensureElectron({ checkout: co, node: '/x/Designer', env: { PATH: '/bin', ANTHROPIC_API_KEY: 'sk', ANTHROPIC_AUTH_TOKEN: 't' }, run: async (cmd: string, args: string[], o: any) => void calls.push({ cmd, args, env: o.env }) });
+  assert.equal(calls[0].cmd, '/x/Designer');
+  assert.deepEqual(calls[0].args, [join(co, 'node_modules/electron/install.js')]);
+  assert.equal(calls[0].env.ELECTRON_RUN_AS_NODE, '1');
+  assert.ok(!('ANTHROPIC_API_KEY' in calls[0].env) && !('ANTHROPIC_AUTH_TOKEN' in calls[0].env));
+  await assert.rejects(b.ensureElectron({ checkout: co, run: async () => { throw Object.assign(new Error('x'), { stderr: 'getaddrinfo ENOTFOUND github.com' }); } }), /Could not download Electron 46\.3\.0.*ENOTFOUND/s);
+  // no download happened and none was possible: refuse to build an app around a missing binary
+  await assert.rejects(b.buildBundle({ checkout: co, out: join(tmp(), 'Designer.app'), sign, ensure: async () => {} }), /not downloaded/);
 });
 
 test('stale detection: an Electron bump or a newer bundle format means the app shell must be rebuilt', async () => {
   const co = checkout();
   const out = join(tmp(), 'Designer.app');
-  await b.buildBundle({ checkout: co, out, sign });
+  await b.buildBundle({ checkout: co, out, sign, ensure });
   assert.equal(b.staleReason({ bundle: out, checkout: co }), undefined);
-  write(join(co, 'node_modules/electron/dist/version'), '46.1.0');
+  bump(co, '46.1.0');
   assert.match(b.staleReason({ bundle: out, checkout: co }), /Electron 46\.1\.0.*Electron 45\.3\.4/);
-  write(join(co, 'node_modules/electron/dist/version'), '45.3.4');
+  bump(co, '45.3.4');
   const infoFile = join(out, 'Contents/Resources/designer.json');
   writeFileSync(infoFile, JSON.stringify({ format: b.FORMAT - 1, checkout: co, electron: '45.3.4' }));
   assert.match(b.staleReason({ bundle: out, checkout: co }), /older/);
@@ -154,7 +186,7 @@ test('stale detection: an Electron bump or a newer bundle format means the app s
 test('which bundle is running: derived from the executable path, and only when it is one of ours', async () => {
   const co = checkout();
   const out = join(tmp(), 'Designer.app');
-  await b.buildBundle({ checkout: co, out, sign });
+  await b.buildBundle({ checkout: co, out, sign, ensure });
   assert.equal(b.runningBundle(join(out, 'Contents/MacOS/Designer')), out);
   assert.equal(b.runningBundle(join(co, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')), null, 'plain Electron from npm run app');
   assert.equal(b.runningBundle('/usr/local/bin/node'), null);
@@ -163,12 +195,12 @@ test('which bundle is running: derived from the executable path, and only when i
 test('after an update the bundle is rebuilt only when stale, by the new checkout\'s own builder, as plain Node', async () => {
   const co = checkout();
   const out = join(tmp(), 'Designer.app');
-  await b.buildBundle({ checkout: co, out, sign });
+  await b.buildBundle({ checkout: co, out, sign, ensure });
   const calls: any[] = [];
   const run = async (cmd: string, args: string[], opts: any) => void calls.push({ cmd, args, env: opts.env });
   assert.deepEqual(await b.refreshBundle({ bundle: out, checkout: co, execPath: '/x/Designer', env: { PATH: '/bin' }, run }), { refreshed: false });
   assert.equal(calls.length, 0, 'up to date: nothing is rebuilt');
-  write(join(co, 'node_modules/electron/dist/version'), '46.0.0');
+  bump(co, '46.0.0');
   const r = await b.refreshBundle({ bundle: out, checkout: co, execPath: '/x/Designer', env: { PATH: '/bin', ANTHROPIC_API_KEY: 'sk-secret', ANTHROPIC_AUTH_TOKEN: 'tok' }, run });
   assert.equal(r.refreshed, true);
   assert.equal(calls.length, 1);
