@@ -44,6 +44,16 @@ export const fakeAdapter: ProviderAdapter = {
             sink.running(false);
             return;
           }
+          if (/devserver/i.test(text)) {
+            // pretends a dev server was started; the URL comes from the prompt so tests can point it at a real local server
+            const url = text.match(/https?:\/\/\S+/)?.[0] ?? 'http://localhost:5173/';
+            sink.emit({ type: 'tool_call', id: `${id}-d`, kind: 'command', name: 'Bash', label: 'npm run dev', status: 'done', output: `  Local: ${url}` });
+            const msg = `The dev server is running. Open [the app](${url}) or see [the docs](https://example.com/docs).`;
+            sink.emit({ type: 'assistant_message', messageId: `${id}:0`, text: msg });
+            sink.emit({ type: 'turn_done', costUsd: 0 });
+            sink.running(false);
+            return;
+          }
           const reply = /long/i.test(text) ? LONG.repeat(4) : LONG;
           let i = 0;
           while (i < reply.length && !stop) {

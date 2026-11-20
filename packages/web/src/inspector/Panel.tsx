@@ -59,7 +59,7 @@ export function InspectorPanel({ workspaceId, threadId }: { workspaceId: string;
       setCopyErr(true);
     }
   };
-  const addToMessage = () => store.insertDraft(threadId, inspector.report(ctx()));
+  const addToMessage = () => store.prefill(threadId, inspector.report(ctx()));
   const mine = el && edits.find((e) => e.id === el.id);
 
   return (

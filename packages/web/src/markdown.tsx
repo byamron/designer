@@ -1,10 +1,38 @@
 import { memo, type ReactNode } from 'react';
 import { marked, type Token, type Tokens } from 'marked';
+import { store } from './store';
+import { isLocalUrl } from './localUrls';
 
 // Model output is untrusted: we render tokens to React elements ourselves and never
 // inject HTML. Raw HTML in the markdown is shown as plain text.
 
 const SAFE_URL = /^(https?:|mailto:|#|\/)/i;
+
+/**
+ * A link to a local dev server: a plain click shows it in the preview pane; the small arrow (or a modifier-click,
+ * or middle-click) opens it in the browser like any other link.
+ */
+function LocalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <>
+      <a
+        className="local-link"
+        href={href}
+        target="_blank"
+        rel="noreferrer noopener"
+        title="Open in preview"
+        onClick={(e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return; // browser default
+          e.preventDefault();
+          store.openPreview(href);
+        }}
+      >
+        {children}
+      </a>
+      <a className="local-link-out" href={href} target="_blank" rel="noreferrer noopener" aria-label={`Open ${href} in browser`} title="Open in browser">↗</a>
+    </>
+  );
+}
 
 function inline(tokens: Token[] | undefined, key = ''): ReactNode[] {
   return (tokens ?? []).map((t, i) => {
@@ -17,6 +45,7 @@ function inline(tokens: Token[] | undefined, key = ''): ReactNode[] {
       case 'br': return <br key={k} />;
       case 'link': {
         const l = t as Tokens.Link;
+        if (isLocalUrl(l.href)) return <LocalLink key={k} href={l.href}>{inline(l.tokens, k)}</LocalLink>;
         return SAFE_URL.test(l.href) ? (
           <a key={k} href={l.href} target="_blank" rel="noreferrer noopener">{inline(l.tokens, k)}</a>
         ) : (

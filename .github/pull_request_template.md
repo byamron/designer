@@ -16,6 +16,9 @@
 ### Needs Mac / real account (orchestrator copies these into docs/needs-local-testing.md)
 - [ ] <specific thing a human must check>
 
+### Safety (see .claude/rules/safety.md and docs/security.md)
+<which safety-critical paths you touched and which existing/new tests pin the behavior, or "no safety-critical paths touched">
+
 ### Deliberately not done
 <anything from the spec you left out, and why, or "nothing">
 

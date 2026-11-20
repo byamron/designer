@@ -74,7 +74,9 @@ export function useStick(resetKey: string) {
     let touchY = 0;
 
     const nearBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight <= REATTACH_PX;
+    let lastUserUp = 0; // when the user last scrolled up (wheel, touch, key, scrollbar)
     const detach = () => {
+      lastUserUp = performance.now();
       cancelAnim();
       attached.current = false;
       setDetached(true);
@@ -100,7 +102,9 @@ export function useStick(resetKey: string) {
     const onScroll = () => {
       const top = el.scrollTop;
       if (scrollbarDrag && top < lastTop) detach();
-      if (!anim.current && !attached.current && nearBottom() && top >= lastTop) set(true);
+      // Re-attach only when the user really moved DOWN to the bottom. A scroll event left over from our own animation or pin
+      // (same or slightly larger position) can arrive right after an upward wheel and must not undo it.
+      if (!anim.current && !attached.current && nearBottom() && top > lastTop && performance.now() - lastUserUp > 250) set(true);
       lastTop = top;
     };
     const ro = new ResizeObserver(() => {
