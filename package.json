@@ -13,5 +13,8 @@
     "test": "npm test -w @designer/server",
     "dev-instance": "node scripts/dev-instance.mjs",
     "app": "npm run build && electron packages/desktop"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
   }
 }
