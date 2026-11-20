@@ -4,6 +4,7 @@ import type { Item } from './store';
 import { Markdown } from './markdown';
 import { useSmoothText } from './useSmoothText';
 import { fmtElapsed } from './format';
+import { MessageChips } from './PreviewChips';
 
 export const Row = memo(function Row({ item, threadId, fresh }: { item: Item; threadId: string; fresh?: boolean }) {
   const f = fresh ? ' fresh' : '';
@@ -29,6 +30,7 @@ export function Assistant({ item, fresh }: { item: Extract<Item, { kind: 'assist
   return (
     <div className={`msg assistant${live ? ' live' : ' settled'}${fresh}`}>
       <Markdown text={text} />
+      {!live && <MessageChips text={item.text} />}
     </div>
   );
 }
