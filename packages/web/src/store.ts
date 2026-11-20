@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import { getToken } from './auth';
 import type { QuestionItem } from './Question';
-import type { AnswerHow, ClientMsg, Decision, PermissionMode, ServerMsg, StoredEvent, ThreadMeta, ToolStatus, Workspace } from '@designer/shared';
+import type { AnswerHow, ClientMsg, Decision, ImageRef, ImageUpload, PermissionMode, ServerMsg, StoredEvent, ThreadMeta, ToolStatus, Workspace } from '@designer/shared';
 
 export type Item =
-  | { kind: 'user'; id: string; text: string }
+  | { kind: 'user'; id: string; text: string; images?: ImageRef[] }
   | { kind: 'assistant'; id: string; text: string; streaming: boolean }
   | { kind: 'tool'; id: string; name: string; toolKind: string; label: string; status: ToolStatus; output?: string }
   | { kind: 'approval'; id: string; toolName: string; label: string; resolved?: Decision }
@@ -12,11 +12,14 @@ export type Item =
   | { kind: 'error'; id: string; message: string }
   | { kind: 'done'; id: string; costUsd?: number; interrupted?: boolean; ms?: number };
 
+/** A message typed while a turn was running; its images go out with it. */
+export interface Queued { text: string; images: ImageUpload[] }
+
 export interface ThreadView {
   items: Item[];
   lastSeq: number;
   loaded: boolean;
-  queue: string[];
+  queue: Queued[];
   /** Count of finished turns seen, used to refresh previews. */
   turns: number;
   /** Timestamp of the latest user message: when the current (or last) turn began. */
@@ -53,7 +56,7 @@ function applyEvent(items: Item[], e: StoredEvent, turnStart?: number): Item[] {
     return next;
   };
   switch (e.type) {
-    case 'user_message': return [...items, { kind: 'user', id: `u${e.seq}`, text: e.text }];
+    case 'user_message': return [...items, { kind: 'user', id: `u${e.seq}`, text: e.text, images: e.images }];
     case 'assistant_message': return upsert({ kind: 'assistant', id: e.messageId, text: e.text, streaming: false });
     case 'tool_call': return upsert({ kind: 'tool', id: e.id, name: e.name, toolKind: e.kind, label: e.label, status: e.status, output: e.output });
     case 'approval_request': return upsert({ kind: 'approval', id: e.requestId, toolName: e.toolName, label: e.label });
@@ -226,17 +229,17 @@ class Store {
     try { localStorage.setItem('designer.active', id); } catch { /* private mode */ }
     this.send({ type: 'subscribe', threadId: id, lastSeq: this.state.views[id]?.lastSeq ?? 0 });
   }
-  say(id: string, text: string) {
+  say(id: string, text: string, images: ImageUpload[] = []) {
     const t = this.state.threads.find((x) => x.id === id);
-    if (t?.status === 'running') this.setView(id, (v) => ({ ...v, queue: [...v.queue, text] }));
-    else this.send({ type: 'send', threadId: id, text });
+    if (t?.status === 'running') this.setView(id, (v) => ({ ...v, queue: [...v.queue, { text, images }] }));
+    else this.send({ type: 'send', threadId: id, text, ...(images.length ? { images } : {}) });
   }
   private drainQueue(id: string) {
     const v = this.state.views[id];
     if (!v?.queue.length) return;
     const [next, ...rest] = v.queue;
     this.setView(id, (x) => ({ ...x, queue: rest }));
-    this.send({ type: 'send', threadId: id, text: next });
+    this.send({ type: 'send', threadId: id, text: next.text, ...(next.images.length ? { images: next.images } : {}) });
   }
   dropQueued(id: string, i: number) {
     this.setView(id, (v) => ({ ...v, queue: v.queue.filter((_, j) => j !== i) }));

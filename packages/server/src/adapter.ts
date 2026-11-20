@@ -1,4 +1,4 @@
-import type { AgentEvent, AnswerHow, Decision } from '@designer/shared';
+import type { AgentEvent, AnswerHow, Decision, ImageUpload } from '@designer/shared';
 
 import type { PermissionMode } from '@designer/shared';
 export type { PermissionMode };
@@ -14,7 +14,7 @@ export interface SessionSink {
 
 /** The only provider abstraction: one live session per thread. */
 export interface Session {
-  send(text: string): Promise<void>;
+  send(text: string, images?: ImageUpload[]): Promise<void>;
   interrupt(): Promise<void>;
   respond(requestId: string, decision: Decision): void;
   /** Answer a pending question card (AskUserQuestion). */

@@ -1,5 +1,5 @@
 import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { AnswerHow, Decision, Question, ToolKind } from '@designer/shared';
+import type { AnswerHow, Decision, ImageUpload, Question, ToolKind } from '@designer/shared';
 import type { ProviderAdapter, Session, SessionSink, StartOpts, PermissionMode } from './adapter.js';
 import { clientHow, finalAnswers, parseQuestions } from './questions.js';
 
@@ -71,6 +71,15 @@ export function sessionOptions(opts: StartOpts, nativeId: string | undefined, en
     ...(opts.permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
     ...(nativeId ? { resume: nativeId } : {}),
   };
+}
+
+/** Message content for Claude: the plain string when there are no images, else a text block (if any) plus image blocks. */
+export function userContent(text: string, images: ImageUpload[] = []) {
+  if (!images.length) return text;
+  return [
+    ...(text.trim() ? [{ type: 'text' as const, text }] : []),
+    ...images.map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mime as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp', data: im.data } })),
+  ];
 }
 
 class ClaudeSession implements Session {
@@ -235,11 +244,11 @@ class ClaudeSession implements Session {
     return `${this.currentApiId}:${map.get(index)}`;
   }
 
-  async send(text: string) {
+  async send(text: string, images: ImageUpload[] = []) {
     this.ensureStarted();
     this.interrupted = false;
     this.sink.running(true);
-    this.input.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null } as SDKUserMessage);
+    this.input.push({ type: 'user', message: { role: 'user', content: userContent(text, images) }, parent_tool_use_id: null } as SDKUserMessage);
   }
 
   async interrupt() {

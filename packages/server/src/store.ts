@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { EXT, ID_RE, MIME_BY_EXT } from './attachments.js';
 import { join } from 'node:path';
 import type { AgentEvent, StoredEvent, ThreadMeta, Workspace } from '@designer/shared';
 
@@ -66,5 +67,26 @@ export class Store {
     mkdirSync(this.dir(id), { recursive: true, mode: 0o700 });
     appendFileSync(join(this.dir(id), 'events.jsonl'), JSON.stringify(stored) + '\n', { mode: 0o600 });
     return stored;
+  }
+  /** Store an image once, under its content hash. Owner-only. */
+  saveAttachment(threadId: string, id: string, mime: string, bytes: Buffer) {
+    const ext = EXT[mime];
+    if (!ext || !ID_RE.test(id)) throw new Error('bad attachment');
+    const dir = join(this.dir(threadId), 'attachments');
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const f = join(dir, `${id}.${ext}`);
+    if (!existsSync(f)) writeFileSync(f, bytes, { mode: 0o600 });
+  }
+  /** The stored image and its fixed type, or undefined. Ids are hashes: nothing user-supplied becomes a path. */
+  readAttachment(threadId: string, id: string): { mime: string; bytes: Buffer } | undefined {
+    if (!ID_RE.test(id) || !/^[\w-]+$/.test(threadId)) return undefined;
+    for (const [ext, mime] of Object.entries(MIME_BY_EXT)) {
+      try {
+        return { mime, bytes: readFileSync(join(this.dir(threadId), 'attachments', `${id}.${ext}`)) };
+      } catch {
+        // not stored under this type
+      }
+    }
+    return undefined;
   }
 }

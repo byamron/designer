@@ -1,6 +1,7 @@
 // Feedback and motion: working indicator + timer, animated jump-to-latest, smoothed streaming, expand animation.
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { paste, pngFile } from './lib/images.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const URL = process.env.URL ?? 'http://localhost:4317';
 const log = (m) => console.log('ok -', m);
@@ -165,6 +166,16 @@ const idle = (page) => page.waitForSelector('.working', { state: 'detached', tim
   }));
   assert.ok(new Set(samples).size <= 2, `jump is instant with reduced motion (${new Set(samples).size} positions)`);
   log('prefers-reduced-motion: no animation, instant jump');
+  await paste(page, [pngFile()]);
+  await page.locator('.composer .thumb').waitFor();
+  await page.keyboard.press('Enter');
+  await page.locator('.sent-thumb img').waitFor();
+  await page.locator('.sent-thumb').click();
+  await page.locator('.viewer').waitFor();
+  const vdur = await page.$eval('.viewer', (el) => parseFloat(getComputedStyle(el).animationDuration));
+  assert.ok(vdur < 0.001, `the image viewer does not animate with reduced motion (${vdur}s)`);
+  await page.keyboard.press('Escape');
+  log('prefers-reduced-motion: the image viewer does not animate');
   await ctx.close();
 }
 
