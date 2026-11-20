@@ -5,6 +5,22 @@ can merge several PRs in order without surprises.
 
 Base branch for everything: **`main`** ("the base"). `main` is the single source of truth; the old Tauri app is archived (see README).
 
+## Stacked PRs (when your project depends on another open PR)
+If your `depends-on` is non-empty and the parent PR is not merged yet, do **not** branch from `main` and open against `main`
+(the PR would carry the parent's commits and conflict with it). Make a **stack** with GitHub Stacked PRs instead:
+```sh
+gh extension install github/gh-stack     # once
+gh stack init --base main <parent-branch> feat/<project>   # adopts the parent branch, adds yours on top
+# ... commit on your branch ...
+gh stack submit                          # pushes every branch, opens one PR per layer, each based on the one below
+```
+- Each PR's base is the branch below it, so the diff shows only your layer. Titles stay `[<project>] ...`.
+- In the `orchestrator` block set `base:` to the parent branch and keep `depends-on`.
+- Keep layers independent of unrelated work; one dependency chain per stack. Independent projects are separate PRs on `main`, never one stack.
+- Rebase the whole stack with `gh stack rebase` (not by hand). Merge bottom-up only; after a layer merges, run `gh stack sync`.
+- A squash-merged parent would make a plain `git rebase` replay its commits; `gh stack` handles this, so use it.
+- Run the suites at each layer, not just the top.
+
 ## 1. Set up
 ```sh
 git fetch origin
@@ -32,6 +48,9 @@ Write down any failure that already exists; do not "fix" unrelated failures in y
 - [ ] `npm run typecheck`, `npm test` and `e2e/run.sh` pass (paste the summary lines in the PR).
 - [ ] New interactive UI: visible inset focus ring, keyboard path, `prefers-reduced-motion` respected, tokens only (no stray px/hex).
 - [ ] Anything that touches the network, files or processes has a test for the unsafe cases (see the spec's Security section).
+- [ ] Safety: if the diff touches a path listed in `.claude/rules/safety.md` (approvals, auth/token, preview/proxy, store, desktop shell, their tests),
+      you read `docs/security.md`, kept every pinning test passing (none weakened or deleted), added a test for any new unsafe case,
+      and filled in the PR's "Safety" section. If it touches none of them, write "Safety: no safety-critical paths touched".
 - [ ] You looked at it in a real browser (screenshot in the PR for anything visual).
 - [ ] Items that only a Mac/real account can verify are listed in the PR body under "Needs Mac".
 
@@ -57,7 +76,8 @@ Resolve conflicts by keeping both sides' intent (both union-type members, both s
 Update the `orchestrator` block's `checks` and `base-sha` afterwards.
 
 ## For the orchestrator
-Merge in `merge-order` (ties: smaller first). For each PR:
+Merge in `merge-order` (ties: smaller first). A stack merges bottom-up and its order is the stack order; a PR whose
+`depends-on` is open but whose base is `main` is a protocol violation: ask the author to restack it. For each PR:
 1. Check the `orchestrator` block: `depends-on` merged? `new-dependencies` acceptable? `touched-outside-owned` sensible?
 2. Ask the author to rebase if the base moved (section 5), or rebase it yourself.
 3. Re-run `npm run typecheck && npm test && e2e/run.sh` on the PR branch; merge (squash is fine; keep the `[project]` title).
