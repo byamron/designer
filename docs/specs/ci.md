@@ -111,8 +111,23 @@ scanning. Not required yet: let it run on a few PRs, triage what it reports, the
 `npm run make-app -- --out "$RUNNER_TEMP/Designer.app"`, `codesign --verify --deep --strict`, bundle name and id, then
 `node e2e/app.e2e.mjs` (builds its own bundle, launches it with a Dock-style bare `PATH`, checks the server's environment has no
 `ANTHROPIC_*`, single instance, quit stops the server, moved-checkout message, Electron-bump rebuild) and
-`node e2e/desktop.e2e.mjs` (the shell from the checkout). See "macOS smoke: what ran" at the end for what was observed on the
-runner and what, if anything, is skipped. Not required until it has been green across several PRs and a few pushes to main.
+`node e2e/desktop.e2e.mjs` (the shell from the checkout). Not required until it has been green across several PRs and a few
+pushes to main.
+
+**What was observed on the runner** (`macos-latest` = `macos-26-arm64` at the time of writing): both suites run **in full**, no
+assertion is skipped. `app.e2e.mjs`: all 7 scenarios (signature verifies, window named Designer, no `ANTHROPIC_*` in the
+server's environment read with `ps -wwE`, login-shell PATH reaches the server, single instance, quit stops the server, moved
+checkout message, Electron-bump rebuild and relaunch). `desktop.e2e.mjs`: all 11 (token consumed, chat, locked-down window,
+menus, update check, server restart, navigation lock, quit, window size restored after relaunch). One runner quirk needed a
+workaround, in the workflow only (the suites are untouched): the runner's display is 1024x768, so with the Dock showing the work
+area is 677 high and macOS clamps the 1000x700 window the suite asks for; the job hides the Dock first
+(`defaults write com.apple.dock autohide -bool true; killall Dock`). The Linux-only branch of `desktop.e2e.mjs` (reads the
+server's environment from `/proc`) does not run on macOS; `app.e2e.mjs` covers the same assertion with `ps`.
+**What it cannot prove:** the owner's real login-shell PATH (Homebrew/nvm layout), a real `claude login`, Gatekeeper/quarantine
+(the runner builds the app locally, as the owner does), notarization, Dock icon and Cmd-Tab entry. Those stay in
+[needs-local-testing.md](../needs-local-testing.md). Reliability so far: after the Dock fix every run was green (6 runs across
+this PR and its throwaway fixture PRs, including one re-run); the only red run was the pre-fix one. Watch for: Electron start-up
+timeouts on a busy runner (the suites allow 90 s), the fixed ports 4800/4900, and new macOS image versions.
 
 ## 6. Promote stable (`promote-stable.yml`), written but not consumed
 After a push to `main` where the required checks (`checks`, `browser`; add `macos-app-smoke` by setting `REQUIRE_MACOS: 'true'`
@@ -146,6 +161,14 @@ Proposed quarantine policy (not implemented; decide before the browser job is ga
 - A quarantined step that has not been fixed in 14 days is either deleted deliberately (with the `safety-reviewed` label if it is a
   pinned file) or promoted back with its fix. Quarantine is never allowed for a pinned security test.
 - Fix the cause (wait on state, not time) rather than the symptom.
+
+## Proof on the PR that introduced the gates
+The links are in PR #165's body: every gate passing on the real change, and a throwaway fixture PR per guard that fails it
+deliberately (a critical-advisory dependency, a new `postinstall` plus a non-npm lockfile entry, a safety path with "none
+touched" plus a deleted assertion plus the gate disabled in the same PR, and a workflow with `pull_request_target`, an unpinned
+action and template injection). `promote-stable` cannot run before it exists on `main` (`workflow_run` and manual dispatch both
+use the default branch's file); its fast-forward logic was exercised by hand against a throwaway ref (create, fast-forward,
+refused non-fast-forward with the exact error text the workflow matches) and its check-run gate against main's real commit.
 
 ## Operating notes
 - Add an install-script or audit waiver: edit the JSON file in `scripts/ci/`, with a reason; the PR then needs a real Safety
