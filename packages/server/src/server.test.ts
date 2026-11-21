@@ -129,6 +129,18 @@ test('new workspaces and new sessions start in auto permission mode', async () =
   assert.deepEqual(started, ['auto']);
 });
 
+test('a chat saved without a permission mode keeps asking (default), it is not promoted to auto', async () => {
+  const started: string[] = [];
+  const store = new Store(tmp());
+  store.writeMeta({ id: 'old', workspaceId: 'w', title: 'x', cwd: tmpdir(), provider: 'claude', status: 'idle', createdAt: 1, updatedAt: 1 });
+  const mgr = new Manager(store, { ...fakeAdapter, start: (o, s) => (started.push(o.permissionMode), fakeAdapter.start(o, s)) }, join(tmp(), 'worktrees'));
+  const c: Client = { subs: new Set(), send: () => {} };
+  mgr.addClient(c);
+  mgr.handle(c, { type: 'send', threadId: 'old', text: 'hello' });
+  await until(() => started.length === 1);
+  assert.deepEqual(started, ['default']);
+});
+
 test('workspaces: several sessions per workspace; archive hides one', async () => {
   const h = harness();
   const t1 = await openFolder(h);
