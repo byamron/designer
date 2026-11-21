@@ -2,6 +2,10 @@
 // changed, rebuild, and let the shell relaunch. Never merges, rebases or discards your work: it refuses unless the
 // checkout is clean, on main, and can fast-forward. If anything fails it puts the checkout back exactly as it was.
 import { execFile } from 'node:child_process';
+import { createRequire } from 'node:module';
+
+// the rollback code is plain CommonJS and self-contained so Designer.app's launcher can use it when this checkout will not start
+const { checkoutBlocker, electronVersion } = createRequire(import.meta.url)('./shim/rollback.cjs');
 
 export function run(cmd, args, { cwd, env, timeout = 0 } = {}) {
   return new Promise((res, rej) => {
@@ -36,8 +40,8 @@ export async function checkForUpdate({ root, r = run }) {
 
 /** Why an update cannot run right now, or undefined if it can. */
 export function blocker(c) {
-  if (c.branch !== BRANCH) return `This copy is on "${c.branch}", not ${BRANCH}. Switch it to ${BRANCH} first; updates only follow ${BRANCH}.`;
-  if (c.dirty) return 'This copy has uncommitted changes, so it will not be touched. The copy you run should never be edited; use a worktree for changes.';
+  const base = checkoutBlocker(c); // main, and clean: the same rule for going forward and going back
+  if (base) return base;
   if (!c.canFastForward) return `This copy has commits that ${REMOTE}/${BRANCH} does not, so it cannot move forward cleanly. Nothing was changed.`;
   if (c.behind === 0) return 'Already up to date.';
   return undefined;
@@ -45,7 +49,7 @@ export function blocker(c) {
 
 /**
  * Apply the update. `env` should carry the PATH that finds npm. Calls `progress(text)` between steps.
- * Returns { ok: true, from, to, installed } or { ok: false, error, rolledBack }.
+ * Returns { ok: true, from, to, installed, electron: {from, to} } or { ok: false, error, rolledBack }.
  */
 export async function applyUpdate({ root, env, r = run, progress = () => {} }) {
   const git = (...a) => r('git', a, { cwd: root, timeout: 120_000 });
@@ -55,6 +59,7 @@ export async function applyUpdate({ root, env, r = run, progress = () => {} }) {
   const why = blocker(check);
   if (why) return { ok: false, error: why, rolledBack: false, rebuilt: false };
   const from = check.head;
+  const electronBefore = electronVersion(root);
   let installed = false;
   try {
     progress('Fetching the new version…');
@@ -67,7 +72,7 @@ export async function applyUpdate({ root, env, r = run, progress = () => {} }) {
     }
     progress('Building…');
     await npm('run', 'build');
-    return { ok: true, from, to: await git('rev-parse', 'HEAD'), installed };
+    return { ok: true, from, to: await git('rev-parse', 'HEAD'), installed, electron: { from: electronBefore ?? null, to: electronVersion(root) ?? null } };
   } catch (e) {
     // Put the checkout back exactly as it was: it was clean and we only fast-forwarded, so this loses nothing.
     // Every step is reported; a failed restore is never hidden behind "undone".

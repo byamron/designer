@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
 /** Bump when the shim or the bundle layout changes in a way an existing bundle cannot follow. */
-export const FORMAT = 1;
+export const FORMAT = 2; // 2: the launcher can offer a rollback when the checkout's code will not start
 export const BUNDLE_ID = 'app.designer.chat';
 export const BUNDLE_NAME = 'Designer';
 export const INFO_FILE = 'designer.json'; // inside Contents/Resources: what this bundle was built for

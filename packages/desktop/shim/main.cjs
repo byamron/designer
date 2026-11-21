@@ -8,6 +8,9 @@ const { appendFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { isCheckout, locate } = require('./locate.cjs');
+const rb = require('./rollback.cjs');
+
+if (process.env.DESIGNER_USER_DATA) app.setPath('userData', process.env.DESIGNER_USER_DATA); // same as main.mjs: tests keep their own settings
 
 const resources = join(__dirname, '..');
 const bundle = join(resources, '..', '..'); // .../Designer.app
@@ -55,12 +58,46 @@ async function explain(message) {
   }
 }
 
+/**
+ * The checkout's own code would not load. If the update that brought it never started even once, and this is the second
+ * start in a row that failed, offer to go back to the previous version right here (nothing else can: the code that would
+ * offer it is what is broken). Otherwise just say what happened.
+ */
+async function explainBroken(error) {
+  const userData = app.getPath('userData');
+  let attempts = 0;
+  try { attempts = rb.noteLaunch(userData); } catch (e) { error += `\n(could not count this start: ${e.message})`; } // main.mjs never ran, so it did not count this start
+  const record = rb.readRecord(userData);
+  const detail = String(error).split('\n').slice(0, 6).join('\n');
+  if (attempts < 2 || !rb.shouldOfferOnFailure(record)) {
+    await ask({ type: 'error', message: "Designer can't start", detail: `${detail}\n\nIf this keeps happening after an update, start it once more and Designer will offer to go back to the previous version.`, buttons: ['Quit'], cancelId: 0 });
+    return app.quit();
+  }
+  const status = await rb.rollbackStatus({ root: found.checkout, userData });
+  if (!status.available) {
+    await ask({ type: 'error', message: "Designer can't start", detail: `${detail}\n\nIt can't go back to the previous version either: ${status.why}`, buttons: ['Quit'], cancelId: 0 });
+    return app.quit();
+  }
+  const back = await rb.describeVersion({ root: found.checkout, sha: record.from });
+  const now = await rb.describeVersion({ root: found.checkout, sha: record.to });
+  const choice = await ask({
+    type: 'error', message: "Designer isn't starting since its last update.",
+    detail: `${detail}\n\nNow:  ${now}\nBack to:  ${back}\n\nYour chats and settings are kept.`,
+    buttons: ['Roll Back to Previous Version', 'Quit'], defaultId: 0, cancelId: 1,
+  });
+  if (choice !== 0) return app.quit();
+  const res = await rb.rollbackToPrevious({ root: found.checkout, userData, env: await rb.npmEnv(process.env) });
+  if (!res.ok) {
+    await ask({ type: 'error', message: "Designer couldn't roll back.", detail: res.error, buttons: ['Quit'], cancelId: 0 });
+    return app.quit();
+  }
+  app.relaunch();
+  return app.exit(0);
+}
+
 if (found.ok) {
   import(pathToFileURL(join(found.checkout, 'packages', 'desktop', 'main.mjs')).href).catch((e) => {
-    void app.whenReady().then(() => {
-      dialog.showErrorBox("Designer can't start", String((e && e.stack) || e).split('\n').slice(0, 6).join('\n'));
-      app.quit();
-    });
+    void app.whenReady().then(() => explainBroken(String((e && e.stack) || e)));
   });
 } else {
   app.setName('Designer');
