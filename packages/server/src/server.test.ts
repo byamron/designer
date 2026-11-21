@@ -110,6 +110,25 @@ test('manager: second send while running is refused', async () => {
   h.mgr.shutdown();
 });
 
+test('new workspaces and new sessions start in auto permission mode', async () => {
+  const started: string[] = [];
+  const store = new Store(tmp());
+  const mgr = new Manager(store, { ...fakeAdapter, start: (o, s) => (started.push(o.permissionMode), fakeAdapter.start(o, s)) }, join(tmp(), 'worktrees'));
+  const msgs: ServerMsg[] = [];
+  const c: Client = { subs: new Set(), send: (m) => void msgs.push(m) };
+  mgr.addClient(c);
+  const h = { store, mgr, msgs, c };
+  const t1 = await openFolder(h);
+  assert.equal(store.readMeta(t1.id)!.permissionMode, 'auto');
+  mgr.handle(c, { type: 'create_thread', workspaceId: t1.workspaceId });
+  await until(() => store.listThreads().some((t) => t.id !== t1.id && t.workspaceId === t1.workspaceId));
+  const second = store.listThreads().find((t) => t.id !== t1.id && t.workspaceId === t1.workspaceId)!;
+  assert.equal(second.permissionMode, 'auto');
+  mgr.handle(c, { type: 'send', threadId: second.id, text: 'hello' });
+  await until(() => started.length === 1);
+  assert.deepEqual(started, ['auto']);
+});
+
 test('workspaces: several sessions per workspace; archive hides one', async () => {
   const h = harness();
   const t1 = await openFolder(h);
