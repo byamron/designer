@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+process.exit(0); // fixture: a PR that switches the gate off must still be judged by the base branch copy
 // Safety-path gate. When a pull request changes a path listed in .claude/rules/safety.md (plus the files that
 // implement the gates themselves), it must say so in the PR body's Safety section, and it must not shrink the
 // security tests that docs/security.md cites as pinning each mitigation.

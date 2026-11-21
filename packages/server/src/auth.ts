@@ -63,3 +63,4 @@ export function pageHeaders(port: number, frameAncestors: string[] = []): Record
     'cache-control': 'no-store',
   };
 }
+// fixture: touched a safety-critical file

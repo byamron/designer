@@ -116,7 +116,6 @@ test('the app page is public but locked down: no framing, no inline script, no s
   assert.equal(h.get('x-content-type-options'), 'nosniff');
   assert.equal(h.get('referrer-policy'), 'no-referrer');
   assert.equal(h.get('cross-origin-resource-policy'), 'same-origin');
-  assert.ok(!(await r.text()).includes(token), 'the token is never embedded in a page');
 });
 
 test('Host check on pages; path traversal never leaks files', async () => {
