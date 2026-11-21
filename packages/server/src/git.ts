@@ -45,5 +45,12 @@ export async function addWorktree(repo: string, path: string, name: string): Pro
 
 /** Fails if the worktree has uncommitted changes: we never force-remove someone's work. */
 export async function removeWorktree(repo: string, path: string): Promise<void> {
-  await git(repo, 'worktree', 'remove', path);
+  try {
+    await git(repo, 'worktree', 'remove', path); // never --force
+  } catch (e) {
+    if (/contains modified or untracked files/.test((e as Error).message)) throw new Error(DIRTY_WORKTREE);
+    throw e;
+  }
 }
+
+export const DIRTY_WORKTREE = 'This worktree has uncommitted changes. Commit or discard them first.';
