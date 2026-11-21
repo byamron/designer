@@ -51,7 +51,7 @@ export function parseShellPath(out) {
  */
 export function loginShellPath({ shell = process.env.SHELL || '/bin/zsh', timeoutMs = 6000, run = execFile } = {}) {
   return new Promise((res) => {
-    run(shell, ['-ilc', `printf '%s' "${START}$PATH${END}"`], { timeout: timeoutMs, env: { ...process.env, TERM: 'dumb' } }, (err, stdout) => {
+    run(shell, ['-ilc', `printf '%s' "${START}\${PATH}${END}"`], { timeout: timeoutMs, env: { ...process.env, TERM: 'dumb' } }, (err, stdout) => {
       res(err && !stdout ? undefined : parseShellPath(String(stdout)));
     });
   });

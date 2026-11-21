@@ -34,7 +34,11 @@ test('login-shell PATH: asks the shell, survives failure and timeout', async () 
   assert.equal(await lib.loginShellPath({ run: (_s: string, _a: string[], _o: unknown, cb: Function) => cb(new Error('boom'), '') }), undefined);
   // a real shell, if there is one: must return a PATH containing the shell's own bin directories
   const real = await lib.loginShellPath({ shell: '/bin/bash' });
-  assert.ok(!real || real.includes('/usr/bin'), 'real login shell gives a usable PATH');
+  assert.ok(real?.includes('/usr/bin'), 'real login shell gives a usable PATH (it was silently undefined while the marker ran into the variable name)');
+  // the command must expand PATH, not a variable whose name swallows the end marker
+  let sent = '';
+  await lib.loginShellPath({ shell: '/bin/sh', run: (_s: string, a: string[], _o: unknown, cb: Function) => { sent = a[1]; cb(null, ''); } });
+  assert.ok(sent.includes('${PATH}'), sent);
 });
 
 test('ports: a free pair is found, skipping busy ones', async () => {

@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, Menu, app, dialog, screen, session, shell } from 'electron';
 import { findPort, isSafeExternal, loginShellPath, mergePaths, restartDelay, sameOrigin, sanitizeBounds, updateEnv } from './lib.mjs';
+import { refreshBundle, runningBundle, staleReason } from './bundle.mjs';
 import { applyUpdate, blocker, checkForUpdate } from './updater.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -170,6 +171,37 @@ async function installUpdate() {
   if (!r.ok) return void (await ask({ type: 'error', message: "Designer couldn't update.", detail: r.error, buttons: ['OK'] }));
   quitting = true;
   await stopServer();
+  await refreshShell({ closeWindow: true }); // a new Electron version needs a new app shell (only when running as Designer.app)
+  app.relaunch();
+  app.exit(0);
+}
+
+// ---------- Designer.app: the bundle is a copy of Electron, so it must follow the checkout's Electron version ----------
+const bundlePath = runningBundle(process.execPath); // null when started with `npm run app`
+/**
+ * Rebuild Designer.app if it no longer matches the checkout (Electron version bump). The old app survives any failure, so
+ * this never leaves you without a working Designer; a failure is logged and the next launch offers to retry.
+ */
+async function refreshShell({ closeWindow }) {
+  if (!bundlePath || !staleReason({ bundle: bundlePath, checkout: ROOT })) return { refreshed: false };
+  if (closeWindow) win?.destroy(); // no new renderer may start from a bundle that is about to be replaced
+  const r = await refreshBundle({ bundle: bundlePath, checkout: ROOT, execPath: process.execPath, env: updateEnv(process.env, await loginShellPath()) });
+  try { appendFileSync(join(app.getPath('userData'), 'update.log'), `${new Date().toISOString()} app shell: ${r.refreshed ? 'rebuilt' : r.error ?? 'current'}\n`); } catch { /* fine */ }
+  return r;
+}
+
+/** At launch: if the app shell is out of date (for example the checkout was updated in a terminal), offer to rebuild it. */
+async function checkShell() {
+  const why = bundlePath && staleReason({ bundle: bundlePath, checkout: ROOT });
+  if (!why) return;
+  const choice = await ask({ type: 'info', message: 'Designer needs to rebuild its app.', detail: `${why}\n\nThis takes a few seconds and restarts Designer. Your chats are kept.`, buttons: ['Rebuild & Restart', 'Later'], defaultId: 0, cancelId: 1 });
+  if (choice !== 0) return;
+  win?.setTitle('Designer: rebuilding the app…');
+  const r = await refreshShell({ closeWindow: false }); // nothing is replaced unless the whole build succeeded, so a failure leaves everything running
+  win?.setTitle('Designer');
+  if (!r.refreshed) return void (await ask({ type: 'error', message: "Designer couldn't rebuild its app.", detail: `${r.error ?? 'Nothing was rebuilt.'}\n\nRun "npm run make-app" in ${ROOT}.`, buttons: ['OK'] }));
+  quitting = true;
+  await stopServer();
   app.relaunch();
   app.exit(0);
 }
@@ -219,6 +251,7 @@ app.whenReady().then(async () => {
     await startServer();
     createWindow();
     if (!process.env.DESIGNER_NO_UPDATE_CHECK) setTimeout(() => void checkUpdates({ interactive: false }), 5000); // quiet; asks only if something new exists
+    setTimeout(() => void checkShell(), 2000);
   } catch (e) {
     createWindow();
     showFatal(e instanceof Error ? e.message : String(e));
