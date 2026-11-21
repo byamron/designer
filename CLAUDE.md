@@ -28,4 +28,10 @@ works for one canvas or one model belongs in an adapter, not the core loop.
 - Unfinished features are removed or flagged off, never shipped as visible stubs.
 - Do not copy code from other projects. Follow `docs/inspirations.md`: log every borrowed idea with project, pinned commit, file and lines. Anything adapted from code needs a `THIRD_PARTY_NOTICES.md` entry first.
 - The old Tauri app is on branch `archive/tauri-designer` (tag `tauri-final`); read it for ideas, don't resurrect it wholesale.
+- **Use the flow workflow by default** (the `flow` plugin; config in `flow.config.json`). Every request that changes the repo starts
+  with a short plan (scope in/out, a Spec-walk of testable criteria, a confidence level per assumption, checked with
+  `/flow:critique-plan`) before any code, then runs the loop and ends in `/flow:ship`. Not every step fits every request (a
+  typo needs no Spec-walk, a docs-only change needs no verify-build), so skip a step when the request does not warrant it, say
+  which step and why, and let `/flow:audit-skips` check the reason. Skipping a step with no reason, or working first and
+  planning afterwards, is not acceptable. `docs/pr-protocol.md` still governs branches, PR shape and which docs are the orchestrator's.
 - `main` is the single source of truth. Work happens on `feat/<name>` branches and lands through pull requests (see `docs/pr-protocol.md`). Do not reuse the old app's `v0.1.x` version tags.
