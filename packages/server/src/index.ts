@@ -4,12 +4,13 @@ import { homedir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { ClientMsg, ServerMsg } from '@designer/shared';
+import type { ServerMsg } from '@designer/shared';
 import { MAX_WS_PAYLOAD } from './attachments.js';
 import { loadToken, pageHeaders, tokenOk } from './auth.js';
 import { claudeAdapter } from './claude.js';
 import { fakeAdapter } from './fake.js';
 import { Manager, type Client } from './manager.js';
+import { parseClientMsg } from './messages.js';
 import { listHtml, probe, startPreviewServer } from './preview.js';
 import { ProxyPool } from './proxy.js';
 import { Store } from './store.js';
@@ -33,7 +34,7 @@ const manager = new Manager(store, process.env.DESIGNER_FAKE ? fakeAdapter : cla
 // check Host (DNS rebinding) and Origin (other web pages) on every request.
 const okHosts = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `localhost:${DEV_PORT}`, `127.0.0.1:${DEV_PORT}`]);
 const okOrigins = new Set([...okHosts].map((h) => `http://${h}`));
-const proxies = new ProxyPool(() => [...okOrigins]);
+const proxies = new ProxyPool(() => [...okOrigins], 8, () => [PREVIEW_PORT]);
 const hostOk = (h?: string) => !!h && okHosts.has(h);
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2' };
@@ -111,7 +112,7 @@ function connect(ws: WebSocket) {
   client.send({ type: 'threads', threads: store.listThreads() });
   ws.on('message', (data) => {
     try {
-      manager.handle(client, JSON.parse(String(data)) as ClientMsg);
+      manager.handle(client, parseClientMsg(JSON.parse(String(data))));
     } catch (e) {
       client.send({ type: 'error', message: e instanceof Error ? e.message : 'bad message' });
     }

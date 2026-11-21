@@ -10,7 +10,11 @@ const MIME: Record<string, string> = {
   '.map': 'application/json', '.mp4': 'video/mp4', '.webm': 'video/webm',
 };
 
-/** Resolve a request path inside a workspace root, refusing anything that escapes it (.., symlinks). */
+/**
+ * Resolve a request path inside a workspace root, refusing anything that escapes it (.., symlinks) and anything inside a
+ * dot-folder or dotfile (.env, .git/config, .npmrc ...): the page runs in a browser with network access, so whatever it can
+ * read it can send anywhere. `.well-known` is the one conventional public dot-folder.
+ */
 export function resolveInside(root: string, rel: string): string | undefined {
   let real: string;
   try {
@@ -18,7 +22,9 @@ export function resolveInside(root: string, rel: string): string | undefined {
   } catch {
     return undefined;
   }
-  let target = resolve(real, '.' + sep + decodeURIComponent(rel));
+  const decoded = decodeURIComponent(rel);
+  if (decoded.split(/[\\/]+/).some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..' && seg !== '.well-known')) return undefined;
+  let target = resolve(real, '.' + sep + decoded);
   try {
     if (statSync(target).isDirectory()) target = join(target, 'index.html');
     target = realpathSync(target);
@@ -27,6 +33,8 @@ export function resolveInside(root: string, rel: string): string | undefined {
   }
   const r = relative(real, target);
   if (r.startsWith('..') || resolve(real, r) !== target) return undefined;
+  // a symlink can lead to a dotfile inside the workspace too (docs -> .git): check the resolved path as well
+  if (r.split(sep).some((seg) => seg.startsWith('.') && seg !== '.well-known')) return undefined;
   return statSync(target).isFile() ? target : undefined;
 }
 

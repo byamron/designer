@@ -1,0 +1,2 @@
+/* The approval card shows the whole command (every line); long ones scroll inside the card instead of being cut. */
+.approval code { display: block; white-space: pre-wrap; max-height: 40vh; overflow: auto; margin-top: 4px; }

@@ -27,6 +27,11 @@ not letting that addition widen what can happen.
 | Designer.app bundle | Running code from the wrong place, replacing another app, or leaking credentials through the builder | The bundle holds no Designer code: a shim imports `packages/desktop/main.mjs` from the one checkout whose path was recorded at build time by you (`DESIGNER_CHECKOUT` only overrides it for tests); builds are staged and swapped in atomically; an app that is not a Designer shell app is never replaced without `--force`; the app's child processes (`install.js`, the builder) get no `ANTHROPIC_*` variables; ad-hoc signed, not notarized | `desktopapp.test.ts`, `e2e/app.e2e.mjs` |
 | Update & Restart (desktop shell) | Running attacker code, or damaging your checkout, via the update path | Only ever asks: nothing is applied without your click on a dialog that lists the incoming changes; fast-forward only from `origin/main` (no merge/rebase/force); refuses on a dirty, non-`main` or diverged copy; rolls back on failure and reports a failed restore; `npm` runs without Anthropic credentials | `desktop.test.ts` (real git repos) |
 | Approvals | Frontend bypass | Enforced in the server via the SDK's `canUseTool`; a UI cannot approve what the CLI did not ask | adapter design |
+| Approval card | Approving something you could not see (a second line, an MCP tool's input, hidden or right-to-left characters) | The card shows the whole command, or the whole input for other tools; hidden characters are made visible; a cut is always announced | `hardening.test.ts` |
+| WebSocket messages | A malformed message crashing the server and every running agent | Every message is shape-checked before it reaches the manager; errors come back as an error message | `hardening.test.ts`, `security.test.ts` |
+| Preview server | A previewed page reading `.env`, `.git/config`, `.npmrc` and sending them out | Dot-files and dot-folders are never served (`.well-known` excepted), also after symlink resolution | `hardening.test.ts` |
+| Proxy target | Proxying Designer itself to launder its Host/Origin checks | Refused for the app, preview port and any spelling of this machine | `hardening.test.ts`, `security.test.ts` |
+| Dependency install scripts | A dependency's install script running code as you (install, Update & Restart) | `.npmrc` `ignore-scripts=true` | `supplychain.test.ts` |
 
 ## Residual risks (not worse than terminal, but worth knowing)
 - **Update & Restart trusts `origin/main`.** Applying an update runs `npm install` and a build on whatever is on your repository's `main`,
@@ -41,8 +46,13 @@ not letting that addition widen what can happen.
   you turn on Inspect for that URL.
 - **Auto and Full access modes.** Auto is a model's judgement, not a boundary; Full access has no prompts. Same as the CLI flags.
 - **No extra sandbox** beyond Claude Code's own permissions.
-- **Dependencies.** Small tree, lockfile committed. `npm audit` currently reports one build-time-only advisory (picomatch)
-  with no patched release.
+- **Dependencies.** Small tree, lockfile committed (all entries from the npm registry with integrity hashes); install scripts are off. `npm audit`
+  reported no vulnerabilities on 2026-11-20.
+- **Electron fuses are the defaults** (the app shell needs `ELECTRON_RUN_AS_NODE` today), and the ad-hoc signature has no hardened runtime.
+  Any local process can run the app's binary as Node. Planned fix and the reasoning: [security-audit-2026-11.md](security-audit-2026-11.md).
+
+## Latest audit
+[security-audit-2026-11.md](security-audit-2026-11.md): findings ranked, fixes, decisions for the owner, and the owner's own hygiene checklist.
 
 ## Not yet verified on a real Mac
 Listed in [needs-local-testing.md](needs-local-testing.md): subscription login, auto mode on your plan, full-access flag.

@@ -136,3 +136,35 @@ test('servers listen on loopback only', async () => {
   });
   assert.equal(reachable, false, 'the app is not reachable on the LAN address');
 });
+
+test('a malformed message from the page gets an error back and never takes the server down', async () => {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?t=${token}`, { headers: { origin: `http://127.0.0.1:${port}` } });
+  const errors: string[] = [];
+  let threadId = '';
+  ws.on('message', (d) => {
+    const m = JSON.parse(String(d));
+    if (m.type === 'error') errors.push(m.message);
+    if (m.type === 'thread_updated' && !threadId) threadId = m.thread.id;
+  });
+  await new Promise<void>((res, rej) => (ws.once('open', res), ws.once('error', rej)));
+  ws.send(JSON.stringify({ type: 'add_folder', path: tmpdir() }));
+  for (let i = 0; i < 50 && !threadId; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.ok(threadId, 'a thread to send to');
+  for (const m of [{ type: 'send', threadId }, { type: 'send', threadId, text: 5 }, { type: 'set_mode', threadId, mode: 'nope' }, null, 7, [], { type: 'bogus' }]) ws.send(JSON.stringify(m));
+  ws.send('{not json');
+  for (let i = 0; i < 50 && errors.length < 8; i++) await new Promise((r) => setTimeout(r, 100));
+  ws.close();
+  assert.equal(errors.length, 8, 'every bad message was answered with an error');
+  assert.equal((await raw('/', { host: `127.0.0.1:${port}` })).status === 0, false);
+  assert.equal(child.exitCode, null, 'the server process is still running');
+});
+
+test('the proxy cannot be pointed back at Designer (app, preview or any spelling of this machine)', async () => {
+  const get = (u: string) => raw('/api/proxy?url=' + encodeURIComponent(u), { host: `127.0.0.1:${port}`, 'x-designer-token': token, 'sec-fetch-site': 'same-origin' });
+  for (const u of [`http://127.0.0.1:${port}/`, `http://localhost:${port}/`, `http://0.0.0.0:${port}/`, `http://[::1]:${port}/`, `http://127.0.0.1:${port + 1}/`]) {
+    const r = await get(u);
+    assert.equal(r.status, 400, u);
+    assert.match(r.body, /Designer itself/);
+  }
+  assert.equal((await get('file:///etc/passwd')).status, 400);
+});

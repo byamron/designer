@@ -9,6 +9,7 @@ import { join } from 'node:path';
  */
 export function loadToken(dataDir: string): string {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  chmodSync(dataDir, 0o700); // mkdir's mode only applies to a new folder: tighten one an older version or a shell made
   const f = join(dataDir, 'token');
   if (existsSync(f)) {
     const t = readFileSync(f, 'utf8').trim();
