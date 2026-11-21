@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { EXT, ID_RE, MIME_BY_EXT } from './attachments.js';
 import { join } from 'node:path';
 import type { AgentEvent, StoredEvent, ThreadMeta, Workspace } from '@designer/shared';
@@ -8,6 +8,7 @@ export class Store {
   private seqs = new Map<string, number>();
   constructor(private root: string) {
     mkdirSync(join(root, 'threads'), { recursive: true, mode: 0o700 }); // chats can contain secrets from tool output: owner only
+    for (const d of [root, join(root, 'threads')]) chmodSync(d, 0o700); // also when the folders already existed with looser permissions
   }
   private dir(id: string) {
     if (!/^[\w-]+$/.test(id)) throw new Error('bad thread id');

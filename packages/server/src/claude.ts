@@ -54,6 +54,36 @@ export function describeTool(name: string, input: any): string {
   }
 }
 
+/** Most characters of a command or input an approval card shows before it says that more exists. */
+export const APPROVAL_CAP = 4000;
+
+/** Make characters that hide or reorder text visible (bidi overrides, zero-width, escape and other control characters). */
+function visible(s: string): string {
+  return s.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, (c) => `\\u{${c.codePointAt(0)!.toString(16)}}`);
+}
+
+/**
+ * What the approval card shows for a tool call: everything that would run, not the one-line summary used for the history.
+ * A command is shown in full (every line), other tools show their input, and anything cut for length says how much is missing.
+ * The person pressing Allow must be able to see what they are allowing.
+ */
+export function approvalLabel(name: string, input: unknown): string {
+  const i = (input ?? {}) as Record<string, unknown>;
+  let s: string;
+  switch (name) {
+    case 'Bash': s = String(i.command ?? ''); break;
+    case 'Read': case 'Edit': case 'Write': case 'MultiEdit': s = String(i.file_path ?? ''); break;
+    case 'NotebookEdit': s = String(i.notebook_path ?? i.file_path ?? ''); break;
+    default: {
+      let json = '';
+      try { json = input === undefined ? '' : JSON.stringify(input) ?? ''; } catch { json = '[unprintable input]'; }
+      s = json && json !== '{}' ? `${name} ${json}` : name;
+    }
+  }
+  s = visible(s);
+  return s.length > APPROVAL_CAP ? `${s.slice(0, APPROVAL_CAP)}\n… ${s.length - APPROVAL_CAP} more characters not shown` : s;
+}
+
 const OUTPUT_CAP = 20_000;
 function stringifyResult(c: unknown): string {
   const s = typeof c === 'string' ? c : Array.isArray(c) ? c.map((b: any) => b?.text ?? '').join('\n') : JSON.stringify(c);
@@ -114,7 +144,7 @@ class ClaudeSession implements Session {
   private askUser(toolName: string, input: Record<string, unknown>, signal: AbortSignal) {
     if (toolName === 'AskUserQuestion') return this.askQuestion(input, signal);
     const requestId = `req-${Date.now()}-${++this.reqCounter}`;
-    this.sink.emit({ type: 'approval_request', requestId, toolName, label: describeTool(toolName, input), input });
+    this.sink.emit({ type: 'approval_request', requestId, toolName, label: approvalLabel(toolName, input), input });
     return new Promise<{ behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string }>((resolve) => {
       const settle = (d: Decision) => {
         if (!this.pending.delete(requestId)) return;

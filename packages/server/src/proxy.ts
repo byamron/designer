@@ -111,12 +111,29 @@ export function startProxy(target: URL, appOrigins: () => string[]): Promise<Pro
   });
 }
 
+/** Hosts that mean "this machine" (including the spellings that all reach a loopback listener). */
+function isThisMachine(h: string): boolean {
+  const host = h.replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host.endsWith('.localhost') || host === '0.0.0.0' || host === '::' || host === '::1' || /^127(\.\d+){0,3}$/.test(host);
+}
+
 /** One proxy per target origin, created on demand; the oldest is closed past a small cap. */
 export class ProxyPool {
   private proxies = new Map<string, Promise<Proxy>>();
-  constructor(private appOrigins: () => string[], private max = 8) {}
+  /**
+   * `reservedPorts`: other Designer ports on this machine (the preview server). Together with the app origins they can
+   * never be a target: a proxy rewrites Host and Origin to the target's own, so proxying Designer would hand a page the
+   * very headers the app's Host and Origin checks trust.
+   */
+  constructor(private appOrigins: () => string[], private max = 8, private reservedPorts: () => number[] = () => []) {}
+  private isSelf(url: URL): boolean {
+    if (!isThisMachine(url.hostname)) return false;
+    const port = Number(url.port) || (url.protocol === 'https:' ? 443 : 80);
+    return this.reservedPorts().includes(port) || this.appOrigins().some((o) => Number(new URL(o).port) === port);
+  }
   async get(url: URL): Promise<Proxy> {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Only http and https pages can be inspected.');
+    if (this.isSelf(url)) throw new Error('Designer itself cannot be inspected through its own proxy.');
     let p = this.proxies.get(url.origin);
     if (!p) {
       p = startProxy(new URL(url.origin), this.appOrigins);

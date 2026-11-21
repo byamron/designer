@@ -74,7 +74,7 @@ export class Manager {
       case 'subscribe':
         return this.subscribe(c, msg.threadId, msg.lastSeq);
       case 'send':
-        return void this.send(c, msg.threadId, msg.text, msg.images);
+        return void this.send(c, msg.threadId, msg.text, msg.images).catch((e) => c.send({ type: 'error', message: e instanceof Error ? e.message : String(e) }));
       case 'interrupt':
         return void this.sessions.get(msg.threadId)?.interrupt();
       case 'set_mode':
