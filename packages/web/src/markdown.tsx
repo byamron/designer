@@ -41,7 +41,7 @@ function inline(tokens: Token[] | undefined, key = ''): ReactNode[] {
       case 'strong': return <strong key={k}>{inline((t as Tokens.Strong).tokens, k)}</strong>;
       case 'em': return <em key={k}>{inline((t as Tokens.Em).tokens, k)}</em>;
       case 'del': return <del key={k}>{inline((t as Tokens.Del).tokens, k)}</del>;
-      case 'codespan': return <code key={k}>{(t as Tokens.Codespan).text}</code>;
+      case 'codespan': return <code key={k}>{unescape((t as Tokens.Codespan).text)}</code>;
       case 'br': return <br key={k} />;
       case 'link': {
         const l = t as Tokens.Link;
@@ -56,13 +56,14 @@ function inline(tokens: Token[] | undefined, key = ''): ReactNode[] {
         const x = t as Tokens.Text;
         return x.tokens ? <span key={k}>{inline(x.tokens, k)}</span> : <span key={k}>{unescape(x.text)}</span>;
       }
-      case 'escape': return <span key={k}>{(t as Tokens.Escape).text}</span>;
-      default: return <span key={k}>{unescape((t as { raw?: string }).raw ?? '')}</span>;
+      case 'escape': return <span key={k}>{unescape((t as Tokens.Escape).text)}</span>;
+      default: return <span key={k}>{(t as { raw?: string }).raw ?? ''}</span>; // raw source is not escaped
     }
   });
 }
 
-// marked HTML-escapes text tokens; React escapes for us, so undo marked's escaping.
+// marked HTML-escapes `text` fields of text, escape and codespan tokens (not `raw`, and not fenced code); React escapes
+// for us, so undo marked's escaping exactly once where we render one of those fields.
 function unescape(s: string) {
   return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 }
@@ -99,7 +100,7 @@ function block(t: Token, k: string): ReactNode {
       const x = t as Tokens.Text;
       return <span key={k}>{x.tokens ? inline(x.tokens, k) : unescape(x.text)}</span>;
     }
-    default: return <p key={k}>{unescape((t as { raw?: string }).raw ?? '')}</p>;
+    default: return <p key={k}>{(t as { raw?: string }).raw ?? ''}</p>;
   }
 }
 

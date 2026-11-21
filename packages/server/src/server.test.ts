@@ -139,6 +139,9 @@ test('worktrees: create from a repo, session runs in it, dirty removal is refuse
   h.msgs.length = 0;
   h.mgr.handle(h.c, { type: 'remove_workspace', workspaceId: ws.id });
   await until(() => h.msgs.some((m) => m.type === 'error'));
+  const err = h.msgs.find((m) => m.type === 'error') as { message: string };
+  assert.equal(err.message, 'This worktree has uncommitted changes. Commit or discard them first.', 'plain message, not git\'s --force hint');
+  assert.ok(!/fatal|--force/.test(err.message));
   assert.ok(existsSync(join(ws.path, 'wip.txt')));
   assert.equal(h.store.listWorkspaces().some((w) => w.id === ws.id), true);
   // once clean (commit it), removal succeeds
