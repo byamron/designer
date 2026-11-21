@@ -73,6 +73,12 @@ try {
     return out;
   });
   assert.ok(items.includes('Check for Updates…'), `menu has Check for Updates: ${items}`);
+  assert.ok(items.includes('Roll Back to Previous Version…'), `menu has the rollback item: ${items}`);
+  const rollbackEnabled = await app.evaluate(({ Menu }) => {
+    const find = (m) => m.items.flatMap((i) => [i, ...(i.submenu ? find(i.submenu) : [])]);
+    return find(Menu.getApplicationMenu()).find((i) => i.label === 'Roll Back to Previous Version…').enabled;
+  });
+  assert.equal(rollbackEnabled, false, 'rollback is disabled when no update has been recorded');
   await app.evaluate(({ Menu }) => {
     const find = (m) => m.items.flatMap((i) => [i, ...(i.submenu ? find(i.submenu) : [])]);
     find(Menu.getApplicationMenu()).find((i) => i.label === 'Check for Updates…').click();

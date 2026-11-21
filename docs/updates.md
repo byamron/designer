@@ -18,6 +18,26 @@ code, rebuilds, and relaunches itself. Your chats and settings are kept (they li
 4. The window comes back with your chats, window size and workspaces as they were. Typical time: seconds when only code changed;
    about a minute when dependencies changed.
 
+## If an update turns out bad: roll back
+You never need a terminal to undo an update.
+- **Designer > Roll Back to Previous Version…** goes back to the version you had before the last *Update & Restart*. A confirmation names
+  both versions (commit and title) and says your chats are kept. It then does the update in reverse: moves `main` back, reinstalls
+  dependencies **only if** a `package.json`/lockfile differs, rebuilds the UI, rebuilds the app shell if the Electron version differs,
+  stops the server and relaunches. If any step fails the copy is put back exactly as it was and you get the reason.
+- The menu item is enabled only when the last update is recorded (`previous-version.json` in the app's data folder: from, to, time,
+  whether packages or Electron changed) **and** the copy is clean, on `main`, and still at the version Designer updated to. If it is
+  greyed out, the copy was changed outside Designer or has uncommitted edits (it re-checks when you come back to the window). If the copy
+  changes between the menu and your click, you get a message saying why instead of a rollback.
+- **The version you rolled back from is not offered again by the quiet check at launch.** A newer commit is offered normally, and
+  **Check for Updates…** still offers it if you want to try again.
+- **If the app will not start at all** after an update (its code fails to load, or the server never comes up), the first failure is
+  explained. On the second failed start in a row, the error dialog itself offers the same rollback, so a broken Designer does not need
+  a working Designer to fix it.
+- How: `git reset --keep <previous>` on `main`. It refuses (changing nothing) rather than overwrite a local change; `--hard` would silently
+  discard work, `git revert` would add commits `origin/main` does not have so updates could no longer fast-forward, and `git checkout`
+  would detach `HEAD`. After it, `main` is simply behind `origin/main` again, so going forward is the usual fast-forward, and the commit
+  you left stays in the repository. Worktrees, other branches, chats and settings are never touched.
+
 ## Safety rules (all tested against real git repositories)
 - It refuses, and changes nothing, if the copy has uncommitted changes, is not on `main`, or has commits `origin/main` lacks.
   The copy you run should never be edited.
