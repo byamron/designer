@@ -49,6 +49,9 @@ Security gaps we know about (not yet done): the local server has no per-launch t
 user on the same machine can talk to 127.0.0.1:4317 (Host/Origin checks only stop web pages); agents are not
 sandboxed beyond Claude Code's own permissions; inspector reports can carry text from untrusted pages into a message.
 
+Vision (owner, 2026-11-18): the product is the feedback loop between a designer and the model; see [vision.md](vision.md)
+(pinned comments, then voice, then live critique mode and meeting mode).
+
 Roadmap additions (owner, 2026-11):
 - Inspector / visual properties panel (built, Mac check pending): select elements the same way comments will, edit visually,
   Copy changes -> paste to the agent. Page agent injected into served HTML; opt-in proxy for localhost and website URLs.

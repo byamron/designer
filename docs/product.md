@@ -1,6 +1,7 @@
 # Product: what this is and how it differs
 
 Status: draft from the owner's initial vision. Gaps marked **Open**.
+The long-term direction (feedback cycles, voice and critique modes) is in [vision.md](vision.md); this doc is the nearer-term shape.
 
 ## One line
 A chat-first workspace for designers to explore and iterate with AI agents, where
@@ -53,9 +54,12 @@ The server + web UI split keeps the shell decision (browser tab vs desktop wrapp
 
 ## Decisions
 - **Shell:** web first (local server + browser UI), desktop wrapper later. The wrapper is needed for commenting on arbitrary external pages (see below), not for localhost or HTML files.
-- **Canvas:** one surface for web pages, HTML files, and localhost pages, seamlessly. Paper: v1 at most loads it as a web page in the window; a closer integration is later and not in v1.
+- **Canvas:** one surface for web pages, HTML files, and localhost pages, seamlessly. We do not build or compete on a canvas;
+  other canvases (Paper, Subframe, Twombly, Onlook, ...) are loaded as web pages and complemented by the feedback layer.
+  Paper: v1 at most loads it as a web page in the window; a closer integration is later and not in v1. See [vision.md](vision.md).
 - **Variants:** side-by-side exploration and comparison when there are design decisions to make. Goal, phased after the comment loop.
-- **Dictation:** system dictation (the owner uses an app shortcut). In-app dictation only if needed later.
+- **Dictation:** system dictation (the owner uses an app shortcut) for now. In-app capture becomes needed once voice
+  must be timestamp-aligned with pointer position (voice comments, critique mode); see [vision.md](vision.md).
 - **Auth:** no sign-in flow in the app. The local server launches the user's own logged-in Claude Code / Codex; the browser UI only talks to localhost.
 
 ## Browser limits that shape this
