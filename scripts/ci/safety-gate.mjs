@@ -87,7 +87,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try { labels = JSON.parse(PR_LABELS || '[]'); } catch { console.error('safety-gate: PR_LABELS is not JSON'); process.exit(2); }
   const r = evaluate({ ...gather({ baseSha: BASE_SHA, headSha: HEAD_SHA }), body: PR_BODY, labels, author: PR_AUTHOR });
   for (const n of r.notes) console.log(`safety-gate: ${n}`);
-  console.log(r.touched.length ? `safety-gate: this PR touches ${r.touched.length} safety-critical path(s):\n  ${r.touched.join('\n  ')}` : 'safety-gate: no safety-critical paths touched');
+  const shown = r.touched.slice(0, 15).join('\n  ') + (r.touched.length > 15 ? `\n  ... and ${r.touched.length - 15} more` : '');
+  console.log(r.touched.length ? `safety-gate: this PR touches ${r.touched.length} safety-critical path(s):\n  ${shown}` : 'safety-gate: no safety-critical paths touched');
   for (const p of r.problems) console.log(`::error title=Safety gate::${p}`);
   if (!r.problems.length) console.log('safety-gate: ok');
   process.exit(r.problems.length ? 1 : 0);
