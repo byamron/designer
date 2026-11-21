@@ -9,7 +9,7 @@ not letting that addition widen what can happen.
 |---|---|
 | The agent is Anthropic's own Claude Code binary (via the Agent SDK), running as you | by construction |
 | Your `~/.claude` and project `.claude` settings, deny rules, hooks and CLAUDE.md apply | SDK default loads all sources; **tested**: a project deny rule blocked a command even though our approval handler would have allowed it |
-| Permission semantics are Claude Code's, not ours; we never auto-approve | we only relay its prompts; `Ask` is the default mode |
+| Permission semantics are Claude Code's, not ours; we never auto-approve | we only relay its prompts; `Auto` is the default mode for new chats (Claude decides, and calls it cannot decide still reach our Allow/Deny cards); chats saved before that keep `Ask` |
 | Subscription login, no API key | `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` stripped; we never read, store or proxy credentials |
 
 ## What Designer adds, and what stops it

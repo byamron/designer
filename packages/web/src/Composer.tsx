@@ -125,6 +125,7 @@ export function Composer({ thread, queue }: { thread: ThreadMeta; queue: Queued[
         )}
       </div>
       <div className="opts">
+        {/* 'default' fallback is deliberate: chats saved before new chats started in 'auto' keep asking. */}
         <select value={thread.permissionMode ?? 'default'} onChange={(e) => store.setMode(thread.id, e.target.value as PermissionMode)} aria-label="Permissions">
           {MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
