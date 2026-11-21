@@ -1,1 +1,10 @@
-{ "name": "@designer/shared", "private": true, "type": "module", "main": "src/index.ts", "types": "src/index.ts" }
+{
+  "name": "@designer/shared",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "postinstall": "node -e \"console.log(1)\""
+  }
+}
