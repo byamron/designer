@@ -34,7 +34,7 @@ await page.getByRole('button', { name: 'Add folder' }).click();
 await page.getByRole('button', { name: 'Add', exact: true }).click();
 await page.getByLabel('Message').waitFor();
 log('add folder opens a session');
-assert.equal(await page.getByLabel('Permissions').inputValue(), 'auto', 'a new workspace starts in Auto mode');
+assert.equal(await page.getByLabel('Permissions', { exact: true }).inputValue(), 'auto', 'a new workspace starts in Auto mode');
 log('new workspace: Permissions select reads Auto');
 
 // 1. streaming follows the bottom
