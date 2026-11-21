@@ -1,0 +1,14 @@
+[
+  {
+    "name": "esbuild",
+    "reason": "Build tool (vite/tsx). Its postinstall only verifies the platform binary that ships in an optional @esbuild/* package; reviewed 2026-11-20."
+  },
+  {
+    "name": "fsevents",
+    "reason": "macOS-only optional file watcher dependency (chokidar/vite). Its install script only tries to build a native addon and falls back to a prebuilt binary; reviewed 2026-11-20."
+  },
+  {
+    "name": "electron",
+    "reason": "The desktop shell. Its postinstall downloads the Electron binary from GitHub releases for the pinned version and checks it against the published checksums; expected for packages/desktop; reviewed 2026-11-20."
+  }
+]

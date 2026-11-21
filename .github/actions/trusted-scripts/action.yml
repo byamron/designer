@@ -1,0 +1,32 @@
+name: Trusted CI scripts
+description: >
+  Pull request guards should run the base branch's copy of scripts/ci, so a PR that loosens a guard in the same change
+  does not get judged by the loosened guard. Falls back to the PR's copy only while the base has no scripts/ci yet
+  (the pull request that introduces them). Needs a checkout with the base commit fetched (fetch-depth: 0).
+inputs:
+  base-sha:
+    description: The pull request's base commit.
+    required: true
+outputs:
+  dir:
+    description: Directory holding the guard scripts to run.
+    value: ${{ steps.pick.outputs.dir }}
+runs:
+  using: composite
+  steps:
+    - id: pick
+      shell: bash
+      env:
+        BASE_SHA: ${{ inputs.base-sha }}
+        TRUSTED: ${{ runner.temp }}/trusted-ci
+      run: |
+        set -euo pipefail
+        mkdir -p "$TRUSTED"
+        if git cat-file -e "$BASE_SHA:scripts/ci/safety-gate.mjs" 2>/dev/null; then
+          git archive "$BASE_SHA" scripts/ci | tar -x -C "$TRUSTED"
+        else
+          echo "::warning title=Bootstrap::the base branch has no scripts/ci yet; using this pull request's copy of the guards"
+          mkdir -p "$TRUSTED/scripts"
+          cp -R scripts/ci "$TRUSTED/scripts/ci"
+        fi
+        echo "dir=$TRUSTED/scripts/ci" >> "$GITHUB_OUTPUT"

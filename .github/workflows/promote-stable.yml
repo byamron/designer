@@ -1,0 +1,75 @@
+name: Promote stable
+
+# Advances the `stable` branch to a commit on main once the required checks are green on it. Nothing consumes `stable`
+# yet: the desktop app still follows origin/main. The follow-up (docs/specs/ci.md) is to point the updater at `stable`
+# so "merged" and "deployed to the owner's Mac" stop being the same moment.
+#
+# Why a branch: the updater already does fetch + fast-forward of a branch; a tag cannot be moved by a plain `git fetch`.
+# Why fast-forward only: stable can only ever move forward along main's history, never to a commit that is not on it.
+# Why workflow_run: it always runs the version of this file on the default branch and checks out nothing, so a pull
+# request cannot influence it. It uses only the default GITHUB_TOKEN (contents: write for the ref, checks: read).
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] -- runs no PR code, checks out nothing, only calls the GitHub API
+    workflows: [CI, macOS app smoke]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: # run from main to create `stable` the first time, or to catch it up
+
+permissions: {}
+
+concurrency:
+  group: promote-stable
+  cancel-in-progress: false # never skip a promotion; an older commit finishing late is refused by the fast-forward rule
+
+jobs:
+  promote:
+    name: promote
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # create/update refs/heads/stable
+      checks: read # read check-run results for the commit
+    env:
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      GH_TOKEN: ${{ github.token }}
+      # Checks that must be green on the commit (check-run names = job names). macos-app-smoke joins once it has
+      # proven reliable on main: set REQUIRE_MACOS to 'true'.
+      REQUIRE: checks browser
+      REQUIRE_MACOS: 'false'
+    steps:
+      - name: Are the required checks green on this commit?
+        id: gate
+        run: |
+          set -euo pipefail
+          need="$REQUIRE"
+          [ "$REQUIRE_MACOS" = "true" ] && need="$need macos-app-smoke"
+          runs=$(gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" --paginate --jq '.check_runs[] | [.name, (.conclusion // "pending")] | @tsv')
+          echo "$runs"
+          ok=true
+          for n in $need; do
+            c=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$n" '$1 == n { print $2 }' | sort -u | tr '\n' ' ')
+            echo "required check '$n': ${c:-missing}"
+            [ "${c% }" = "success" ] || ok=false
+          done
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          [ "$ok" = "true" ] || echo "::notice title=Not promoting::$SHA is not green on every required check yet (or one failed). stable stays where it is."
+      - name: Fast-forward stable to this commit
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          if ! sha_full=$(gh api "repos/$REPO/commits/$SHA" --jq .sha); then echo "::error::cannot read $SHA"; exit 1; fi
+          if cur=$(gh api "repos/$REPO/git/ref/heads/stable" --jq .object.sha 2>/dev/null); then
+            if [ "$cur" = "$sha_full" ]; then echo "stable is already at $sha_full"; exit 0; fi
+            if out=$(gh api -X PATCH "repos/$REPO/git/refs/heads/stable" -f sha="$sha_full" -F force=false 2>&1); then
+              echo "stable: $cur -> $sha_full"
+            elif printf '%s' "$out" | grep -qi 'fast forward'; then
+              echo "::notice title=Not moved::stable ($cur) is not an ancestor of $sha_full (a newer commit was promoted first); left alone"
+            else
+              printf '%s\n' "$out"; exit 1
+            fi
+          else
+            gh api -X POST "repos/$REPO/git/refs" -f ref=refs/heads/stable -f sha="$sha_full" >/dev/null
+            echo "created stable at $sha_full"
+          fi

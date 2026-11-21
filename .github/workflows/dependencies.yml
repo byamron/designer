@@ -1,0 +1,82 @@
+name: Dependencies
+
+# What reaches the owner's Mac through `npm install` (Update & Restart runs it on whatever merges to main).
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1' # Mondays: a new advisory can fail main without any change of ours
+
+permissions: {}
+
+concurrency:
+  group: dependencies-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-review:
+    name: dependency-review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Known-vulnerable or newly added dependencies in this diff
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-severity: high
+          fail-on-scopes: runtime, development # `npm install` on the Mac installs both
+          comment-summary-in-pr: never
+
+  npm-audit:
+    name: npm-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: npm audit --omit=dev, high/critical block unless allowlisted (scripts/ci/audit-allowlist.json)
+        run: node scripts/ci/audit-gate.mjs
+
+  install-scripts:
+    name: install-scripts
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: trusted
+        uses: ./.github/actions/trusted-scripts
+        with:
+          base-sha: ${{ github.event.pull_request.base.sha }}
+      - name: Base branch's package files, for comparison
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_DIR: ${{ runner.temp }}/base
+        run: |
+          mkdir -p "$BASE_DIR"
+          git archive "$BASE_SHA" -- package.json package-lock.json 'packages/*/package.json' | tar -x -C "$BASE_DIR"
+      - name: New install scripts need review; lockfile only from registry.npmjs.org with integrity hashes
+        env:
+          GUARDS: ${{ steps.trusted.outputs.dir }}
+          BASE_DIR: ${{ runner.temp }}/base
+        run: node "$GUARDS/install-scripts-guard.mjs" --base-dir "$BASE_DIR" --head-dir .

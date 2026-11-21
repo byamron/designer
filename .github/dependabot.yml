@@ -1,0 +1,38 @@
+# Keeps SHA-pinned actions, npm dependencies and the zizmor pin current. Security updates are separate (already on for
+# the repository) and open immediately; these are the routine version updates, grouped to keep the PR count low.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: '[deps]'
+    cooldown:
+      default-days: 7 # let a new release sit a week before we adopt it; security updates ignore this
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: '[deps]'
+    cooldown:
+      default-days: 7
+      semver-major-days: 21
+
+  - package-ecosystem: pip
+    directory: /.github/zizmor
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: '[deps]'
