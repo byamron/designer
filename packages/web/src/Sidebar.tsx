@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Workspace } from '@designer/shared';
+import { ChooseFolderButton } from './ChooseFolderButton';
+import { getBridge, icloudWarning } from './folderPicker';
 import { store, useStore } from './store';
 
 export function Sidebar() {
@@ -9,7 +11,19 @@ export function Sidebar() {
   const defaultCwd = useStore((s) => s.defaultCwd);
   const [adding, setAdding] = useState(false);
   const [path, setPath] = useState('');
+  const [pickError, setPickError] = useState('');
+  const bridge = useMemo(() => getBridge(), []); // only in Designer.app; a plain browser keeps just the typed field
+  const picking = useRef(false); // the native dialog takes focus away from the window: that must not close the form
+  const addButton = useRef<HTMLButtonElement>(null);
   useEffect(() => setPath((c) => c || defaultCwd), [defaultCwd]);
+  const pick = (chosen: string) => {
+    // Fill the field rather than add straight away: you see what was chosen (and any warning about it) and confirm with Enter or Add.
+    // The server then validates it exactly like a typed path.
+    setPath(chosen);
+    setPickError('');
+    setAdding(true);
+    requestAnimationFrame(() => addButton.current?.focus());
+  };
   const submit = () => {
     if (!path.trim()) return;
     store.addFolder(path.trim());
@@ -31,7 +45,7 @@ export function Sidebar() {
           className="newform"
           // clicking away dismisses it unless you have typed something other than the suggested path
           onBlur={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null) && (!path.trim() || path === defaultCwd)) setAdding(false);
+            if (!picking.current && !e.currentTarget.contains(e.relatedTarget as Node | null) && (!path.trim() || path === defaultCwd)) setAdding(false);
           }}
         >
           <label>
@@ -41,7 +55,16 @@ export function Sidebar() {
               <button className="icon x" aria-label="Cancel add folder" onClick={() => setAdding(false)}>✕</button>
             </span>
           </label>
-          <button onClick={submit}>Add</button>
+          {icloudWarning(path) && <p className="path-warning" role="status">{icloudWarning(path)}</p>}
+          {pickError && <p className="path-warning" role="alert">{pickError}</p>}
+          <span className="form-actions">
+            <ChooseFolderButton
+              bridge={bridge && { chooseFolder: async () => { picking.current = true; try { return await bridge.chooseFolder(); } finally { picking.current = false; } } }}
+              onPick={pick}
+              onError={setPickError}
+            />
+            <button ref={addButton} onClick={submit}>Add</button>
+          </span>
         </div>
       )}
       <nav className="projects" aria-label="Workspaces">

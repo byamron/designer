@@ -169,7 +169,8 @@ class Store {
         return;
       }
       case 'replay_done': return this.setView(m.threadId, (v) => ({ ...v, loaded: true }));
-      case 'error': return this.set({ notice: m.message });
+      case 'error':
+      case 'notice': return this.set({ notice: m.message });
     }
   }
 

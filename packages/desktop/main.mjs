@@ -5,8 +5,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BrowserWindow, Menu, app, dialog, screen, session, shell } from 'electron';
-import { findPort, isSafeExternal, loginShellPath, mergePaths, restartDelay, sameOrigin, sanitizeBounds, updateEnv } from './lib.mjs';
+import { BrowserWindow, Menu, app, dialog, ipcMain, screen, session, shell } from 'electron';
+import { findPort, isAppSender, isSafeExternal, loginShellPath, mergePaths, pickedFolder, pickerStartDir, restartDelay, sameOrigin, sanitizeBounds, updateEnv } from './lib.mjs';
 import { refreshBundle, runningBundle, staleReason } from './bundle.mjs';
 import { applyUpdate, blocker, checkForUpdate } from './updater.mjs';
 
@@ -96,7 +96,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 760, minHeight: 520, title: 'Designer', show: false,
     ...loadBounds(),
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, spellcheck: true },
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, spellcheck: true, preload: join(here, 'preload.cjs') },
   });
   win.once('ready-to-show', () => win.show());
   let t;
@@ -226,6 +226,25 @@ function stopServer() {
     server.kill('SIGTERM'); // the server stops running agents and previews on SIGTERM
   });
 }
+
+// ---------- choose a folder: the one thing the page may ask of the shell ----------
+let picking = false;
+ipcMain.handle('designer:choose-folder', async (event) => {
+  if (!isAppSender(event, { webContents: win?.webContents, origin })) return null; // not our own page: no dialog, no answer
+  if (picking) return null; // one dialog at a time
+  picking = true;
+  try {
+    // tests answer instead of showing a dialog (same convention as the update dialogs) and record that they were asked
+    if (process.env.DESIGNER_TEST_FOLDER !== undefined) {
+      if (process.env.DESIGNER_TEST_FOLDER_LOG) appendFileSync(process.env.DESIGNER_TEST_FOLDER_LOG, 'asked\n');
+      return pickedFolder({ canceled: false, filePaths: [process.env.DESIGNER_TEST_FOLDER] });
+    }
+    const defaultPath = pickerStartDir(homedir(), existsSync);
+    return pickedFolder(await dialog.showOpenDialog(win, { title: 'Choose a folder', properties: ['openDirectory'], ...(defaultPath ? { defaultPath } : {}) }));
+  } finally {
+    picking = false;
+  }
+});
 
 app.on('second-instance', () => {
   if (win) (win.isMinimized() && win.restore(), win.focus());

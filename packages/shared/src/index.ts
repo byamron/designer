@@ -84,6 +84,8 @@ export type ServerMsg =
   | { type: 'event'; event: StoredEvent }
   | { type: 'delta'; delta: LiveDelta }
   | { type: 'replay_done'; threadId: string; lastSeq: number }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  /** Something worked but the user should know a limit (for example: a folder was added but is not a git repository). */
+  | { type: 'notice'; message: string };
 
 export * from './edits.js';

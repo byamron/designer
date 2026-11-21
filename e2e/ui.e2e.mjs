@@ -117,6 +117,7 @@ log('multiple session tabs per workspace');
   await box.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Add folder' }).click();
   await page.getByLabel('Folder path').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Choose folder…' }).count(), 0, 'a plain browser has no native picker: the typed path field is all there is');
   await page.keyboard.press('Escape');
   await page.getByLabel('Folder path').waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Add folder' }).click();
