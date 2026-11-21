@@ -53,3 +53,7 @@ test('the repository PR template, unfilled, fails; headings in code fences do no
   assert.ok(msgs(tpl).length >= 3, 'placeholders are all caught');
   assert.equal(section('### Safety\n```sh\n# a comment, not a heading\n```\nreal text\n### Next\nx', 'Safety').includes('real text'), true);
 });
+
+test('nested HTML comments cannot smuggle text past the comment stripper', () => {
+  assert.equal(section('### Safety\n<!<!-- x -->-- hidden -->visible', 'Safety'), 'visible');
+});

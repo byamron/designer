@@ -152,6 +152,8 @@ Two browser steps are known to fail intermittently and have **no automatic retry
 1. the **motion** suite's preview-chip step;
 2. the **ui** suite's "pinned to bottom while streaming" step.
 
+Observed: 2026-11-21, run https://github.com/byamron/designer/actions/runs/44866966112 (`CI` push on `53a700c`): `ui` suite, `AssertionError: pinned to bottom while streaming` (`e2e/ui.e2e.mjs:43`); the `pull_request` run of the same commit passed.
+
 Proposed quarantine policy (not implemented; decide before the browser job is gated by anything stricter):
 - A flake is a step that failed and passed on a re-run of the same commit. The first person to see one adds a line to this list
   with the date, the run URL and the failing assertion. Re-running a failed job is fine; merging on the strength of a re-run is

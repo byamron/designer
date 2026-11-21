@@ -1,7 +1,12 @@
 // Reading a pull request body: the Safety section and the machine-read `orchestrator` block (docs/pr-protocol.md).
 // Pure functions, no dependencies, so the guards can run on a bare runner and be unit-tested.
 
-const stripComments = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
+// repeat until stable: removing one comment can splice the text around it into a new one (`<!<!---->-->`)
+function stripComments(s) {
+  let prev;
+  do { prev = s; s = s.replace(/<!--[\s\S]*?-->/g, ''); } while (s !== prev);
+  return s;
+}
 
 /** The text under the first heading that starts with `name` (case-insensitive), up to the next heading of the same or a higher level. null if there is none. */
 export function section(body, name) {
