@@ -4,25 +4,30 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, Menu, app, dialog, screen, session, shell } from 'electron';
 import { findPort, isSafeExternal, loginShellPath, mergePaths, restartDelay, sameOrigin, sanitizeBounds, updateEnv } from './lib.mjs';
 import { refreshBundle, runningBundle, staleReason } from './bundle.mjs';
 import { applyUpdate, blocker, checkForUpdate } from './updater.mjs';
 
+// update bookkeeping and rollback live in plain CommonJS so the launcher inside Designer.app can use them when this file cannot even load
+const rb = createRequire(import.meta.url)('./shim/rollback.cjs');
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(here, '..', '..'); // the checkout this app runs from
 const DATA = process.env.DESIGNER_DATA ?? join(homedir(), '.designer-chat'); // same place as the browser version
 if (process.env.DESIGNER_USER_DATA) app.setPath('userData', process.env.DESIGNER_USER_DATA); // tests keep their own settings
 
 app.setName('Designer');
-if (!app.requestSingleInstanceLock()) app.quit(); // a second launch just focuses the first window
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) app.quit(); // a second launch just focuses the first window
 
 let win;
 let server;
 let port;
 let origin;
 let quitting = false;
+let serverUp = false; // the server answered, so a loaded page is a working app
 const crashes = [];
 
 const pidFile = () => join(DATA, 'desktop-server.pid');
@@ -72,6 +77,7 @@ function readToken() {
 function showFatal(message) {
   const html = `<meta charset=utf-8><body style="font:15px system-ui;max-width:520px;margin:12vh auto;padding:0 24px;line-height:1.5"><h2>Designer can't start</h2><p>${message.replace(/[<&]/g, '')}</p>`;
   if (win && !win.isDestroyed()) void win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  void offerRollbackAfterFailures(); // an update that leaves the app unable to start must not need a terminal to undo
 }
 
 const stateFile = () => join(app.getPath('userData'), 'window.json');
@@ -112,6 +118,8 @@ function createWindow() {
     openExternal(url);
   });
   win.webContents.setWindowOpenHandler(({ url }) => (openExternal(url), { action: 'deny' }));
+  // the app counts as working on this version once its page has loaded from a running server (see offerRollbackAfterFailures)
+  if (serverUp) win.webContents.once('did-finish-load', () => { try { rb.markHealthy(app.getPath('userData')); } catch (e) { console.error(`could not record that this version started: ${e.message}`); } });
   void win.loadURL(`${origin}/?t=${readToken()}`); // the page keeps the token in its own storage and removes it from the address
 }
 
@@ -126,7 +134,6 @@ async function ask(options) {
   const r = await (win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options));
   return r.response;
 }
-const dismissedFile = () => join(app.getPath('userData'), 'update-dismissed.txt');
 const updatable = () => existsSync(join(ROOT, '.git'));
 
 async function checkUpdates({ interactive }) {
@@ -142,9 +149,7 @@ async function checkUpdates({ interactive }) {
     if (interactive) await ask({ type: why === 'Already up to date.' ? 'info' : 'warning', message: why === 'Already up to date.' ? "You're up to date." : "Designer can't update this copy.", detail: why === 'Already up to date.' ? undefined : why, buttons: ['OK'] });
     return;
   }
-  let dismissed;
-  try { dismissed = readFileSync(dismissedFile(), 'utf8').trim(); } catch { /* never dismissed */ }
-  if (!interactive && dismissed === c.remoteHead) return; // do not nag about a version you already said "Later" to
+  if (rb.skipQuietly({ interactive, dismissed: rb.readDismissed(app.getPath('userData')), remoteHead: c.remoteHead })) return; // do not nag about a version you already said "Later" to, or just rolled back from
   const shown = c.commits.slice(0, 10).join('\n') + (c.commits.length > 10 ? `\n…and ${c.commits.length - 10} more` : '');
   const choice = await ask({
     type: 'info',
@@ -153,7 +158,7 @@ async function checkUpdates({ interactive }) {
     buttons: ['Update & Restart', 'Later'], defaultId: 0, cancelId: 1,
   });
   if (choice !== 0) {
-    try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(dismissedFile(), c.remoteHead); } catch { /* fine */ }
+    try { rb.writeDismissed(app.getPath('userData'), c.remoteHead); } catch { /* fine */ }
     return;
   }
   await installUpdate();
@@ -169,11 +174,56 @@ async function installUpdate() {
   win?.setTitle('Designer');
   log(r.ok ? `updated ${r.from} -> ${r.to}` : `failed: ${r.error}`);
   if (!r.ok) return void (await ask({ type: 'error', message: "Designer couldn't update.", detail: r.error, buttons: ['OK'] }));
+  // remember where we came from, so Designer > Roll Back to Previous Version… can undo this update without a terminal
+  try { rb.recordUpdate(app.getPath('userData'), { from: r.from, to: r.to, installed: r.installed, electron: r.electron }); } catch (e) { log(`could not record the previous version: ${e.message}`); }
   quitting = true;
   await stopServer();
   await refreshShell({ closeWindow: true }); // a new Electron version needs a new app shell (only when running as Designer.app)
   app.relaunch();
   app.exit(0);
+}
+
+// ---------- rolling back: the mirror image of an update ----------
+let rollbackAvailable = false;
+let lastStatus = 0;
+/** Keep the menu item honest: enabled only when a previous version is recorded and this copy is clean, on main and still at the updated version. */
+async function refreshRollback() {
+  if (!updatable()) return;
+  lastStatus = Date.now();
+  const now = (await rb.rollbackStatus({ root: ROOT, userData: app.getPath('userData') })).available;
+  if (now !== rollbackAvailable) (rollbackAvailable = now, buildMenu());
+}
+
+/** `broken`: the app could not start after an update; the wording says so. Nothing happens without the confirmation. */
+async function rollBack({ broken = false } = {}) {
+  const userData = app.getPath('userData');
+  const st = await rb.rollbackStatus({ root: ROOT, userData });
+  if (!st.available) return void (await ask({ type: 'warning', message: "Designer can't roll back right now.", detail: st.why, buttons: ['OK'] }));
+  const now = await rb.describeVersion({ root: ROOT, sha: st.record.to });
+  const back = await rb.describeVersion({ root: ROOT, sha: st.record.from });
+  const choice = await ask({
+    type: 'warning',
+    message: broken ? "Designer isn't starting since its last update. Roll back to the previous version?" : 'Roll back Designer to the previous version?',
+    detail: `Now:  ${now}\nBack to:  ${back}\n\nYour chats and settings are kept. A turn that is still running will be stopped. Designer restarts.${st.record.installed ? '\nThe previous dependencies are reinstalled, which takes about a minute.' : ''}`,
+    buttons: ['Roll Back & Restart', 'Cancel'], defaultId: 1, cancelId: 1,
+  });
+  if (choice !== 0) return;
+  win?.setProgressBar(2);
+  const r = await rb.rollbackToPrevious({ root: ROOT, userData, env: updateEnv(process.env, await loginShellPath()), progress: (t) => win?.setTitle(`Designer: ${t}`) });
+  win?.setProgressBar(-1);
+  win?.setTitle('Designer');
+  if (!r.ok) return void (await ask({ type: 'error', message: "Designer couldn't roll back.", detail: r.error, buttons: ['OK'] }));
+  quitting = true;
+  await stopServer();
+  await refreshShell({ closeWindow: true }); // the previous version may want the previous Electron
+  app.relaunch();
+  app.exit(0);
+}
+
+/** Two starts in a row that never got to a working window, on a version Designer installed: offer the way back from the error. */
+async function offerRollbackAfterFailures() {
+  if (!updatable() || !rb.shouldOfferOnFailure(rb.readRecord(app.getPath('userData')))) return;
+  await rollBack({ broken: true });
 }
 
 // ---------- Designer.app: the bundle is a copy of Electron, so it must follow the checkout's Electron version ----------
@@ -209,12 +259,12 @@ async function checkShell() {
 function buildMenu() {
   const mac = process.platform === 'darwin';
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(mac ? [{ label: 'Designer', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'Check for Updates…', click: () => void checkUpdates({ interactive: true }) }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
+    ...(mac ? [{ label: 'Designer', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'Check for Updates…', click: () => void checkUpdates({ interactive: true }) }, { label: 'Roll Back to Previous Version…', enabled: rollbackAvailable, click: () => void rollBack() }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
     { label: 'File', submenu: [mac ? { role: 'close' } : { role: 'quit' }] },
     { role: 'editMenu' }, // copy and paste must work in the message box
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'forceReload' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
     { role: 'windowMenu' },
-    ...(mac ? [] : [{ label: 'Help', submenu: [{ label: 'Check for Updates…', click: () => void checkUpdates({ interactive: true }) }] }]),
+    ...(mac ? [] : [{ label: 'Help', submenu: [{ label: 'Check for Updates…', click: () => void checkUpdates({ interactive: true }) }, { label: 'Roll Back to Previous Version…', enabled: rollbackAvailable, click: () => void rollBack() }] }]),
   ]));
 }
 
@@ -245,10 +295,14 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   buildMenu();
+  try { if (gotLock) rb.noteLaunch(app.getPath('userData')); } catch (e) { console.error(`could not count this start: ${e.message}`); } // a version that never reaches a working window is counted
+  void refreshRollback();
+  app.on('browser-window-focus', () => Date.now() - lastStatus > 2000 && void refreshRollback()); // you may have just cleaned (or dirtied) the copy
   port = await findPort(Number(process.env.PORT ?? 4317));
   origin = `http://localhost:${port}`;
   try {
     await startServer();
+    serverUp = true;
     createWindow();
     if (!process.env.DESIGNER_NO_UPDATE_CHECK) setTimeout(() => void checkUpdates({ interactive: false }), 5000); // quiet; asks only if something new exists
     setTimeout(() => void checkShell(), 2000);
