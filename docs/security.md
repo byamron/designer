@@ -31,7 +31,7 @@ not letting that addition widen what can happen.
 | WebSocket messages | A malformed message crashing the server and every running agent | Every message is shape-checked before it reaches the manager; errors come back as an error message | `hardening.test.ts`, `security.test.ts` |
 | Preview server | A previewed page reading `.env`, `.git/config`, `.npmrc` and sending them out | Dot-files and dot-folders are never served (`.well-known` excepted), also after symlink resolution | `hardening.test.ts` |
 | Proxy target | Proxying Designer itself to launder its Host/Origin checks | Refused for the app, preview port and any spelling of this machine | `hardening.test.ts`, `security.test.ts` |
-| Install and CI supply chain | A dependency's install script, a swapped lockfile source, or a moved Action tag running code as you | `.npmrc` `ignore-scripts=true`; `scripts/check-lockfile.mjs` in CI; Actions pinned to commit SHAs; Dependabot | `supplychain.test.ts` |
+| Dependency install scripts | A dependency's install script running code as you (install, Update & Restart) | `.npmrc` `ignore-scripts=true` | `supplychain.test.ts` |
 
 ## Residual risks (not worse than terminal, but worth knowing)
 - **Update & Restart trusts `origin/main`.** Applying an update runs `npm install` and a build on whatever is on your repository's `main`,
@@ -46,7 +46,7 @@ not letting that addition widen what can happen.
   you turn on Inspect for that URL.
 - **Auto and Full access modes.** Auto is a model's judgement, not a boundary; Full access has no prompts. Same as the CLI flags.
 - **No extra sandbox** beyond Claude Code's own permissions.
-- **Dependencies.** Small tree, lockfile committed and checked to point only at the npm registry; install scripts are off. `npm audit`
+- **Dependencies.** Small tree, lockfile committed (all entries from the npm registry with integrity hashes); install scripts are off. `npm audit`
   reported no vulnerabilities on 2026-11-20.
 - **Electron fuses are the defaults** (the app shell needs `ELECTRON_RUN_AS_NODE` today), and the ad-hoc signature has no hardened runtime.
   Any local process can run the app's binary as Node. Planned fix and the reasoning: [security-audit-2026-11.md](security-audit-2026-11.md).

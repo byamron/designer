@@ -23,15 +23,15 @@ security of the app, and `main` has no branch protection yet.
 
 | # | Sev | Finding | Evidence | Status |
 |---|---|---|---|---|
-| 1 | High | **The app runs whatever is on `origin/main`.** Update & Restart fast-forwards and rebuilds; anyone who can push to `main` (or take over the GitHub account) can run code as you. No signature check, `main` has no branch protection (API returned 404 "Branch not protected"), the repository is public. | reading `updater.mjs:15-70`; attack `gh api .../branches/main/protection` | **recommended** (D1, D2) |
+| 1 | High | **The app runs whatever is on `origin/main`.** Update & Restart fast-forwards and rebuilds; anyone who can push to `main` (or take over the GitHub account) can run code as you. No signature check, `main` had no branch protection when audited (API: 404); the orchestrator has since added a ruleset (PR + checks, no force-push), which closes direct pushes. The repository is public. | reading `updater.mjs:15-70`; attack `gh api .../branches/main/protection` | **recommended** (D1, D2) |
 | 2 | High | **Approval card hid what would run.** The card showed `describeTool()`: the first line of a Bash command (≤200 chars) and only the tool name for MCP/web tools. `echo ok⏎curl … \| bash` showed as `echo ok`. The terminal shows the whole command. | attack (UI card showed one line); test `hardening.test.ts` (approval label ×4) | **fixed**: full command, whole input for other tools, hidden/bidi characters made visible, explicit "N more characters not shown" |
 | 3 | High | **Auto mode is a model's judgement, not a boundary, and Designer cannot veto it.** In `auto` the Claude Code classifier approves or denies each call; `canUseTool` (Designer's approval card) is only called when it cannot decide (SDK docs, `sdk.d.ts:2123`). That is why a `curl \| bash` or a force-push ran without a prompt: Designer never saw it. Designer controls only the mode string it passes and the relay of asks. | reading `claude.ts` (`sessionOptions`, `canUseTool`), `manager.ts:207`, SDK types | **recommended** (D3), no silent change |
 | 4 | Med | **A previewed page could read the workspace's secrets.** The preview server served `.env`, `.git/config` (remote URLs can hold tokens), `.npmrc`. Previewed pages run with network access and no CSP, so an agent-written (or injected) page could read and send them anywhere, with no approval prompt. | attack (`/<id>/.env` → 200, `/.git/HEAD` → 200); test (`preview: dotfiles…`) | **fixed**: any dot-segment refused (`.well-known` allowed), checked again after symlink resolution |
 | 5 | Med | **One malformed WebSocket message crashed the server** (`{"type":"send","threadId":…}` without `text` → `TypeError` in an async handler → process exit). Kills every running agent and needs the token, so it is robustness, not remote attack. | attack (server dead); tests (`hardening`, `security` black-box) | **fixed**: shape check before the manager (`messages.ts`), handler rejections reported |
 | 6 | Med | **The proxy could be pointed at Designer itself** (`/api/proxy?url=http://127.0.0.1:4317/`), laundering the Host/Origin the app's checks trust, because the proxy rewrites both to the target's. Token still required. | attack (200 + port); tests | **fixed**: refused for the app, the preview port and every spelling of this machine (`localhost`, `127.1`, `0.0.0.0`, `[::1]`, `*.localhost`) |
 | 7 | Med | **Electron fuses are all default.** `RunAsNode`, `EnableNodeOptionsEnvironmentVariable`, `EnableNodeCliInspectArguments`, `GrantFileProtocolExtraPrivileges` are **on**; the ad-hoc signature has no hardened runtime (`flags=0x2(adhoc)`). Any process on the Mac can run the app's binary as a Node interpreter (`ELECTRON_RUN_AS_NODE=1`), inheriting whatever macOS privacy grants (Documents, Desktop, Automation…) you give "Designer". | attack (read the fuse wire in the installed app); reading `main.mjs:38`, `bundle.mjs:57,182`, `shim/main.cjs:29` | **recommended** (D4): design below; touches the files `feat/rollback` is changing |
-| 8 | Med | **Dependency install scripts ran with your permissions** on `npm install` (Update & Restart, `dev-instance`, you). Only `esbuild` and `fsevents` have any; neither needs them. | attack (`npm ci` + build + 111 server tests + all e2e pass with scripts off) | **fixed**: `.npmrc` `ignore-scripts=true` (covers the updater, CI and you); pinned by test |
-| 9 | Med | **CI trusted floating tags.** `actions/*@v4` can be re-pointed; no lockfile source check; no Dependabot version updates. Top-level `permissions: contents: read` and `pull_request` (not `_target`) were already right; no secrets are used. | reading `ci.yml`; `gh api` repo settings | **fixed**: all four actions pinned to commit SHAs, `persist-credentials: false`, `scripts/check-lockfile.mjs` in CI, `.github/dependabot.yml`; pinned by test. **recommended**: turn on "Require actions to be pinned to a full-length commit SHA" (D5) |
+| 8 | Med | **Dependency install scripts ran with your permissions** on `npm install` (Update & Restart, `dev-instance`, you). Only `esbuild` and `fsevents` have any; neither needs them. | attack (`npm ci` + build + all tests + all e2e pass with scripts off) | **fixed**: `.npmrc` `ignore-scripts=true` (covers the updater and you; CI reads it too); pinned by test |
+| 9 | Med | **CI trusted floating tags.** `actions/*@v4` can be re-pointed; no lockfile source check; no Dependabot version updates. Top-level `permissions: contents: read` and `pull_request` (not `_target`) were already right; no secrets are used. | reading `ci.yml`; `gh api` repo settings | **recommended**, owned by the `ci-hardening` session (`.github/**` is out of this PR's scope): SHA pins, `persist-credentials: false`, lockfile source check, Dependabot, SHA-pinning repo setting (D5) |
 | 10 | Low | **Data directory was world-listable.** `mkdir`'s mode only applies to a new folder; an existing `~/.designer-chat` stays `drwxr-xr-x` (files inside were already 0600 and `threads/` 0700, so contents were not readable). | attack (stat on a fresh instance pre-created at 0755); test | **fixed**: tightened to 0700 at every start; takes effect the next time Designer starts |
 | 11 | Low | **Updater does not pin the remote.** `git fetch origin main` follows whatever `origin` points at; the dialog does not show it. Same-user config edit required. | reading `updater.mjs:15,28` | **recommended** (D2) |
 | 12 | Low | **`will-navigate` allows any `data:text/html` URL** (meant for the error page). A page in a frame that navigates the window could show its own UI inside the app window (no Node, no preload, no app origin). | reading `main.mjs:110` | **recommended**: allow only the exact error page (one line; after `feat/rollback`) |
@@ -64,7 +64,7 @@ security of the app, and `main` has no branch protection yet.
 | Electron window | `contextIsolation`, `sandbox`, no `nodeIntegration`, no webview tag (and `will-attach-webview` blocked), no preload (so no IPC surface), permission requests and checks denied, window may only show the app origin, `window.open` and other links go to `shell.openExternal` only for http/https/mailto | reading `main.mjs:97-114,241-246`; `e2e/desktop.e2e.mjs` |
 | Updater safety | Fast-forward only, refuses dirty/non-`main`/diverged, rolls back, no Anthropic env for npm | tests `desktop.test.ts` |
 | Dependencies | `npm audit`: 0 vulnerabilities (the "one advisory" line in `docs/security.md` was stale). 260 lockfile entries, all `https://registry.npmjs.org/` with integrity. Install scripts: `esbuild`, `fsevents` only. | attack; `scripts/check-lockfile.mjs` |
-| Repository settings (read through the API on 2026-11-20) | Secret scanning on, push protection on, Dependabot security updates on, default workflow token read-only, Actions cannot approve PRs. **Not set:** branch protection, SHA-pinning requirement. | `gh api` |
+| Repository settings (read through the API on 2026-11-20) | Secret scanning on, push protection on, Dependabot security updates on, default workflow token read-only, Actions cannot approve PRs. **Not set at audit time:** branch protection (since added), SHA-pinning requirement. | `gh api` |
 
 ## Agent safety: what Designer controls and what Claude Code does
 
@@ -151,16 +151,11 @@ too. The dialog lists commit titles before anything is applied, which is a speed
   "dirty" and block the next update. Same file, same deferral.
 - **Signed `main`.** GitHub signs web/squash merges with its own key. A check that `origin/main`'s tip verifies (`git verify-commit` with
   GitHub's published key) would stop an unsigned force-push but not a hijacked account; worth it only after branch protection.
-- **Branch protection (being applied separately):** require pull requests, no force-push, no deletion, include administrators,
-  required status check `checks`. For a solo repo "required reviews" would block you; the benefit is a pull request and CI before
-  anything reaches the branch the app pulls.
-- **Dependencies:** 255 packages in the lockfile. Version bumps now arrive as grouped Dependabot PRs; security
-  advisories are already automatic. `npm audit` stays a non-blocking CI job; if you want it blocking, change `continue-on-error`
-  and add `--audit-level=high` (0 findings today, so it would pass).
-- **Actions:** pinned by SHA (Dependabot updates the SHAs and comments). The `browser` job installs Chromium from Playwright's CDN; the
+- **Branch protection:** now a ruleset on `main` (applied by the orchestrator: PR required, checks `checks` and `browser`, no force-push or deletion, admin bypass only via PR). That closes the direct-push path in finding 1; a hijacked account is the remaining one.
+- **Dependencies:** 255 packages in the lockfile, all from `https://registry.npmjs.org/` with integrity hashes (checked by a throwaway script, not committed). Recommended for `ci-hardening`: a dependency-free CI check of that property, blocking `npm audit --audit-level=high` (0 findings today), Dependabot version updates (grouped, weekly).
+- **Actions (recommendations for `ci-hardening`; `.github/**` untouched here):** pin all four actions to commit SHAs (v4.4.0 `11d5960a…` checkout, v4.4.0 `49933ea5…` setup-node, v4.3.0 `0057852b…` cache, v4.6.2 `ea165f8d…` upload-artifact, as of 2026-11-20), `persist-credentials: false` on checkout, and a pinning test. The `browser` job installs Chromium from Playwright's CDN; the
   `audit` job runs only `npm audit`. No job has secrets or write permission; fork PRs run with a read-only token and no secrets.
-  Turn on repo setting "Require actions to be pinned to a full-length commit SHA" so a future workflow cannot regress, and
-  "Require approval for all outside collaborators" for fork PR workflows. The repository is public: that is the setting that matters.
+  Turn on repo setting "Require actions to be pinned to a full-length commit SHA" so a future workflow cannot regress. Fork-PR workflow approval is already required (orchestrator); the repository is public, so keep artifacts free of secrets.
 - **Rollback:** `feat/rollback` (in flight) is the safety net for a bad update that is not malicious; it does nothing for a malicious one.
 
 ## Fixes in this PR (each has a test written first)
@@ -172,21 +167,20 @@ too. The dialog lists commit titles before anything is applied, which is a speed
 | Preview refuses dot-files/folders (`.env`, `.git`, `.npmrc`), after symlink resolution too | `preview.ts` | `hardening.test.ts` |
 | Proxy refuses Designer's own ports and every spelling of this machine | `proxy.ts`, `index.ts` | `hardening.test.ts`, `security.test.ts` |
 | Data directory tightened to 0700 even when it already existed | `auth.ts`, `store.ts` | `hardening.test.ts` |
-| Install scripts off; lockfile source check; actions pinned; Dependabot | `.npmrc`, `scripts/check-lockfile.mjs`, `scripts/lib/lockfile.mjs`, `.github/workflows/ci.yml`, `.github/dependabot.yml` | `supplychain.test.ts` |
+| Install scripts off for everyone | `.npmrc` | `supplychain.test.ts` |
 
 Pinning tests in `docs/security.md` are unchanged and pass. Nothing in `packages/desktop` was edited.
 
 ## Decisions for the owner
 
-- **D1. Branch protection and account hygiene** (the orchestrator is applying protection): this is what decides finding 1. Also: passkey or
+- **D1. Account hygiene** (branch protection is done): the GitHub account is what decides finding 1. Passkey or
   hardware key for GitHub, and see the checklist below.
 - **D2. Updater hardening** (pin `origin`, `npm ci`, show the URL): yes/no; I recommend yes, as a small PR after `feat/rollback` lands.
 - **D3. Agent defaults:** keep Ask as default (yes); add the deny rules above to `~/.claude/settings.json`; relabel Auto and mark Full
   access; try the Bash sandbox. None of these changes behaviour without your say-so.
 - **D4. Electron fuses:** system Node for the server and builders, flip four fuses, hardened runtime. I recommend yes (moderate risk,
   small change), as a follow-up PR on top of `feat/rollback`.
-- **D5. Repository settings:** require SHA-pinned actions; approval for fork PR workflows.
-- **D6. Dependabot:** this PR adds weekly grouped PRs (max 3 open). Delete `.github/dependabot.yml` if that is more noise than you want.
+- **D5. CI/supply chain:** hand the recommendations above to `ci-hardening`; turn on the SHA-pinning repository setting.
 
 ## Your own hygiene (checklist)
 
@@ -194,7 +188,7 @@ GitHub
 - [ ] Two-factor with a passkey or security key; remove SMS as the only second factor. Check Settings → Password and authentication.
 - [ ] `gh auth status` shows the token's scopes. Prefer the minimum: `repo` is needed for private work, `workflow` lets anything holding the token edit CI, `gist`/`read:org` are rarely needed. Re-login with `gh auth refresh -s …` after removing scopes, or use a fine-grained token per repository.
 - [ ] Settings → SSH and GPG keys / Applications: remove keys and authorized OAuth apps you do not recognise. Use a passphrase on any SSH key and load it into the macOS Keychain.
-- [ ] Branch protection on `main` (D1), secret scanning + push protection (on), Dependabot alerts and security updates (on), SHA-pinned Actions (D5).
+- [ ] Ruleset on `main` (done), secret scanning + push protection (on), Dependabot alerts and security updates (on), SHA-pinned Actions (D5).
 - [ ] Never paste a token into a chat with the agent; revoke at once if you do.
 
 macOS
@@ -217,4 +211,4 @@ If the laptop is lost or stolen
 5. Delete `~/.designer-chat/token` on the replacement to rotate the app token.
 
 ## Re-check
-`npm test` (the pinning tests above), `e2e/run.sh`, `node scripts/check-lockfile.mjs`. Rotate the app token by deleting `<data dir>/token`.
+`npm test` (the pinning tests above), `e2e/run.sh`. Rotate the app token by deleting `<data dir>/token`.
