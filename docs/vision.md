@@ -62,6 +62,44 @@ want to push:
 
 Rungs 1-3 are table stakes that other tools also have. 4-7 are where Designer is different.
 
+## Real workflow pain this should remove (owner examples, 2026-11-19)
+Today the owner works between Claude (desktop or Conductor) and Paper. Two loops are clumsy; both are interaction
+problems, not model or canvas problems.
+
+**1. Comments on a canvas the agent cannot answer.**
+Flow today: prompt Claude, it generates designs in Paper, the owner leaves comments on the Paper canvas, Claude answers
+all of them in one long chat message that is too much to read, and the replies are nowhere near the things they are about.
+The owner wants to continue each thread where the comment was left. Paper does not support agent replies in threads
+(owner-reported; it may add it, so do not build on either assumption).
+What this asks of Designer:
+- **One thread per comment, at its anchor.** The model's answer to a comment is a short reply attached to that comment
+  and shown on the preview, not a paragraph in chat. Chat keeps at most a one-line digest ("replied to 6 comments,
+  changed 3"). Mechanism: the message we send carries comment ids and asks for one short reply per id; we render
+  the replies at the anchors. A prompt plus a renderer, no second implementation of the model.
+- **Reply, resolve, and re-ask in place.** Continue the thread from the pin; resolved threads fold away; unresolved
+  ones are what the next turn is about.
+- **Works with a canvas that has no comment API.** Comments made in Designer's layer on top of the loaded canvas
+  (pixel or DOM anchors) work on any canvas. If Paper (or another canvas) later supports agent threads, an adapter
+  routes the same thread there (tier 3) instead of beside it. Whether Paper exposes its comments to a model today is
+  unverified; do not promise importing them until checked.
+
+**2. Critiques recorded without knowing what was being pointed at.**
+Flow today: record the crit in Granola; the transcript has "this one feels off" but not which "this one". Granola's
+screen-context capture needs another macOS permission and its behaviour is unclear to the owner (not verified here).
+What this asks of Designer:
+- **Capture speech and attention together, inside the app.** Because the canvas is loaded in Designer's own webview,
+  the pointer, hover, selection and screenshots of that view are available without screen recording; only the
+  microphone needs a permission, asked once with a plain explanation. Expected on Electron, to be verified on the Mac.
+- **Seamless, not another tool to configure.** Press record, review, stop. The result is a timeline the model can
+  turn into anchored comments and a plan (critique mode below).
+- **Meetings are the hard case.** Capturing other people's voices on a call means system-audio capture, which is a
+  separate permission and technically harder (unverified). Options to evaluate: our own capture; or keep a
+  meeting-notes tool for audio and import its transcript, aligning it with our pointer trail by timestamp. The second
+  only works if the imported transcript has usable timestamps (unverified for Granola).
+
+Together these are the target experience: speak or point, and the feedback lands as a thread at the right place,
+answered there, with chat left for conversation rather than a dump of replies.
+
 ## Canvas-agnostic by design
 The feedback layer must not depend on knowing how a canvas works inside. Anchors come in tiers, from works everywhere
 to works best; each tier is an upgrade, never a requirement:
@@ -111,6 +149,36 @@ in the app (see open questions).
 Dictating a single prompt while pointing at something is the small version of critique mode and the likely first step:
 the same timeline capture, one utterance, sent as one normal user message with the anchored context attached.
 
+## Interface principles (owner, 2026-11-20)
+Directional rules from the owner's reactions to other tools. They apply to every surface we add.
+
+0. **Nothing between you and the page.** The goal, in the owner's words, borrowed from how Dia feels: the screen is
+   the artifact, and everything else (worktrees, chat, pinned pages, tools) is available but out of the way. Dia and Arc are
+   known for adding sidebars and features; what matters is that they also get out of the way. The resting state is one
+   thin bar and the page.
+1. **Simpler is always better.** Simple rules, simple logic, simple UI. If a design needs a special case, a mode or
+   a setting, look for the simpler design first. Elegant, smooth, fast and intuitive come from simplicity.
+2. **Core UI is only what is used constantly.** Orca-style rows of buttons are the anti-example. Occasional things
+   (terminal, file tree, settings, review) are reached by a slash command in the composer or a command palette, or
+   simply by asking the model. No per-workspace icon buttons for them.
+3. **Right thing at the right time; the rest out of the way but one gesture away.** Everything that can be hidden has
+   the same three states: hidden, peek (floats over the content) and pinned (stays). Same rule for every panel.
+4. **The artifact never moves.** Panels float over it instead of resizing it, so remarks anchored to a view stay valid
+   and nothing shifts while you are giving feedback.
+5. **Chips as resting state.** A worktree chip at top left (name and status dot, badge when another worktree needs you)
+   and a chat chip at bottom left (draggable, position remembered). Click the chip to open the popover; hover peek is
+   optional and off by default because it slows fast switching.
+6. **Keyboard first for switching.** Cmd+1 to 9 jumps straight to a worktree (numbers shown on the rows). Ctrl+Tab
+   opens the popover and cycles, most recent first; release Ctrl to commit. Never open anything on a lone held
+   modifier, which would flash on Cmd+C and similar. Unverified on the owner's Mac against the canvases in use.
+7. **Chat has several forms for one conversation:** docked, floating popup, minimized bar (status and last line),
+   full. The form follows how much room the moment needs; the content never changes.
+8. **Pinned pages per worktree.** The pages that belong to the work (its dev server, the Linear issue, the GitHub PR, the
+   Paper canvas) are pinned in the thin bar as icons, one click away. The agent can pin a page itself through one small
+   tool, `save URL` (a shortcut for what the user would otherwise paste), and the user can pin by hand. Switching
+   worktree switches the pins. Pinned pages stay loaded in the app's own persistent session, which helps a login last
+   once it is done; it does not replace the first sign-in (see the password-manager notes under open questions).
+
 ## Applying the scaffold test
 Per CLAUDE.md: *if the model were 10x better tomorrow, does this get better for free?*
 - Capture is ours and stays ours: the surface, the pointer and element anchoring, the recording, the transcript.
@@ -126,6 +194,7 @@ Per CLAUDE.md: *if the model were 10x better tomorrow, does this get better for 
 Small, each shippable, each making the loop measurably tighter:
 1. Finish the inspector and share its element-selection layer with comments (R3, R7).
 2. Pinned comments with a structured payload: selector, rect, text, optional crop. One normal user message.
+   Replies come back per comment and render as threads at their pins, with a one-line digest in chat.
 3. Pointer/selection trail: record which element you were on and when, even before voice exists.
 4. Voice on a single comment (system dictation first, which already works; in-app capture when we need timestamps).
 5. Record mode: transcript plus the trail, handed to the model as one timeline with a ready-made "turn this into
@@ -151,6 +220,12 @@ Each step should be dogfooded by building Designer in Designer before the next b
   [security.md](security.md) before step 5.
 - **Untrusted text**: transcripts and text captured from pages are input to the model, the same class of risk as inspector
   reports carrying page text (see plan.md security gaps). Label them as captured content in the message.
+- **Logins in the pane (password manager)**: unverified on the owner's Mac. Findings so far: the browser's built-in
+  manager (Chrome, Dia) cannot be inherited by an embedded view; password-manager extensions in Electron are
+  uncertain and widen page access; Apple Passwords autofill and passkeys in an embedded view are unconfirmed for both
+  Electron and a native WKWebView. Baseline: sign in once in the pane (paste from the manager) with a persistent
+  session, never reading or copying credentials. Alternative worth a spike: run the feedback layer as an extension in
+  the owner's own browser so logins and the manager are already there. Decide after a spike.
 - **Anchor shape**: the three tiers above in one payload. Decide the shape once, in R7, with pixels as the baseline.
 - **Which canvases first**: pick two or three the owner actually uses (Paper is already in the workflow) and verify
   each loads in the webview, can be annotated at tier 1 or 2, and whether it offers tier 3. Everything else follows

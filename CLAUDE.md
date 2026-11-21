@@ -15,6 +15,11 @@ We are the glue that makes the user's intent, feedback and context travel betwee
 works for one canvas or one model belongs in an adapter, not the core loop.
 
 ## Rules
+- **Simpler is always better.** Simple rules, simple logic, simple UI; elegant, smooth, fast and intuitive through
+  simplicity, never a hacky or complex mess. A control earns permanent space in the core UI only if it is used
+  constantly; anything used occasionally (terminals, file tree, settings) lives behind a slash command or the command
+  palette, not an icon in every workspace. When a design needs a special case, a mode or an extra setting, first look for the
+  simpler design. Interface principles: `docs/vision.md` ("Interface principles").
 - **Scaffold, don't replace.** Designer is light scaffolding around the models' own abilities: the experience, UX and
   interactions we want, with the model doing the work. Do not build features that replace, wrap, second-guess or get in the
   way of what the model (or Claude Code) already does; the app should get better for free as models improve. Before building
