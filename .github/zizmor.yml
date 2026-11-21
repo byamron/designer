@@ -1,0 +1,5 @@
+rules:
+  self-repository:
+    # Suggests the newer `$/path` syntax for `uses: ./path`. The `./` form is what actions/checkout-based local composite
+    # actions have always used and what actionlint understands; revisit when `$/` is documented as stable.
+    disable: true

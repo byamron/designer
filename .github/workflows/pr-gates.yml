@@ -1,0 +1,86 @@
+name: PR gates
+
+# Mechanical checks on every pull request body and diff (docs/specs/ci.md). Not a replacement for review: they catch the
+# things a hurried author or an agent forgets. `pull_request`, never `pull_request_target`: nothing here gets secrets.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: pr-gates-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard-tests:
+    name: guard-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Unit tests for the CI guard scripts (fixtures, including deliberately failing ones)
+        run: node --test "scripts/ci/*.test.mjs"
+
+  safety-gate:
+    name: safety-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: trusted
+        uses: ./.github/actions/trusted-scripts
+        with:
+          base-sha: ${{ github.event.pull_request.base.sha }}
+      - name: Safety paths touched? Pinned security tests intact?
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          GUARDS: ${{ steps.trusted.outputs.dir }}
+        run: node "$GUARDS/safety-gate.mjs"
+
+  pr-body:
+    name: pr-body
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: trusted
+        uses: ./.github/actions/trusted-scripts
+        with:
+          base-sha: ${{ github.event.pull_request.base.sha }}
+      - name: Safety section and orchestrator block present and well formed
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          GUARDS: ${{ steps.trusted.outputs.dir }}
+        run: node "$GUARDS/pr-body-lint.mjs"

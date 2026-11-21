@@ -1,0 +1,44 @@
+name: macOS app smoke
+
+# Builds the real Designer.app on a macOS runner and runs the Electron suites against it. The owner's daily driver is
+# that app, and until now it was only tested by hand on one Mac. Free on GitHub-hosted runners for a public repository
+# (a private one would bill macOS minutes at 10x).
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: macos-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-app-smoke:
+    name: macos-app-smoke
+    runs-on: macos-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build Designer.app (npm run make-app)
+        run: npm run make-app -- --out "$RUNNER_TEMP/Designer.app"
+      - name: The bundle is signed and is a Designer shell app
+        run: |
+          codesign --verify --deep --strict "$RUNNER_TEMP/Designer.app"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$RUNNER_TEMP/Designer.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Designer.app/Contents/Info.plist"
+      - name: e2e/app.e2e.mjs (builds its own bundle, launches it, env, quit, moved checkout, Electron bump)
+        run: node e2e/app.e2e.mjs
+      - name: e2e/desktop.e2e.mjs (the shell from the checkout)
+        run: node e2e/desktop.e2e.mjs
