@@ -87,3 +87,26 @@ export function updateEnv(base, shellPath) {
   delete env.ANTHROPIC_AUTH_TOKEN;
   return env;
 }
+
+/**
+ * May this IPC message open the folder dialog? Only the app window's own page: the sender must be our window's webContents, the
+ * frame must be its MAIN frame (not an iframe: previews and dev instances live in iframes), and that frame must be on the app origin.
+ */
+export function isAppSender(event, { webContents, origin }) {
+  if (!event || !webContents || !origin) return false;
+  const { sender, senderFrame } = event;
+  return sender === webContents && !!senderFrame && senderFrame === webContents.mainFrame && sameOrigin(senderFrame.url, origin);
+}
+
+/** Where the folder dialog opens: ~/dev if there is one. */
+export function pickerStartDir(home, exists) {
+  if (!home) return undefined;
+  const dev = `${home}/dev`;
+  return exists(dev) ? dev : undefined;
+}
+
+/** The dialog's answer as the page may see it: one absolute path, or null (cancelled or anything unexpected). */
+export function pickedFolder(result) {
+  const p = result && !result.canceled && Array.isArray(result.filePaths) ? result.filePaths[0] : undefined;
+  return typeof p === 'string' && p.startsWith('/') ? p : null;
+}

@@ -62,7 +62,7 @@ export class Manager {
       case 'list_workspaces':
         return c.send({ type: 'workspaces', workspaces: this.workspaces });
       case 'add_folder':
-        return void this.guard(c, () => this.addFolder(msg.path));
+        return void this.guard(c, () => this.addFolder(msg.path, c));
       case 'create_worktree':
         return void this.guard(c, () => this.createWorktree(msg.fromWorkspaceId, msg.name));
       case 'remove_workspace':
@@ -94,17 +94,20 @@ export class Manager {
     }
   }
 
-  private async addFolder(path: string) {
+  private async addFolder(path: string, c: Client) {
     try {
       if (!statSync(path).isDirectory()) throw new Error();
     } catch {
       throw new Error(`Folder not found: ${path}`);
     }
-    const root = (await repoRoot(path)) ?? path; // inside a repo: use the repo root so worktrees work
+    const found = await repoRoot(path);
+    const root = found ?? path; // inside a repo: use the repo root so worktrees work
     const existing = this.workspaces.find((w) => w.path === root);
     const w = existing ?? this.folderWorkspace(root);
     this.broadcastAll({ type: 'workspace_updated', workspace: w });
     if (!this.store.listThreads().some((t) => t.workspaceId === w.id && !t.archived)) this.newThread(w);
+    // Added all the same (a plain folder is fine for chatting), but say plainly what it cannot do, whether it was typed or chosen.
+    if (!found) c.send({ type: 'notice', message: `${root} is not a git repository. It was added, but worktrees and branches need one (run git init there).` });
   }
 
   private async createWorktree(fromId: string, name: string) {

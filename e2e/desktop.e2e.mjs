@@ -21,8 +21,12 @@ writeFileSync(externalLog, '');
 const repo = mkdtempSync(join(tmpdir(), 'desk-repo-'));
 execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
 const dialogLog = join(tmpdir(), `dialogs-${process.pid}.log`);
+const picked = mkdtempSync(join(tmpdir(), 'desk-picked-')); // what the (test) folder dialog "chooses"
+execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: picked });
+const folderLog = join(tmpdir(), `folder-${process.pid}.log`);
+writeFileSync(folderLog, '');
 writeFileSync(dialogLog, '');
-const env = { ...process.env, ANTHROPIC_API_KEY: 'sk-test-must-not-reach-the-server', ANTHROPIC_AUTH_TOKEN: 'tok-test-must-not-reach-the-server', DESIGNER_NO_UPDATE_CHECK: '1', DESIGNER_TEST_DIALOG: 'OK', DESIGNER_TEST_DIALOG_LOG: dialogLog, PORT: '4800', DESIGNER_DATA: data, DESIGNER_USER_DATA: userData, DESIGNER_FAKE: '1', DESIGNER_CWD: repo, DESIGNER_TEST_EXTERNAL_LOG: externalLog };
+const env = { ...process.env, ANTHROPIC_API_KEY: 'sk-test-must-not-reach-the-server', ANTHROPIC_AUTH_TOKEN: 'tok-test-must-not-reach-the-server', DESIGNER_NO_UPDATE_CHECK: '1', DESIGNER_TEST_DIALOG: 'OK', DESIGNER_TEST_DIALOG_LOG: dialogLog, PORT: '4800', DESIGNER_DATA: data, DESIGNER_USER_DATA: userData, DESIGNER_FAKE: '1', DESIGNER_CWD: repo, DESIGNER_TEST_EXTERNAL_LOG: externalLog, DESIGNER_TEST_FOLDER: picked, DESIGNER_TEST_FOLDER_LOG: folderLog };
 const launch = () => _electron.launch({ executablePath: electronBin, args: ['--no-sandbox', join(root, 'packages', 'desktop')], env, timeout: 90000 });
 
 let app = await launch();
@@ -103,6 +107,44 @@ try {
   assert.notEqual(code, 'timeout', 'the second instance exits by itself');
   assert.equal(Number(readFileSync(join(data, 'desktop-server.pid'), 'utf8')), pid2, 'and did not start another server');
   log('a second launch exits and leaves the running app alone');
+
+  // folder picker: one function in the app page, answering only the app's own page
+  const bridge = await page.evaluate(() => ({ keys: Object.keys(window.designerDesktop ?? {}), frozen: Object.isFrozen(window.designerDesktop), ipc: typeof window.ipcRenderer, electron: typeof window.electron }));
+  assert.deepEqual(bridge, { keys: ['chooseFolder'], frozen: true, ipc: 'undefined', electron: 'undefined' }, 'exactly one function is exposed to the page');
+  assert.equal(await page.evaluate(() => window.designerDesktop.chooseFolder('/etc', { evil: 1 })), picked, 'the app page gets the chosen folder (here: the test answer), whatever it passes');
+  const asked = () => readFileSync(folderLog, 'utf8').trim().split('\n').filter(Boolean).length;
+  assert.equal(asked(), 1);
+  // the button: fills the form, focuses Add, and Enter adds it (the server validates it like a typed path)
+  await page.getByRole('button', { name: 'Add folder' }).click();
+  await page.getByRole('button', { name: 'Choose folder…' }).click();
+  await page.waitForFunction((v) => document.querySelector('.newform input')?.value === v, picked, { timeout: 5000 });
+  await page.waitForFunction(() => document.activeElement?.textContent === 'Add', null, { timeout: 5000 });
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: new RegExp(`New worktree in ${picked.split('/').pop()}`) }).waitFor({ timeout: 10000 }).catch(async () => { await page.getByText(picked.split('/').pop()).first().waitFor({ timeout: 10000 }); });
+  log('Choose folder… fills the form from the native dialog (here answered by the test hook), focuses Add, and Add opens it');
+  // the iCloud warning shows for a typed path too
+  await page.getByRole('button', { name: 'Add folder' }).click();
+  await page.locator('.newform input').fill('/Users/someone/Desktop/coding/designer');
+  await page.getByText('iCloud may evict files in this folder and git will hang; use a folder under ~/dev').waitFor({ timeout: 5000 });
+  await page.keyboard.press('Escape');
+  log('a path under Desktop/Documents shows the one-line iCloud warning');
+  // another window (even with the same preload) and a frame inside the app window cannot reach the dialog
+  const before = asked();
+  const other = await app.evaluate(async ({ app, BrowserWindow }) => {
+    const w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true, preload: `${app.getAppPath()}/preload.cjs` } });
+    await w.loadURL('data:text/html,<p>other</p>');
+    const r = await w.webContents.executeJavaScript('window.designerDesktop.chooseFolder()');
+    w.destroy();
+    return r;
+  });
+  assert.equal(other, null, 'a different window is refused');
+  await page.evaluate((src) => { const f = document.createElement('iframe'); f.id = 'probe'; f.src = src; document.body.append(f); }, `http://localhost:${Number(u.port) + 1}/`);
+  const frame = await (async () => { for (let i = 0; i < 50; i++) { const f = page.frames().find((x) => x.url().startsWith(`http://localhost:${Number(u.port) + 1}`)); if (f) return f; await sleep(100); } })();
+  assert.ok(frame, 'the probe frame loaded');
+  assert.equal(await frame.evaluate(() => typeof window.designerDesktop), 'undefined', 'iframes (previews, dev instances) have no bridge at all');
+  await page.evaluate(() => document.getElementById('probe')?.remove());
+  assert.equal(asked(), before, 'no dialog was asked for by anyone but the app page');
+  log('other windows are refused and iframes (previews, dev instances) get no bridge');
 
   // locked down (last of the page checks: a cancelled navigation leaves Playwright waiting for a navigation that never commits): the window only shows the app; other links go to the OS browser (recorded here instead of opened)
   await page.evaluate(() => { location.href = 'https://example.com/nav'; });

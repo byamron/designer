@@ -1,0 +1,4 @@
+/* "Choose folder…" in the add-folder form (Designer.app only) and the warning about iCloud-synced paths. Tokens only. */
+.newform .form-actions { display: flex; gap: 6px; }
+.newform .form-actions button { flex: 1; }
+.path-warning { margin: 0; font-size: 12px; line-height: 1.4; color: var(--bad); }

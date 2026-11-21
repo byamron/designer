@@ -203,3 +203,72 @@ test('updater env: login-shell PATH is added and Anthropic credentials never rea
   assert.equal(env.HOME, '/h');
   assert.equal(lib.updateEnv({ PATH: '/usr/bin' }, undefined).PATH, '/usr/bin');
 });
+
+// ---------- folder picker bridge: one validated IPC channel, for the app's own page only ----------
+import { createRequire } from 'node:module';
+import { readFileSync as readFile } from 'node:fs';
+
+/** Fake webContents/frames: the handler only compares identities and reads `url`. */
+const wc = (id: string, mainFrame: any) => ({ id, mainFrame });
+function senderCase() {
+  const origin = 'http://localhost:4317';
+  const mainFrame = { url: `${origin}/` };
+  const webContents = wc('app', mainFrame);
+  return { origin, mainFrame, webContents, ok: { sender: webContents, senderFrame: mainFrame } };
+}
+
+test('folder picker: only the app window\'s own page may open the dialog', () => {
+  const c = senderCase();
+  assert.equal(lib.isAppSender(c.ok, { webContents: c.webContents, origin: c.origin }), true);
+  const reject = (event: any, why: string) => assert.equal(lib.isAppSender(event, { webContents: c.webContents, origin: c.origin }), false, why);
+  const otherWc = wc('other', { url: `${c.origin}/` });
+  reject({ sender: otherWc, senderFrame: otherWc.mainFrame }, 'another window, even on the app origin');
+  reject({ sender: c.webContents, senderFrame: { url: 'http://localhost:4318/' } }, 'a preview or dev instance frame (another port is another origin)');
+  reject({ sender: c.webContents, senderFrame: { url: 'http://127.0.0.1:4317/' } }, 'same server through another host name');
+  reject({ sender: c.webContents, senderFrame: { url: `${c.origin}/` } }, 'a subframe of the app window: not the main frame, even with the app origin');
+  reject({ sender: c.webContents, senderFrame: { url: 'https://example.com/' } }, 'a foreign page');
+  reject({ sender: c.webContents, senderFrame: { url: 'data:text/html,hi' } }, 'a data: page (the error page)');
+  reject({ sender: c.webContents, senderFrame: null }, 'a frame that is gone');
+  reject({ sender: c.webContents }, 'no frame at all');
+  reject({ sender: undefined, senderFrame: c.mainFrame }, 'no sender');
+  reject({}, 'an empty event');
+  reject(null, 'no event');
+  assert.equal(lib.isAppSender(c.ok, { webContents: undefined, origin: c.origin }), false, 'no window yet');
+  assert.equal(lib.isAppSender(c.ok, { webContents: c.webContents, origin: undefined }), false, 'no origin yet');
+});
+
+test('folder picker: the dialog starts in ~/dev when it exists, and only a real absolute directory path is returned', () => {
+  assert.equal(lib.pickerStartDir('/Users/me', (p: string) => p === '/Users/me/dev'), '/Users/me/dev');
+  assert.equal(lib.pickerStartDir('/Users/me', () => false), undefined);
+  assert.equal(lib.pickerStartDir('', () => true), undefined);
+  assert.equal(lib.pickedFolder({ canceled: true, filePaths: ['/a'] }), null);
+  assert.equal(lib.pickedFolder({ canceled: false, filePaths: [] }), null);
+  assert.equal(lib.pickedFolder({ canceled: false, filePaths: ['/Users/me/dev/designer'] }), '/Users/me/dev/designer');
+  for (const bad of [undefined, null, {}, { canceled: false }, { canceled: false, filePaths: [''] }, { canceled: false, filePaths: ['rel/path'] }, { canceled: false, filePaths: [42] }]) assert.equal(lib.pickedFolder(bad), null, JSON.stringify(bad));
+});
+
+test('folder picker: the preload exposes exactly one function that sends exactly one message and no page-supplied arguments', () => {
+  const src = readFile(join(fileURLToPath(new URL('../../desktop/', import.meta.url)), 'preload.cjs'), 'utf8');
+  const exposed: Record<string, any> = {};
+  const invoked: unknown[][] = [];
+  const fakeElectron = {
+    contextBridge: { exposeInMainWorld: (name: string, api: unknown) => void (exposed[name] = api) },
+    ipcRenderer: { invoke: (...a: unknown[]) => (invoked.push(a), Promise.resolve('/x')), send: () => { throw new Error('no send'); }, on: () => { throw new Error('no listeners'); } },
+  };
+  new Function('require', src)((m: string) => { if (m !== 'electron') throw new Error(`the preload may only require electron, not ${m}`); return fakeElectron; });
+  assert.deepEqual(Object.keys(exposed), ['designerDesktop'], 'one global');
+  assert.deepEqual(Object.keys(exposed.designerDesktop), ['chooseFolder'], 'one function');
+  assert.ok(Object.isFrozen(exposed.designerDesktop));
+  exposed.designerDesktop.chooseFolder('/etc', { evil: true });
+  assert.deepEqual(invoked, [['designer:choose-folder']], 'the channel name only: whatever the page passes is dropped');
+});
+
+test('folder picker: the shell wires the preload with the lockdown intact, and registers the handler behind the sender check', () => {
+  const main = readFile(join(fileURLToPath(new URL('../../desktop/', import.meta.url)), 'main.mjs'), 'utf8');
+  for (const must of ['contextIsolation: true', 'sandbox: true', 'nodeIntegration: false', 'webviewTag: false', "preload: join(here, 'preload.cjs')"]) assert.ok(main.includes(must), must);
+  assert.ok(!/nodeIntegrationInSubFrames/.test(main), 'the bridge must not be injected into subframes (previews, dev instances)');
+  assert.match(main, /ipcMain\.handle\('designer:choose-folder', async \(event\) => \{\s*if \(!isAppSender\(event, \{ webContents: win\?\.webContents, origin \}\)\) return null;/);
+  assert.equal((main.match(/ipcMain\.handle\(/g) ?? []).length, 1, 'one channel, nothing else is handled');
+  assert.ok(!/ipcMain\.on\(/.test(main));
+  void createRequire;
+});
