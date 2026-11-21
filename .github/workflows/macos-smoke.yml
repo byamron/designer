@@ -40,5 +40,10 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Designer.app/Contents/Info.plist"
       - name: e2e/app.e2e.mjs (builds its own bundle, launches it, env, quit, moved checkout, Electron bump)
         run: node e2e/app.e2e.mjs
+      - name: Hide the Dock (the runner's display is 1024x768; with the Dock the work area is 677 high and macOS clamps the 1000x700 window the suite asks for)
+        run: |
+          defaults write com.apple.dock autohide -bool true
+          killall Dock
+          sleep 3
       - name: e2e/desktop.e2e.mjs (the shell from the checkout)
         run: node e2e/desktop.e2e.mjs
