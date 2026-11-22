@@ -150,7 +150,7 @@ export class Manager {
 
   private newThread(w: Workspace) {
     const now = Date.now();
-    const meta: ThreadMeta = { id: randomUUID(), workspaceId: w.id, title: 'New chat', cwd: w.path, provider: 'claude', status: 'idle', createdAt: now, updatedAt: now };
+    const meta: ThreadMeta = { id: randomUUID(), workspaceId: w.id, title: 'New chat', cwd: w.path, provider: 'claude', status: 'idle', permissionMode: 'auto', createdAt: now, updatedAt: now };
     this.store.writeMeta(meta);
     this.broadcastAll({ type: 'thread_updated', thread: meta });
   }
@@ -207,6 +207,7 @@ export class Manager {
     if (s) return s;
     const meta = this.store.readMeta(threadId)!;
     s = this.adapter.start(
+      // 'default' here is deliberate for chats saved before new chats started in 'auto'; never loosen those silently.
       { cwd: meta.cwd, resumeId: meta.nativeSessionId, permissionMode: this.modes.get(threadId) ?? meta.permissionMode ?? 'default' },
       {
         emit: (ev) => this.emit(threadId, ev),
